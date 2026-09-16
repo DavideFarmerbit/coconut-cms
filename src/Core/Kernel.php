@@ -17,13 +17,13 @@ final class Kernel
         $this->container = new Container();
     }
 
-    public function bind(string $name, callable $factory): void
+    public function bind(Identifier $id, callable $factory): void
     {
-        $this->container->bind($name, $factory);
+        $this->container->bind($id, $factory);
     }
 
-    public function get(string $name): object
+    public function get(Identifier $id): object
     {
-        return $this->container->get($name);
+        return $this->container->get($id);
     }
 }

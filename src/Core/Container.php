@@ -5,7 +5,8 @@ namespace XyloIsCoding\CoconutCms\Core;
 use RuntimeException;
 
 /**
- * A service registry keyed by a stable string name.
+ * A service registry keyed by Identifier (namespace + key), so unrelated
+ * bindings can't collide just by happening to pick the same key.
  */
 final class Container
 {
@@ -15,25 +16,29 @@ final class Container
     /** @var array<string, callable(): object> */
     private array $factories = [];
 
-    public function bind(string $name, callable $factory): void
+    public function bind(Identifier $id, callable $factory): void
     {
-        if (isset($this->factories[$name])) {
-            throw new RuntimeException("Service \"{$name}\" is already bound.");
+        $key = (string) $id;
+
+        if (isset($this->factories[$key])) {
+            throw new RuntimeException("Service \"{$key}\" is already bound.");
         }
 
-        $this->factories[$name] = $factory;
+        $this->factories[$key] = $factory;
     }
 
-    public function get(string $name): object
+    public function get(Identifier $id): object
     {
-        if (!isset($this->instances[$name])) {
-            if (!isset($this->factories[$name])) {
-                throw new RuntimeException("Unknown service \"{$name}\": nothing was bound to it in this container.");
+        $key = (string) $id;
+
+        if (!isset($this->instances[$key])) {
+            if (!isset($this->factories[$key])) {
+                throw new RuntimeException("Unknown service \"{$key}\": nothing was bound to it in this container.");
             }
 
-            $this->instances[$name] = ($this->factories[$name])();
+            $this->instances[$key] = ($this->factories[$key])();
         }
 
-        return $this->instances[$name];
+        return $this->instances[$key];
     }
 }
