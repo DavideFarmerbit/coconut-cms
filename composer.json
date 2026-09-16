@@ -2,7 +2,7 @@
     "name": "xylo-is-coding/coconut-cms",
     "description": "A standalone moddable cms",
     "type": "library",
-    "license": "MIT",
+    "license": "proprietary",
     "autoload": {
         "psr-4": {
             "XyloIsCoding\\CoconutCms\\": "src/"
@@ -15,5 +15,7 @@
         }
     ],
     "minimum-stability": "dev",
-    "require": {}
+    "require": {
+        "php": ">=8.4"
+    }
 }
