@@ -1,0 +1,19 @@
+{
+    "name": "xylo-is-coding/coconut-cms",
+    "description": "A standalone moddable cms",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "XyloIsCoding\\CoconutCms\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "XyloIsCoding",
+            "email": "xylo.is.coding@gmail.com"
+        }
+    ],
+    "minimum-stability": "dev",
+    "require": {}
+}
