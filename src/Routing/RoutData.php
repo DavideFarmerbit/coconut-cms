@@ -39,27 +39,16 @@ abstract readonly class RoutData
     // RoutData Interface
     
     /**
+     * A RoutData subclass doesn't have to consume every pattern segment (same as a plain closure
+     * route can ignore captures it doesn't declare a param for) — it only needs a constructor
+     * parameter for the segments it actually wants. What it can't do is require a parameter
+     * the pattern will never supply.
+     *
      * @param string[] $paramNames
      */
     final public static function assertSatisfiedByCaptureNames(array $paramNames): void
     {
-        $parameters = self::constructorParameters();
-
-        $parameterNames = array_map(
-            static fn (ReflectionParameter $parameter): string => $parameter->getName(),
-            $parameters,
-        );
-
-        $unknown = array_diff($paramNames, $parameterNames);
-        if ($unknown !== []) {
-            throw new LogicException(sprintf(
-                '%s has no constructor parameter(s) for route capture(s): %s.',
-                static::class,
-                implode(', ', $unknown),
-            ));
-        }
-
-        foreach ($parameters as $parameter) {
+        foreach (self::constructorParameters() as $parameter) {
             if ($parameter->isOptional() || in_array($parameter->getName(), $paramNames, true)) {
                 continue;
             }
