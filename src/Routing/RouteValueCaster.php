@@ -38,7 +38,7 @@ final class RouteValueCaster
         }
 
         return match ($typeName) {
-            'string' => $value,
+            'string', 'mixed' => $value,
             'int' => self::toInt($value, $parameter),
             'float' => self::toFloat($value, $parameter),
             'bool' => self::toBool($value, $parameter),
