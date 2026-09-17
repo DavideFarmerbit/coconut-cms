@@ -4,7 +4,7 @@ namespace XyloIsCoding\CoconutCms\Routing;
 
 use ReflectionClass;
 
-abstract readonly class RoutData
+abstract readonly class RouteData
 {
     /**
      * @param array<string, string> $captures

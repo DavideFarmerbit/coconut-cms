@@ -110,7 +110,7 @@ final class RouteArguments
                 $merged[$name] = $parameter;
             } elseif ($signature($existing) !== $signature($parameter)) {
                 throw new LogicException(sprintf(
-                    'Rout closures disagree on parameter "%s": "%s" vs "%s".',
+                    'Route closures disagree on parameter "%s": "%s" vs "%s".',
                     $name,
                     $signature($existing),
                     $signature($parameter),

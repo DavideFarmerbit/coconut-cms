@@ -4,8 +4,8 @@ namespace XyloIsCoding\CoconutCms\Routing;
 
 final class Router
 {
-    /** @var Rout[] */
-    private array $routs = [];
+    /** @var Route[] */
+    private array $routes = [];
 
     public function __construct(
         private readonly RouteValueCaster $caster = new DefaultRouteValueCaster(),
@@ -15,13 +15,13 @@ final class Router
     /*================================================================================================================*/
     // Router Interface
 
-    public function register(Rout $rout): void {
-        $this->routs[] = $rout;
+    public function register(Route $route): void {
+        $this->routes[] = $route;
     }
 
     public function dispatch(Request $request): bool {
-        foreach ($this->routs as $rout) {
-            if ($rout->handle($request, $this->caster)) {
+        foreach ($this->routes as $route) {
+            if ($route->handle($request, $this->caster)) {
                 return true;
             }
         }

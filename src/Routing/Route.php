@@ -7,7 +7,7 @@ use InvalidArgumentException;
 use ReflectionClass;
 use ReflectionParameter;
 
-final readonly class Rout
+final readonly class Route
 {
     private RoutePattern $pattern;
     private Closure $rule;
@@ -24,7 +24,7 @@ final readonly class Rout
     private array $handlerParamNames;
 
     /**
-     * @template T of RoutData
+     * @template T of RouteData
      * @param Closure(Request, T|mixed...): bool $rule
      * @param Closure(Request, T|mixed...): void $handler
      * @param class-string<T>|null $dataClass
@@ -38,12 +38,12 @@ final readonly class Rout
         $this->rule = $rule;
         $this->handler = $handler;
         $this->dataClass = $dataClass;
-        
-        if ($this->dataClass !== null && !is_subclass_of($this->dataClass, RoutData::class)) {
+
+        if ($this->dataClass !== null && !is_subclass_of($this->dataClass, RouteData::class)) {
             throw new InvalidArgumentException(sprintf(
                 '%s must extend %s.',
                 $this->dataClass,
-                RoutData::class,
+                RouteData::class,
             ));
         }
 
@@ -56,16 +56,16 @@ final readonly class Rout
         $this->ruleParamNames = $this->dataClass === null ? RouteArguments::namesOfClosure($this->rule) : [];
         $this->handlerParamNames = $this->dataClass === null ? RouteArguments::namesOfClosure($this->handler) : [];
 
-        RouteArguments::assertSatisfiedByNames($this->params, $this->pattern->paramNames(), $this->dataClass ?? 'Rout closures');
+        RouteArguments::assertSatisfiedByNames($this->params, $this->pattern->paramNames(), $this->dataClass ?? 'Route closures');
     }
 
     /**
-     * @template T of RoutData
+     * @template T of RouteData
      * @param string $pattern
      * @param class-string<T> $dataClass
      * @param Closure(Request, T): bool $rule
      * @param Closure(Request, T): void $handler
-     * @return Rout
+     * @return Route
      */
     public static function structured(string $pattern, string $dataClass, Closure $rule, Closure $handler): self {
         return new self($pattern, $rule, $handler, $dataClass);
@@ -76,14 +76,14 @@ final readonly class Rout
      * @param string $pattern
      * @param Closure(Request, mixed...): bool $rule
      * @param Closure(Request, mixed...): void $handler
-     * @return Rout
+     * @return Route
      */
     public static function simple(string $pattern, Closure $rule, Closure $handler): self {
         return new self($pattern, $rule, $handler);
     }
 
     /*================================================================================================================*/
-    // Rout Interface
+    // Route Interface
 
     public function pattern(): string {
         return $this->pattern->pattern();
@@ -95,7 +95,7 @@ final readonly class Rout
             return false;
         }
 
-        $args = RouteArguments::build($this->params, $captures, $caster, $this->dataClass ?? 'Rout closures');
+        $args = RouteArguments::build($this->params, $captures, $caster, $this->dataClass ?? 'Route closures');
 
         if ($this->dataClass !== null) {
             $data = (new ReflectionClass($this->dataClass))->newInstanceArgs($args);
@@ -116,6 +116,6 @@ final readonly class Rout
         return true;
     }
 
-    // ~Rout Interface
+    // ~Route Interface
     /*================================================================================================================*/
 }
