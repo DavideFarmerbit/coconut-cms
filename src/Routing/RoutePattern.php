@@ -5,7 +5,7 @@ namespace XyloIsCoding\CoconutCms\Routing;
 final readonly class RoutePattern
 {
     private string $pattern;
-    
+
     private string $regex;
 
     /** @var string[] */
@@ -20,7 +20,7 @@ final readonly class RoutePattern
 
     /*================================================================================================================*/
     // RoutePattern Interface
-    
+
     public function pattern(): string
     {
         return $this->pattern;
@@ -53,6 +53,10 @@ final readonly class RoutePattern
     /*================================================================================================================*/
 
     /**
+     * A placeholder is `{name}` (matches any non-slash segment) or `{name:regex}` (matches only
+     * what the given regex fragment accepts). The fragment is allowed one level of nested braces
+     * so quantifiers like `\d{1,3}` and escapes like `\p{L}` parse correctly.
+     *
      * @return array{0: string, 1: string[]}
      */
     private static function compile(string $pattern): array
@@ -60,10 +64,14 @@ final readonly class RoutePattern
         $paramNames = [];
 
         $regex = preg_replace_callback(
-            '/\{(\w+)\}/',
+            '/\{(\w+)(?::((?:[^{}]|\{[^{}]*\})*))?\}/',
             static function (array $matches) use (&$paramNames): string {
-                $paramNames[] = $matches[1];
-                return sprintf('(?P<%s>[^/]+)', $matches[1]);
+                $name = $matches[1];
+                $constraint = $matches[2] ?? '';
+
+                $paramNames[] = $name;
+
+                return sprintf('(?P<%s>%s)', $name, $constraint !== '' ? $constraint : '[^/]+');
             },
             $pattern,
         );
