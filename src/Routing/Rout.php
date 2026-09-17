@@ -4,11 +4,24 @@ namespace XyloIsCoding\CoconutCms\Routing;
 
 use Closure;
 use InvalidArgumentException;
-use ReflectionFunction;
+use ReflectionClass;
+use ReflectionParameter;
 
 final readonly class Rout
 {
     private RoutePattern $pattern;
+    private Closure $rule;
+    private Closure $handler;
+    private ?string $dataClass;
+
+    /** @var ReflectionParameter[] */
+    private array $params;
+
+    /** @var array<string, true> */
+    private array $ruleParamNames;
+
+    /** @var array<string, true> */
+    private array $handlerParamNames;
 
     /**
      * @template T of RoutData
@@ -18,10 +31,14 @@ final readonly class Rout
      */
     private function __construct(
         string $pattern,
-        private Closure $rule,
-        private Closure $handler,
-        private ?string $dataClass = null,
+        Closure $rule,
+        Closure $handler,
+        ?string $dataClass = null,
     ) {
+        $this->rule = $rule;
+        $this->handler = $handler;
+        $this->dataClass = $dataClass;
+        
         if ($this->dataClass !== null && !is_subclass_of($this->dataClass, RoutData::class)) {
             throw new InvalidArgumentException(sprintf(
                 '%s must extend %s.',
@@ -32,9 +49,14 @@ final readonly class Rout
 
         $this->pattern = new RoutePattern($pattern);
 
-        if ($this->dataClass !== null) {
-            ($this->dataClass)::assertSatisfiedByCaptureNames($this->pattern->paramNames());
-        }
+        $this->params = $this->dataClass !== null
+            ? RouteArguments::ofClass($this->dataClass)
+            : RouteArguments::merge($this->rule, $this->handler);
+
+        $this->ruleParamNames = $this->dataClass === null ? RouteArguments::namesOfClosure($this->rule) : [];
+        $this->handlerParamNames = $this->dataClass === null ? RouteArguments::namesOfClosure($this->handler) : [];
+
+        RouteArguments::assertSatisfiedByNames($this->params, $this->pattern->paramNames(), $this->dataClass ?? 'Rout closures');
     }
 
     /**
@@ -73,8 +95,10 @@ final readonly class Rout
             return false;
         }
 
+        $args = RouteArguments::build($this->params, $captures, $caster, $this->dataClass ?? 'Rout closures');
+
         if ($this->dataClass !== null) {
-            $data = ($this->dataClass)::fromCaptures($captures, $caster);
+            $data = (new ReflectionClass($this->dataClass))->newInstanceArgs($args);
 
             if (!($this->rule)($request, $data)) {
                 return false;
@@ -84,34 +108,14 @@ final readonly class Rout
             return true;
         }
 
-        if (!($this->rule)($request, ...self::castArgs($this->rule, $captures, $caster))) {
+        if (!($this->rule)($request, ...array_intersect_key($args, $this->ruleParamNames))) {
             return false;
         }
 
-        ($this->handler)($request, ...self::castArgs($this->handler, $captures, $caster));
+        ($this->handler)($request, ...array_intersect_key($args, $this->handlerParamNames));
         return true;
     }
 
     // ~Rout Interface
     /*================================================================================================================*/
-
-    /**
-     * @param array<string, string> $captures
-     * @return array<int|string, mixed>
-     */
-    private static function castArgs(Closure $closure, array $captures, RouteValueCaster $caster): array
-    {
-        $args = [];
-
-        $parameters = (new ReflectionFunction($closure))->getParameters();
-        foreach (array_slice($parameters, 1) as $parameter) {
-            $name = $parameter->getName();
-
-            if (array_key_exists($name, $captures)) {
-                $args[$name] = $caster->cast($captures[$name], $parameter);
-            }
-        }
-
-        return $args;
-    }
 }
