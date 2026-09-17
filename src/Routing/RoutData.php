@@ -4,15 +4,10 @@ namespace XyloIsCoding\CoconutCms\Routing;
 
 use LogicException;
 use ReflectionClass;
-use ReflectionEnum;
-use ReflectionNamedType;
 use ReflectionParameter;
 
 abstract readonly class RoutData
 {
-    /*================================================================================================================*/
-    // RoutData Interface
-    
     /**
      * @param array<string, string> $captures
      */
@@ -34,11 +29,14 @@ abstract readonly class RoutData
                 ));
             }
 
-            $arguments[$name] = self::castValue($captures[$name], $parameter);
+            $arguments[$name] = RouteValueCaster::cast($captures[$name], $parameter);
         }
 
         return (new ReflectionClass(static::class))->newInstanceArgs($arguments);
     }
+    
+    /*================================================================================================================*/
+    // RoutData Interface
     
     /**
      * @param string[] $paramNames
@@ -85,27 +83,4 @@ abstract readonly class RoutData
         return (new ReflectionClass(static::class))->getConstructor()?->getParameters() ?? [];
     }
 
-    private static function castValue(string $value, ReflectionParameter $parameter): mixed
-    {
-        $type = $parameter->getType();
-
-        if (!$type instanceof ReflectionNamedType) {
-            return $value;
-        }
-
-        $typeName = $type->getName();
-
-        if (enum_exists($typeName)) {
-            /** @var class-string<\BackedEnum> $typeName */
-            $backingType = (new ReflectionEnum($typeName))->getBackingType()?->getName();
-            return $typeName::from($backingType === 'int' ? (int) $value : $value);
-        }
-
-        return match ($typeName) {
-            'int' => (int) $value,
-            'float' => (float) $value,
-            'bool' => !in_array($value, ['0', '', 'false'], true),
-            default => $value,
-        };
-    }
 }

@@ -4,7 +4,7 @@ namespace XyloIsCoding\CoconutCms\Routing;
 
 final readonly class Request
 {
-    public function __construct(
+    private function __construct(
         private RequestMethod $method,
         private string $url,
         private array $urlParams,
@@ -13,9 +13,6 @@ final readonly class Request
         
     }
 
-    /*================================================================================================================*/
-    // Request Interface
-
     public static function fromGlobals(): self {
         return new self(
             RequestMethod::from($_SERVER['REQUEST_METHOD'] ?? 'GET'),
@@ -23,6 +20,9 @@ final readonly class Request
             $_GET,
         );
     }
+
+    /*================================================================================================================*/
+    // Request Interface
 
     public function method(): RequestMethod {
         return $this->method;

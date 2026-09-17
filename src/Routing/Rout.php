@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Routing;
 
 use Closure;
 use InvalidArgumentException;
+use ReflectionFunction;
 
 final readonly class Rout
 {
@@ -11,17 +12,17 @@ final readonly class Rout
 
     /**
      * @template T of RoutData
-     * @param class-string<T> $dataClass
-     * @param Closure(T, Request): bool $rule
-     * @param Closure(T, Request): void $handler
+     * @param Closure(Request, T|mixed...): bool $rule
+     * @param Closure(Request, T|mixed...): void $handler
+     * @param class-string<T>|null $dataClass
      */
-    public function __construct(
+    private function __construct(
         string $pattern,
-        private string $dataClass,
         private Closure $rule,
         private Closure $handler,
+        private ?string $dataClass = null,
     ) {
-        if (!is_subclass_of($this->dataClass, RoutData::class)) {
+        if ($this->dataClass !== null && !is_subclass_of($this->dataClass, RoutData::class)) {
             throw new InvalidArgumentException(sprintf(
                 '%s must extend %s.',
                 $this->dataClass,
@@ -30,7 +31,33 @@ final readonly class Rout
         }
 
         $this->pattern = new RoutePattern($pattern);
-        ($this->dataClass)::assertSatisfiedByCaptureNames($this->pattern->paramNames());
+
+        if ($this->dataClass !== null) {
+            ($this->dataClass)::assertSatisfiedByCaptureNames($this->pattern->paramNames());
+        }
+    }
+
+    /**
+     * @template T of RoutData
+     * @param string $pattern
+     * @param class-string<T> $dataClass
+     * @param Closure(Request, T): bool $rule
+     * @param Closure(Request, T): void $handler
+     * @return Rout
+     */
+    public static function structured(string $pattern, string $dataClass, Closure $rule, Closure $handler): self {
+        return new self($pattern, $rule, $handler, $dataClass);
+    }
+
+    /**
+     * Raw string captures from the pattern are cast against each closure's own parameter types and unpacked as named args
+     * @param string $pattern
+     * @param Closure(Request, mixed...): bool $rule
+     * @param Closure(Request, mixed...): void $handler
+     * @return Rout
+     */
+    public static function simple(string $pattern, Closure $rule, Closure $handler): self {
+        return new self($pattern, $rule, $handler);
     }
 
     /*================================================================================================================*/
@@ -46,16 +73,45 @@ final readonly class Rout
             return false;
         }
 
-        $data = ($this->dataClass)::fromCaptures($captures);
+        if ($this->dataClass !== null) {
+            $data = ($this->dataClass)::fromCaptures($captures);
 
-        if (!($this->rule)($data, $request)) {
+            if (!($this->rule)($request, $data)) {
+                return false;
+            }
+
+            ($this->handler)($request, $data);
+            return true;
+        }
+
+        if (!($this->rule)($request, ...self::castArgs($this->rule, $captures))) {
             return false;
         }
 
-        ($this->handler)($data, $request);
+        ($this->handler)($request, ...self::castArgs($this->handler, $captures));
         return true;
     }
 
     // ~Rout Interface
     /*================================================================================================================*/
+
+    /**
+     * @param array<string, string> $captures
+     * @return array<int|string, mixed>
+     */
+    private static function castArgs(Closure $closure, array $captures): array
+    {
+        $args = [];
+
+        $parameters = (new ReflectionFunction($closure))->getParameters();
+        foreach (array_slice($parameters, 1) as $parameter) {
+            $name = $parameter->getName();
+
+            if (array_key_exists($name, $captures)) {
+                $args[$name] = RouteValueCaster::cast($captures[$name], $parameter);
+            }
+        }
+
+        return $args;
+    }
 }
