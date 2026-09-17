@@ -67,14 +67,14 @@ final readonly class Rout
         return $this->pattern->pattern();
     }
 
-    public function handle(Request $request): bool {
+    public function handle(Request $request, RouteValueCaster $caster): bool {
         $captures = $this->pattern->match($request->url());
         if ($captures === null) {
             return false;
         }
 
         if ($this->dataClass !== null) {
-            $data = ($this->dataClass)::fromCaptures($captures);
+            $data = ($this->dataClass)::fromCaptures($captures, $caster);
 
             if (!($this->rule)($request, $data)) {
                 return false;
@@ -84,11 +84,11 @@ final readonly class Rout
             return true;
         }
 
-        if (!($this->rule)($request, ...self::castArgs($this->rule, $captures))) {
+        if (!($this->rule)($request, ...self::castArgs($this->rule, $captures, $caster))) {
             return false;
         }
 
-        ($this->handler)($request, ...self::castArgs($this->handler, $captures));
+        ($this->handler)($request, ...self::castArgs($this->handler, $captures, $caster));
         return true;
     }
 
@@ -99,7 +99,7 @@ final readonly class Rout
      * @param array<string, string> $captures
      * @return array<int|string, mixed>
      */
-    private static function castArgs(Closure $closure, array $captures): array
+    private static function castArgs(Closure $closure, array $captures, RouteValueCaster $caster): array
     {
         $args = [];
 
@@ -108,7 +108,7 @@ final readonly class Rout
             $name = $parameter->getName();
 
             if (array_key_exists($name, $captures)) {
-                $args[$name] = RouteValueCaster::cast($captures[$name], $parameter);
+                $args[$name] = $caster->cast($captures[$name], $parameter);
             }
         }
 

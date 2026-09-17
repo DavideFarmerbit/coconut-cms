@@ -7,6 +7,11 @@ final class Router
     /** @var Rout[] */
     private array $routs = [];
 
+    public function __construct(
+        private readonly RouteValueCaster $caster = new DefaultRouteValueCaster(),
+    ) {
+    }
+
     /*================================================================================================================*/
     // Router Interface
 
@@ -16,7 +21,7 @@ final class Router
 
     public function dispatch(Request $request): bool {
         foreach ($this->routs as $rout) {
-            if ($rout->handle($request)) {
+            if ($rout->handle($request, $this->caster)) {
                 return true;
             }
         }

@@ -11,7 +11,7 @@ abstract readonly class RoutData
     /**
      * @param array<string, string> $captures
      */
-    final public static function fromCaptures(array $captures): static
+    final public static function fromCaptures(array $captures, RouteValueCaster $caster = new DefaultRouteValueCaster()): static
     {
         $arguments = [];
         foreach (self::constructorParameters() as $parameter) {
@@ -29,7 +29,7 @@ abstract readonly class RoutData
                 ));
             }
 
-            $arguments[$name] = RouteValueCaster::cast($captures[$name], $parameter);
+            $arguments[$name] = $caster->cast($captures[$name], $parameter);
         }
 
         return (new ReflectionClass(static::class))->newInstanceArgs($arguments);
