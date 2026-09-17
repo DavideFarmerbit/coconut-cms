@@ -17,6 +17,9 @@ final class Kernel
         $this->container = new Container();
     }
 
+    /*================================================================================================================*/
+    // Interface
+
     public function bind(Identifier $id, callable $factory): void
     {
         $this->container->bind($id, $factory);
@@ -26,4 +29,7 @@ final class Kernel
     {
         return $this->container->get($id);
     }
+
+    // ~Interface
+    /*================================================================================================================*/
 }

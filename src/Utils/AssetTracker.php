@@ -22,6 +22,9 @@ final class AssetTracker
         private readonly string $baseUrl,
     ) {
     }
+    
+    /*================================================================================================================*/
+    // Interface
 
     /**
      * URL of the hashed asset file.
@@ -48,6 +51,9 @@ final class AssetTracker
             $this->entry($entryKey)->css,
         ));
     }
+
+    // ~Interface
+    /*================================================================================================================*/
 
     /**
      * Gets the manifest entry for the given asset path.
