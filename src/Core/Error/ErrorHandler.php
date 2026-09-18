@@ -4,6 +4,9 @@ namespace XyloIsCoding\CoconutCms\Core\Error;
 
 use ErrorException;
 use Throwable;
+use XyloIsCoding\CoconutCms\Core\Error\Logger\DefaultErrorLogger;
+use XyloIsCoding\CoconutCms\Core\Error\Renderer\CliErrorRenderer;
+use XyloIsCoding\CoconutCms\Core\Error\Renderer\HtmlErrorRenderer;
 
 /**
  * Registers global handlers so nothing reaches the client as a raw PHP error page:
@@ -15,10 +18,14 @@ final class ErrorHandler
 {
     private const array FATAL_TYPES = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR];
 
+    private readonly ErrorRenderer $renderer;
+
     public function __construct(
         private readonly bool $debug,
         private readonly ErrorLogger $logger = new DefaultErrorLogger(),
+        ?ErrorRenderer $renderer = null,
     ) {
+        $this->renderer = $renderer ?? (PHP_SAPI === 'cli' ? new CliErrorRenderer() : new HtmlErrorRenderer());
     }
 
     /*================================================================================================================*/
@@ -38,8 +45,9 @@ final class ErrorHandler
 
     private function onException(Throwable $error): void
     {
-        $this->logger->log($error);
-        $this->respond($error);
+        $context = ErrorContext::capture();
+        $this->logger->log($error, $context);
+        $this->respond($error, $context);
     }
 
     private function onError(int $severity, string $message, string $file = '', int $line = 0): bool
@@ -48,7 +56,7 @@ final class ErrorHandler
             return false;
         }
 
-        $this->logger->log(new ErrorException($message, 0, $severity, $file, $line));
+        $this->logger->log(new ErrorException($message, 0, $severity, $file, $line), ErrorContext::capture());
 
         return true;
     }
@@ -62,29 +70,17 @@ final class ErrorHandler
         }
 
         $exception = new ErrorException($error['message'], 0, $error['type'], $error['file'], $error['line']);
-        $this->logger->log($exception);
-        $this->respond($exception);
+        $context = ErrorContext::capture();
+        $this->logger->log($exception, $context);
+        $this->respond($exception, $context);
     }
 
-    private function respond(Throwable $error): void
+    private function respond(Throwable $error, ErrorContext $context): void
     {
         if (!headers_sent()) {
             http_response_code(500);
         }
 
-        if ($this->debug) {
-            printf(
-                '<h1>%s</h1><p>%s in %s:%d</p><pre>%s</pre>',
-                htmlspecialchars($error::class),
-                htmlspecialchars($error->getMessage()),
-                htmlspecialchars($error->getFile()),
-                $error->getLine(),
-                htmlspecialchars($error->getTraceAsString()),
-            );
-
-            return;
-        }
-
-        echo '<h1>Something went wrong</h1><p>Please try again later.</p>';
+        echo $this->renderer->render($error, $context, $this->debug);
     }
 }

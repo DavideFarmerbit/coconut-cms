@@ -6,5 +6,5 @@ use Throwable;
 
 interface ErrorLogger
 {
-    public function log(Throwable $error): void;
+    public function log(Throwable $error, ErrorContext $context): void;
 }

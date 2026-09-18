@@ -1,8 +1,10 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Core\Error;
+namespace XyloIsCoding\CoconutCms\Core\Error\Logger;
 
 use Throwable;
+use XyloIsCoding\CoconutCms\Core\Error\ErrorContext;
+use XyloIsCoding\CoconutCms\Core\Error\ErrorLogger;
 
 class DefaultErrorLogger implements ErrorLogger
 {
@@ -22,9 +24,9 @@ class DefaultErrorLogger implements ErrorLogger
     ) {
     }
 
-    public function log(Throwable $error): void
+    public function log(Throwable $error, ErrorContext $context): void
     {
-        $message = $this->format($error);
+        $message = $this->format($error, $context);
 
         if ($this->directory === null || !$this->writeToDailyFile($message)) {
             error_log($message);
@@ -55,11 +57,14 @@ class DefaultErrorLogger implements ErrorLogger
         }
     }
 
-    private function format(Throwable $error): string
+    private function format(Throwable $error, ErrorContext $context): string
     {
         return sprintf(
-            '[%s] [%s] %s in %s:%d%s%s%s',
+            '[%s] [ref=%s] [%s %s] [%s] %s in %s:%d%s%s%s',
             date('Y-m-d H:i:s'),
+            $context->referenceId,
+            $context->requestMethod ?? 'CLI',
+            $context->requestUri ?? '-',
             $error::class,
             $error->getMessage(),
             $error->getFile(),
