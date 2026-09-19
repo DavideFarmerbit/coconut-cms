@@ -205,37 +205,91 @@ and the server-side "what changed, what needs to be flushed" tracking (see Unit 
 below) are conceptually the same kind of diff. Two independent systems solving
 adjacent problems is a likely source of drift.
 
+### Write path: explicit changeset (not auto-diffing), with real topological sort
+
+Four options were weighed: naive immediate-write (no batching, atomicity left to the
+caller to remember); a classic Doctrine-style Unit of Work with automatic dirty-checking
+(snapshot every hydrated object, diff at flush time — real, but one of the largest,
+most intricate subsystems in any ORM); an explicit changeset that reuses the undo
+command stream as the source of "what changed" instead of auto-diffing; and full event
+sourcing (command log as the durable source of truth, current-state tables as a
+derived projection) — genuinely more capable (perfect audit trail, arbitrary
+time-travel) but a real paradigm shift disproportionate to what a CMS needs.
+
+**Decided: explicit changeset, sourced from the same command stream already needed for
+undo** — no separate automatic dirty-checking machinery. This avoids building the most
+expensive part of a classic Unit of Work by reusing something already committed to.
+
+**Command vs. changeset are separate concepts.** "Command" is the undo-aware,
+editor-facing recording of a user action. "Changeset" is the lower-level "these fields
+→ these values" data the flush/transaction engine actually consumes. The command system
+is a convenience layer that *produces* a changeset — it isn't the only way to produce
+one. Bulk/programmatic writes (CSV import, a migration script) build a changeset
+directly and go through the same flush engine, without synthesizing fake undo-able
+commands or touching the undo stack at all.
+
+**Write ordering: full topological sort, not a bounded heuristic.** A simpler rule
+("when a changeset creates a new related entity inline, insert it first") was
+considered and rejected — CMS content can nest arbitrarily deep (a Product creating a
+new Category creating a new Category-Image creating ...), and a hand-maintained list of
+"which inline-creation patterns are supported" would need extending by hand every time a
+new pattern shows up in practice. Full topological sort handles arbitrary depth without
+that maintenance burden. Concretely:
+
+- Dependency edges are derived **automatically** from the changeset's own reference
+  structure, not manually declared by whoever builds the changeset. This requires the
+  changeset format to support a **temporary/placeholder id** for an entity being
+  created in the same flush, so "attach this new Tag to this Product" can be expressed
+  before the Tag has a real database id — a concrete new requirement now placed on the
+  still-open "exact changeset shape" item below.
+- The same edges are read in **opposite directions** for inserts vs. deletes: on
+  insert, a referenced entity must be written before its dependent (so the real
+  generated id exists to put in the FK column); on delete, it's the reverse. Updates
+  generally don't need ordering among themselves, unless an update introduces a brand
+  new reference to something also being created in the same flush — that reference then
+  behaves like an insert for ordering purposes.
+- **Cycles need an explicit answer.** Two new entities in the same flush referencing
+  each other can't be resolved by any ordering. Decided: reject the changeset with a
+  clear error naming the cycle. A "deferred edge" escape hatch (insert both with a
+  nullable FK left null, patch it in on a second pass) is deliberately not being built
+  until an actual case demonstrates it's needed.
+- Scope of the sort itself is small (Kahn's-algorithm-sized, bounded to whatever's in
+  one flush — typically a handful of entities, not a performance concern). The real
+  work is the edge derivation (temporary-id resolution) and getting insert/delete
+  direction and cycle detection right, not the sort algorithm itself.
+
 ## Open questions — not yet decided
 
 Roughly in order of how much they threaten the decisions already made above (the first
-two are the ones most likely to force a rethink; the rest can probably layer on without
+is the one most likely to force a rethink; the rest can probably layer on without
 disturbing what's already settled):
 
-1. **Write path / Unit of Work.** Everything decided so far is about reading. Saving
-   one edit under the hybrid model can touch a real column, several EAV rows, and a
-   join-table row all at once — all of it needs one atomic transaction, or a partial
-   failure leaves a record inconsistent (title updated, description's EAV row didn't
-   save). A single-table-per-entity ORM gets this almost for free; this hybrid model
-   has to work for it deliberately.
-2. **Admin list/filter views.** Everything discussed so far is fetch-by-id. Real admin
+1. **Admin list/filter views.** Everything discussed so far is fetch-by-id. Real admin
    screens need "all Products where category = X and price > 100, sorted, paginated" —
    exactly where EAV's multi-field self-join weakness stops being an abstract caveat
    and becomes a UI that has to actually work. Likely needs its own dedicated design
    pass, and probably the next one.
-3. **Validation.** `FieldDescriptor` carries shape/type, not business rules (required,
+2. **Validation.** `FieldDescriptor` carries shape/type, not business rules (required,
    length limits, cross-field rules). Where does this live — more attribute metadata
    read by the same generic machinery? Does it need to run both client-side (editor
    feedback) and server-side (real enforcement, since client-side is always
    bypassable)?
-4. **Field-level permissions.** Not just "can this user edit this content type" but
+3. **Field-level permissions.** Not just "can this user edit this content type" but
    potentially per-field (e.g. a flag only admins can touch). Unaddressed.
-5. **Draft/publish state and revisions.** Ties back to the backup idea above — does a
+4. **Draft/publish state and revisions.** Ties back to the backup idea above — does a
    draft duplicate the whole record, or overlay pending changes on the published one?
-6. **Media/file fields.** Images and uploads likely want their own handling (storage
+5. **Media/file fields.** Images and uploads likely want their own handling (storage
    backend, thumbnails, metadata) rather than being just another field value — probably
    its own Entity type eventually, not designed yet.
-7. **Exact `FieldDescriptor` shape and attribute design.** Named as a concept above,
+6. **Exact `FieldDescriptor` shape and attribute design.** Named as a concept above,
    not specified field-by-field yet.
+7. **Exact changeset shape.** Needs to express field-level changes per entity plus
+   temporary/placeholder ids for not-yet-persisted entities referenced within the same
+   flush (see Write path above) — not specified in detail yet.
 8. **Exact EAV table shape.** Typed value columns (separate string/int/float columns
    or a `value_type` discriminator) vs. one text column; the precise count-row
    flattening mechanics for repeaters/collections.
+9. **FK `ON DELETE` behavior vs. app-level delete ordering.** The topological sort
+   handles delete ordering at the application level — worth deciding later whether the
+   database's own `CASCADE`/`RESTRICT` constraints are also relied on as a backstop, or
+   whether the app-level sort is treated as the only safety net.
