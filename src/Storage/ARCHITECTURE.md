@@ -56,49 +56,120 @@ class generation once in this codebase (see the `Rout`/`RouteData` design discus
 for the same reasons: fragile, hard to debug, and here it'd be worse since the shape can
 change at any time through the editor, not just once at bootstrap.
 
-### Storage: hybrid of real relational columns + EAV, JSON as last resort
+### Storage: real columns for queryable fields, a JSON blob for everything else
 
-Four storage strategies were weighed (Doctrine's own menu, roughly): flat columns,
-embeddables (nested fields inlined as extra columns), join tables, JSON columns — plus
-EAV (Entity-Attribute-Value), which is what WordPress/ACF actually use under the hood
-(`wp_postmeta`: one row per `(post_id, meta_key, meta_value)`), confirmed by checking
-ACF's real behavior rather than assuming.
+Four storage strategies were originally weighed (Doctrine's own menu, roughly): flat
+columns, embeddables (nested fields inlined as extra columns), join tables, JSON
+columns — plus EAV (Entity-Attribute-Value), which is what WordPress/ACF actually use
+under the hood (`wp_postmeta`: one row per `(post_id, meta_key, meta_value)`), confirmed
+by checking ACF's real behavior rather than assuming. EAV was initially preferred over
+JSON specifically because it stays relationally queryable — every value its own row,
+indexable with ordinary SQL — where JSON needs special DB functions and usually isn't
+cheaply indexable.
 
-Decision: **EAV over JSON as the default flexible/schema-less mechanism.** Both solve
-"no fixed schema needed ahead of time," but EAV stays fully relational — every value is
-its own row, addressable and selectively indexable with ordinary SQL — where JSON needs
-special DB functions and is usually not cheaply indexable. JSON is explicitly the last
-resort, not the default.
+**That reasoning stopped applying once schema migrations were settled as core
+infrastructure needed regardless (see below) — EAV's entire justification was avoiding
+`ALTER TABLE`. Once real migration tooling exists anyway for the completely ordinary
+case of a class's fields changing over time, maintaining EAV as a second, weaker path to
+queryability alongside real columns doesn't buy anything.**
 
-Known, accepted cost of EAV: filtering on *multiple* fields at once requires
-self-joining the EAV table once per filtered field. This is the classic, well-documented
-EAV weakness (see "Open questions" — admin list/filter views is where this becomes
-concrete rather than theoretical).
+**Decided: queryable always means a real column, full stop — no EAV.** Anything not
+explicitly marked `#[Queryable]` lives in a single JSON blob column instead. Once
+nothing in that tier is ever filtered, sorted, or joined against, JSON's one real
+weakness relative to EAV (poor indexability) stops mattering, and its strengths (natural
+nesting, natural collections/repeaters with no need for ACF's flatten-into-indexed-keys-
+plus-count-row trick, simpler to implement — one column, not N EAV rows to keep
+consistent) make it the better default for the non-queryable tier. Each stored blob
+still needs a small version tag so an old shape can be read and upgraded later — the
+per-record versioning idea carries over unchanged, just simpler now that there's only
+one tier that needs it.
 
-Repeaters / collections without their own identity: ACF's technique is worth reusing —
-flatten into indexed keys across multiple EAV rows (`items_0_title`, `items_1_title`,
-...) plus one row holding just the count. No nesting at the storage level at all.
+### Schema evolution: migrations are core infrastructure, not optional to defer
 
-**Hybrid rule**: real relational columns/tables only for the fields that need genuine
-DB-level querying, filtering, joins, or aggregation — explicitly marked as such (e.g. an
-attribute akin to `#[Queryable]`) — and EAV for everything else. This mirrors what
-WordPress itself does (`wp_posts` has real columns for title/status/date; `wp_postmeta`
-is the EAV overflow for everything custom).
+The small set of real relational columns needs ordinary migrations, and this is **not
+optional infrastructure to defer**: the moment any `#[Queryable]` field exists at all, a
+hand-crafted class's property being renamed, retyped, or removed is an entirely ordinary
+event that needs a real schema change to follow it — needed for the completely ordinary
+developer-facing case, regardless of anything about editor-assembled content.
 
-### Schema evolution splits into two much smaller problems
+Decided: reuse **Doctrine DBAL's `Schema`/`Comparator` components** (usable standalone,
+without adopting the full Doctrine ORM) for the actual diffing and DDL generation,
+rather than hand-building schema-diffing logic — that's genuinely hard, engine-specific
+code that's already been solved well. Our own responsibility is narrower: translate the
+`#[Queryable]` subset of a class's `FieldDescriptor`s into DBAL's `Schema`/`Table`/
+`Column` representation; DBAL does the comparison against the live database and
+produces the `ALTER TABLE` statements.
 
-- EAV fields need no `ALTER TABLE`, ever — a new field is just a new `meta_key`. But
-  each stored value (or record) needs a small version tag so an old shape can still be
-  read and upgraded later. Per-record versioning, not a database migration.
-- The small set of real relational columns still needs ordinary migrations, exactly
-  like any traditional ORM — but that surface is deliberately kept small since it's
-  opt-in per field.
+Trigger policy for native classes: the standard migrations workflow every mature ORM
+already has — diff at development time, generate a reviewable migration file, apply
+through a deliberate deploy step. A human reviews the generated DDL before it ever
+touches production. Nothing exotic here, well-trodden ground.
+
+### Entity prototypes: native classes are fixed, editor-created subclasses aren't
+
+Resolves what was an open question ("should admins ever trigger real schema changes at
+runtime?") completely, once framed the right way: not "new vs. existing," but **native
+(PHP-declared) vs. editor-created** — exactly the same line Unreal draws between a
+native `UCLASS` and a Blueprint. You cannot add a `UPROPERTY` to a native C++ class at
+runtime; you subclass it and add properties to the subclass. Same rule here:
+
+- **A native class's declared properties are permanently fixed.** No runtime path to
+  change them, ever. Only a developer editing the source and running a real migration
+  (see above) can add, remove, or retype one.
+- **An "entity prototype" is always either a fresh definition or an explicit subclass**
+  of an existing prototype — native or itself editor-created — created through the
+  editor. A consumer wanting admin-authored Products defines a native `Product` base
+  class (fixed, developer-owned schema) and has actual product instances be an
+  editor-created subclass of it, so admins get to freely shape *that*, while `Product`'s
+  own declared properties stay off-limits.
+- **Editor-created subclasses can be freely grown and shrunk, even after they already
+  have rows** — this is genuinely safe, not just convenient, for two compounding
+  reasons. First, it's always scoped to that subclass's own table (see Class Table
+  Inheritance below), never the native parent's table, never a sibling subclass, at any
+  depth in the chain. Second, it's restricted to cheap, safe DDL operations only: adding
+  a nullable column and dropping a column — both metadata-only or near-instant on modern
+  Postgres (11+)/MySQL (8+). Changing a column's type, adding `NOT NULL` without a
+  default, or a true rename all stay off the table entirely; a rename is better modeled
+  as "add a new column, deprecate the old one."
+- **Dropping a property loses whatever data lived in that column** — this is exactly the
+  kind of operation that should trigger the backup/revision mechanism first (see "Undo /
+  command queue" below), so an admin's mistake is recoverable through the same
+  revision-history pipeline rather than being a new problem to solve.
+- **A native class must opt in to being subclassable by admins** — Unreal's
+  `Blueprintable` flag, essentially. Not every native class should be extensible by
+  admins by default (an internal infrastructure class was never meant to be content).
+  The exact mechanism for marking this isn't specified yet (see "Open questions").
+
+**Mechanism for "extends": Class Table Inheritance, not Concrete Table Inheritance.**
+Two ways to map inheritance onto tables were considered. Concrete Table Inheritance
+(every prototype gets its own fully standalone table, all columns duplicated, no joins
+ever) is simpler to read from, but makes "show me all Products regardless of which
+sub-prototype created them" — exactly the aggregate admin-list query a CMS needs —
+awkward, requiring a `UNION` across however many concrete tables happen to exist, a set
+that grows every time an admin creates a new prototype. Class Table Inheritance (a
+derived prototype gets a new table holding only its *added* columns, plus a foreign key
+back to the parent prototype's table, joined when hydrating a full instance) keeps the
+base prototype's table as a natural, single-table home for "all instances of the base
+type," while still only ever needing `CREATE TABLE` for the new derived table — never
+touching the existing parent table, so the safety property above holds. This is also a
+named, real Doctrine strategy (`JOINED` inheritance), not invented from scratch. It
+composes uniformly regardless of whether the prototype being extended is native or
+itself editor-created — same mechanism either way.
+
+**What this does and doesn't cover**: creating a new prototype (from scratch, or
+extending an existing one) is always safe — always `CREATE TABLE` on an empty table,
+regardless of who triggers it. Growing an *existing, already-populated* prototype is
+only ever safe for editor-created subclasses specifically, restricted to the safe
+operation set above; for native classes it's never available at all, by design — not a
+safety workaround, but what "native" is supposed to mean.
 
 ### Join tables: when they're actually worth it
 
-Worth it when **both** hold: the item's shape is fixed/hand-crafted (not
-editor-assembled — a join table needs real predetermined columns same as flat columns
-do), **and** the relationship needs something SQL is good at and EAV isn't:
+Worth it when **both** hold: the item has a real, stable table to reference (a native
+class, or an editor-created prototype — the latter now qualifies too, since entity
+prototypes get real Class-Table-Inheritance-backed tables regardless of who created
+them; "editor-created" no longer means "no fixed columns" the way it did before entity
+prototypes existed), **and** the relationship needs something SQL is good at:
 
 - True many-to-many relationships (tags/categories — near-guaranteed to want a real
   pivot table regardless of anything else decided here).
@@ -107,14 +178,14 @@ do), **and** the relationship needs something SQL is good at and EAV isn't:
 - Collections needing real aggregation (order line items → "revenue per product across
   all orders").
 - Needing the database to enforce referential integrity (a real FK guarantees a
-  reference is valid; a JSON/EAV value referencing an id does not).
+  reference is valid; a value living in the JSON blob referencing an id does not).
 - Large or fast-growing collections that need independent pagination/indexing without
   touching the parent's own row on every insert.
 
-Not worth it: editor-assembled shapes (fails the fixed-columns requirement), and small
-purely-presentational edit-inline structs that only ever load/save as a unit with their
-owner and are never queried independently (an SEO-metadata struct on a page, say) — EAV
-or a value-object column is simpler and sufficient there.
+Not worth it: small purely-presentational edit-inline structs that only ever load/save
+as a unit with their owner and are never queried independently (an SEO-metadata struct
+on a page, say) — a value-object column, or a spot in the JSON blob, is simpler and
+sufficient there.
 
 ### Entity vs. Value Object is the line that actually decides "does this get a table"
 
@@ -130,10 +201,10 @@ standard DDD test, reduced to four checkable questions:
 4. Does the business talk about "the same X" over time despite changed attributes (vs.
    two value objects with equal attributes being simply interchangeable)? → Entity.
 
-Yes to any → Entity (own table/EAV space, own repository, own identity-map presence,
-referenced via FK). No to all → Value Object (embedded in the owner's storage somehow —
-inline columns, EAV rows scoped to the owner, or a sub-blob — never its own table,
-because there's no identity to key a table on).
+Yes to any → Entity (own table, own repository, own identity-map presence, referenced
+via FK). No to all → Value Object (embedded in the owner's storage somehow — inline
+columns, or a spot in the owner's JSON blob — never its own table, because there's no
+identity to key a table on).
 
 This can't be inferred automatically by the system — whether an Address needs to be
 shareable is a business judgment, not something derivable from the shape of the data.
@@ -258,38 +329,57 @@ that maintenance burden. Concretely:
   work is the edge derivation (temporary-id resolution) and getting insert/delete
   direction and cycle detection right, not the sort algorithm itself.
 
+### Admin list/filter views: resolved, once EAV was removed
+
+This was flagged as the item most likely to force a rethink, and instead it mostly
+dissolved once EAV was removed from the storage model. Since queryable always means a
+real, properly-typed column now, admin filtering/sorting never touches a self-join at
+all for anything actually surfaced in a list view — the entire EAV multi-field
+self-join cost that motivated treating this as high-risk no longer applies to it.
+
+- **A query-builder abstraction** (`Query::for(Product::class)->where('price', '>',
+  100)->orderBy('created_at')`) resolves each field to its real column via
+  `FieldDescriptor` metadata, so callers never need to know or care about storage
+  details — same uniformity principle as everywhere else in this design.
+- **Cursor/keyset pagination, committed to from the start** — not OFFSET/LIMIT. The
+  reason cursor pagination was originally set aside was specifically that sorting by an
+  EAV-backed field needs a cursor encoding a joined value plus a tiebreaker, which is
+  genuinely fiddly to get right. With sorting only ever happening on real, typed
+  columns, a standard keyset cursor (sort-column value + primary key tiebreaker) is
+  straightforward and correct from day one, with none of the OFFSET-pagination
+  weaknesses (degrading performance at depth, instability under concurrent writes) to
+  accept as a trade-off. Total-count display ("showing 21–40 of 1,532") still needs its
+  own `COUNT(*)` with the same `WHERE`, independent of pagination style.
+- **Filtering/sorting by something inside a repeated/collection sub-structure stays out
+  of scope** — but now trivially so, since nested collections live in the JSON blob by
+  construction (never marked `#[Queryable]`), so this was never something the query
+  builder needs to support in the first place, not a deliberately deferred capability.
+
 ## Open questions — not yet decided
 
-Roughly in order of how much they threaten the decisions already made above (the first
-is the one most likely to force a rethink; the rest can probably layer on without
-disturbing what's already settled):
+Roughly in order of how much they threaten the decisions already made above (the rest
+can probably layer on without disturbing what's already settled):
 
-1. **Admin list/filter views.** Everything discussed so far is fetch-by-id. Real admin
-   screens need "all Products where category = X and price > 100, sorted, paginated" —
-   exactly where EAV's multi-field self-join weakness stops being an abstract caveat
-   and becomes a UI that has to actually work. Likely needs its own dedicated design
-   pass, and probably the next one.
-2. **Validation.** `FieldDescriptor` carries shape/type, not business rules (required,
+1. **Validation.** `FieldDescriptor` carries shape/type, not business rules (required,
    length limits, cross-field rules). Where does this live — more attribute metadata
    read by the same generic machinery? Does it need to run both client-side (editor
    feedback) and server-side (real enforcement, since client-side is always
    bypassable)?
-3. **Field-level permissions.** Not just "can this user edit this content type" but
+2. **Field-level permissions.** Not just "can this user edit this content type" but
    potentially per-field (e.g. a flag only admins can touch). Unaddressed.
-4. **Draft/publish state and revisions.** Ties back to the backup idea above — does a
+3. **Draft/publish state and revisions.** Ties back to the backup idea above — does a
    draft duplicate the whole record, or overlay pending changes on the published one?
-5. **Media/file fields.** Images and uploads likely want their own handling (storage
+4. **Media/file fields.** Images and uploads likely want their own handling (storage
    backend, thumbnails, metadata) rather than being just another field value — probably
    its own Entity type eventually, not designed yet.
-6. **Exact `FieldDescriptor` shape and attribute design.** Named as a concept above,
-   not specified field-by-field yet.
-7. **Exact changeset shape.** Needs to express field-level changes per entity plus
+5. **Exact `FieldDescriptor` shape and attribute design**, including the exact
+   mechanism for opting a native class in to being admin-subclassable (Unreal's
+   `Blueprintable` flag, essentially — agreed in principle, not designed in detail).
+   Named as a concept throughout, not specified field-by-field yet.
+6. **Exact changeset shape.** Needs to express field-level changes per entity plus
    temporary/placeholder ids for not-yet-persisted entities referenced within the same
    flush (see Write path above) — not specified in detail yet.
-8. **Exact EAV table shape.** Typed value columns (separate string/int/float columns
-   or a `value_type` discriminator) vs. one text column; the precise count-row
-   flattening mechanics for repeaters/collections.
-9. **FK `ON DELETE` behavior vs. app-level delete ordering.** The topological sort
+7. **FK `ON DELETE` behavior vs. app-level delete ordering.** The topological sort
    handles delete ordering at the application level — worth deciding later whether the
    database's own `CASCADE`/`RESTRICT` constraints are also relied on as a backstop, or
    whether the app-level sort is treated as the only safety net.
