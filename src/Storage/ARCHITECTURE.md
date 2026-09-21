@@ -355,31 +355,90 @@ self-join cost that motivated treating this as high-risk no longer applies to it
   construction (never marked `#[Queryable]`), so this was never something the query
   builder needs to support in the first place, not a deliberately deferred capability.
 
+### Validation: strategy pattern, not a growing pile of `FieldDescriptor` flags
+
+Business rules (required, length limits, ranges, format, cross-field rules) are a
+different concern from shape/type, and rather than growing `FieldDescriptor` into a
+kitchen-sink of validation flags, they're pulled out into the same
+interface-plus-swappable-implementations shape already used twice in real code in this
+codebase (`RouteValueCaster`/`DefaultRouteValueCaster`, `ErrorLogger`/
+`DefaultErrorLogger`) — new validation kinds are just new classes, never a change to
+`FieldDescriptor` itself.
+
+```php
+interface FieldValidator
+{
+    public function validate(mixed $value): bool;
+    public function describe(): array; // e.g. ['type' => 'maxLength', 'value' => 255]
+}
+```
+
+`FieldDescriptor` holds a **list** of validators, not one — required and max-length are
+independent, composable rules (all must pass), the same way Symfony's Validator
+component attaches a list of Constraint objects per property rather than one combined
+constraint.
+
+**Cross-field rules** (end date after start date) can't live on one field's descriptor
+at all — they're a separate `PrototypeValidator` interface at the entity level,
+evaluated against the whole hydrated set of field values, using the same
+strategy-pattern shape. Native classes can implement arbitrary logic here; editor-created
+prototypes can only pick from whatever built-in `PrototypeValidator` implementations
+exist (a closed menu, not arbitrary code) — an inherent, accepted asymmetry, the same
+one already accepted for admin-authored schema versus native-code flexibility elsewhere
+in this document.
+
+**Server-side validation is mandatory, not a design choice** — client-side is always
+bypassable, so the server independently re-validates every changeset regardless of what
+the client already checked. It hooks in before the topological sort / before the flush
+transaction opens: a validation failure rejects the whole changeset outright, same
+"fail before, not during" shape as changeset cycle detection.
+
+**Client-side pre-validation, without duplicating logic, splits into three tiers —**
+most validators land in the first two, not the third:
+
+1. **Native HTML5 constraint attributes** — `required`, `minlength`/`maxlength`,
+   `min`/`max`/`step`, `pattern` (a browser-matched regex), `type="email"`/`"url"`/
+   `"number"`. `describe()`'s `{type, ...params}` maps directly to one of these, and the
+   **browser itself** validates via the native Constraint Validation API — no JS
+   required at all, just a generic `type` → attribute lookup table. Covers most common
+   cases.
+2. **Named, reusable algorithms the browser doesn't support natively** — IBAN, credit
+   card checksum, phone format, postal code by country. Not bespoke — standard,
+   nameable patterns. `describe()` returns `{type: 'iban'}`, and a small **shared
+   registry of JS validator functions**, keyed by the same `type` strings the PHP side
+   uses, performs the check generically. Real code, but shared/reusable, not per-field.
+3. **Genuinely bespoke, one-off logic** with no reusable name behind it. Only this tier
+   is stuck with `describe()` returning a plain label and waiting on the server
+   round-trip — should be the rare exception once tiers 1 and 2 are reasonably filled
+   out, not the default assumption.
+
+**Clean decoupling worth keeping**: the PHP `FieldValidator` only ever emits
+`{type, ...params}` from `describe()` — it never needs to know or declare which tier a
+given `type` falls into. That decision lives entirely in the client-side registry.
+Adding client-side support for a previously-server-only type later is purely a
+client-side change; the PHP validator class and its `describe()` output never need to
+change.
+
 ## Open questions — not yet decided
 
 Roughly in order of how much they threaten the decisions already made above (the rest
 can probably layer on without disturbing what's already settled):
 
-1. **Validation.** `FieldDescriptor` carries shape/type, not business rules (required,
-   length limits, cross-field rules). Where does this live — more attribute metadata
-   read by the same generic machinery? Does it need to run both client-side (editor
-   feedback) and server-side (real enforcement, since client-side is always
-   bypassable)?
-2. **Field-level permissions.** Not just "can this user edit this content type" but
+1. **Field-level permissions.** Not just "can this user edit this content type" but
    potentially per-field (e.g. a flag only admins can touch). Unaddressed.
-3. **Draft/publish state and revisions.** Ties back to the backup idea above — does a
+2. **Draft/publish state and revisions.** Ties back to the backup idea above — does a
    draft duplicate the whole record, or overlay pending changes on the published one?
-4. **Media/file fields.** Images and uploads likely want their own handling (storage
+3. **Media/file fields.** Images and uploads likely want their own handling (storage
    backend, thumbnails, metadata) rather than being just another field value — probably
    its own Entity type eventually, not designed yet.
-5. **Exact `FieldDescriptor` shape and attribute design**, including the exact
+4. **Exact `FieldDescriptor` shape and attribute design**, including the exact
    mechanism for opting a native class in to being admin-subclassable (Unreal's
    `Blueprintable` flag, essentially — agreed in principle, not designed in detail).
    Named as a concept throughout, not specified field-by-field yet.
-6. **Exact changeset shape.** Needs to express field-level changes per entity plus
+5. **Exact changeset shape.** Needs to express field-level changes per entity plus
    temporary/placeholder ids for not-yet-persisted entities referenced within the same
    flush (see Write path above) — not specified in detail yet.
-7. **FK `ON DELETE` behavior vs. app-level delete ordering.** The topological sort
+6. **FK `ON DELETE` behavior vs. app-level delete ordering.** The topological sort
    handles delete ordering at the application level — worth deciding later whether the
    database's own `CASCADE`/`RESTRICT` constraints are also relied on as a backstop, or
    whether the app-level sort is treated as the only safety net.
