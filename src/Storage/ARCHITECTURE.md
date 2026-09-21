@@ -1,10 +1,11 @@
 # Storage / Editor Architecture — Design Notes
 
-Status: **future phase, nothing in this document is implemented yet.** The design pass
-is complete — every item originally raised has been worked through to a decision (see
-"Open questions" at the end) — but this is still a decision log, not a spec frozen in
-stone. Revisit and revise as real implementation surfaces constraints this discussion
-didn't anticipate.
+Status: **future phase, nothing in this document is implemented yet.** The original
+design pass is complete, and a subsequent audit pass caught real drift between
+decisions made many turns apart plus a handful of gaps never raised at all — both
+corrected, with the gaps logged as a fresh "Open questions" list at the end. This is
+still a decision log, not a spec frozen in stone. Revisit and revise as real
+implementation surfaces constraints this discussion didn't anticipate.
 
 ## The goal
 
@@ -87,6 +88,26 @@ still needs a small version tag so an old shape can be read and upgraded later �
 per-record versioning idea carries over unchanged, just simpler now that there's only
 one tier that needs it.
 
+**`#[Queryable]` gets a real database index, not just a real column.** The entire point
+of marking a field this way is admin-list filtering/sorting performance — a column with
+no index behind it wouldn't deliver on that at all. Worth stating explicitly rather than
+leaving implied.
+
+**Important carve-out, found missing during an audit pass: `EntityReference` fields —
+singular or inside a `Collection` — always get a real column or table, regardless of
+their own `queryable` flag.** This was previously unstated and led to a real internal
+contradiction (a `collection()` of tags was simultaneously described as needing "a real
+pivot table" in one section and living in the JSON blob "by construction" in another —
+see "Join tables" and "Admin list/filter views"). The fix: `queryable` on an
+`EntityReference` field only ever answers "can an admin list be filtered/sorted by
+this field's value" — a query-builder capability question — never "which storage tier
+this field lives in." A reference to a real Entity always needs a real FK, full stop,
+because the entire `RESTRICT`/`CASCADE` policy, the undo-log's conflict detection, and
+referential integrity generally all assume one exists. Only `EmbeddedValueObject`
+fields (and collections of them) are governed by the "queryable or blob" choice above —
+they have no identity to key a table on regardless, so there's no FK to preserve either
+way.
+
 ### Schema evolution: migrations are core infrastructure, not optional to defer
 
 The small set of real relational columns needs ordinary migrations, and this is **not
@@ -142,7 +163,8 @@ runtime; you subclass it and add properties to the subclass. Same rule here:
 - **A native class must opt in to being subclassable by admins** — Unreal's
   `Blueprintable` flag, essentially. Not every native class should be extensible by
   admins by default (an internal infrastructure class was never meant to be content).
-  The exact mechanism for marking this isn't specified yet (see "Open questions").
+  The concrete mechanism is a class-level `#[Blueprintable]` attribute — see "Exact
+  `FieldDescriptor` shape" below for the actual definition.
 
 **Mechanism for "extends": Class Table Inheritance, not Concrete Table Inheritance.**
 Two ways to map inheritance onto tables were considered. Concrete Table Inheritance
@@ -380,9 +402,20 @@ needs special-case handling.
 
 Content revisions and the schema-change backup-on-drop were originally designed as two
 unrelated safety nets. They're actually the same shape: **log every state-changing
-operation with enough information to compute its inverse, keep the last N, prune
-older** — the same "keep last N, prune older" pattern already reused for log rotation
-and, now, for this. One pipeline, two categories of operation:
+operation with enough information to compute its inverse, retain a bounded amount,
+prune the rest.** The underlying idea — retain-and-prune rather than keep everything
+forever — is the same one already used for log rotation, but the *trigger* is
+deliberately different, worth being precise about since an earlier draft of this
+section conflated the two: `DefaultErrorLogger`'s actual retention (`pruneOldFiles()`)
+is a **time-window** cutoff (anything older than `retainDays`), not a count. For this
+pipeline specifically, **retention is count-based — keep the last N operations per
+entity/prototype, not "operations from the last N days"** — a deliberate divergence,
+not an oversight: a heavily-edited entity could otherwise accumulate unboundedly many
+revisions within a time window, while a rarely-touched one would lose its last
+meaningful edit after N idle days for no good reason. Time-based retention fits log
+volume (which correlates with calendar time); count-based fits content history (which
+correlates with edit activity, not the calendar). One pipeline, two categories of
+operation:
 
 - `ChangesetOperation` — a flushed changeset. Its inverse is the changeset that
   restores the previous field values (this is exactly what "restore to a previous
@@ -420,7 +453,8 @@ retention-window pruning sweep already governing this whole pipeline** — a fil
 stay on disk as long as anything still surviving the retention window (an undo-log
 entry, a revision, or the current live state) could still reference them; only once the
 pruning sweep removes the last such reference does it become safe to actually delete the
-file. Fourth reuse of the same "keep last N, prune older" shape in this document, not a
+file. Fourth reuse of the same retain-and-prune shape in this document (count-based, per
+the correction above — an entity's surviving revisions, not a calendar window), not a
 one-off special case for media.
 
 #### Client-side command stack: not every entry is a free, local revert
@@ -595,10 +629,15 @@ self-join cost that motivated treating this as high-risk no longer applies to it
   weaknesses (degrading performance at depth, instability under concurrent writes) to
   accept as a trade-off. Total-count display ("showing 21–40 of 1,532") still needs its
   own `COUNT(*)` with the same `WHERE`, independent of pagination style.
-- **Filtering/sorting by something inside a repeated/collection sub-structure stays out
-  of scope** — but now trivially so, since nested collections live in the JSON blob by
-  construction (never marked `#[Queryable]`), so this was never something the query
-  builder needs to support in the first place, not a deliberately deferred capability.
+- **Filtering an outer list by something inside a repeated/collection sub-structure
+  stays out of scope, regardless of whether that collection is blob-stored or backed by
+  a real join table** (see the `EntityReference`-always-gets-a-column carve-out in
+  "Storage" above — a collection of tags does get a real pivot table, but that's about
+  referential integrity, not about admin-list query capability). The query builder was
+  never meant to support "find Products that have a tag matching X" — that needs
+  `EXISTS`-style semantics against the join table, meaningfully harder than filtering a
+  scalar column, and a much rarer real need. Deliberately out of scope either way, not
+  something that fell out for free.
 
 ### Validation: strategy pattern, not a growing pile of `FieldDescriptor` flags
 
@@ -693,8 +732,8 @@ final readonly class FieldDescriptor
     public static function scalar(string $name, FieldKind $kind, string $label, ?string $group = null, bool $queryable = false, array $validators = []): self { /* asserts $kind is String/Int/Float/Bool */ }
     public static function choice(string $name, array $options, string $label, ?string $group = null, bool $queryable = false, array $validators = []): self { /* sets choiceOptions */ }
     public static function embed(string $name, string $shapeClass, string $label, ?string $group = null, array $validators = []): self { /* queryable always false — the container isn't a column; individual nested fields marked queryable are, recursively */ }
-    public static function reference(string $name, string $shapeClass, string $label, ?string $group = null, bool $queryable = false, array $validators = []): self { }
-    public static function collection(string $name, FieldKind $itemKind, ?string $referencedShape, string $label, ?string $group = null, array $validators = []): self { /* queryable always false, per the "filtering inside a collection is out of scope" decision */ }
+    public static function reference(string $name, string $shapeClass, string $label, ?string $group = null, bool $queryable = false, array $validators = []): self { /* always a real FK column — $queryable here only controls whether it's indexed for admin-list filtering, never whether it gets a column at all */ }
+    public static function collection(string $name, FieldKind $itemKind, ?string $referencedShape, string $label, ?string $group = null, array $validators = []): self { /* EntityReference items get a real join table (see "Join tables"); EmbeddedValueObject/scalar items live in the JSON blob, always non-queryable — filtering an outer list by a value *inside* a collection stays out of scope for v1 either way, per "Admin list/filter views" */ }
 }
 
 enum FieldKind
@@ -899,9 +938,10 @@ fields (storage key, width, height) per named size (`thumbnail`, `medium`), not 
 separate table.
 
 **Thumbnail generation is synchronous, at upload time — not a background queue**,
-matching the same "build the narrow default, document the escalation" pattern already
-used for the search-index and schema-promotion questions earlier in this document. No
-job-queue mechanism exists anywhere in this design; introducing one just for this would
+matching the same "build the narrow default, document the escalation" pattern used
+throughout this document (the schema-migration trigger policy, the admin list/filter
+views resolution). No job-queue mechanism exists anywhere in this design; introducing
+one just for this would
 be disproportionate new infrastructure. Resizing a handful of named sizes is fast enough
 in practice for a synchronous default; async/queued generation is the explicit
 escalation path if it ever becomes a real bottleneck, not something to build
@@ -979,7 +1019,37 @@ schema-definition UI provides — same shared downstream shape, same
 
 ## Open questions
 
-None remaining from the original list — everything has been resolved into "Decided so
-far" above. Treat this as a snapshot of a completed design pass, not a guarantee nothing
-here will need revisiting once real implementation surfaces constraints this discussion
-didn't anticipate.
+None remaining from the *original* list — that entire pass was resolved into "Decided
+so far" above. This section was reopened after an independent audit of the completed
+document (prompted by a growing risk of drift between decisions made many turns apart)
+surfaced real gaps the discussion never raised at all, not even as deferred items. Logged
+here rather than silently missing:
+
+1. **Uniqueness validation.** Neither `FieldValidator` (pure value checks) nor
+   `PrototypeValidator` (whole-entity checks) can express "unique across other rows" —
+   one of the most ordinary CMS field constraints (slugs, usernames). Needs its own
+   mechanism, likely one that's allowed to query the database, unlike every other
+   validator in this design.
+2. **Concurrent-write protection on an ordinary publish, outside the undo path.** "Undo
+   scope and conflict detection" only covers conflicts when *undoing* an operation.
+   Two admins publishing to the same entity around the same time, with no undo
+   involved, has no described optimistic-lock/version check at flush time.
+3. **No stated connection from a stored entity to a servable URL.** Despite repeatedly
+   borrowing patterns from `Routing/`, nothing here says how a native or
+   editor-authored entity actually becomes something `Router` can dispatch to.
+4. **Schema-level authorization.** `FieldPermission` gates who can read/write a field's
+   *value*, but nothing gates who is allowed to trigger shape changes themselves
+   (create a prototype, add/drop a column on one) — notable given how much of this
+   document is about making those operations safe to perform at all.
+5. **Full-text and cross-content-type search.** Real, indexed columns handle ordinary
+   field filtering, but nothing here handles "find posts containing this phrase" (JSON
+   blob content has no index to search) or "search across Products, Pages, and Media at
+   once." A dedicated search index (a denormalized table, or an actual search engine)
+   is the natural answer if/when this is needed — same documented-escalation treatment
+   as everything else deferred in this document, not built preemptively.
+6. **Unbounded Class Table Inheritance depth has no examined cost.** "Nothing in this
+   design assumes a fixed or bounded chain depth" is presented as a clean win, but
+   hydrating one instance means one join per level — a cost this document never
+   examines, in contrast to how carefully it scoped out the analogous
+   collection-of-collection case elsewhere. Not necessarily a problem, but worth an
+   actual look before assuming arbitrary depth is free.
