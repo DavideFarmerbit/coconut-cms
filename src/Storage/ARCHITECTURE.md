@@ -1017,6 +1017,34 @@ the same `FieldPermission` value attached through whatever the editor's
 schema-definition UI provides — same shared downstream shape, same
 `RouteArguments::ofClass()`/`ofClosure()` precedent this design keeps returning to.
 
+### Entities are data, not routable content — no entity→URL mapping is needed
+
+Closes the audit's "no stated connection from a stored entity to a servable URL" item
+by rejecting the premise rather than answering it — this was never a gap, it's a
+boundary this document should have stated explicitly from the start.
+
+Entities (native or editor-created prototypes) are pure data: shape, storage, identity,
+relationships. Nothing about them inherently makes them visible on the public web.
+Three distinct rendering contexts, three distinct concerns, deliberately decoupled:
+
+- **Public-facing pages are their own concept**, built using the `Routing` subsystem
+  already established in this codebase (`Route`/`Router`/`RoutePattern`) — a route
+  reads whatever entity data it needs (by id, slug, whatever the pattern captures) and
+  renders it. A Product detail page at `/products/{slug}` is a `Route` that happens to
+  read a Product entity; the Product itself has no "own" URL, the route decides to
+  expose one. This isn't a missing piece to design here — `Routing` already fully
+  solves "map a URL to behavior," and that behavior can trivially include "load this
+  entity and render it" without `Storage` needing to know anything about URLs at all.
+- **The admin editor is a third, separate rendering context** — displaying and editing
+  entities directly, via the `FieldDescriptor`-driven generic editor UI this whole
+  document designs, through its own internal URL scheme (e.g. `/admin/products/42/edit`).
+  Also not the entity's "own" URL — an entity can be edited without ever being publicly
+  viewable, and vice versa.
+- **Most entities never get a public URL at all** — a Tag, a Category, a `MediaAsset`
+  rendition, most editor-created subclass rows — only whichever ones a developer (or an
+  editor-authored page-like content type, if that's ever built) explicitly wires a
+  `Route` to.
+
 ## Open questions
 
 None remaining from the *original* list — that entire pass was resolved into "Decided
@@ -1034,20 +1062,17 @@ here rather than silently missing:
    scope and conflict detection" only covers conflicts when *undoing* an operation.
    Two admins publishing to the same entity around the same time, with no undo
    involved, has no described optimistic-lock/version check at flush time.
-3. **No stated connection from a stored entity to a servable URL.** Despite repeatedly
-   borrowing patterns from `Routing/`, nothing here says how a native or
-   editor-authored entity actually becomes something `Router` can dispatch to.
-4. **Schema-level authorization.** `FieldPermission` gates who can read/write a field's
+3. **Schema-level authorization.** `FieldPermission` gates who can read/write a field's
    *value*, but nothing gates who is allowed to trigger shape changes themselves
    (create a prototype, add/drop a column on one) — notable given how much of this
    document is about making those operations safe to perform at all.
-5. **Full-text and cross-content-type search.** Real, indexed columns handle ordinary
+4. **Full-text and cross-content-type search.** Real, indexed columns handle ordinary
    field filtering, but nothing here handles "find posts containing this phrase" (JSON
    blob content has no index to search) or "search across Products, Pages, and Media at
    once." A dedicated search index (a denormalized table, or an actual search engine)
    is the natural answer if/when this is needed — same documented-escalation treatment
    as everything else deferred in this document, not built preemptively.
-6. **Unbounded Class Table Inheritance depth has no examined cost.** "Nothing in this
+5. **Unbounded Class Table Inheritance depth has no examined cost.** "Nothing in this
    design assumes a fixed or bounded chain depth" is presented as a clean win, but
    hydrating one instance means one join per level — a cost this document never
    examines, in contrast to how carefully it scoped out the analogous
