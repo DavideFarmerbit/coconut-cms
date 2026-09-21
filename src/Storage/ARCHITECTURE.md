@@ -186,6 +186,36 @@ subclassed by an editor again, indefinitely, mixing native and editor-created le
 freely. Nothing in this design assumes a fixed or bounded chain depth anywhere — each
 level just adds one more joined table.
 
+**No cap on that depth is needed, and this isn't just an assumption — worth actually
+examining the cost rather than leaving it unexamined, which is what an audit pass
+flagged as missing here.** Three things hold at once:
+
+- **Realistic depth is probably shallow anyway, not by luck but as a direct
+  consequence of a decision already made.** Growing an editor-created subclass in
+  place (adding a nullable column to your *existing* level) is already the cheaper
+  alternative to adding a new level — "I need one more field" never requires more
+  depth. A new level only makes sense for genuine taxonomic branching
+  (`ElectronicsProduct` and `ClothingProduct` as distinct kinds sharing a base), and
+  that pattern branches sideways — siblings at the same depth — not linearly deeper.
+- **Hydrating one instance is cheap regardless of depth, and it's a fundamentally
+  different cost shape than the EAV problem this whole design moved away from.** Each
+  level's join is parent-primary-key to derived-primary-key — about the cheapest join
+  a database can do — for exactly one row. Ten levels deep is ten cheap single-row
+  joins, nowhere near EAV's actual problem (many rows, many simultaneous filter
+  conditions, self-joining a large table). This also isn't a novel risk being
+  introduced here — Class Table Inheritance is Doctrine's own `JOINED` strategy, used
+  in real production systems at exactly this cost profile.
+- **Where cost could plausibly matter — list views needing fields from multiple
+  inheritance levels across many rows at once — isn't a new problem depth
+  introduces.** It's the same query-builder mechanism "Admin list/filter views"
+  already resolved, just needing one thing made explicit that was previously left
+  implicit: resolving a field to its real column also means resolving *which table, at
+  which inheritance level* holds it, and joining that in. If that ever becomes a real
+  bottleneck in practice, it reuses the same documented-but-not-built read-model
+  escalation already on the list for full-text/cross-content search — a denormalized
+  view combining commonly-needed fields across levels — not a depth-specific
+  escalation invented separately.
+
 **What this does and doesn't cover**: creating a new prototype (from scratch, or
 extending an existing one) is always safe — always `CREATE TABLE` on an empty table,
 regardless of who triggers it. Growing an *existing, already-populated* prototype is
@@ -1072,9 +1102,3 @@ here rather than silently missing:
    once." A dedicated search index (a denormalized table, or an actual search engine)
    is the natural answer if/when this is needed — same documented-escalation treatment
    as everything else deferred in this document, not built preemptively.
-5. **Unbounded Class Table Inheritance depth has no examined cost.** "Nothing in this
-   design assumes a fixed or bounded chain depth" is presented as a clean win, but
-   hydrating one instance means one join per level — a cost this document never
-   examines, in contrast to how carefully it scoped out the analogous
-   collection-of-collection case elsewhere. Not necessarily a problem, but worth an
-   actual look before assuming arbitrary depth is free.
