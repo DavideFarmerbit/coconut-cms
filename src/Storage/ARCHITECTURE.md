@@ -394,6 +394,27 @@ and, now, for this. One pipeline, two categories of operation:
 operation" — the same mechanism regardless of whether what's being undone is a content
 publish or an admin dropping a column.
 
+**Redo needs no new mechanism at all.** Since undo is already implemented as "compute
+and flush a new inverse changeset," not as an in-place rollback, undoing an operation
+just appends *another* logged operation to the same history — the inverse of the
+original. Redo is simply "undo the undo": apply the inverse of *that* operation, which
+reconstructs the original by definition. The append-only, log-everything design already
+covers it.
+
+**File-backed entities (`MediaAsset`, see Media/file fields) need one explicit rule for
+this to actually hold, though**: undoing "add media" computes the inverse as "delete
+this `MediaAsset` row," and if that also immediately reclaimed the underlying file
+bytes, redo would break — re-creating the row has nothing to point back to once the
+bytes are gone, and the same problem hits a plain revision-restore after enough time has
+passed. **Decided: removing a `MediaAsset` reference is immediate at the database
+level, but reclaiming the physical file bytes is deferred, piggybacking on the same
+retention-window pruning sweep already governing this whole pipeline** — a file's bytes
+stay on disk as long as anything still surviving the retention window (an undo-log
+entry, a revision, or the current live state) could still reference them; only once the
+pruning sweep removes the last such reference does it become safe to actually delete the
+file. Fourth reuse of the same "keep last N, prune older" shape in this document, not a
+one-off special case for media.
+
 #### Client-side command stack: not every entry is a free, local revert
 
 The original framing (session-scoped, client-side, matching Unreal's
@@ -440,6 +461,57 @@ a `RemoteCommand`, reverting the UI before confirmation risks showing something 
 doesn't match what the database actually holds if the undo fails (a conflict, a network
 error). From the user's perspective Ctrl+Z always looks the same either way — it's only
 under the hood that some entries resolve instantly and others wait on a response.
+
+#### Undo scope and conflict detection: who can undo what, and what happens if something changed since
+
+**Ctrl+Z is inherently per-user, with no scoping decision needed to make it so.** A
+`RemoteCommand`'s `operationId` only ever gets pushed onto *this user's own* client-side
+stack, because that stack is only ever populated by this user's own actions — there is
+no path by which a user's Ctrl+Z could reach an operation they never triggered, since
+their client never recorded anyone else's. The universal undo-log itself (see above) is
+genuinely shared and per-entity — that's the correct source of truth for **revision
+history**, a separate, deliberate UI surface where an admin can view and restore *any*
+past state, including one authored by someone else. The two surfaces read from the same
+underlying log, but Ctrl+Z only ever reaches into the calling user's own slice of it.
+
+**Two genuinely different kinds of conflict can arise between when an operation
+happened and when someone tries to undo it — only one of them needs new machinery:**
+
+1. **A later operation changed a value the undo would overwrite.** Caught by an
+   explicit application-level check: before applying an undo, check whether any
+   operation logged *after* the target touched any of the same `(entity, field)` pairs
+   the target operation touched — across every entity the target spanned, not just one,
+   since a single changeset can atomically touch several (create a Tag, attach it to a
+   Product). For a *creation*, every field of the created entity counts as touched, not
+   just a fixed subset — undoing a creation means deleting the whole entity, and if
+   anything about it has changed since, silently deleting it would destroy real work.
+   Nothing in the database catches this on its own; it has to be an explicit check.
+2. **A later operation created a new dependency on an entity the undo would delete,
+   without ever touching that entity's own fields.** E.g., after Tag #7 is created,
+   someone attaches it to a *different* Product — an operation that never touches any
+   of Tag #7's own fields, so check 1 can't see it. This is already handled for free:
+   `RESTRICT` (the default FK policy decided above) means the database itself refuses
+   the delete with a constraint violation the moment the undo's inverse changeset tries
+   to remove a still-referenced row — the undo transaction fails cleanly, rolled back,
+   no corruption. No new mechanism needed, though a proactive pre-check purely for a
+   friendlier error message ("can't undo: Tag 'sale' is now also used by Product #99"
+   instead of a raw constraint violation) is a reasonable optional UX polish, not a
+   correctness requirement.
+
+**Neither kind of conflict is auto-reconciled — both surface as a refusal, not a
+silent merge.** Attempting to compute a three-way merge here would be exactly the kind
+of disproportionate machinery already ruled out for full event sourcing; Git's own
+`revert` takes the same posture (detect, surface, let a human decide). The two UI
+surfaces differ only in how the refusal is presented: Ctrl+Z auto-blocks outright, since
+it's an implicit, un-signposted action; the deliberate revision-history restore can
+reasonably show a confirm-with-warning instead ("this would lose the following changes
+made since — proceed?"), since navigating there and choosing a specific past state is
+already an informed, deliberate act, not a surprise.
+
+**Executing a multi-entity undo needs no new ordering logic.** Undo is already "compute
+the inverse, then flush it" — and flushing any changeset, inverse ones included, already
+goes through the same topological sort the write path always uses. Multi-entity undo
+ordering is correct by construction, not a separate problem to solve.
 
 ### Write path: explicit changeset (not auto-diffing), with real topological sort
 
@@ -708,7 +780,14 @@ can probably layer on without disturbing what's already settled):
    potentially per-field (e.g. a flag only admins can touch). Unaddressed.
 2. **Media/file fields.** Images and uploads likely want their own handling (storage
    backend, thumbnails, metadata) rather than being just another field value — probably
-   its own Entity type eventually, not designed yet.
+   its own Entity type eventually, not designed yet. Two pieces already resolved as a
+   consequence of other decisions, though: a media field is just an `EntityReference`
+   to a `MediaAsset` entity (no special changeset handling needed, including for
+   inline-created media within a flush — the existing temp-id/topological-sort
+   mechanism already covers it), and file-byte cleanup on delete/undo is deferred to the
+   undo-log's retention-window pruning sweep (see "The universal undo-log" above), not
+   immediate. What's still open: the actual upload/storage-backend/thumbnail-generation
+   pipeline itself.
 3. **Exact changeset shape.** Needs to express field-level changes per entity plus
    temporary/placeholder ids for not-yet-persisted entities referenced within the same
    flush (see Write path above) — not specified in detail yet.
