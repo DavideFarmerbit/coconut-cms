@@ -751,6 +751,7 @@ final readonly class FieldDescriptor
         public string $label,
         public ?string $group,
         public bool $queryable,
+        public bool $unique,
         /** @var FieldValidator[] */
         public array $validators,
         public ?string $referencedShape = null,
@@ -759,10 +760,10 @@ final readonly class FieldDescriptor
     ) {
     }
 
-    public static function scalar(string $name, FieldKind $kind, string $label, ?string $group = null, bool $queryable = false, array $validators = []): self { /* asserts $kind is String/Int/Float/Bool */ }
+    public static function scalar(string $name, FieldKind $kind, string $label, ?string $group = null, bool $queryable = false, bool $unique = false, array $validators = []): self { /* asserts $kind is String/Int/Float/Bool; $unique implies $queryable — a UNIQUE constraint needs a real column regardless of what was passed for $queryable, see "Uniqueness validation" */ }
     public static function choice(string $name, array $options, string $label, ?string $group = null, bool $queryable = false, array $validators = []): self { /* sets choiceOptions */ }
     public static function embed(string $name, string $shapeClass, string $label, ?string $group = null, array $validators = []): self { /* queryable always false — the container isn't a column; individual nested fields marked queryable are, recursively */ }
-    public static function reference(string $name, string $shapeClass, string $label, ?string $group = null, bool $queryable = false, array $validators = []): self { /* always a real FK column — $queryable here only controls whether it's indexed for admin-list filtering, never whether it gets a column at all */ }
+    public static function reference(string $name, string $shapeClass, string $label, ?string $group = null, bool $queryable = false, bool $unique = false, array $validators = []): self { /* always a real FK column regardless of $queryable/$unique — those only control indexing/constraints on a column that exists either way */ }
     public static function collection(string $name, FieldKind $itemKind, ?string $referencedShape, string $label, ?string $group = null, array $validators = []): self { /* EntityReference items get a real join table (see "Join tables"); EmbeddedValueObject/scalar items live in the JSON blob, always non-queryable — filtering an outer list by a value *inside* a collection stays out of scope for v1 either way, per "Admin list/filter views" */ }
 }
 
@@ -1075,6 +1076,49 @@ Three distinct rendering contexts, three distinct concerns, deliberately decoupl
   editor-authored page-like content type, if that's ever built) explicitly wires a
   `Route` to.
 
+### Uniqueness validation: a `FieldDescriptor` flag, not a new validator interface
+
+Closes the "neither `FieldValidator` nor `PrototypeValidator` can express uniqueness"
+gap. Every validator in this design is a pure function — it only ever sees the value(s)
+being set, never anything about other rows — and uniqueness can't be expressed that way
+at all, since it inherently depends on every *other* existing row. That's not a reason
+to bolt a database-querying variant onto the validator interfaces, though: it belongs in
+the same bucket as `queryable` — schema metadata, not a value-correctness strategy.
+
+`FieldDescriptor` gains a `unique: bool` flag (`scalar()` and `reference()` only — the
+two factories where it's meaningful). **`unique: true` implies `queryable: true`
+regardless of what was passed for it** — a `UNIQUE` database constraint needs a real
+column to attach to, the same hard requirement `EntityReference` already has on
+`queryable` for a different reason. In practice this is rarely a real constraint on
+anyone: the fields that need uniqueness (slugs, SKUs, usernames) are almost always
+fields you'd want queryable anyway.
+
+**Enforcement is two-layered, the same "backstop plus optional friendlier pre-check"
+shape already used for the FK `RESTRICT` conflict case:**
+
+- **Authoritative: a real `UNIQUE` database constraint**, generated via the same
+  DBAL-based schema-migration mechanism already built for columns and indexes — no new
+  infrastructure. A violation fails the flush transaction cleanly, rolled back, no
+  corruption.
+- **Friendly: a proactive `SELECT ... WHERE field = ? AND id != ?` check**, hooked into
+  the exact same point `FieldValidator`/`PrototypeValidator` checks already run at —
+  before the flush transaction opens — purely to produce a clear message ("this slug is
+  already taken") instead of a raw constraint violation. The `id != ?` exclusion only
+  applies when updating an existing row; a brand-new creation has nothing to exclude.
+
+**Scope falls out of Class Table Inheritance's structure for free, no extra design
+needed.** A `unique` field declared on a base prototype gets its constraint on the base
+table — which every concrete instance has exactly one row in regardless of which
+derived subclass it actually is — so uniqueness is automatically enforced across the
+*whole* inheritance family. Declared on a field that only exists at a derived level, the
+constraint is naturally scoped to just that level's own table. Same mechanism either
+way, no special-casing.
+
+**Optional, not required**: an async "check availability" endpoint (checking as an
+admin types/blurs the field, before full submission) reusing the exact same query as the
+authoritative pre-check — just an earlier-firing version of the same round trip, not a
+new validation tier alongside the three already established for client-side checks.
+
 ## Open questions
 
 None remaining from the *original* list — that entire pass was resolved into "Decided
@@ -1083,20 +1127,15 @@ document (prompted by a growing risk of drift between decisions made many turns 
 surfaced real gaps the discussion never raised at all, not even as deferred items. Logged
 here rather than silently missing:
 
-1. **Uniqueness validation.** Neither `FieldValidator` (pure value checks) nor
-   `PrototypeValidator` (whole-entity checks) can express "unique across other rows" —
-   one of the most ordinary CMS field constraints (slugs, usernames). Needs its own
-   mechanism, likely one that's allowed to query the database, unlike every other
-   validator in this design.
-2. **Concurrent-write protection on an ordinary publish, outside the undo path.** "Undo
+1. **Concurrent-write protection on an ordinary publish, outside the undo path.** "Undo
    scope and conflict detection" only covers conflicts when *undoing* an operation.
    Two admins publishing to the same entity around the same time, with no undo
    involved, has no described optimistic-lock/version check at flush time.
-3. **Schema-level authorization.** `FieldPermission` gates who can read/write a field's
+2. **Schema-level authorization.** `FieldPermission` gates who can read/write a field's
    *value*, but nothing gates who is allowed to trigger shape changes themselves
    (create a prototype, add/drop a column on one) — notable given how much of this
    document is about making those operations safe to perform at all.
-4. **Full-text and cross-content-type search.** Real, indexed columns handle ordinary
+3. **Full-text and cross-content-type search.** Real, indexed columns handle ordinary
    field filtering, but nothing here handles "find posts containing this phrase" (JSON
    blob content has no index to search) or "search across Products, Pages, and Media at
    once." A dedicated search index (a denormalized table, or an actual search engine)
