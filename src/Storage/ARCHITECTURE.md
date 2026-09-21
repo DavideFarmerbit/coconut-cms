@@ -1,8 +1,10 @@
 # Storage / Editor Architecture — Design Notes
 
-Status: **future phase, nothing in this document is implemented yet.** This is a decision
-log from an early design discussion, kept here so the reasoning isn't lost before the
-work actually starts. Revisit and revise as real constraints show up.
+Status: **future phase, nothing in this document is implemented yet.** The design pass
+is complete — every item originally raised has been worked through to a decision (see
+"Open questions" at the end) — but this is still a decision log, not a spec frozen in
+stone. Revisit and revise as real implementation surfaces constraints this discussion
+didn't anticipate.
 
 ## The goal
 
@@ -859,20 +861,125 @@ editor UI, or already-typed PHP values from programmatic code) need a casting st
 against each field's `FieldDescriptor`-declared kind before validation runs — a
 pipeline stage, not a new class needing full design here.
 
-## Open questions — not yet decided
+### Media/file fields: storage backend, `MediaAsset`'s shape, and thumbnails
 
-Roughly in order of how much they threaten the decisions already made above (the rest
-can probably layer on without disturbing what's already settled):
+Two pieces were already resolved as a consequence of earlier decisions rather than
+needing new design: a media field is just an `EntityReference` to a `MediaAsset` entity
+(no special changeset handling, including for inline-created media within a flush — the
+existing temp-id/topological-sort mechanism already covers it), and file-byte cleanup
+on delete/undo is deferred to the undo-log's retention-window pruning sweep (see "The
+universal undo-log" above), not immediate. What was still open — the actual
+upload/storage-backend/thumbnail pipeline — resolves as follows:
 
-1. **Field-level permissions.** Not just "can this user edit this content type" but
-   potentially per-field (e.g. a flag only admins can touch). Unaddressed.
-2. **Media/file fields.** Images and uploads likely want their own handling (storage
-   backend, thumbnails, metadata) rather than being just another field value — probably
-   its own Entity type eventually, not designed yet. Two pieces already resolved as a
-   consequence of other decisions, though: a media field is just an `EntityReference`
-   to a `MediaAsset` entity (no special changeset handling needed, including for
-   inline-created media within a flush — the existing temp-id/topological-sort
-   mechanism already covers it), and file-byte cleanup on delete/undo is deferred to the
-   undo-log's retention-window pruning sweep (see "The universal undo-log" above), not
-   immediate. What's still open: the actual upload/storage-backend/thumbnail-generation
-   pipeline itself.
+**Storage backend: the same interface-plus-swappable-default pattern already used
+three times** (`RouteValueCaster`, `ErrorLogger`, `FieldValidator`) — a `FileStorage`
+interface (`put`/`get`/`delete`/`urlFor`) with a `LocalFileStorage` default writing to a
+configured directory, matching this project's demonstrated aim at portable/shared
+hosting rather than assuming object-storage infrastructure exists. An S3-compatible
+implementation is a natural later addition for anyone who needs it, without touching
+`MediaAsset` or the changeset mechanism at all — nothing else needs to know which
+backend is in play. Storing raw bytes directly in a database column was considered and
+rejected explicitly, not just omitted: it bloats backups, most databases aren't built to
+serve large blobs efficiently, and it fights against keeping real columns narrow and
+queryable, already decided elsewhere in this document.
+
+**`MediaAsset` is its own Entity**, with the metadata fields worth filtering admin lists
+by — filename, mime type, file size — marked `#[Field(queryable: true)]`, direct reuse
+of the existing mechanism, nothing new. It holds a *reference* (a storage key/path) to
+where `FileStorage` put the bytes, never the bytes themselves.
+
+**Thumbnails/renditions are Value Objects embedded in `MediaAsset`, not their own
+Entities — this falls straight out of the Entity-vs-Value-Object test already decided,
+not a fresh judgment call.** Running the four questions against a thumbnail: shared or
+referenced independently of its parent image? No. Queried independently? No. Its own
+lifecycle? No — it dies the moment its parent does. Is "the thumbnail" a persistent
+thing people think of as the same thing over time, independent of the image it belongs
+to? No. Every answer says Value Object — a rendition is a couple of embedded scalar
+fields (storage key, width, height) per named size (`thumbnail`, `medium`), not a
+separate table.
+
+**Thumbnail generation is synchronous, at upload time — not a background queue**,
+matching the same "build the narrow default, document the escalation" pattern already
+used for the search-index and schema-promotion questions earlier in this document. No
+job-queue mechanism exists anywhere in this design; introducing one just for this would
+be disproportionate new infrastructure. Resizing a handful of named sizes is fast enough
+in practice for a synchronous default; async/queued generation is the explicit
+escalation path if it ever becomes a real bottleneck, not something to build
+preemptively.
+
+**Validation needs no new mechanism** — file size limits and allowed mime types are
+just ordinary `FieldValidator` implementations (`MaxFileSizeValidator`,
+`AllowedMimeTypeValidator`), same interface as everything else. One thing worth being
+firm about, since it's a real security requirement and not a nice-to-have: **validate
+the actual file content against its claimed type, not just the `Content-Type` header or
+file extension** — trusting either is a classic upload vulnerability (a PHP file renamed
+to `.jpg`). Uploaded files also need to live somewhere the webserver won't execute as
+code, regardless of what gets uploaded.
+
+**One dependency worth naming, not solving here**: uploads arrive as `POST` requests,
+and `Route`/`Router` don't check HTTP method at all yet — a real, already-flagged bug in
+the implemented `Routing` code, separate from this document, but a genuine prerequisite
+before upload handling could actually be wired up through the routing layer.
+
+### Field-level permissions: a separate strategy interface, not another `FieldValidator`
+
+Genuinely different from validation, not another flavor of it: `FieldValidator` only
+ever sees the value being set, with no notion of *who* is setting it — permission is
+about the actor, which needs its own interface rather than bolting an actor parameter
+onto value validation:
+
+```php
+interface FieldPermission
+{
+    public function canRead(Actor $actor): bool;
+    public function canWrite(Actor $actor): bool;
+}
+```
+
+Fifth reuse of the same strategy-pattern shape in this document (`RouteValueCaster`,
+`ErrorLogger`, `FieldValidator`, `FileStorage`, now this). A simple default like
+`RolePermission` (checks the actor holds a given role) covers the common case;
+`FieldDescriptor`'s factories gain an optional `permission: ?FieldPermission = null`
+parameter, same shape as `validators` — null meaning "no restriction beyond whatever
+content-type-level access already governs this entity," not something every field needs
+to specify.
+
+**Three enforcement points, mirroring the client/server split already established for
+validation:**
+
+1. **Read** — filters which fields even appear when hydrating an entity for display (an
+   editor form, an API response). An actor without read permission for a field
+   shouldn't see it exists, not just see it disabled.
+2. **Write, server-side, mandatory** — hooks into the exact place validation already
+   hooks into: checked against every field name in an incoming changeset's
+   `EntityChange::$values`, *before* validation even runs — "is this actor even allowed
+   to touch this field" is a more fundamental gate than "is the value well-formed."
+   A violation rejects the whole changeset outright, same "fail before, not during"
+   posture as everything else in the write path.
+3. **Write, client-side** — pure UX convenience: don't render an editable input for a
+   field the current actor lacks write permission for. Never authoritative, same
+   relationship client-side validation already has to the server-side check.
+
+**This generalizes to undo and revision-restore for free, with zero special-casing —
+worth stating explicitly since it's a genuine consequence of the design, not an
+assumption.** Ctrl+Z only ever operates on operationIds the current actor's own client
+recorded — if they never had write permission for a field, they could never have
+triggered an operation touching it, so it can't appear in their own stack to begin
+with. The deliberate revision-history restore path can target any past operation,
+including ones by other actors — but restoring is just "build and flush a changeset,"
+and that changeset goes through the exact same write-permission check as any other
+flush. No new logic needed for either path.
+
+**Definition source follows the same two-source principle from the very first decision
+in this document**: a native class expresses permission via an attribute
+(`#[Field(permission: new RolePermission('admin'))]`), an editor-assembled field gets
+the same `FieldPermission` value attached through whatever the editor's
+schema-definition UI provides — same shared downstream shape, same
+`RouteArguments::ofClass()`/`ofClosure()` precedent this design keeps returning to.
+
+## Open questions
+
+None remaining from the original list — everything has been resolved into "Decided so
+far" above. Treat this as a snapshot of a completed design pass, not a guarantee nothing
+here will need revisiting once real implementation surfaces constraints this discussion
+didn't anticipate.
