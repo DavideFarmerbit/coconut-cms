@@ -419,6 +419,121 @@ Adding client-side support for a previously-server-only type later is purely a
 client-side change; the PHP validator class and its `describe()` output never need to
 change.
 
+### Exact `FieldDescriptor` shape, and the `Blueprintable` attribute
+
+Almost every prior decision feeds into this one, so it's assembled rather than picked
+from options. Private constructor plus named static factories — the same pattern
+already used for `Route::structured()`/`Route::simple()` in this codebase — rather than
+one constructor with independent nullable properties, specifically to make invalid
+combinations (a `String` kind with a `referencedShape` set, a `Collection` with no
+`collectionItemKind`) unrepresentable instead of just unlikely:
+
+```php
+final readonly class FieldDescriptor
+{
+    private function __construct(
+        public string $name,
+        public FieldKind $kind,
+        public string $label,
+        public ?string $group,
+        public bool $queryable,
+        /** @var FieldValidator[] */
+        public array $validators,
+        public ?string $referencedShape = null,
+        public ?FieldKind $collectionItemKind = null,
+        public ?array $choiceOptions = null,
+    ) {
+    }
+
+    public static function scalar(string $name, FieldKind $kind, string $label, ?string $group = null, bool $queryable = false, array $validators = []): self { /* asserts $kind is String/Int/Float/Bool */ }
+    public static function choice(string $name, array $options, string $label, ?string $group = null, bool $queryable = false, array $validators = []): self { /* sets choiceOptions */ }
+    public static function embed(string $name, string $shapeClass, string $label, ?string $group = null, array $validators = []): self { /* queryable always false — the container isn't a column; individual nested fields marked queryable are, recursively */ }
+    public static function reference(string $name, string $shapeClass, string $label, ?string $group = null, bool $queryable = false, array $validators = []): self { }
+    public static function collection(string $name, FieldKind $itemKind, ?string $referencedShape, string $label, ?string $group = null, array $validators = []): self { /* queryable always false, per the "filtering inside a collection is out of scope" decision */ }
+}
+
+enum FieldKind
+{
+    case String;
+    case Int;
+    case Float;
+    case Bool;
+    case Choice;              // enum-like; options live in $choiceOptions, not a real PHP enum
+    case EmbeddedValueObject; // no identity — inlined into the owner's storage
+    case EntityReference;     // has identity — stored as an FK
+    case Collection;          // repeated instances of $collectionItemKind
+}
+```
+
+Deliberately **no `optional` property** — an earlier draft had one, but it either
+duplicates or contradicts the `FieldValidator[]` list, which already covers "required"
+as a composable rule (what wins if `optional: true` but a `RequiredValidator` is also
+present?). Same shape-vs-business-rule conflation splitting `FieldValidator` out of
+`FieldDescriptor` was meant to prevent in the first place. Storage columns just stay
+nullable by default; the validator layer is what actually gates whether an empty value
+is acceptable, before a write ever happens.
+
+**`queryable` applies recursively**, which is what resolves "define extra columns
+programmatically" for a nested struct without needing a separate mechanism: an embedded
+value object's own fields are themselves `FieldDescriptor`s, so marking one `queryable`
+inside an otherwise-blob value object is the entire story — the DBAL-translation step
+walks the whole `FieldDescriptor` tree and dot-flattens any `queryable` one it finds at
+any depth (`address.city` → `address_city`), the same embeddable column-unwrapping
+mechanism already agreed on.
+
+**For native classes**, an attribute carries only what reflection can't already tell
+us — plain scalar `kind` is inferred from the property's real PHP type, the same way
+`RouteValueCaster` infers casting behavior from a `ReflectionParameter`'s type rather
+than needing it redeclared. A property whose type is another class needs one of two
+explicit attributes, since "is this shared/referenced or just embedded content" is
+exactly the Entity-vs-Value-Object judgment already decided as never inferable:
+
+```php
+#[Attribute(Attribute::TARGET_PROPERTY)]
+final readonly class Field
+{
+    public function __construct(
+        public ?string $label = null,
+        public ?string $group = null,
+        public bool $queryable = false,
+        public array $validators = [],
+    ) {
+    }
+}
+```
+
+`#[Embed]` and `#[Reference]` sit alongside `#[Field]` for the class-typed-property
+case, mirroring Doctrine's own `#[Embedded]` vs. `#[ManyToOne]` split. A property
+carrying more than one of these needs to be rejected at reflection time with a clear
+error — not silently resolved by picking one — an implementation detail worth
+remembering, not a design gap.
+
+**For editor-assembled prototypes**, the same `FieldDescriptor`/`FieldKind` objects are
+built directly from stored schema rows rather than reflection — no attributes involved,
+just constructing the same value objects from different data, per the two-sources
+principle from the very first decision in this document.
+
+**`Blueprintable` is class-level, not per-field** — it doesn't belong in
+`FieldDescriptor` at all:
+
+```php
+#[Attribute(Attribute::TARGET_CLASS)]
+final readonly class Blueprintable
+{
+}
+```
+
+**Reading a prototype's full effective shape** means walking its whole inheritance
+chain and concatenating each level's own `FieldDescriptor[]` — the shape-level
+counterpart to Class Table Inheritance needing a join up the chain at the storage
+level.
+
+**Known, accepted limitation**: collection-of-collection (a list of lists) isn't
+representable in this shape — `collectionItemKind` has no way to itself be `Collection`
+with its own nested item kind. Scoped out deliberately rather than left ambiguous; rare
+enough for a CMS content model that it isn't worth the added complexity until a real
+case demands it.
+
 ## Open questions — not yet decided
 
 Roughly in order of how much they threaten the decisions already made above (the rest
@@ -431,14 +546,10 @@ can probably layer on without disturbing what's already settled):
 3. **Media/file fields.** Images and uploads likely want their own handling (storage
    backend, thumbnails, metadata) rather than being just another field value — probably
    its own Entity type eventually, not designed yet.
-4. **Exact `FieldDescriptor` shape and attribute design**, including the exact
-   mechanism for opting a native class in to being admin-subclassable (Unreal's
-   `Blueprintable` flag, essentially — agreed in principle, not designed in detail).
-   Named as a concept throughout, not specified field-by-field yet.
-5. **Exact changeset shape.** Needs to express field-level changes per entity plus
+4. **Exact changeset shape.** Needs to express field-level changes per entity plus
    temporary/placeholder ids for not-yet-persisted entities referenced within the same
    flush (see Write path above) — not specified in detail yet.
-6. **FK `ON DELETE` behavior vs. app-level delete ordering.** The topological sort
+5. **FK `ON DELETE` behavior vs. app-level delete ordering.** The topological sort
    handles delete ordering at the application level — worth deciding later whether the
    database's own `CASCADE`/`RESTRICT` constraints are also relied on as a backstop, or
    whether the app-level sort is treated as the only safety net.
