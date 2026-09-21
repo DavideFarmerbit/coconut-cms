@@ -156,7 +156,11 @@ type," while still only ever needing `CREATE TABLE` for the new derived table �
 touching the existing parent table, so the safety property above holds. This is also a
 named, real Doctrine strategy (`JOINED` inheritance), not invented from scratch. It
 composes uniformly regardless of whether the prototype being extended is native or
-itself editor-created — same mechanism either way.
+itself editor-created — same mechanism either way, **to arbitrary depth**: a native
+class can be subclassed by an editor, and that editor-created subclass can itself be
+subclassed by an editor again, indefinitely, mixing native and editor-created levels
+freely. Nothing in this design assumes a fixed or bounded chain depth anywhere — each
+level just adds one more joined table.
 
 **What this does and doesn't cover**: creating a new prototype (from scratch, or
 extending an existing one) is always safe — always `CREATE TABLE` on an empty table,
@@ -188,6 +192,56 @@ Not worth it: small purely-presentational edit-inline structs that only ever loa
 as a unit with their owner and are never queried independently (an SEO-metadata struct
 on a page, say) — a value-object column, or a spot in the JSON blob, is simpler and
 sufficient there.
+
+### FK `ON DELETE` policy: `RESTRICT` by default, `CASCADE` only for Class Table Inheritance
+
+Resolves a real tension between two already-decided mechanisms rather than being a
+stylistic pick: the app-level topological sort already computes safe delete order
+itself, and the universal undo-log only knows about operations the application
+explicitly processes through a changeset. Leaning on database-level `CASCADE` broadly
+would let the database silently delete rows the application never logged — invisible to
+the undo pipeline, permanently unrecoverable through it.
+
+- **`RESTRICT` (the engine's strictest option) is the default for genuine
+  entity-to-entity references** (Product → Tag, Product → Category). The app-level
+  topological sort is the actual mechanism that makes deletes happen in a safe order;
+  the constraint is a correctness backstop for if that logic ever has a bug — a clear,
+  rolled-back error, not silent data loss — never something the normal path is expected
+  to hit.
+- **`CASCADE` specifically for the Class Table Inheritance link** between a prototype's
+  table and each level's derived table. This relationship isn't a genuine
+  entity-to-entity reference at all — a derived table's row has no independent meaning
+  without its base row, much closer to how a value object relates to its owner than to
+  how two real entities reference each other. Deleting the base entity is already one
+  `ChangesetOperation`; the derived row disappearing is an implementation detail of
+  carrying that out, not an independent event anyone would want to undo separately.
+- **`SET NULL` is a legitimate choice only for references that are genuinely
+  optional** — tied to whether that reference field actually carries a
+  `RequiredValidator`; a required reference should never be allowed to silently go null.
+
+**Confirmed this doesn't break undo, and why it's actually fine:** `CASCADE` only
+affects what the database does *after* a delete is issued — it has no bearing on
+whether the snapshot taken *before* the delete was complete. The undo-log already
+requires snapshotting an entity's full state before any delete to compute its inverse;
+as long as that snapshot walks the whole inheritance chain (base table plus every
+derived level — exactly the same join an ordinary read already performs), the snapshot
+is complete regardless of what the database cleans up afterward. Restoring after undo
+needs no new machinery either — it's just flushing an insert changeset built from the
+snapshot, going through the exact same base-then-derived insert ordering already used
+to create a new instance of that prototype from scratch.
+
+The one thing this depends on, worth being explicit about so it isn't silently missed
+when this gets built: the snapshot-before-delete step has to actually invoke the
+full-chain hydration, not just read the base table's own row. The capability already
+exists — it's the same join every ordinary read already performs — it just has to be
+invoked at the right moment.
+
+**Chains go to arbitrary depth (see Class Table Inheritance above), and `CASCADE` needs
+to be set consistently at every level, not just the first**, so deleting the root
+entity cleans up the whole chain regardless of how many native and editor-created
+levels sit beneath it. There's also no meaningful "delete just one middle layer"
+operation — deletion always targets the whole entity, top to bottom, at whatever depth
+the chain happens to be.
 
 ### Entity vs. Value Object is the line that actually decides "does this get a table"
 
@@ -658,7 +712,3 @@ can probably layer on without disturbing what's already settled):
 3. **Exact changeset shape.** Needs to express field-level changes per entity plus
    temporary/placeholder ids for not-yet-persisted entities referenced within the same
    flush (see Write path above) — not specified in detail yet.
-4. **FK `ON DELETE` behavior vs. app-level delete ordering.** The topological sort
-   handles delete ordering at the application level — worth deciding later whether the
-   database's own `CASCADE`/`RESTRICT` constraints are also relied on as a backstop, or
-   whether the app-level sort is treated as the only safety net.
