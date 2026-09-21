@@ -24,8 +24,9 @@ Two other pieces belong to the same phase and are referenced throughout this doc
   treat "reflect a real PHP class" as *one* source of shape information, not the only
   one.
 - **Undo queue**: editor operations are recorded as invertible commands so Ctrl+Z works
-  client-side. See "Undo / command queue" below — it turns out to share real structure
-  with the server-side write path.
+  client-side. See "Undo, draft, and revisions" below — it turns out to share real
+  structure with the server-side write path, and to actually be three related but
+  distinct pipelines, not one.
 
 ## Decided so far
 
@@ -132,9 +133,10 @@ runtime; you subclass it and add properties to the subclass. Same rule here:
   default, or a true rename all stay off the table entirely; a rename is better modeled
   as "add a new column, deprecate the old one."
 - **Dropping a property loses whatever data lived in that column** — this is exactly the
-  kind of operation that should trigger the backup/revision mechanism first (see "Undo /
-  command queue" below), so an admin's mistake is recoverable through the same
-  revision-history pipeline rather than being a new problem to solve.
+  kind of operation the universal undo-log pipeline covers (see "Undo, draft, and
+  revisions" below — a `SchemaOperation` entry, snapshotted before the drop), so an
+  admin's mistake is recoverable through the same mechanism as any other undo, not a new
+  problem to solve.
 - **A native class must opt in to being subclassable by admins** — Unreal's
   `Blueprintable` flag, essentially. Not every native class should be extensible by
   admins by default (an internal infrastructure class was never meant to be content).
@@ -254,27 +256,136 @@ are dynamic, discovered at runtime as things get touched during a request. Same
 underlying principle ("resolve once, cache by key, reuse the instance"), different
 structure.
 
-### Undo / command queue
+### Undo, draft, and revisions: three pipelines, not one, and why they're separate
 
-Editor operations are recorded as invertible commands, undo stack lives client-side —
-same pattern as Unreal's own editor transactions (`FScopedTransaction`) and how
-Figma/Google Docs do it. Lean: **session-scoped, not required to survive a page
-reload/crash** — that's what real editors of this kind actually do, and persisting a
-durable command log (IndexedDB client-side, or streamed to the server) is a
-substantially bigger lift that isn't clearly justified yet.
+These three concepts turned out to need pulling apart rather than being designed as one
+"undo/history" feature — each answers a genuinely different question, and conflating
+them was the source of most of the confusion working through this.
 
-Important operations should also produce **server-side backups**, and this falls out
-almost for free *if* the generic serialization pipeline above is solid: a backup is just
-"keep the last N snapshots instead of overwriting, prune older ones" — the exact same
-shape already implemented for log rotation
-(`Core\Error\Logger\DefaultErrorLogger`: `error-YYYY-MM-DD.log`, prune anything past
-`retainDays`). Worth reusing that pattern directly for content revision history rather
-than designing a new one.
+**Draftable** answers "should this be hidden from the public until it's ready?" — a
+question that only makes sense for content value changes. Nobody "sees" a schema, so
+there's nothing to hide there.
 
-Also worth designing together rather than separately: the client-side command stream
-and the server-side "what changed, what needs to be flushed" tracking (see Unit of Work
-below) are conceptually the same kind of diff. Two independent systems solving
-adjacent problems is a likely source of drift.
+**Undoable** answers "can this already-applied operation be reversed?" — genuinely
+universal, applying equally to a content publish and an admin dropping a column on an
+editor-created prototype. Both are just "an operation that changed state," and wanting
+to reverse either is the same underlying need.
+
+#### Draft: a persisted-but-unflushed changeset, not a duplicate row
+
+A draft doesn't need its own storage/identity concept — it's the changeset the write
+path already produces, just **persisted instead of flushed**. This reuses the entire
+write path with zero new mechanism for publishing:
+
+- "Publish" is flushing an already-built changeset through the write path exactly as
+  designed — same topological sort, same temp-id resolution, same transaction. No
+  separate merge/promote step to reconcile two divergent copies of an entity.
+- A brand-new, never-published entity's draft is just a changeset targeting a temporary
+  id, same mechanism already built for inline entity creation within a flush — "draft of
+  something new" and "draft of an edit to something existing" reduce to the same
+  concept, no special-casing between them.
+- Public-facing reads are entirely unaffected by drafts in progress — the published row
+  sits untouched until an actual flush happens.
+
+Two genuinely new pieces this needs, both smaller than a duplicate-row scheme would
+have required: somewhere to **persist** an unflushed changeset (a small store keyed by
+target entity/session, not a duplicate table), and an **apply-in-memory** function
+(hydrated entity + changeset → preview, no write, no transaction, no topological sort
+needed for a single entity's own preview — ordering only matters across multiple
+entities' relative writes). A draft referencing a not-yet-real inline entity via a temp
+id needs the preview to resolve that id to its in-progress values, not a real row — a
+real detail to remember when this gets built, not a blocker.
+
+Deliberately out of scope: real-time concurrent multi-editor collaboration on the same
+entity (one pending draft per entity for v1 — a second editor takes over the existing
+draft or hits a conflict warning), and multiple named draft checkpoints beyond what the
+client-side undo stack already provides.
+
+**Schema changes are never draftable.** A changeset's own validation checks field names
+against `FieldDescriptor[]`, which means the schema must already exist before a
+changeset referencing it is even well-formed — schema changes are logically prior to
+and separate from any changeset that would use them. There's also a concrete technical
+reason beyond the conceptual one: DDL and DML are different statement categories, and
+some engines (MySQL notably) implicitly commit any open transaction the moment a DDL
+statement runs — bundling a schema change into the same flush transaction as content
+edits would silently break the write path's atomicity guarantee. Schema changes go
+straight through the DBAL-based DDL machinery when triggered, immediately, never queued
+as a draft.
+
+One interaction between the two falls out naturally rather than needing new detection
+logic: an in-progress draft that predates an *additive* schema change stays valid (it
+simply doesn't reference the new field, no different from any other field it doesn't
+set). A draft referencing a field that's since been *dropped* fails the ordinary
+changeset validation step at publish time — the field no longer exists in the current
+`FieldDescriptor[]` — surfacing as a normal rejected-changeset error, not something that
+needs special-case handling.
+
+#### The universal undo-log: one pipeline behind two things that looked separate
+
+Content revisions and the schema-change backup-on-drop were originally designed as two
+unrelated safety nets. They're actually the same shape: **log every state-changing
+operation with enough information to compute its inverse, keep the last N, prune
+older** — the same "keep last N, prune older" pattern already reused for log rotation
+and, now, for this. One pipeline, two categories of operation:
+
+- `ChangesetOperation` — a flushed changeset. Its inverse is the changeset that
+  restores the previous field values (this is exactly what "restore to a previous
+  revision" already meant).
+- `SchemaOperation` — a DDL action. Adding a column inverts to dropping it (cheap,
+  already-safe by construction). Dropping a column inverts to re-adding it *and*
+  restoring the data that was in it — which is why the pre-drop snapshot needs to be
+  part of the logged operation, not an afterthought.
+
+"Undo," at this tier, means "apply the logged inverse of the most recent (or a chosen)
+operation" — the same mechanism regardless of whether what's being undone is a content
+publish or an admin dropping a column.
+
+#### Client-side command stack: not every entry is a free, local revert
+
+The original framing (session-scoped, client-side, matching Unreal's
+`FScopedTransaction` and how Figma/Google Docs do it) still holds for the common case,
+but the stack isn't as homogeneous as that implied — whether undoing an entry can be a
+synchronous, in-memory revert depends on whether triggering it already caused a
+server-side effect:
+
+```php
+interface Command
+{
+    // marker interface — LocalCommand and RemoteCommand are the only implementations
+}
+
+final readonly class LocalCommand implements Command
+{
+    // reverts synchronously, in-memory, no server involved — typing into a field,
+    // not yet saved anywhere
+}
+
+final readonly class RemoteCommand implements Command
+{
+    public function __construct(
+        public string $operationId, // references a specific ChangesetOperation/SchemaOperation
+    ) {
+    }
+    // undoing this calls the server with $operationId — not a vague "undo my last
+    // thing," an explicit "undo operation #12345", which matters especially for schema
+    // changes where other admins might be touching the same shared prototype
+}
+```
+
+Saving a draft, publishing, and an admin adding/dropping a column are all
+`RemoteCommand`s — there's no "local, unconfirmed" phase for any of them; a schema
+change in particular is server-side from the instant it's triggered. Typing into a
+field before it's saved anywhere is a `LocalCommand`.
+
+Two consequences worth being explicit about, since getting them wrong is a correctness
+bug, not a rough edge: undoing a `RemoteCommand` needs a visible pending state, since
+it's a real network round trip, not an instant operation. And the client must **not**
+optimistically revert its displayed state before the server confirms the undo
+succeeded — for a `LocalCommand` that's safe, there's no server state to drift from; for
+a `RemoteCommand`, reverting the UI before confirmation risks showing something that
+doesn't match what the database actually holds if the undo fails (a conflict, a network
+error). From the user's perspective Ctrl+Z always looks the same either way — it's only
+under the hood that some entries resolve instantly and others wait on a response.
 
 ### Write path: explicit changeset (not auto-diffing), with real topological sort
 
@@ -541,15 +652,13 @@ can probably layer on without disturbing what's already settled):
 
 1. **Field-level permissions.** Not just "can this user edit this content type" but
    potentially per-field (e.g. a flag only admins can touch). Unaddressed.
-2. **Draft/publish state and revisions.** Ties back to the backup idea above — does a
-   draft duplicate the whole record, or overlay pending changes on the published one?
-3. **Media/file fields.** Images and uploads likely want their own handling (storage
+2. **Media/file fields.** Images and uploads likely want their own handling (storage
    backend, thumbnails, metadata) rather than being just another field value — probably
    its own Entity type eventually, not designed yet.
-4. **Exact changeset shape.** Needs to express field-level changes per entity plus
+3. **Exact changeset shape.** Needs to express field-level changes per entity plus
    temporary/placeholder ids for not-yet-persisted entities referenced within the same
    flush (see Write path above) — not specified in detail yet.
-5. **FK `ON DELETE` behavior vs. app-level delete ordering.** The topological sort
+4. **FK `ON DELETE` behavior vs. app-level delete ordering.** The topological sort
    handles delete ordering at the application level — worth deciding later whether the
    database's own `CASCADE`/`RESTRICT` constraints are also relied on as a backstop, or
    whether the app-level sort is treated as the only safety net.
