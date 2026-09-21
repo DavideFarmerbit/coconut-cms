@@ -384,7 +384,13 @@ and, now, for this. One pipeline, two categories of operation:
 
 - `ChangesetOperation` — a flushed changeset. Its inverse is the changeset that
   restores the previous field values (this is exactly what "restore to a previous
-  revision" already meant).
+  revision" already meant). **Stored as a diff — before/after per changed field —
+  not a full snapshot of the entity.** A diff is strictly better for this purpose: it's
+  exactly what field-level conflict detection already needs to check (see below), it's
+  proportional in size to what actually changed rather than the whole entity regardless
+  of how small the edit was, and "what did this look like at revision N" is still fully
+  reconstructable by replaying the ordered diffs — it just isn't a single stored read.
+  See "Exact changeset shape" for the concrete `EntityChangeRecord` this produces.
 - `SchemaOperation` — a DDL action. Adding a column inverts to dropping it (cheap,
   already-safe by construction). Dropping a column inverts to re-adding it *and*
   restoring the data that was in it — which is why the pre-drop snapshot needs to be
@@ -771,6 +777,88 @@ with its own nested item kind. Scoped out deliberately rather than left ambiguou
 enough for a CMS content model that it isn't worth the added complexity until a real
 case demands it.
 
+### Exact changeset shape
+
+Most of the requirements were already scattered across earlier decisions (temp ids for
+inline creation, the topological sort scanning for dependency edges, validation running
+against a changeset before flush); this assembles them into one concrete shape, same
+private-constructor-plus-named-factories discipline as `FieldDescriptor` and `Route` —
+a `Delete` entry carrying field values, or a `Create` missing a `prototypeClass`, should
+be unrepresentable, not just unlikely.
+
+```php
+enum EntityChangeKind
+{
+    case Create;
+    case Update;
+    case Delete;
+}
+
+final readonly class TempId
+{
+    public function __construct(
+        public string $id,
+    ) {
+    }
+}
+
+final readonly class EntityChange
+{
+    private function __construct(
+        public EntityChangeKind $kind,
+        public string|TempId $target,   // TempId for a new entity, a real id otherwise
+        public ?string $prototypeClass, // required for create, null otherwise
+        /** @var array<string, mixed> */
+        public array $values,           // field name => new value; empty for delete
+    ) {
+    }
+
+    public static function create(TempId $tempId, string $prototypeClass, array $values): self { }
+    public static function update(string $entityId, array $values): self { }
+    public static function delete(string $entityId): self { }
+
+    // Restoring a deleted entity reuses its original real id rather than getting a
+    // fresh one — the one legitimate exception to "creation always gets a new
+    // identity." Needed so anything still referencing that id (unaffected by the
+    // delete/restore round trip) keeps working without repointing.
+    public static function restore(string $originalId, string $prototypeClass, array $values): self { }
+}
+
+final readonly class Changeset
+{
+    public function __construct(
+        /** @var EntityChange[] */
+        public array $changes,
+    ) {
+    }
+}
+```
+
+`TempId` is exactly what the topological sort scans `$values` for to derive dependency
+edges automatically — a value that's a `TempId` means "this depends on that `Create`
+entry," no manual edge declaration needed, matching what was already decided for the
+write path.
+
+**`Changeset` (intent) and `ChangesetOperation` (the logged record) are deliberately
+different shapes, not the same object at two stages.** A `Changeset` only ever carries
+*new* values and may reference temp ids — it's "what I want this to become." The server
+builds the logged `ChangesetOperation`/`EntityChangeRecord` (see "The universal
+undo-log" above) at flush time by reading each entity's *current* live value
+immediately before applying the change — the only place a true, non-stale "previous
+value" can come from, since a value the client cached locally could easily be stale by
+the time a flush actually runs. This read is also the natural hook point for the
+conflict-detection check from "Undo scope and conflict detection" — it's already
+reading current state at exactly the moment that check needs it.
+
+**Two smaller things this shape resolves as a consequence, not new design:**
+cross-field (`PrototypeValidator`) checks need the fully-resolved candidate state
+(current entity with the changeset's new values overlaid) — exactly the same
+apply-in-memory function already built for draft preview, reused rather than
+duplicated. And raw changeset values (which might arrive as loosely-typed JSON from an
+editor UI, or already-typed PHP values from programmatic code) need a casting step
+against each field's `FieldDescriptor`-declared kind before validation runs — a
+pipeline stage, not a new class needing full design here.
+
 ## Open questions — not yet decided
 
 Roughly in order of how much they threaten the decisions already made above (the rest
@@ -788,6 +876,3 @@ can probably layer on without disturbing what's already settled):
    undo-log's retention-window pruning sweep (see "The universal undo-log" above), not
    immediate. What's still open: the actual upload/storage-backend/thumbnail-generation
    pipeline itself.
-3. **Exact changeset shape.** Needs to express field-level changes per entity plus
-   temporary/placeholder ids for not-yet-persisted entities referenced within the same
-   flush (see Write path above) — not specified in detail yet.
