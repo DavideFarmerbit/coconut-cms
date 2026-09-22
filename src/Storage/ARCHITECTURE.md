@@ -161,10 +161,12 @@ runtime; you subclass it and add properties to the subclass. Same rule here:
   admin's mistake is recoverable through the same mechanism as any other undo, not a new
   problem to solve.
 - **A native class must opt in to being subclassable by admins** — Unreal's
-  `Blueprintable` flag, essentially. Not every native class should be extensible by
-  admins by default (an internal infrastructure class was never meant to be content).
-  The concrete mechanism is a class-level `#[Blueprintable]` attribute — see "Exact
-  `FieldDescriptor` shape" below for the actual definition.
+  `Blueprintable` flag, essentially (named `#[EditorExtensible]` here — see the naming
+  note in "Exact `FieldDescriptor` shape" below for why). Not every native class should
+  be extensible by admins by default (an internal infrastructure class was never meant
+  to be content). The concrete mechanism is a class-level `#[EditorExtensible]`
+  attribute — see "Exact `FieldDescriptor` shape" below for the actual definition, and
+  "Schema-level authorization" for who, specifically, is allowed to use it.
 
 **Mechanism for "extends": Class Table Inheritance, not Concrete Table Inheritance.**
 Two ways to map inheritance onto tables were considered. Concrete Table Inheritance
@@ -805,7 +807,7 @@ Adding client-side support for a previously-server-only type later is purely a
 client-side change; the PHP validator class and its `describe()` output never need to
 change.
 
-### Exact `FieldDescriptor` shape, and the `Blueprintable` attribute
+### Exact `FieldDescriptor` shape, and the `EditorExtensible` attribute
 
 Almost every prior decision feeds into this one, so it's assembled rather than picked
 from options. Private constructor plus named static factories — the same pattern
@@ -900,13 +902,23 @@ built directly from stored schema rows rather than reflection — no attributes 
 just constructing the same value objects from different data, per the two-sources
 principle from the very first decision in this document.
 
-**`Blueprintable` is class-level, not per-field** — it doesn't belong in
-`FieldDescriptor` at all:
+**`EditorExtensible` is class-level, not per-field** — it doesn't belong in
+`FieldDescriptor` at all (renamed from an earlier working name, `Blueprintable` —
+worth being deliberate about the name here, since it's easy to confuse with a
+different, separate concern: this attribute is specifically about *extensibility* — can
+admins create a subclass of this at all — not about *visibility* — whether a prototype
+shows up as its own manageable content type in the admin UI, which would be a distinct,
+not-yet-designed concern, reserved under a different name (`EditorType`, Unreal's
+`BlueprintType` equivalent) precisely so the two don't get conflated later):
 
 ```php
 #[Attribute(Attribute::TARGET_CLASS)]
-final readonly class Blueprintable
+final readonly class EditorExtensible
 {
+    public function __construct(
+        public ?SchemaPermission $permission = null,
+    ) {
+    }
 }
 ```
 
@@ -1121,6 +1133,62 @@ the same `FieldPermission` value attached through whatever the editor's
 schema-definition UI provides — same shared downstream shape, same
 `RouteArguments::ofClass()`/`ofClosure()` precedent this design keeps returning to.
 
+### Schema-level authorization: `SchemaPermission`, attached to `EditorExtensible`
+
+Closes a gap `FieldPermission` never covered: it gates who can read/write a field's
+*value* on an entity instance, but nothing gated who is allowed to trigger a shape
+change itself — create a subclass of an `EditorExtensible` prototype, or add/drop a
+column on one that already exists.
+
+Sixth reuse of the same strategy-pattern shape in this document, just pointed at
+prototypes instead of field values:
+
+```php
+interface SchemaPermission
+{
+    public function canRead(Actor $actor): bool;
+    public function canWrite(Actor $actor): bool;
+}
+```
+
+**Granular, per-prototype — same reasoning as `FieldPermission`'s per-field
+granularity, deliberately chosen over one single global "can manage schema"
+capability**: different `EditorExtensible` classes plausibly warrant different roles
+(a store manager might reasonably extend `Product`, nobody but a superadmin should
+extend anything touching `User`). `EditorExtensible` gains an optional
+`permission: ?SchemaPermission` parameter, same shape as `Field`'s `permission`
+parameter — `null` meaning "no restriction beyond ordinary admin access," not something
+every extensible class needs to specify.
+
+**Same three enforcement points as `FieldPermission`, applied to prototypes instead of
+values:**
+
+1. **Read** — filters which extension points an actor even sees in the schema-builder
+   UI ("create a subclass of Product" shouldn't appear as an option at all for an actor
+   without permission, not just be disabled).
+2. **Write, server-side, mandatory** — checked the moment any schema-mutating action is
+   attempted (create-subclass, add-column, drop-column), before the DBAL diff/DDL ever
+   runs. A violation rejects outright — same "fail before, not during" posture as every
+   other write-path check in this document.
+3. **Write, client-side** — pure UX convenience, hide the "add column"/"create
+   subclass" affordance for an actor who lacks permission. Never authoritative.
+
+**An editor-created prototype inherits its parent's `SchemaPermission` unless it sets
+its own.** Only native classes carry the `#[EditorExtensible]` attribute directly — an
+editor-created subclass is implicitly further-extensible by construction (nothing about
+"this was itself created via the editor" should require re-opting-in to being
+extended again) — so it needs the same permission concept without the same attribute
+mechanism; defaulting to the parent's value keeps admins from having to configure
+permission on every single level of a chain, same motivation as inheritance elsewhere
+in this document defaulting to "additive, not a burden on every level."
+
+One check covers all of create-subclass, add-column, and drop-column uniformly, rather
+than splitting into per-operation permissions — consistent with this document's general
+preference for one strategy interface over a growing pile of narrower flags (see
+"Validation" above), and justified the same way dropping a column doesn't need a
+*stricter* check than adding one: the data-loss risk either could cause is already
+covered by the undo-log, not something authorization needs to additionally weight.
+
 ### Entities are data, not routable content — no entity→URL mapping is needed
 
 Closes the audit's "no stated connection from a stored entity to a servable URL" item
@@ -1242,11 +1310,7 @@ document (prompted by a growing risk of drift between decisions made many turns 
 surfaced real gaps the discussion never raised at all, not even as deferred items. Logged
 here rather than silently missing:
 
-1. **Schema-level authorization.** `FieldPermission` gates who can read/write a field's
-   *value*, but nothing gates who is allowed to trigger shape changes themselves
-   (create a prototype, add/drop a column on one) — notable given how much of this
-   document is about making those operations safe to perform at all.
-2. **Full-text and cross-content-type search.** Real, indexed columns handle ordinary
+1. **Full-text and cross-content-type search.** Real, indexed columns handle ordinary
    field filtering, but nothing here handles "find posts containing this phrase" (JSON
    blob content has no index to search) or "search across Products, Pages, and Media at
    once." A dedicated search index (a denormalized table, or an actual search engine)
