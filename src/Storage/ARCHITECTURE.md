@@ -471,7 +471,13 @@ real detail to remember when this gets built, not a blocker.
 Deliberately out of scope: real-time concurrent multi-editor collaboration on the same
 entity (one pending draft per entity for v1 — a second editor takes over the existing
 draft or hits a conflict warning), and multiple named draft checkpoints beyond what the
-client-side undo stack already provides.
+client-side undo stack already provides. **This also already covers the same entity
+being opened twice at once from a single account** — a second tab in the same browser,
+a second browser, or a second actor entirely all collapse to the exact same "second
+opener" case above, no new mechanism needed. The tab UI should probably still guard
+against opening the same entity twice within one browser tab as a rough edge, but
+correctness doesn't depend on that guard existing — the underlying rule already handles
+it either way.
 
 **Schema changes are never draftable.** A changeset's own validation checks field names
 against `FieldDescriptor[]`, which means the schema must already exist before a
@@ -608,13 +614,29 @@ doesn't match what the database actually holds if the undo fails (a conflict, a 
 error). From the user's perspective Ctrl+Z always looks the same either way — it's only
 under the hood that some entries resolve instantly and others wait on a response.
 
+**The stack itself isn't singular — it's one independent stack per open editing
+context, not one per browser session.** The editor is going to support multiple content
+tabs open at once in a single browser tab (the same idea as VS Code editing several
+files side by side), and Ctrl+Z on one of them must never reach into another's
+history — undoing an edit to a Page open in one tab should never undo something
+unrelated in a Product open in a different tab. In practice this means what reads above
+as "the client-side stack" is really a map of independent stacks, keyed by whatever
+identifies an open editing context once the tab UI itself is designed; Ctrl+Z always
+acts on the currently-focused tab's own stack. This is a purely client-side bookkeeping
+concern — it changes nothing about which stack a `RemoteCommand` conceptually belongs
+to server-side, since the server already treats every operation independently by its
+own `operationId` regardless of which client stack pushed it.
+
 #### Undo scope and conflict detection: who can undo what, and what happens if something changed since
 
-**Ctrl+Z is inherently per-user, with no scoping decision needed to make it so.** A
-`RemoteCommand`'s `operationId` only ever gets pushed onto *this user's own* client-side
-stack, because that stack is only ever populated by this user's own actions — there is
-no path by which a user's Ctrl+Z could reach an operation they never triggered, since
-their client never recorded anyone else's. The universal undo-log itself (see above) is
+**Ctrl+Z is inherently per-user (and, per the tab-scoping above, per open editing
+context within that user's own session too), with no extra scoping decision needed to
+make it so.** A `RemoteCommand`'s `operationId` only ever gets pushed onto *this user's
+own* client-side stack for *that specific tab*, because that stack is only ever
+populated by actions taken in that one editing context — there is no path by which a
+user's Ctrl+Z could reach an operation they never triggered there, since that tab's
+client never recorded anyone else's actions, or its own other tabs' actions either. The
+universal undo-log itself (see above) is
 genuinely shared and per-entity — that's the correct source of truth for **revision
 history**, a separate, deliberate UI surface where an admin can view and restore *any*
 past state, including one authored by someone else. The two surfaces read from the same
