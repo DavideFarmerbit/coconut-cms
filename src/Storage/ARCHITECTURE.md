@@ -247,7 +247,14 @@ as a unit with their owner and are never queried independently (an SEO-metadata 
 on a page, say) — a value-object column, or a spot in the JSON blob, is simpler and
 sufficient there.
 
-### FK `ON DELETE` policy: `RESTRICT` by default, `CASCADE` only for Class Table Inheritance
+**The pivot table above is specifically the Shared case** (see "Ownership: Owned vs.
+Shared" further below) — two independent entities, each with their own lifecycle,
+related many-to-many. A one-to-many collection whose items are exclusively **owned** by
+one parent (repeater items that have no life outside their parent) doesn't use a join
+table at all, even if each item still needs its own row for querying — it's a
+back-pointer FK directly on the item's own row, `CASCADE`, per that section.
+
+### FK `ON DELETE` policy: `RESTRICT` for Shared references, `CASCADE` for Owned ones
 
 Resolves a real tension between two already-decided mechanisms rather than being a
 stylistic pick: the app-level topological sort already computes safe delete order
@@ -262,13 +269,16 @@ the undo pipeline, permanently unrecoverable through it.
   the constraint is a correctness backstop for if that logic ever has a bug — a clear,
   rolled-back error, not silent data loss — never something the normal path is expected
   to hit.
-- **`CASCADE` specifically for the Class Table Inheritance link** between a prototype's
-  table and each level's derived table. This relationship isn't a genuine
-  entity-to-entity reference at all — a derived table's row has no independent meaning
-  without its base row, much closer to how a value object relates to its owner than to
-  how two real entities reference each other. Deleting the base entity is already one
-  `ChangesetOperation`; the derived row disappearing is an implementation detail of
-  carrying that out, not an independent event anyone would want to undo separately.
+- **`CASCADE` for Owned relationships** — anywhere a row has no independent meaning
+  without its owner (see "Ownership: Owned vs. Shared" below). The Class Table
+  Inheritance base→derived link was the first case decided here, but it turns out to be
+  one instance of this general rule rather than a special case of its own: a derived
+  table's row has no independent meaning without its base row, much closer to how a
+  value object relates to its owner than to how two real entities reference each other —
+  exactly the same reasoning that applies to a repeater item exclusively owned by one
+  parent. Deleting the owner is already one `ChangesetOperation`; whatever it owns
+  disappearing along with it is an implementation detail of carrying that out, not an
+  independent event anyone would want to undo separately.
 - **`SET NULL` is a legitimate choice only for references that are genuinely
   optional** — tied to whether that reference field actually carries a
   `RequiredValidator`; a required reference should never be allowed to silently go null.
@@ -329,6 +339,58 @@ Value-Object-level storage tactic, not a third option competing with Entity vs. 
 Object — it's what to reach for when a value object (no identity/sharing need) has a
 specific sub-field that needs DB-level querying, without promoting the whole value
 object to a full Entity just to get that one field indexable.
+
+### Ownership: Owned vs. Shared decides who gets independent undo history
+
+A further split within Entity, needed once a changeset can touch more than one entity at
+once (create a Tag, attach it to a Product) — mirrors Unreal's asset-vs-subobject
+distinction: a UObject is a top-level asset only if nothing else owns it; if something
+does, it's a subobject serialized as part of its owner. Same class either way — it's
+decided per relationship (per field), not baked into the prototype.
+
+- **Shared**: independently referenceable from more than one place (Tag, referenced by
+  many Products). This is the ordinary entity-to-entity reference already covered by the
+  default `RESTRICT` policy — FK on the referencing side pointing outward for a scalar
+  reference, or a real join table for a many-to-many collection (see "Join tables"
+  above), with only the join *row* disappearing on either side's delete, never the
+  entities themselves. **Gets its own independent undo/revision history**, per the
+  count-based per-entity retention already decided in "The universal undo-log".
+- **Owned**: exclusively belongs to one relationship, no life apart from it (a repeater
+  item that only exists as part of one Product; a `MediaAsset` uploaded inline for one
+  field's exclusive use, as opposed to one picked from a shared media library). For
+  `CASCADE` to work at the database level at all, the FK has to point the *other*
+  direction from a Shared reference — the owned row carries a FK back up to its owner,
+  not the reverse. This is exactly the shape Class Table Inheritance's base→derived link
+  already uses; `CASCADE` there turns out to be one instance of this general rule, not a
+  special case of its own (see "FK `ON DELETE` policy" above, updated to match). **Gets
+  no independent undo/revision entry at all** — its before/after values fold straight
+  into the *owning* entity's own logged diff, exactly like an embedded value object
+  already folds into its owner's JSON blob. Nothing extra to prune, nothing that can go
+  stale independently of its owner, no gap in anyone's history.
+
+**Why an Owned relationship always needs its own dedicated table, never a shared
+`owner_id` column reused across different owning relationships:** a `CASCADE`-backed FK
+column has one fixed target table. If the same reusable shape (a generic gallery-item
+struct, say) were Owned by both `Product` and `Page`, one shared column can't point at
+two different target tables, and a generic nullable polymorphic column gives up the real
+referential integrity this whole FK-policy discussion exists to keep. So every Owned
+relationship gets its own table — a Class-Table-Inheritance-style derived table carrying
+the shape's normal fields plus that one relationship's own owner-FK-plus-`CASCADE`
+column — regardless of how many other relationships reuse the same base shape elsewhere,
+or whether one of them happens to be Shared instead.
+
+This was briefly considered as something a class-level flag could opt out of for the
+simple single-owner case — rejected. A flag on the shape itself can promise "nobody will
+reference me as Shared," but it can't promise "only ever one specific owning
+relationship will embed me," since nothing stops a later, unrelated module (this system
+is explicitly moddable) from embedding the same shape as Owned a second time from a
+completely different owner type. Only pinning a shape to one named owner class at its own
+definition could actually guarantee that — at which point it stops being a reusable
+prototype and becomes a nested type scoped to one specific class, a different and
+narrower feature this system doesn't need. Always generating the per-relationship table
+is the only version that's safe by construction rather than by convention, at the cost of
+one extra join for the (probably rare) case where a shape really is only ever owned by
+exactly one relationship.
 
 ### Identity Map + Repository + lazy loading
 
@@ -444,7 +506,10 @@ not an oversight: a heavily-edited entity could otherwise accumulate unboundedly
 revisions within a time window, while a rarely-touched one would lose its last
 meaningful edit after N idle days for no good reason. Time-based retention fits log
 volume (which correlates with calendar time); count-based fits content history (which
-correlates with edit activity, not the calendar). One pipeline, two categories of
+correlates with edit activity, not the calendar). **This is specifically per *Shared*
+entity** (see "Ownership: Owned vs. Shared" above) — an Owned relationship has no
+independent entry of its own to retain or prune in the first place, since its changes
+are already folded into its owning entity's own record. One pipeline, two categories of
 operation:
 
 - `ChangesetOperation` — a flushed changeset. Its inverse is the changeset that
@@ -486,6 +551,13 @@ pruning sweep removes the last such reference does it become safe to actually de
 file. Fourth reuse of the same retain-and-prune shape in this document (count-based, per
 the correction above — an entity's surviving revisions, not a calendar window), not a
 one-off special case for media.
+
+This is describing a **Shared** `MediaAsset` — one living in a media library, referenced
+from wherever it's used, with its own independent retention window (see "Ownership:
+Owned vs. Shared" above). An **Owned** `MediaAsset` (uploaded inline for one field's
+exclusive use) has no independent retention window of its own to piggyback on — its
+byte-reclamation timing follows whatever retention window governs its *owning* entity
+instead, same as its row's changes already fold into that owner's own logged diff.
 
 #### Client-side command stack: not every entry is a free, local revert
 
@@ -882,12 +954,13 @@ final readonly class EntityChange
         public ?string $prototypeClass, // required for create, null otherwise
         /** @var array<string, mixed> */
         public array $values,           // field name => new value; empty for delete
+        public ?string $expectedOperationId = null, // the "receipt" — see "Concurrent-write protection"
     ) {
     }
 
     public static function create(TempId $tempId, string $prototypeClass, array $values): self { }
-    public static function update(string $entityId, array $values): self { }
-    public static function delete(string $entityId): self { }
+    public static function update(string $entityId, array $values, ?string $expectedOperationId = null): self { }
+    public static function delete(string $entityId, ?string $expectedOperationId = null): self { }
 
     // Restoring a deleted entity reuses its original real id rather than getting a
     // fresh one — the one legitimate exception to "creation always gets a new
@@ -1119,6 +1192,48 @@ admin types/blurs the field, before full submission) reusing the exact same quer
 authoritative pre-check — just an earlier-firing version of the same round trip, not a
 new validation tier alongside the three already established for client-side checks.
 
+### Concurrent-write protection on an ordinary publish
+
+Closes the last remaining item about two admins publishing to the same entity around
+the same time, with no undo involved — the classic "lost update" problem: Alice opens
+Product #42 (title "Blue Shirt"), Bob opens it too and sees the same thing. Alice
+changes the title to "Red Shirt" and saves. A few minutes later Bob, still looking at
+his now-stale screen, saves a change of his own — and without protection, that save
+silently overwrites Alice's "Red Shirt" with whatever Bob had, and nobody is ever told
+Alice's edit just vanished.
+
+**This turns out to need almost nothing new — it's the same conflict-detection check
+already built for undo, just compared against a different reference point.** The undo
+check is "has anything happened *after the operation being undone* touched the same
+fields." This is "has anything happened *after the version I started editing from*
+touched the same fields." Same underlying primitive, generalized to take an arbitrary
+reference point instead of specifically "the thing being undone."
+
+**The one genuinely new piece: each `EntityChange` needs to carry a "receipt" — which
+operation it was based on.** `update()`/`delete()` gain an optional
+`expectedOperationId`: when an entity gets loaded for editing, the response includes
+its current last-known operation id (nothing exotic — this is the same idea as an HTTP
+`ETag` handed back as `If-Match` on the next write, just using an operation id instead
+of an opaque tag); the eventual publish sends that same id back. At flush time, if
+anything logged *after* that id touched the same fields, the whole changeset is
+rejected — same "fail before, not during" posture used everywhere else in the write
+path. `expectedOperationId` is null for `create` (nothing prior to be based on) and can
+reasonably be left null for bulk/programmatic writes that accept the small risk — only
+the interactive editor path should always supply it.
+
+**On conflict, the same two-tier response already established for undo conflicts
+applies again, not a new decision:** reject by default with a clear message (same
+posture as Ctrl+Z's auto-block), but allow an explicit "override and publish anyway"
+action — reusing the confirm-with-warning treatment already given to the deliberate
+revision-restore path, since choosing to overwrite someone else's concurrent change is
+a legitimate, informed choice an editor can make (they coordinated out-of-band, or the
+other change was clearly a mistake), not something that should be flatly impossible.
+
+**Nothing extra needed for the other conflict kind either**: an entity being deleted
+while something new depends on it is already covered for free by the existing FK
+`RESTRICT` policy, regardless of which path (undo or an ordinary publish) triggered the
+delete.
+
 ## Open questions
 
 None remaining from the *original* list — that entire pass was resolved into "Decided
@@ -1127,15 +1242,11 @@ document (prompted by a growing risk of drift between decisions made many turns 
 surfaced real gaps the discussion never raised at all, not even as deferred items. Logged
 here rather than silently missing:
 
-1. **Concurrent-write protection on an ordinary publish, outside the undo path.** "Undo
-   scope and conflict detection" only covers conflicts when *undoing* an operation.
-   Two admins publishing to the same entity around the same time, with no undo
-   involved, has no described optimistic-lock/version check at flush time.
-2. **Schema-level authorization.** `FieldPermission` gates who can read/write a field's
+1. **Schema-level authorization.** `FieldPermission` gates who can read/write a field's
    *value*, but nothing gates who is allowed to trigger shape changes themselves
    (create a prototype, add/drop a column on one) — notable given how much of this
    document is about making those operations safe to perform at all.
-3. **Full-text and cross-content-type search.** Real, indexed columns handle ordinary
+2. **Full-text and cross-content-type search.** Real, indexed columns handle ordinary
    field filtering, but nothing here handles "find posts containing this phrase" (JSON
    blob content has no index to search) or "search across Products, Pages, and Media at
    once." A dedicated search index (a denormalized table, or an actual search engine)
