@@ -8,10 +8,12 @@ use ReflectionClass;
 use ReflectionNamedType;
 use ReflectionParameter;
 use ReflectionProperty;
+use XyloIsCoding\CoconutCms\Storage\Field\Collection;
 use XyloIsCoding\CoconutCms\Storage\Field\Embed;
 use XyloIsCoding\CoconutCms\Storage\Field\Field;
 use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Storage\Field\Reference;
 
 /**
  * Builds a native class's FieldDescriptor[] shape from its constructor-promoted
@@ -21,20 +23,66 @@ use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
 final class PrototypeShape
 {
     /**
-     * Only constructor parameters carrying #[Field] are included, an unannotated
-     * parameter is simply not part of the persisted shape.
+     * The full effective shape: every level's own fields, base first, concatenated.
+     * For a class with no native parent, this is just that one level's own fields.
      *
      * @param class-string $class
      * @return FieldDescriptor[]
      */
     public static function ofClass(string $class): array
     {
+        $descriptors = [];
+        foreach (self::chainOfClass($class) as $level) {
+            array_push($descriptors, ...self::ownFieldsOfClass($level));
+        }
+
+        return $descriptors;
+    }
+
+    /**
+     * Every native ancestor that extends the prototype chain, base first, ending with
+     * $class itself. A class with no native parent returns just itself.
+     *
+     * @param class-string $class
+     * @return class-string[]
+     */
+    public static function chainOfClass(string $class): array
+    {
+        $chain = [$class];
+
+        $parent = (new ReflectionClass($class))->getParentClass();
+        while ($parent !== false) {
+            array_unshift($chain, $parent->getName());
+            $parent = $parent->getParentClass();
+        }
+
+        return $chain;
+    }
+
+    /**
+     * Only the fields declared at this exact level, not inherited from a native
+     * parent, and only constructor parameters carrying #[Field], an unannotated
+     * parameter is simply not part of the persisted shape.
+     *
+     * @param class-string $class
+     * @return FieldDescriptor[]
+     */
+    public static function ownFieldsOfClass(string $class): array
+    {
         $reflection = new ReflectionClass($class);
-        $parameters = $reflection->getConstructor()?->getParameters() ?? [];
+        $constructor = $reflection->getConstructor();
+
+        if ($constructor === null || $constructor->getDeclaringClass()->getName() !== $class) {
+            return [];
+        }
 
         $descriptors = [];
-        foreach ($parameters as $parameter) {
+        foreach ($constructor->getParameters() as $parameter) {
             $property = $reflection->getProperty($parameter->getName());
+            if ($property->getDeclaringClass()->getName() !== $class) {
+                continue;
+            }
+
             $field = self::fieldAttribute($property);
             if ($field === null) {
                 continue;
@@ -67,18 +115,59 @@ final class PrototypeShape
             throw new LogicException(sprintf('Field "%s" on %s needs a single, non-nullable, resolvable type.', $name, $parameter->getDeclaringClass()?->getName()));
         }
 
+        $typeName = $type->getName();
+
         $embed = $property->getAttributes(Embed::class);
+        $reference = $property->getAttributes(Reference::class);
+        if ($embed !== [] && $reference !== []) {
+            throw new LogicException(sprintf('Field "%s" cannot carry both #[Embed] and #[Reference].', $name));
+        }
+
         if ($embed !== []) {
             return FieldDescriptor::embed(
                 name: $name,
-                shapeClass: $type->getName(),
+                shapeClass: $typeName,
                 label: $label,
                 group: $field->group,
                 validators: $field->validators,
             );
         }
 
-        $typeName = $type->getName();
+        if ($reference !== []) {
+            /** @var Reference $referenceAttribute */
+            $referenceAttribute = $reference[0]->newInstance();
+
+            return FieldDescriptor::reference(
+                name: $name,
+                shapeClass: $typeName,
+                ownership: $referenceAttribute->ownership,
+                label: $label,
+                group: $field->group,
+                queryable: $field->queryable,
+                unique: $field->unique,
+                validators: $field->validators,
+            );
+        }
+
+        if ($typeName === 'array') {
+            $collectionAttributes = $property->getAttributes(Collection::class);
+            if ($collectionAttributes === []) {
+                throw new LogicException(sprintf('Field "%s" is an array and needs #[Collection] to say what it holds.', $name));
+            }
+
+            /** @var Collection $collection */
+            $collection = $collectionAttributes[0]->newInstance();
+
+            return FieldDescriptor::collection(
+                name: $name,
+                itemKind: $collection->itemKind,
+                referencedShape: $collection->of,
+                label: $label,
+                group: $field->group,
+                ownership: $collection->ownership,
+                validators: $field->validators,
+            );
+        }
 
         if (enum_exists($typeName) && is_subclass_of($typeName, BackedEnum::class)) {
             /** @var class-string<BackedEnum> $typeName */
@@ -98,7 +187,7 @@ final class PrototypeShape
             'float' => FieldKind::Float,
             'bool' => FieldKind::Bool,
             default => throw new LogicException(sprintf(
-                'Field "%s" has type %s, which needs #[Embed] (or, once available, #[Reference]) since it\'s a class, or isn\'t supported yet.',
+                'Field "%s" has type %s, which needs #[Embed] or #[Reference] since it\'s a class, or isn\'t supported yet.',
                 $name,
                 $typeName,
             )),

@@ -20,6 +20,7 @@ final readonly class FieldDescriptor
      * @param string|null $referencedShape the referenced entity or value object class, for Embed/Reference/Collection
      * @param FieldKind|null $collectionItemKind the kind of each item, for Collection only
      * @param mixed[]|null $choiceOptions the allowed values, for Choice only
+     * @param Ownership|null $ownership Shared or Owned, for Reference and EntityReference Collection only
      */
     private function __construct(
         public string $name,
@@ -32,6 +33,7 @@ final readonly class FieldDescriptor
         public ?string $referencedShape = null,
         public ?FieldKind $collectionItemKind = null,
         public ?array $choiceOptions = null,
+        public ?Ownership $ownership = null,
     ) {
     }
 
@@ -117,6 +119,71 @@ final readonly class FieldDescriptor
             unique: false,
             validators: $validators,
             referencedShape: $shapeClass,
+        );
+    }
+
+    /**
+     * A reference to another entity. Always a real FK column regardless of
+     * `queryable`/`unique`, those only control indexing/filtering on a column that
+     * exists either way.
+     *
+     * @param FieldValidator[] $validators
+     */
+    public static function reference(
+        string $name,
+        string $shapeClass,
+        Ownership $ownership,
+        string $label,
+        ?string $group = null,
+        bool $queryable = false,
+        bool $unique = false,
+        array $validators = [],
+    ): self {
+        return new self(
+            name: $name,
+            kind: FieldKind::EntityReference,
+            label: $label,
+            group: $group,
+            queryable: $queryable,
+            unique: $unique,
+            validators: $validators,
+            referencedShape: $shapeClass,
+            ownership: $ownership,
+        );
+    }
+
+    /**
+     * A repeated list of values. EntityReference items always get a real join table
+     * (Shared) or a dedicated child table (Owned) regardless of `queryable`.
+     * EmbeddedValueObject/scalar items live in the JSON blob instead, always
+     * non-queryable, filtering an outer list by a value inside it is out of scope.
+     *
+     * @param FieldValidator[] $validators
+     */
+    public static function collection(
+        string $name,
+        FieldKind $itemKind,
+        ?string $referencedShape,
+        string $label,
+        ?string $group = null,
+        ?Ownership $ownership = null,
+        array $validators = [],
+    ): self {
+        if ($itemKind === FieldKind::EntityReference && ($referencedShape === null || $ownership === null)) {
+            throw new InvalidArgumentException(sprintf('Collection "%s" of EntityReference needs both a referencedShape and an ownership.', $name));
+        }
+
+        return new self(
+            name: $name,
+            kind: FieldKind::Collection,
+            label: $label,
+            group: $group,
+            queryable: false,
+            unique: false,
+            validators: $validators,
+            referencedShape: $referencedShape,
+            collectionItemKind: $itemKind,
+            ownership: $ownership,
         );
     }
 }

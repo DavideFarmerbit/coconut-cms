@@ -24,13 +24,25 @@ final class SchemaSynchronizer
 
     public function sync(Table $table): void
     {
+        $this->syncAll([$table]);
+    }
+
+    /**
+     * Syncs every table in one diff/apply pass, not one at a time, so a join table
+     * referencing a sibling table that's also being created in this same call sees it
+     * already present in the desired schema.
+     *
+     * @param Table[] $tables
+     */
+    public function syncAll(array $tables): void
+    {
         $manager = $this->connection->createSchemaManager();
         $current = $manager->introspectSchema();
 
-        $tables = array_filter($current->getTables(), static fn (Table $existing): bool => $existing->getName() !== $table->getName());
-        $tables[] = $table;
+        $names = array_map(static fn (Table $table): string => $table->getName(), $tables);
+        $untouched = array_filter($current->getTables(), static fn (Table $existing): bool => !in_array($existing->getName(), $names, true));
 
-        $desired = new Schema(array_values($tables), schemaConfig: $manager->createSchemaConfig());
+        $desired = new Schema([...$untouched, ...$tables], schemaConfig: $manager->createSchemaConfig());
 
         $manager->alterSchema($manager->createComparator()->compareSchemas($current, $desired));
     }

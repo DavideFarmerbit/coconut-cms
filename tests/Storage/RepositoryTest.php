@@ -6,7 +6,7 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use PHPUnit\Framework\TestCase;
-use XyloIsCoding\CoconutCms\Storage\IdentityMap;
+use XyloIsCoding\CoconutCms\Storage\EntityManager;
 use XyloIsCoding\CoconutCms\Storage\PrototypeShape;
 use XyloIsCoding\CoconutCms\Storage\Repository;
 use XyloIsCoding\CoconutCms\Storage\RowMapper;
@@ -28,7 +28,7 @@ final class RepositoryTest extends TestCase
         $fields = PrototypeShape::ofClass(Product::class);
         (new SchemaSynchronizer($this->connection))->sync(SchemaBuilder::tableFor('products', $fields));
 
-        $this->repository = new Repository($this->connection, new IdentityMap(), Product::class, 'products');
+        $this->repository = (new EntityManager($this->connection, [Product::class => 'products']))->repository(Product::class);
     }
 
     private function product(string $sku = 'ABC-1'): Product

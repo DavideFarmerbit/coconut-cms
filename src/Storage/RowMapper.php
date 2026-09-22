@@ -13,6 +13,9 @@ use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
  * actual database row (real columns plus the JSON blob column), in both directions.
  * Mirrors SchemaBuilder's own column-naming and blob-nesting rules exactly, since a row
  * built by one only round-trips correctly through the other if they agree.
+ *
+ * EntityReference and Collection fields are skipped entirely, they live in their own
+ * FK column or join/child table, not this row, Repository handles them separately.
  */
 final class RowMapper
 {
@@ -56,6 +59,10 @@ final class RowMapper
         $blob = [];
 
         foreach ($fields as $field) {
+            if ($field->kind === FieldKind::EntityReference || $field->kind === FieldKind::Collection) {
+                continue;
+            }
+
             $value = $values[$field->name] ?? null;
 
             if ($field->kind === FieldKind::EmbeddedValueObject) {
@@ -91,6 +98,10 @@ final class RowMapper
         $values = [];
 
         foreach ($fields as $field) {
+            if ($field->kind === FieldKind::EntityReference || $field->kind === FieldKind::Collection) {
+                continue;
+            }
+
             if ($field->kind === FieldKind::EmbeddedValueObject) {
                 $nestedFields = PrototypeShape::ofClass($field->referencedShape);
                 $nestedValues = self::join($nestedFields, $row, $blob[$field->name] ?? [], $prefix . $field->name . '_');
