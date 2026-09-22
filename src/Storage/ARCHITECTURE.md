@@ -1302,17 +1302,44 @@ while something new depends on it is already covered for free by the existing FK
 `RESTRICT` policy, regardless of which path (undo or an ordinary publish) triggered the
 delete.
 
+### Full-text and cross-content-type search
+
+`queryable` already solves ordinary column-based filtering, but a long body/description
+field deliberately living in the JSON blob (see "Storage" above) has no index to search
+inside — and "search across Products, Pages, and Media at once" can't be scoped to any
+one prototype's own table the way everything else in this document has been. Resolved
+by reusing patterns already established elsewhere rather than inventing new ones:
+
+- **A new `searchable: bool` flag on `FieldDescriptor`, independent of `queryable`.** A
+  field can be either, both, or neither — `title` might be both queryable and
+  searchable; a long `body` field is typically searchable only, since nothing needs to
+  sort or filter by it as a column.
+- **One flat, denormalized `search_index` table** (`entity_id`, `prototype`,
+  concatenated searchable text) — not per-prototype, not tied to any Class Table
+  Inheritance chain. This is what actually answers the cross-content-type half of the
+  problem: it's cross-content-type by construction, being one shared table regardless
+  of how many different prototypes feed into it.
+- **A `SearchIndex` interface, swappable default implementation** — same shape as every
+  other extension point in this document (`FileStorage`, `ErrorLogger`, `FieldValidator`,
+  `FieldPermission`, `SchemaPermission`). The built-in default is the `search_index`
+  table plus ordinary SQL matching, working out of the box; the door stays open to swap
+  in a real engine (Postgres full-text, Meilisearch, Elasticsearch) later without
+  touching anything else — the documented-escalation treatment this item was always
+  going to get, not built preemptively.
+- **Updates hook into the write path for free.** Recomputing an entity's searchable text
+  and calling `index()` happens as part of a successful flush, the same hook point every
+  other write-path consequence in this document already uses. Undo, revision-restore,
+  and draft-publish all keep the search index correct with zero special-casing, since
+  each of them is already just "flush a changeset" under the hood.
+- **An Owned entity's text folds into its owner's index entry, not its own** —
+  consistent with "Ownership: Owned vs. Shared" above: an Owned repeater item has no
+  independent identity to search *for* on its own, but its content should still be
+  findable when searching its owner, the same way its changes already fold into the
+  owner's own logged diff rather than getting an independent undo entry.
+
 ## Open questions
 
-None remaining from the *original* list — that entire pass was resolved into "Decided
-so far" above. This section was reopened after an independent audit of the completed
-document (prompted by a growing risk of drift between decisions made many turns apart)
-surfaced real gaps the discussion never raised at all, not even as deferred items. Logged
-here rather than silently missing:
-
-1. **Full-text and cross-content-type search.** Real, indexed columns handle ordinary
-   field filtering, but nothing here handles "find posts containing this phrase" (JSON
-   blob content has no index to search) or "search across Products, Pages, and Media at
-   once." A dedicated search index (a denormalized table, or an actual search engine)
-   is the natural answer if/when this is needed — same documented-escalation treatment
-   as everything else deferred in this document, not built preemptively.
+None remaining from either the *original* list or the audit-surfaced list — both passes
+were fully resolved into "Decided so far" above. Left as a section header rather than
+deleted entirely, since new gaps have surfaced here twice already and probably will
+again.
