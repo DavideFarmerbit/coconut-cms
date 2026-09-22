@@ -2,7 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Storage\Fixtures;
 
-use XyloIsCoding\CoconutCms\Storage\Field;
+use XyloIsCoding\CoconutCms\Storage\Field\Field;
 
 /** A class-typed #[Field] with neither #[Embed] nor #[Reference] must be rejected clearly. */
 final readonly class WithUnmarkedClassTypedField

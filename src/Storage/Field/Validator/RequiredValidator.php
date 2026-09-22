@@ -1,8 +1,8 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Storage\Validator;
+namespace XyloIsCoding\CoconutCms\Storage\Field\Validator;
 
-use XyloIsCoding\CoconutCms\Storage\FieldValidator;
+use XyloIsCoding\CoconutCms\Storage\Field\FieldValidator;
 
 /** Rejects null and empty strings. Everything else passes. */
 final readonly class RequiredValidator implements FieldValidator

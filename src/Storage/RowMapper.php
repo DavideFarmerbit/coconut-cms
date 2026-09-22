@@ -5,6 +5,8 @@ namespace XyloIsCoding\CoconutCms\Storage;
 use JsonException;
 use ReflectionClass;
 use ReflectionObject;
+use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
 
 /**
  * Converts between a name => value array matching a FieldDescriptor[] shape and the

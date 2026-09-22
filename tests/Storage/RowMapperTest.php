@@ -11,7 +11,7 @@ use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Product;
 
 final class RowMapperTest extends TestCase
 {
-    /** @return array{0: \XyloIsCoding\CoconutCms\Storage\FieldDescriptor[], 1: array<string, mixed>} */
+    /** @return array{0: \XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor[], 1: array<string, mixed>} */
     private static function sampleValues(): array
     {
         $fields = PrototypeShape::ofClass(Product::class);

@@ -1,6 +1,6 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Storage;
+namespace XyloIsCoding\CoconutCms\Storage\Field;
 
 use InvalidArgumentException;
 

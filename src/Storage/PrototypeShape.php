@@ -8,6 +8,10 @@ use ReflectionClass;
 use ReflectionNamedType;
 use ReflectionParameter;
 use ReflectionProperty;
+use XyloIsCoding\CoconutCms\Storage\Field\Embed;
+use XyloIsCoding\CoconutCms\Storage\Field\Field;
+use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
 
 /**
  * Builds a native class's FieldDescriptor[] shape from its constructor-promoted

@@ -1,8 +1,8 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Storage\Validator;
+namespace XyloIsCoding\CoconutCms\Storage\Field\Validator;
 
-use XyloIsCoding\CoconutCms\Storage\FieldValidator;
+use XyloIsCoding\CoconutCms\Storage\Field\FieldValidator;
 
 /** Rejects strings longer than the given length. Non-string values always pass. */
 final readonly class MaxLengthValidator implements FieldValidator

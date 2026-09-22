@@ -1,6 +1,6 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Storage;
+namespace XyloIsCoding\CoconutCms\Storage\Field;
 
 /**
  * The kind of value a FieldDescriptor describes. Decides how the field is stored and

@@ -5,6 +5,8 @@ namespace XyloIsCoding\CoconutCms\Storage;
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\Types;
 use LogicException;
+use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
 
 /**
  * Translates a FieldDescriptor[] shape into a Doctrine DBAL Table: a real column for

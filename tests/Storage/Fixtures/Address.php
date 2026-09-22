@@ -2,7 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Storage\Fixtures;
 
-use XyloIsCoding\CoconutCms\Storage\Field;
+use XyloIsCoding\CoconutCms\Storage\Field\Field;
 
 /** An embedded value object fixture: one queryable field, one blob-only field. */
 final readonly class Address

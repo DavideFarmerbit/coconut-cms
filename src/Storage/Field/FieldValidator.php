@@ -1,6 +1,6 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Storage;
+namespace XyloIsCoding\CoconutCms\Storage\Field;
 
 /**
  * Checks whether a single value is acceptable for a field. Only ever sees the value

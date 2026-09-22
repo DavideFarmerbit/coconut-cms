@@ -1,9 +1,9 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Tests\Storage\Validator;
+namespace XyloIsCoding\CoconutCms\Tests\Storage\Field\Validator;
 
 use PHPUnit\Framework\TestCase;
-use XyloIsCoding\CoconutCms\Storage\Validator\MaxLengthValidator;
+use XyloIsCoding\CoconutCms\Storage\Field\Validator\MaxLengthValidator;
 
 final class MaxLengthValidatorTest extends TestCase
 {

@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Storage;
 
 use Doctrine\DBAL\Connection;
 use ReflectionClass;
+use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
 
 /**
  * Reads and writes instances of one native entity class from one table, going through

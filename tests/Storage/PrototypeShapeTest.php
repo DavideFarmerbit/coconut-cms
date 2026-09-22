@@ -4,7 +4,7 @@ namespace XyloIsCoding\CoconutCms\Tests\Storage;
 
 use LogicException;
 use PHPUnit\Framework\TestCase;
-use XyloIsCoding\CoconutCms\Storage\FieldKind;
+use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Storage\PrototypeShape;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Address;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Product;
@@ -66,8 +66,8 @@ final class PrototypeShapeTest extends TestCase
     }
 
     /**
-     * @param \XyloIsCoding\CoconutCms\Storage\FieldDescriptor[] $fields
-     * @return array<string, \XyloIsCoding\CoconutCms\Storage\FieldDescriptor>
+     * @param \XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor[] $fields
+     * @return array<string, \XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor>
      */
     private static function byName(array $fields): array
     {
