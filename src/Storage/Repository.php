@@ -99,14 +99,19 @@ final class Repository
         return $entity;
     }
 
-    /** @return string the new entity's id */
-    public function insert(object $entity): string
+    /**
+     * @param string|null $explicitId reuse this id instead of generating a fresh one,
+     *   only for restoring a previously deleted entity so anything still referencing
+     *   its old id keeps working
+     * @return string the new entity's id
+     */
+    public function insert(object $entity, ?string $explicitId = null): string
     {
         $values = RowMapper::propertiesOf($entity, $this->fields);
         $this->validate($values);
         $this->assertUnique($values, null);
 
-        $id = null;
+        $id = $explicitId;
         foreach ($this->chain as $level) {
             $row = $this->rowWithReferences($this->ownFieldsByLevel[$level], $values);
 

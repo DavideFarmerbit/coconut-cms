@@ -3,6 +3,9 @@
 namespace XyloIsCoding\CoconutCms\Storage;
 
 use Doctrine\DBAL\Connection;
+use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Storage\Field\Ownership;
 
 /**
  * Hands out one Repository per entity class, sharing one Connection and one
@@ -32,5 +35,37 @@ final class EntityManager
     public function repository(string $class): Repository
     {
         return $this->repositories[$class] ??= new Repository($this->connection, $this->identityMap, $this, $class, $this->tables);
+    }
+
+    /**
+     * Resolves reference values (ids) into the actual hydrated objects a native
+     * class's constructor expects, everything else passes through unchanged. A Shared
+     * collection's items resolve the same way; an Owned collection's items are already
+     * real objects (they have no independent id to resolve from), same as an embed.
+     *
+     * @param FieldDescriptor[] $fields
+     * @param array<string, mixed> $values
+     * @return array<string, mixed>
+     */
+    public function hydrateReferences(array $fields, array $values): array
+    {
+        foreach ($fields as $field) {
+            if (!array_key_exists($field->name, $values)) {
+                continue;
+            }
+
+            if ($field->kind === FieldKind::EntityReference) {
+                $id = $values[$field->name];
+                $values[$field->name] = $id === null ? null : $this->repository($field->referencedShape)->find((string) $id);
+            } elseif ($field->kind === FieldKind::Collection && $field->collectionItemKind === FieldKind::EntityReference && $field->ownership === Ownership::Shared) {
+                $itemRepository = $this->repository($field->referencedShape);
+                $values[$field->name] = array_map(
+                    static fn (mixed $id): ?object => $itemRepository->find((string) $id),
+                    $values[$field->name],
+                );
+            }
+        }
+
+        return $values;
     }
 }
