@@ -43,6 +43,10 @@ final class EntityManager
      * collection's items resolve the same way; an Owned collection's items are already
      * real objects (they have no independent id to resolve from), same as an embed.
      *
+     * A value that's already an object is left alone, not re-resolved, this is what
+     * lets DraftPreview hand in a not-yet-persisted preview object (built from another
+     * change in the same draft) in place of an id to look up.
+     *
      * @param FieldDescriptor[] $fields
      * @param array<string, mixed> $values
      * @return array<string, mixed>
@@ -56,11 +60,11 @@ final class EntityManager
 
             if ($field->kind === FieldKind::EntityReference) {
                 $id = $values[$field->name];
-                $values[$field->name] = $id === null ? null : $this->repository($field->referencedShape)->find((string) $id);
+                $values[$field->name] = $id === null || is_object($id) ? $id : $this->repository($field->referencedShape)->find((string) $id);
             } elseif ($field->kind === FieldKind::Collection && $field->collectionItemKind === FieldKind::EntityReference && $field->ownership === Ownership::Shared) {
                 $itemRepository = $this->repository($field->referencedShape);
                 $values[$field->name] = array_map(
-                    static fn (mixed $id): ?object => $itemRepository->find((string) $id),
+                    static fn (mixed $id): ?object => is_object($id) ? $id : $itemRepository->find((string) $id),
                     $values[$field->name],
                 );
             }
