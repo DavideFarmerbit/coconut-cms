@@ -1,0 +1,12 @@
+{
+  "name": "coconut-cms",
+  "private": true,
+  "type": "module",
+  "description": "JS test tooling for the coconut-cms Composer package. Not published to npm, the package is distributed via Composer; consumers bundle its raw source with their own build tool.",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.1"
+  }
+}

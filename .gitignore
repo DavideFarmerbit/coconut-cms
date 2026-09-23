@@ -2,3 +2,5 @@
 /.idea/
 /composer.lock
 /.phpunit.cache/
+/node_modules/
+/package-lock.json
