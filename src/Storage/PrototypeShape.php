@@ -13,6 +13,7 @@ use XyloIsCoding\CoconutCms\Storage\Field\Embed;
 use XyloIsCoding\CoconutCms\Storage\Field\Field;
 use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Storage\Field\PrototypeValidation;
 use XyloIsCoding\CoconutCms\Storage\Field\Reference;
 
 /**
@@ -92,6 +93,38 @@ final class PrototypeShape
         }
 
         return $descriptors;
+    }
+
+    /**
+     * The full effective set of cross-field rules: every level's own
+     * #[PrototypeValidation] validators, base first, concatenated. For a class with no
+     * native parent, this is just that one level's own.
+     *
+     * @param class-string $class
+     * @return PrototypeValidator[]
+     */
+    public static function prototypeValidatorsOfClass(string $class): array
+    {
+        $validators = [];
+        foreach (self::chainOfClass($class) as $level) {
+            array_push($validators, ...self::ownPrototypeValidatorsOfClass($level));
+        }
+
+        return $validators;
+    }
+
+    /**
+     * Only the cross-field rules declared at this exact level via #[PrototypeValidation],
+     * not inherited from a native parent.
+     *
+     * @param class-string $class
+     * @return PrototypeValidator[]
+     */
+    public static function ownPrototypeValidatorsOfClass(string $class): array
+    {
+        $attributes = (new ReflectionClass($class))->getAttributes(PrototypeValidation::class);
+
+        return $attributes === [] ? [] : $attributes[0]->newInstance()->validators;
     }
 
     /**

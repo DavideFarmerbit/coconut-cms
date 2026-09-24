@@ -14,6 +14,12 @@ use XyloIsCoding\CoconutCms\Storage\Field\Ownership;
  * IdentityMap so the same row is never hydrated twice, and through FieldValidator plus
  * the friendly uniqueness pre-check before anything is written.
  *
+ * A Shared reference or collection item reached while hydrating another entity is a
+ * lazy PHP 8.4 ghost object (see lazyFind()), not eagerly resolved, an owner holding
+ * many of these never pays for hydrating any of them until something actually touches
+ * one. A direct find() call still resolves immediately, a caller asking for something
+ * by id wants it now.
+ *
  * Always operates on the whole Class Table Inheritance chain the class belongs to
  * (base first), one table per level, plus whatever join/child tables its reference and
  * collection fields need. A class with no native parent is simply a chain of one.
@@ -39,6 +45,9 @@ final class Repository
     /** @var FieldDescriptor[] every field across the whole chain */
     private readonly array $fields;
 
+    /** @var PrototypeValidator[] every cross-field rule across the whole chain */
+    private readonly array $prototypeValidators;
+
     /**
      * @param class-string $class the entity class this repository reads and writes
      * @param array<class-string, string> $tables entity class => table name, every chain level included
@@ -61,6 +70,7 @@ final class Repository
 
         $this->ownFieldsByLevel = $ownFieldsByLevel;
         $this->fields = $fields;
+        $this->prototypeValidators = PrototypeShape::prototypeValidatorsOfClass($this->class);
     }
 
     public function find(string $id): ?object
@@ -70,6 +80,57 @@ final class Repository
             return $cached;
         }
 
+        $values = $this->hydrateValues($id);
+        if ($values === null) {
+            return null;
+        }
+
+        $entity = (new ReflectionClass($this->class))->newInstanceArgs($values);
+        $this->identityMap->put($this->class, $id, $entity);
+
+        return $entity;
+    }
+
+    /**
+     * A lazy reference to this entity: the query doesn't run until a property is
+     * actually touched, so an owner holding many of these (a Shared reference or
+     * collection item) never eagerly hydrates them just because the owner itself was
+     * loaded. Falls back to whatever's already in the IdentityMap, real or another
+     * still-untouched ghost, so "the same id resolves to the same instance" keeps
+     * holding regardless of how many places reach for it before anything triggers it.
+     */
+    public function lazyFind(string $id): object
+    {
+        $cached = $this->identityMap->get($this->class, $id);
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        $reflection = new ReflectionClass($this->class);
+        $ghost = $reflection->newLazyGhost(function (object $ghost) use ($reflection, $id): void {
+            $values = $this->hydrateValues($id)
+                ?? throw new LogicException(sprintf('%s #%s no longer exists, a reference should never dangle.', $this->class, $id));
+
+            foreach ($values as $name => $value) {
+                $reflection->getProperty($name)->setRawValueWithoutLazyInitialization($ghost, $value);
+            }
+        });
+
+        $this->identityMap->put($this->class, $id, $ghost);
+
+        return $ghost;
+    }
+
+    /**
+     * Everything find()/lazyFind() need to construct or populate an instance, kept
+     * separate so a lazy ghost's initializer can fill itself in with the exact same
+     * logic find() uses to build constructor args, without going through find() and
+     * its own IdentityMap check again.
+     *
+     * @return array<string, mixed>|null null if the row no longer exists
+     */
+    private function hydrateValues(string $id): ?array
+    {
         $values = [];
         foreach ($this->chain as $level) {
             $row = $this->connection->fetchAssociative(
@@ -93,10 +154,7 @@ final class Repository
             }
         }
 
-        $entity = (new ReflectionClass($this->class))->newInstanceArgs($values);
-        $this->identityMap->put($this->class, $id, $entity);
-
-        return $entity;
+        return $values;
     }
 
     /**
@@ -170,7 +228,14 @@ final class Repository
         return $this->tables[$class] ?? throw new LogicException(sprintf('No table registered for %s.', $class));
     }
 
-    /** @param array<string, mixed> $values */
+    /**
+     * Per-field FieldValidator checks first, then whole-entity PrototypeValidator
+     * cross-field checks against the same fully-resolved candidate state, "is this one
+     * value well-formed" is a more basic question than "is this combination of values
+     * coherent," fail on the cheaper check first.
+     *
+     * @param array<string, mixed> $values
+     */
     private function validate(array $values): void
     {
         foreach ($this->fields as $field) {
@@ -178,6 +243,12 @@ final class Repository
                 if (!$validator->validate($values[$field->name] ?? null)) {
                     throw new ValidationException(sprintf('Field "%s" is invalid.', $field->name));
                 }
+            }
+        }
+
+        foreach ($this->prototypeValidators as $validator) {
+            if (!$validator->validate($values)) {
+                throw new ValidationException(sprintf('%s failed a %s.', $this->class, $validator::class));
             }
         }
     }
@@ -264,7 +335,7 @@ final class Repository
             return null;
         }
 
-        return $this->entityManager->repository($field->referencedShape)->find((string) $id);
+        return $this->entityManager->repository($field->referencedShape)->lazyFind((string) $id);
     }
 
     /** The table of whichever chain level actually declared $field, not always the leaf's own table. */
@@ -286,7 +357,12 @@ final class Repository
         return $this->declaringTable($field) . '_' . $field->name;
     }
 
-    /** @return object[] */
+    /**
+     * @return object[] Shared items are lazy, only the id list is fetched eagerly
+     *   (unavoidable, that's what "which items are in the collection" means), each
+     *   item's own hydration waits until it's actually touched. Owned items have no
+     *   such cost to defer, their own data already comes back in this one query.
+     */
     private function readCollection(FieldDescriptor $field, string $ownerId): array
     {
         $table = $this->collectionTable($field);
@@ -295,7 +371,7 @@ final class Repository
             $itemIds = $this->connection->fetchFirstColumn(sprintf('SELECT item_id FROM %s WHERE owner_id = ?', $table), [$ownerId]);
             $itemRepository = $this->entityManager->repository($field->referencedShape);
 
-            return array_map(static fn (int|string $itemId): object => $itemRepository->find((string) $itemId), $itemIds);
+            return array_map(static fn (int|string $itemId): object => $itemRepository->lazyFind((string) $itemId), $itemIds);
         }
 
         // Owned: no independent repository, hydrate the child rows directly instead
