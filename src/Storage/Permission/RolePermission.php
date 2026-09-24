@@ -2,8 +2,12 @@
 
 namespace XyloIsCoding\CoconutCms\Storage\Permission;
 
-/** The common-case SchemaPermission: an actor needs one specific role for both reading and writing. */
-final readonly class RolePermission implements SchemaPermission
+/**
+ * The common-case permission check: an actor needs one specific role for both reading
+ * and writing. Implements both SchemaPermission and FieldPermission, identical shape,
+ * one reusable default rather than two copies of the same role check.
+ */
+final readonly class RolePermission implements SchemaPermission, FieldPermission
 {
     public function __construct(
         public string $role,

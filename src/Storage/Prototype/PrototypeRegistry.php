@@ -186,7 +186,13 @@ final class PrototypeRegistry
         ];
     }
 
-    /** @param array<string, mixed> $row */
+    /**
+     * Editor-created fields always come back with no validators and no permission,
+     * both are behavior objects, not data, and neither has a descriptor-to-object
+     * deserialization scheme built yet, same open problem, same scoping call for both.
+     *
+     * @param array<string, mixed> $row
+     */
     private static function fieldFromRow(array $row): FieldDescriptor
     {
         $kind = FieldKind::from($row['kind']);

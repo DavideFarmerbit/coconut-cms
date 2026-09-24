@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Storage\Field;
 
 use Attribute;
+use XyloIsCoding\CoconutCms\Storage\Permission\FieldPermission;
 
 /**
  * Marks a native class's constructor-promoted property as a persisted field. Carries
@@ -22,6 +23,7 @@ final readonly class Field
         public bool $queryable = false,
         public bool $unique = false,
         public array $validators = [],
+        public ?FieldPermission $permission = null,
     ) {
     }
 }

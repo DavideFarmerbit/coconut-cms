@@ -6,6 +6,8 @@ use Doctrine\DBAL\Connection;
 use LogicException;
 use ReflectionClass;
 use XyloIsCoding\CoconutCms\Storage\EntityManager;
+use XyloIsCoding\CoconutCms\Storage\Permission\Actor;
+use XyloIsCoding\CoconutCms\Storage\Permission\FieldPermissionDenied;
 use XyloIsCoding\CoconutCms\Storage\PrototypeShape;
 use XyloIsCoding\CoconutCms\Storage\Repository;
 use XyloIsCoding\CoconutCms\Storage\RowMapper;
@@ -13,13 +15,17 @@ use XyloIsCoding\CoconutCms\Storage\ValidationException;
 
 /**
  * Applies a Changeset atomically: topologically sorts it, resolves TempIds to the real
- * ids assigned earlier in the same flush, checks expectedOperationId conflicts before
- * touching anything, applies each change through the target's own Repository, and logs
- * the result as one ChangesetOperation.
+ * ids assigned earlier in the same flush, checks expectedOperationId conflicts and
+ * FieldPermission before touching anything, applies each change through the target's
+ * own Repository, and logs the result as one ChangesetOperation.
  *
  * The whole flush runs in one database transaction, a conflict discovered partway
  * through rolls back everything already applied in this same flush, not just the one
  * change that failed.
+ *
+ * $actor is optional, null skips field-permission checking entirely, the same
+ * "bulk/programmatic path accepts the small risk" precedent already established for
+ * expectedOperationId, only the interactive editor path should always supply one.
  */
 final readonly class ChangesetFlusher
 {
@@ -30,16 +36,16 @@ final readonly class ChangesetFlusher
     ) {
     }
 
-    public function flush(Changeset $changeset): FlushResult
+    public function flush(Changeset $changeset, ?Actor $actor = null): FlushResult
     {
         $sorted = ChangesetSorter::sort($changeset->changes);
 
-        return $this->connection->transactional(function () use ($sorted): FlushResult {
+        return $this->connection->transactional(function () use ($sorted, $actor): FlushResult {
             $tempIdToRealId = [];
             $records = [];
 
             foreach ($sorted as $change) {
-                $records[] = $this->apply($change, $tempIdToRealId);
+                $records[] = $this->apply($change, $tempIdToRealId, $actor);
             }
 
             $operation = $this->undoLog->record($records);
@@ -49,10 +55,16 @@ final readonly class ChangesetFlusher
     }
 
     /** @param array<string, string> $tempIdToRealId */
-    private function apply(EntityChange $change, array &$tempIdToRealId): EntityChangeRecord
+    private function apply(EntityChange $change, array &$tempIdToRealId, ?Actor $actor): EntityChangeRecord
     {
         $repository = $this->entityManager->repository($change->prototypeClass);
         $fields = PrototypeShape::ofClass($change->prototypeClass);
+
+        // Before validation, an entity's own value-well-formedness is a lesser gate
+        // than "is this actor even allowed to touch this field" at all. Delete's
+        // $values is always empty, so this is a no-op for it, whole-entity delete
+        // authorization is a content-type-level concern, not a field-level one.
+        $this->assertCanWriteFields($fields, array_keys($change->values), $actor);
 
         return match ($change->kind) {
             EntityChangeKind::Create => $this->applyCreate($change, $repository, $fields, $tempIdToRealId),
@@ -113,6 +125,29 @@ final readonly class ChangesetFlusher
         $repository->delete($id);
 
         return new EntityChangeRecord(EntityChangeKind::Delete, $id, $change->prototypeClass, $before, []);
+    }
+
+    /**
+     * @param \XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor[] $fields
+     * @param string[] $changedFieldNames
+     */
+    private function assertCanWriteFields(array $fields, array $changedFieldNames, ?Actor $actor): void
+    {
+        if ($actor === null || $changedFieldNames === []) {
+            return;
+        }
+
+        $byName = [];
+        foreach ($fields as $field) {
+            $byName[$field->name] = $field;
+        }
+
+        foreach ($changedFieldNames as $name) {
+            $permission = $byName[$name]?->permission;
+            if ($permission !== null && !$permission->canWrite($actor)) {
+                throw new FieldPermissionDenied(sprintf('Not allowed to write field "%s".', $name));
+            }
+        }
     }
 
     private static function realId(EntityChange $change): string

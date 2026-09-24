@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Storage\Field;
 
 use InvalidArgumentException;
+use XyloIsCoding\CoconutCms\Storage\Permission\FieldPermission;
 
 /**
  * Describes one field of an entity or value object shape: its kind, storage tier, and
@@ -21,6 +22,7 @@ final readonly class FieldDescriptor
      * @param FieldKind|null $collectionItemKind the kind of each item, for Collection only
      * @param mixed[]|null $choiceOptions the allowed values, for Choice only
      * @param Ownership|null $ownership Shared or Owned, for Reference and EntityReference Collection only
+     * @param FieldPermission|null $permission who can read/write this field's value, null meaning no restriction beyond ordinary access
      */
     private function __construct(
         public string $name,
@@ -34,6 +36,7 @@ final readonly class FieldDescriptor
         public ?FieldKind $collectionItemKind = null,
         public ?array $choiceOptions = null,
         public ?Ownership $ownership = null,
+        public ?FieldPermission $permission = null,
     ) {
     }
 
@@ -51,6 +54,7 @@ final readonly class FieldDescriptor
         bool $queryable = false,
         bool $unique = false,
         array $validators = [],
+        ?FieldPermission $permission = null,
     ): self {
         if (!in_array($kind, [FieldKind::String, FieldKind::Int, FieldKind::Float, FieldKind::Bool], true)) {
             throw new InvalidArgumentException(sprintf('FieldDescriptor::scalar() does not accept kind %s.', $kind->name));
@@ -64,6 +68,7 @@ final readonly class FieldDescriptor
             queryable: $queryable || $unique,
             unique: $unique,
             validators: $validators,
+            permission: $permission,
         );
     }
 
@@ -80,6 +85,7 @@ final readonly class FieldDescriptor
         ?string $group = null,
         bool $queryable = false,
         array $validators = [],
+        ?FieldPermission $permission = null,
     ): self {
         if ($options === []) {
             throw new InvalidArgumentException(sprintf('FieldDescriptor "%s" needs at least one choice option.', $name));
@@ -94,6 +100,7 @@ final readonly class FieldDescriptor
             unique: false,
             validators: $validators,
             choiceOptions: $options,
+            permission: $permission,
         );
     }
 
@@ -109,6 +116,7 @@ final readonly class FieldDescriptor
         string $label,
         ?string $group = null,
         array $validators = [],
+        ?FieldPermission $permission = null,
     ): self {
         return new self(
             name: $name,
@@ -119,6 +127,7 @@ final readonly class FieldDescriptor
             unique: false,
             validators: $validators,
             referencedShape: $shapeClass,
+            permission: $permission,
         );
     }
 
@@ -138,6 +147,7 @@ final readonly class FieldDescriptor
         bool $queryable = false,
         bool $unique = false,
         array $validators = [],
+        ?FieldPermission $permission = null,
     ): self {
         return new self(
             name: $name,
@@ -149,6 +159,7 @@ final readonly class FieldDescriptor
             validators: $validators,
             referencedShape: $shapeClass,
             ownership: $ownership,
+            permission: $permission,
         );
     }
 
@@ -168,6 +179,7 @@ final readonly class FieldDescriptor
         ?string $group = null,
         ?Ownership $ownership = null,
         array $validators = [],
+        ?FieldPermission $permission = null,
     ): self {
         if ($itemKind === FieldKind::EntityReference && ($referencedShape === null || $ownership === null)) {
             throw new InvalidArgumentException(sprintf('Collection "%s" of EntityReference needs both a referencedShape and an ownership.', $name));
@@ -184,6 +196,7 @@ final readonly class FieldDescriptor
             referencedShape: $referencedShape,
             collectionItemKind: $itemKind,
             ownership: $ownership,
+            permission: $permission,
         );
     }
 }

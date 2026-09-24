@@ -130,6 +130,7 @@ final class PrototypeShape
                 label: $label,
                 group: $field->group,
                 validators: $field->validators,
+                permission: $field->permission,
             );
         }
 
@@ -146,6 +147,7 @@ final class PrototypeShape
                 queryable: $field->queryable,
                 unique: $field->unique,
                 validators: $field->validators,
+                permission: $field->permission,
             );
         }
 
@@ -166,6 +168,7 @@ final class PrototypeShape
                 group: $field->group,
                 ownership: $collection->ownership,
                 validators: $field->validators,
+                permission: $field->permission,
             );
         }
 
@@ -178,6 +181,7 @@ final class PrototypeShape
                 group: $field->group,
                 queryable: $field->queryable,
                 validators: $field->validators,
+                permission: $field->permission,
             );
         }
 
@@ -201,6 +205,7 @@ final class PrototypeShape
             queryable: $field->queryable,
             unique: $field->unique,
             validators: $field->validators,
+            permission: $field->permission,
         );
     }
 }
