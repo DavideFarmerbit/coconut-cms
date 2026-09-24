@@ -58,17 +58,23 @@ final class SchemaBuilder
      *
      * @param class-string[] $chain base first, PrototypeShape::chainOfClass() order
      * @param array<class-string, string> $tables entity class => table name, every level included
+     * @param (callable(string): FieldDescriptor[])|null $ownFieldsOfLevel resolves one
+     *   level's own fields, defaults to native reflection; PrototypeRegistry::ownFieldsOf()
+     *   is the editor-created-aware equivalent, needed once a chain can include an
+     *   editor-created level, which isn't a real class reflection can read
      * @return Table[] one per level, base first, then any join/child table a reference or collection field needed
      */
-    public static function tablesForChain(array $chain, array $tables): array
+    public static function tablesForChain(array $chain, array $tables, ?callable $ownFieldsOfLevel = null): array
     {
+        $ownFieldsOfLevel ??= PrototypeShape::ownFieldsOfClass(...);
+
         $result = [];
         $extra = [];
         $previousTable = null;
 
         foreach ($chain as $level) {
             $tableName = self::tableOf($level, $tables);
-            $table = self::buildTable($tableName, PrototypeShape::ownFieldsOfClass($level), $tables, $extra, $previousTable === null);
+            $table = self::buildTable($tableName, $ownFieldsOfLevel($level), $tables, $extra, $previousTable === null);
 
             if ($previousTable !== null) {
                 $table->addForeignKeyConstraint($previousTable, [self::ID_COLUMN], [self::ID_COLUMN], ['onDelete' => 'CASCADE']);
