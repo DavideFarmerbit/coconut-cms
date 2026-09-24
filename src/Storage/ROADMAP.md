@@ -116,12 +116,31 @@ runtime, safely, gated from the start.
   transaction ("Schema changes are never draftable")
 - `SchemaPermission` gating every one of the above from the first commit that makes
   runtime schema mutation possible, not bolted on after ("Schema-level authorization")
+- A minimal `Actor` interface (`hasRole(string): bool`) and a `RolePermission`
+  implementing `SchemaPermission` — `ARCHITECTURE.md` references `Actor` throughout but
+  never actually defines it; this phase is where a shape for it first becomes load-bearing
 
-**Not yet**: field-level permission enforcement (Phase 6), admin browsing UI (Phase 7).
+**Scoping decision (2026-09-24, confirmed before starting the phase)**: this phase
+covers *schema mutation only* — creating a prototype, adding/dropping a column,
+permission-gated, undoable. It deliberately does **not** wire editor-created prototypes
+into `Repository`/`ChangesetFlusher` for reading/writing instances. Every prototype so
+far has been a native PHP class, reflected on and hydrated via `newInstanceArgs()`; an
+editor-created prototype has no class to reflect on or instantiate, so representing an
+*instance* of one needs a new, generic value-holder (something like a `DynamicEntity`)
+threaded through `Repository`, `RowMapper`, `ChangesetFlusher`, and `EntityManager` —
+a genuinely separate, sizable piece of work from safely mutating schema, deferred
+rather than folded in here. Likely lands naturally alongside Phase 7 (the first phase
+that needs to actually *browse* editor-created content), or as its own follow-up phase.
+
+**Not yet**: field-level permission enforcement (Phase 6), admin browsing UI (Phase 7),
+Repository/ChangesetFlusher support for editor-created prototype instances (see scoping
+decision above).
 
 **Done when**: an admin without `SchemaPermission` cannot create a subclass or alter one
 they don't have write access to; one who does can add/drop a column on their own
-editor-created subclass, safely, undoably, with the parent's table never touched.
+editor-created subclass, safely, undoably, with the parent's table never touched. This
+is about the schema existing and being safely mutable, not about reading or writing
+content through it yet.
 
 ## Phase 6 — Field-level permissions
 
@@ -150,6 +169,11 @@ including fields defined at any inheritance level.
 - Query-builder resolving a filterable field to its real column *and* which
   inheritance-level table holds it, joining as needed ("Admin list/filter views")
 - Plain `LIMIT`/`OFFSET` pagination (already decided as sufficient for v1)
+- Picks up the work Phase 5 deliberately deferred: a `DynamicEntity`-style generic
+  instance representation for editor-created prototypes, and wiring it into
+  `Repository`/`ChangesetFlusher` — this phase is the first one that actually needs to
+  *read* editor-created content, so it's the natural place for that to land, not a new
+  scope addition
 
 **Done when**: a list view for a base prototype can filter/sort by a field declared on
 a derived editor-created subclass, joining the right table transparently.
