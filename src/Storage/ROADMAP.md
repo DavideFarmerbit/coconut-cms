@@ -161,6 +161,39 @@ need for field-level gating shows up before Phase 6's slot.
 entity; an actor without write permission has a changeset touching that field rejected
 server-side regardless of what the client sent.
 
+## Phase 6.1 — Audit fixes: lazy loading, cross-field validation, delete ordering
+
+**Goal**: close three gaps between what `ARCHITECTURE.md` decided and what Phases 1-6
+actually built, surfaced by an explicit audit (2026-09-24) rather than caught
+incrementally. Unlike the Phase 5 `DynamicEntity` deferral, these were never flagged as
+deliberate scoping calls at the time, worth a dedicated pass rather than folding
+silently into whatever phase touches that code next.
+
+- **Lazy loading.** `Repository::readReference()`/`readCollection()` currently resolve
+  eagerly on every `find()` — loading a Product hydrates every Tag it has immediately.
+  Needs an actual lazy mechanism (a proxy, or an explicit deferred-fetch wrapper) so
+  touching an entity never eagerly hydrates its Shared references/collections, the
+  concern that started this entire design in the first place
+  ("Identity Map + Repository + lazy loading")
+- **`PrototypeValidator`.** A new interface at the entity level for cross-field rules
+  (end date after start date), evaluated against the whole hydrated candidate state,
+  reusing `DraftPreview`'s apply-in-memory function per the doc, enforced alongside
+  `FieldValidator` in the write path. Same native-arbitrary-logic vs.
+  editor-created-closed-menu asymmetry used everywhere else admin-authored schema is
+  more restricted than native code ("Validation")
+- **Delete-vs-delete ordering.** `ChangesetSorter` only derives dependency edges from
+  `TempId` scanning, never from live reference data, so a changeset deleting a
+  referencer and what it references in the wrong order relies entirely on the
+  `RESTRICT` rollback backstop rather than being silently reordered the way inserts
+  already are ("Write path")
+
+**Done when**: loading an entity with Shared references/collections doesn't hydrate any
+of them until actually touched; a cross-field rule rejects an invalid changeset before
+flush, for both a native class's arbitrary rule and an editor-created prototype picking
+from a closed menu; a changeset deleting two reference-linked entities in the wrong
+order succeeds by being reordered, not by raising (and relying on) a constraint
+violation.
+
 ## Phase 7 — Admin list/filter views
 
 **Goal**: browse, filter, and sort content across native and editor-created prototypes,
@@ -178,12 +211,32 @@ including fields defined at any inheritance level.
 **Done when**: a list view for a base prototype can filter/sort by a field declared on
 a derived editor-created subclass, joining the right table transparently.
 
-## Shelf item — Full-text & cross-content-type search
+## Shelf items
 
-Not a numbered phase — the architecture doc is explicit this shouldn't be built
-preemptively. Pick this up only once a real need shows up:
+Not numbered phases — pick these up only once a real need shows up, not preemptively.
+
+### Full-text & cross-content-type search
+
+The architecture doc is explicit this shouldn't be built preemptively:
 
 - `searchable` flag on `FieldDescriptor`, independent of `queryable`
 - Flat `search_index` table, `SearchIndex` strategy interface with a swappable default
 - Hooks into the Phase 3 write path for free; Owned entities' text folds into their
   owner's index entry, same as everywhere else Owned/Shared already applies
+
+### Client-side validation tiers
+
+Needs an actual admin editor UI to attach to, which doesn't exist yet ("Validation"):
+
+- Tier 1: `FieldValidator::describe()`'s `{type, ...params}` mapped to native HTML5
+  constraint attributes (`required`, `minlength`/`maxlength`, `min`/`max`/`step`,
+  `pattern`), validated by the browser itself, no JS required
+- Tier 2: a small shared registry of JS validator functions, keyed by the same `type`
+  strings the PHP side uses, for named reusable algorithms the browser doesn't support
+  natively (IBAN, credit card checksum, phone format)
+- Tier 3 (bespoke, one-off logic) stays server-round-trip-only, the rare exception once
+  tiers 1 and 2 are reasonably filled out
+- The concurrent-write "override and publish anyway" retry flow also lands here: the
+  backend primitive already works today (retry the same flush with a fresh or omitted
+  `expectedOperationId`), it just has no UI to trigger it and has never been exercised
+  as that specific flow
