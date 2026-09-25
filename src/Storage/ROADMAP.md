@@ -194,6 +194,56 @@ from a closed menu; a changeset deleting two reference-linked entities in the wr
 order succeeds by being reordered, not by raising (and relying on) a constraint
 violation.
 
+## Phase 6.2 — Rename safety for entity prototypes
+
+**Goal**: a bounded, correct fixup operation for renaming an entity (native class or
+editor-created prototype), surfaced by design discussion (2026-09-25) rather than an
+audit, since nothing before this phase ever needed to touch a prototype's own identity
+after creation. Field/member renames are explicitly out of scope, already
+policy-forbidden ("Entity prototypes": "a true rename all stay off the table entirely;
+a rename is better modeled as add a new column, deprecate the old one"), for native
+fields the existing reviewed-migration workflow already covers a rename correctly (a
+human editing the generated add+drop diff into a real `RENAME COLUMN`).
+
+- **What already works for free.** A native-to-native class-string reference is never
+  persisted as literal text, `PrototypeShape` always re-derives `referencedShape` live
+  via reflection on the current PHP type declaration. A consistent native class rename
+  (the class itself plus every referencing property's type) needs zero data migration
+  and zero fixup for this reason alone.
+- **What still needs fixing, native class.** A native class's table name is a
+  separately-chosen string in `EntityManager`'s `$tables` map, never derived from the
+  class name, so a rename never implicates a table rename. The only persisted text that
+  can go stale is `PrototypeRegistry`'s own meta-schema, wherever this class is
+  recorded as an editor-created level's `parent` or a field's `referenced_shape`
+  (`prototypes.parent`, `prototype_fields.referenced_shape`). Fixup is a manual CLI
+  command a developer runs after renaming their own class, since there's no editor UI
+  to trigger it from.
+- **What still needs fixing, editor-created prototype.** `SchemaEditor::createPrototype()`
+  derives the table name directly from the prototype name (`strtolower($name)`) and
+  never stores it separately, so renaming one is not just a metadata update: `UPDATE
+  prototypes SET name = ...`, updating every `prototypes.parent`/
+  `prototype_fields.referenced_shape` row pointing at the old name, and physically
+  renaming its own table plus any of its own Collection fields' join/child tables
+  (`{oldTable}_{fieldName}`, the same own-table set `SchemaEditor::syncOwnTable()`
+  already isolates via its `str_starts_with($tableName . '_')` filter). FK constraints
+  pointing at the renamed table need no manual fixup, PostgreSQL/MySQL/SQLite all track
+  a foreign key by the table's internal identity, not by re-parsing its name, so a table
+  rename updates them automatically.
+- **Shape of the fix.** One operation, `SchemaEditor::rename(old, new, actor)` (naming
+  tentative), covering both cases above through the same identifier-kind branch
+  (`isEditorCreated()`) `SchemaEditor` already uses everywhere else, gated by
+  `SchemaPermission` like every other schema mutation. A permanent redirect-table was
+  considered and deliberately not chosen as the primary mechanism, floated only as a
+  possible secondary safety net if the direct fixup ever proves insufficient in
+  practice.
+
+**Done when**: renaming a native class (its own source plus every referencing
+property's type) leaves every native-to-native reference resolving correctly with zero
+database writes; running the rename operation against an editor-created prototype
+correctly renames its table, its own collection join/child tables, and every stored
+`parent`/`referenced_shape` row referencing it in one call; the same operation's
+meta-schema-only fixup path is what a native class rename's CLI command reuses.
+
 ## Phase 7 — Admin list/filter views
 
 **Goal**: browse, filter, and sort content across native and editor-created prototypes,
