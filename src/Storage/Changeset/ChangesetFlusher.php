@@ -6,6 +6,7 @@ use Doctrine\DBAL\Connection;
 use LogicException;
 use ReflectionClass;
 use XyloIsCoding\CoconutCms\Storage\EntityManager;
+use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Storage\Permission\Actor;
 use XyloIsCoding\CoconutCms\Storage\Permission\FieldPermissionDenied;
 use XyloIsCoding\CoconutCms\Storage\PrototypeShape;
@@ -14,10 +15,11 @@ use XyloIsCoding\CoconutCms\Storage\RowMapper;
 use XyloIsCoding\CoconutCms\Storage\ValidationException;
 
 /**
- * Applies a Changeset atomically: topologically sorts it, resolves TempIds to the real
- * ids assigned earlier in the same flush, checks expectedOperationId conflicts and
- * FieldPermission before touching anything, applies each change through the target's
- * own Repository, and logs the result as one ChangesetOperation.
+ * Applies a Changeset atomically: topologically sorts it (including deriving
+ * delete-vs-delete order from live reference data, since a Delete's empty $values has
+ * nothing to scan the way Create/Update dependencies do), checks expectedOperationId
+ * conflicts and FieldPermission before touching anything, applies each change through
+ * the target's own Repository, and logs the result as one ChangesetOperation.
  *
  * The whole flush runs in one database transaction, a conflict discovered partway
  * through rolls back everything already applied in this same flush, not just the one
@@ -38,7 +40,7 @@ final readonly class ChangesetFlusher
 
     public function flush(Changeset $changeset, ?Actor $actor = null): FlushResult
     {
-        $sorted = ChangesetSorter::sort($changeset->changes);
+        $sorted = ChangesetSorter::sort($changeset->changes, $this->deleteMustPrecede(...));
 
         return $this->connection->transactional(function () use ($sorted, $actor): FlushResult {
             $tempIdToRealId = [];
@@ -153,6 +155,39 @@ final readonly class ChangesetFlusher
     private static function realId(EntityChange $change): string
     {
         return is_string($change->target) ? $change->target : throw new LogicException('Update/Delete must target a real id, never a TempId.');
+    }
+
+    /**
+     * Whether $a's entity currently holds a live scalar reference to $b's entity, so
+     * $a must be deleted first, respecting FK RESTRICT instead of relying on the
+     * database to reject-and-rollback the wrong order. The live-data counterpart to
+     * the TempId scanning Create/Update dependencies use, needed here since a
+     * Delete's $values is always empty, there's nothing to scan.
+     */
+    private function deleteMustPrecede(EntityChange $a, EntityChange $b): bool
+    {
+        if ($a->kind !== EntityChangeKind::Delete || $b->kind !== EntityChangeKind::Delete) {
+            return false;
+        }
+
+        $current = $this->entityManager->repository($a->prototypeClass)->find(self::realId($a));
+        if ($current === null) {
+            return false;
+        }
+
+        $targetId = self::realId($b);
+        foreach (PrototypeShape::ofClass($a->prototypeClass) as $field) {
+            if ($field->kind !== FieldKind::EntityReference || $field->referencedShape !== $b->prototypeClass) {
+                continue;
+            }
+
+            $value = RowMapper::propertiesOf($current, [$field])[$field->name] ?? null;
+            if ($value !== null && $this->entityManager->idOf($value) === $targetId) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

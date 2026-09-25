@@ -37,6 +37,12 @@ final class EntityManager
         return $this->repositories[$class] ??= new Repository($this->connection, $this->identityMap, $this, $class, $this->tables);
     }
 
+    /** The id a previously find()/insert()-ed instance was registered under, if any, across every class this manager handles. */
+    public function idOf(object $instance): ?string
+    {
+        return $this->identityMap->idOf($instance);
+    }
+
     /**
      * Resolves reference values (ids) into the actual hydrated objects a native
      * class's constructor expects, everything else passes through unchanged. A Shared

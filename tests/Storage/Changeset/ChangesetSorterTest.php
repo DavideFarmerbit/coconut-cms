@@ -78,4 +78,38 @@ final class ChangesetSorterTest extends TestCase
             EntityChange::create(new TempId('a'), 'A', ['other' => new TempId('does-not-exist')]),
         ]);
     }
+
+    public function testMustPrecedeReordersTwoDeletesThatWouldOtherwiseKeepTheirGivenOrder(): void
+    {
+        $category = EntityChange::delete('1', 'Category');
+        $product = EntityChange::delete('2', 'Product');
+
+        // deliberately listed in the "wrong" order, Category (referenced) before Product (referencer)
+        $sorted = ChangesetSorter::sort(
+            [$category, $product],
+            static fn (EntityChange $a, EntityChange $b): bool => $a->prototypeClass === 'Product' && $b->prototypeClass === 'Category',
+        );
+
+        self::assertSame(['Product', 'Category'], array_map(static fn (EntityChange $c): string => $c->prototypeClass, $sorted));
+    }
+
+    public function testMustPrecedeIsIgnoredWhenItDoesNotApply(): void
+    {
+        $sorted = ChangesetSorter::sort(
+            [EntityChange::delete('1', 'Product'), EntityChange::delete('2', 'Category')],
+            static fn (EntityChange $a, EntityChange $b): bool => false,
+        );
+
+        self::assertSame(['Product', 'Category'], array_map(static fn (EntityChange $c): string => $c->prototypeClass, $sorted));
+    }
+
+    public function testMustPrecedeCanStillProduceACycleAndIsRejectedTheSameWay(): void
+    {
+        $this->expectException(LogicException::class);
+
+        ChangesetSorter::sort(
+            [EntityChange::delete('1', 'A'), EntityChange::delete('2', 'B')],
+            static fn (EntityChange $a, EntityChange $b): bool => true, // each must precede the other
+        );
+    }
 }

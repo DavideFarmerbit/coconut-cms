@@ -10,21 +10,26 @@ use LogicException;
  * supported patterns. Dependency edges are derived automatically by scanning each
  * change's values for TempId instances, never manually declared.
  *
- * Entries with no TempId dependency (an Update or Delete by real id, or a Create with
- * no references) simply keep their original relative order, deletes included, this
- * class doesn't try to infer delete-vs-delete ordering from live data; the FK
- * `RESTRICT` policy is the backstop if a caller gets that order wrong.
+ * Delete entries have no `$values` to scan, so a caller can supply $mustPrecede to
+ * derive delete-vs-delete edges from live data instead (does this Delete's entity
+ * currently reference that Delete's entity), the same "reversed direction from
+ * inserts" ordering the write path already promises, just sourced differently since
+ * there's no changeset-shape signal to scan for it. Without one, entries with no
+ * dependency simply keep their original relative order; the FK `RESTRICT` policy
+ * remains the backstop either way if something still gets past this.
  */
 final class ChangesetSorter
 {
     /**
      * @param EntityChange[] $changes
+     * @param (callable(EntityChange, EntityChange): bool)|null $mustPrecede given (a, b),
+     *   true if a must be applied before b, beyond what TempId scanning already finds
      * @return EntityChange[]
      */
-    public static function sort(array $changes): array
+    public static function sort(array $changes, ?callable $mustPrecede = null): array
     {
         $tempIdOwner = self::tempIdOwners($changes);
-        [$dependents, $inDegree] = self::buildGraph($changes, $tempIdOwner);
+        [$dependents, $inDegree] = self::buildGraph($changes, $tempIdOwner, $mustPrecede);
 
         $queue = array_keys(array_filter($inDegree, static fn (int $degree): bool => $degree === 0));
         $order = [];
@@ -70,9 +75,10 @@ final class ChangesetSorter
     /**
      * @param EntityChange[] $changes
      * @param array<string, int> $tempIdOwner
+     * @param (callable(EntityChange, EntityChange): bool)|null $mustPrecede
      * @return array{0: array<int, int[]>, 1: array<int, int>} dependents per index, in-degree per index
      */
-    private static function buildGraph(array $changes, array $tempIdOwner): array
+    private static function buildGraph(array $changes, array $tempIdOwner, ?callable $mustPrecede): array
     {
         $dependents = array_fill(0, count($changes), []);
         $inDegree = array_fill(0, count($changes), 0);
@@ -87,6 +93,17 @@ final class ChangesetSorter
 
                 $dependents[$owner][] = $index;
                 $inDegree[$index]++;
+            }
+        }
+
+        if ($mustPrecede !== null) {
+            foreach ($changes as $i => $a) {
+                foreach ($changes as $j => $b) {
+                    if ($i !== $j && $mustPrecede($a, $b)) {
+                        $dependents[$i][] = $j;
+                        $inDegree[$j]++;
+                    }
+                }
             }
         }
 
