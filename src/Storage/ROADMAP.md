@@ -251,7 +251,7 @@ into a real `RENAME COLUMN`).
   for this reason alone.
 - **Table rename is not a special case split between native and editor-created.**
   `rename()` resolves the new table name through the exact same attribute-or-derive
-  function Phase 6.2 introduces: an explicit `#[Table]` on the new declaration takes
+  function Phase 6.2 introduces: an explicit `#[TableName]` on the new declaration takes
   precedence, otherwise the new short name is derived and run through the same collision
   guard against every other registered table. It then performs the physical rename for
   whichever identifier kind it's given, a native class's own table, or an editor-created
@@ -271,7 +271,7 @@ into a real `RENAME COLUMN`).
   and deliberately not chosen as the primary mechanism, floated only as a possible
   secondary safety net if the direct fixup ever proves insufficient in practice.
 
-**Done when**: renaming a native class that declares an explicit `#[Table]` leaves its
+**Done when**: renaming a native class that declares an explicit `#[TableName]` leaves its
 table untouched, only fixing stale `parent`/`referenced_shape` rows; renaming one that
 relied on the derived fallback renames its table to match automatically; renaming an
 editor-created prototype renames its table, its own collection join/child tables, and

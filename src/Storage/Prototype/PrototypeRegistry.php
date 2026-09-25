@@ -72,6 +72,35 @@ final class PrototypeRegistry
         return !class_exists($identifier);
     }
 
+    public function exists(string $name): bool
+    {
+        return $this->connection->fetchOne(sprintf('SELECT 1 FROM %s WHERE name = ?', self::PROTOTYPES_TABLE), [$name]) !== false;
+    }
+
+    /**
+     * Renames an editor-created prototype's own identity row, cascading to anything
+     * that stored the old name as its parent or a field's referenced shape. Raw
+     * storage only, no permission check or table rename, that's SchemaEditor's job.
+     */
+    public function rename(string $oldName, string $newName): void
+    {
+        $this->connection->update(self::PROTOTYPES_TABLE, ['name' => $newName], ['name' => $oldName]);
+        $this->renameReferences($oldName, $newName);
+    }
+
+    /**
+     * Updates every stored reference to $oldIdentifier, as a prototype's parent or a
+     * field's referenced shape, to $newIdentifier instead. Shared by an editor-created
+     * prototype's own rename() above and a native class's rename fixup
+     * (EntityRegistrar::rename()), the meta-schema doesn't distinguish where an
+     * identifier it's storing came from.
+     */
+    public function renameReferences(string $oldIdentifier, string $newIdentifier): void
+    {
+        $this->connection->update(self::PROTOTYPES_TABLE, ['parent' => $newIdentifier], ['parent' => $oldIdentifier]);
+        $this->connection->update(self::FIELDS_TABLE, ['referenced_shape' => $newIdentifier], ['referenced_shape' => $oldIdentifier]);
+    }
+
     /** Persists a fresh prototype definition. Raw storage only, no permission check, that's SchemaEditor's job. */
     public function define(string $name, ?string $parent): void
     {

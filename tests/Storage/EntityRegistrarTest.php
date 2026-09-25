@@ -7,6 +7,10 @@ use Doctrine\DBAL\DriverManager;
 use LogicException;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Storage\EntityRegistrar;
+use XyloIsCoding\CoconutCms\Storage\PrototypeShape;
+use XyloIsCoding\CoconutCms\Storage\Prototype\PrototypeRegistry;
+use XyloIsCoding\CoconutCms\Storage\SchemaBuilder;
+use XyloIsCoding\CoconutCms\Storage\SchemaSynchronizer;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Address;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Inheritance\BaseProduct;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Inheritance\DigitalProduct;
@@ -15,6 +19,7 @@ use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Product;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Registrar\CollisionA;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Registrar\CollisionB;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Registrar\NamedTable;
+use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Registrar\RenamedOrder;
 
 /**
  * Phase 6.2: registering a native class (or chain) is one call, no hand-built
@@ -94,5 +99,39 @@ final class EntityRegistrarTest extends TestCase
         $this->expectExceptionMessage(CollisionA\Order::class);
 
         EntityRegistrar::register($this->connection(), [CollisionA\Order::class, CollisionB\Order::class]);
+    }
+
+    public function testRenameMovesTheOldTableToTheNewClassesDerivedNameAndFixesReferences(): void
+    {
+        $connection = $this->connection();
+        $synchronizer = new SchemaSynchronizer($connection);
+        $synchronizer->syncAll(PrototypeRegistry::schemaTables());
+        $synchronizer->sync(SchemaBuilder::tableFor('legacy_orders', PrototypeShape::ofClass(RenamedOrder::class)));
+        $connection->insert('legacy_orders', ['reference' => 'REF-1', 'data' => '{}']);
+
+        $registry = new PrototypeRegistry($connection);
+        $registry->define('SpecialOrder', 'XyloIsCoding\\Legacy\\FruitOrder');
+
+        EntityRegistrar::rename($connection, $registry, 'XyloIsCoding\\Legacy\\FruitOrder', 'legacy_orders', RenamedOrder::class);
+
+        $tableNames = $connection->createSchemaManager()->listTableNames();
+        self::assertContains('renamedorder', $tableNames);
+        self::assertNotContains('legacy_orders', $tableNames);
+        self::assertSame('REF-1', $connection->fetchOne('SELECT reference FROM renamedorder'));
+        self::assertSame(RenamedOrder::class, $registry->parentOf('SpecialOrder'));
+    }
+
+    public function testRenameIsANoOpWhenTheNewClassDerivesTheSameTableNameAsBefore(): void
+    {
+        $connection = $this->connection();
+        $synchronizer = new SchemaSynchronizer($connection);
+        $synchronizer->syncAll(PrototypeRegistry::schemaTables());
+        $synchronizer->sync(SchemaBuilder::tableFor('custom_products', PrototypeShape::ofClass(NamedTable::class)));
+
+        $registry = new PrototypeRegistry($connection);
+
+        EntityRegistrar::rename($connection, $registry, 'XyloIsCoding\\Legacy\\OldNamedTable', 'custom_products', NamedTable::class);
+
+        self::assertContains('custom_products', $connection->createSchemaManager()->listTableNames());
     }
 }

@@ -91,6 +91,38 @@ final class SchemaEditor
         return $this->undoLog->record(SchemaOperationKind::DropColumn, $identifier, $field, $snapshot);
     }
 
+    /**
+     * Renames an editor-created prototype: its own table, any of its own Collection
+     * fields' join/child tables (name-prefixed off its own table), the prototypes.name
+     * row itself, and every prototypes.parent/prototype_fields.referenced_shape row
+     * that mentioned the old name. FK constraints pointing at the renamed table need
+     * no manual fixup, the database engine tracks them by internal identity, not by
+     * name.
+     */
+    public function rename(string $identifier, string $newName, Actor $actor): void
+    {
+        $this->assertEditorCreated($identifier, 'rename');
+        $this->assertCanWrite($identifier, $actor);
+
+        if (class_exists($newName) || $this->registry->exists($newName)) {
+            throw new LogicException(sprintf('"%s" already identifies something else.', $newName));
+        }
+
+        $oldTable = $this->tableOf($identifier);
+        $newTable = strtolower($newName);
+        $this->assertTableAvailable($newTable);
+
+        $schemaManager = $this->connection->createSchemaManager();
+        foreach ($this->ownTableNames($identifier) as $tableName) {
+            $schemaManager->renameTable($tableName, $newTable . substr($tableName, strlen($oldTable)));
+        }
+
+        $this->registry->rename($identifier, $newName);
+
+        unset($this->tables[$identifier]);
+        $this->tables[$newName] = $newTable;
+    }
+
     /** Re-adds the dropped column and restores whatever data the pre-drop snapshot captured. */
     public function undoDropColumn(SchemaOperation $operation, Actor $actor): void
     {
@@ -192,14 +224,37 @@ final class SchemaEditor
     /** Builds the whole chain to get the id column right (autoincrement vs FK-to-parent), but only ever syncs $identifier's own table(s), never a parent's or sibling's. */
     private function syncOwnTable(string $identifier): void
     {
+        $this->synchronizer->syncAll($this->ownTables($identifier));
+    }
+
+    /**
+     * $identifier's own table, plus any of its own Collection fields' join/child
+     * tables, name-prefixed off it, never a parent's or a sibling's. Shared by
+     * syncOwnTable() (needs the Table definitions) and rename() (only needs the names).
+     *
+     * @return Table[]
+     */
+    private function ownTables(string $identifier): array
+    {
         $tableName = $this->tableOf($identifier);
         $chainTables = SchemaBuilder::tablesForChain($this->registry->chainOf($identifier), $this->tables, $this->registry->ownFieldsOf(...));
 
-        $ownTables = array_values(array_filter(
+        return array_values(array_filter(
             $chainTables,
             static fn (Table $table): bool => $table->getName() === $tableName || str_starts_with($table->getName(), $tableName . '_'),
         ));
+    }
 
-        $this->synchronizer->syncAll($ownTables);
+    /** @return string[] */
+    private function ownTableNames(string $identifier): array
+    {
+        return array_map(static fn (Table $table): string => $table->getName(), $this->ownTables($identifier));
+    }
+
+    private function assertTableAvailable(string $tableName): void
+    {
+        if (in_array($tableName, $this->connection->createSchemaManager()->listTableNames(), true)) {
+            throw new LogicException(sprintf('Table "%s" already exists.', $tableName));
+        }
     }
 }

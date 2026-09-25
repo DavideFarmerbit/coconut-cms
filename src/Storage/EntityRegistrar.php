@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Storage;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Schema\Table;
 use LogicException;
+use XyloIsCoding\CoconutCms\Storage\Prototype\PrototypeRegistry;
 
 /**
  * The developer-facing setup path for native classes: derives each class's table name
@@ -30,6 +31,37 @@ final class EntityRegistrar
         (new SchemaSynchronizer($connection))->syncAll(self::resolveDefinitions($classes, $tables));
 
         return new EntityManager($connection, $tables);
+    }
+
+    /**
+     * Fixes up everything that goes stale after a native class is renamed in source:
+     * renames its own table to match the new class's derived/declared name (a no-op if
+     * it already matches, e.g. an explicit #[TableName] that didn't change), and
+     * updates every prototypes.parent/prototype_fields.referenced_shape row that
+     * mentioned the old class-string. $oldClass no longer exists as a real class by
+     * the time this runs, so its current table name has to be supplied explicitly,
+     * nothing durably records native table names anywhere; $newClass is the real,
+     * currently-declared class this reflects on to resolve its own table name.
+     *
+     * @param class-string $newClass
+     */
+    public static function rename(Connection $connection, PrototypeRegistry $registry, string $oldClass, string $oldTableName, string $newClass): void
+    {
+        $newTableName = PrototypeShape::tableNameOfClass($newClass);
+
+        if ($newTableName !== $oldTableName) {
+            self::assertTableAvailable($connection, $newTableName);
+            $connection->createSchemaManager()->renameTable($oldTableName, $newTableName);
+        }
+
+        $registry->renameReferences($oldClass, $newClass);
+    }
+
+    private static function assertTableAvailable(Connection $connection, string $tableName): void
+    {
+        if (in_array($tableName, $connection->createSchemaManager()->listTableNames(), true)) {
+            throw new LogicException(sprintf('Table "%s" already exists.', $tableName));
+        }
     }
 
     /**
