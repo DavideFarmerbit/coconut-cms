@@ -15,6 +15,7 @@ use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Storage\Field\PrototypeValidation;
 use XyloIsCoding\CoconutCms\Storage\Field\Reference;
+use XyloIsCoding\CoconutCms\Storage\Field\TableName;
 
 /**
  * Builds a native class's FieldDescriptor[] shape from its constructor-promoted
@@ -125,6 +126,22 @@ final class PrototypeShape
         $attributes = (new ReflectionClass($class))->getAttributes(PrototypeValidation::class);
 
         return $attributes === [] ? [] : $attributes[0]->newInstance()->validators;
+    }
+
+    /**
+     * This class's own table name: an explicit #[TableName] attribute if present,
+     * otherwise its own short class name, lowercased. Deliberately the short name, not
+     * the fully-qualified one, so moving a class to a different namespace never forces
+     * a table rename.
+     *
+     * @param class-string $class
+     */
+    public static function tableNameOfClass(string $class): string
+    {
+        $reflection = new ReflectionClass($class);
+        $attributes = $reflection->getAttributes(TableName::class);
+
+        return $attributes === [] ? strtolower($reflection->getShortName()) : $attributes[0]->newInstance()->name;
     }
 
     /**
