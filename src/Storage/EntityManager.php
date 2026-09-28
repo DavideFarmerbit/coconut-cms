@@ -6,41 +6,94 @@ use Doctrine\DBAL\Connection;
 use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Storage\Field\Ownership;
+use XyloIsCoding\CoconutCms\Storage\Prototype\PrototypeRegistry;
 
 /**
- * Hands out one Repository per entity class, sharing one Connection and one
- * IdentityMap across all of them. A Repository asks this to resolve a reference or
- * collection field into the referenced class's own Repository, so a Tag reached from a
- * Product goes through the exact same identity-mapped lookup a direct Tag query would.
+ * Hands out one Repository per identifier (a native class-string or an editor-created
+ * prototype's own name), sharing one Connection and one IdentityMap across all of them.
+ * A Repository asks this to resolve a reference or collection field into the
+ * referenced identifier's own Repository, so a Tag reached from a Product goes through
+ * the exact same identity-mapped lookup a direct Tag query would.
+ *
+ * Also the front door to PrototypeRegistry for shape/instantiation, so Repository and
+ * ChangesetFlusher never call PrototypeShape directly and never need their own
+ * native-vs-editor-created branch.
  */
 final class EntityManager
 {
     private readonly IdentityMap $identityMap;
+    private readonly PrototypeRegistry $registry;
 
-    /** @var array<class-string, Repository> */
+    /** @var array<string, Repository> */
     private array $repositories = [];
 
     /**
-     * @param array<class-string, string> $tables entity class => table name, every
-     *   level of an inheritance chain needs its own entry, not just the leaf class
+     * @param array<string, string> $tables identifier => table name, every level of a
+     *   chain needs its own entry, not just the leaf, for both native and
+     *   editor-created identifiers
+     * @param PrototypeRegistry|null $registry shares one instance with SchemaEditor's
+     *   own, if a caller already has one; defaults to a fresh one built from the same
+     *   connection, safe since PrototypeRegistry is stateless, every method reads the
+     *   database directly
      */
     public function __construct(
         private readonly Connection $connection,
         private readonly array $tables,
+        ?PrototypeRegistry $registry = null,
     ) {
         $this->identityMap = new IdentityMap();
+        $this->registry = $registry ?? new PrototypeRegistry($connection);
     }
 
-    /** @param class-string $class */
-    public function repository(string $class): Repository
+    public function repository(string $identifier): Repository
     {
-        return $this->repositories[$class] ??= new Repository($this->connection, $this->identityMap, $this, $class, $this->tables);
+        return $this->repositories[$identifier] ??= new Repository($this->connection, $this->identityMap, $this, $identifier, $this->tables);
     }
 
-    /** The id a previously find()/insert()-ed instance was registered under, if any, across every class this manager handles. */
+    /** The id a previously find()/insert()-ed instance was registered under, if any, across every identifier this manager handles. */
     public function idOf(object $instance): ?string
     {
         return $this->identityMap->idOf($instance);
+    }
+
+    /** @return string[] base first, ending with $identifier itself */
+    public function chainOf(string $identifier): array
+    {
+        return $this->registry->chainOf($identifier);
+    }
+
+    public function isEditorCreated(string $identifier): bool
+    {
+        return $this->registry->isEditorCreated($identifier);
+    }
+
+    /** @return FieldDescriptor[] only the fields declared at this exact level */
+    public function ownFieldsOf(string $identifier): array
+    {
+        return $this->registry->ownFieldsOf($identifier);
+    }
+
+    /** @return FieldDescriptor[] the full effective shape, every level's own fields concatenated, base first */
+    public function fieldsOf(string $identifier): array
+    {
+        return $this->registry->fieldsOf($identifier);
+    }
+
+    /** @return PrototypeValidator[] every cross-field rule across the whole chain */
+    public function prototypeValidatorsOf(string $identifier): array
+    {
+        return $this->registry->prototypeValidatorsOf($identifier);
+    }
+
+    /**
+     * Turns a resolved values array into a live instance for $identifier, native or
+     * editor-created, see PrototypeRegistry::instantiate().
+     *
+     * @param array<string, mixed> $values
+     */
+    public function instantiate(string $identifier, array $values): object
+    {
+        return $this->registry->instantiate($identifier, $values);
     }
 
     /**

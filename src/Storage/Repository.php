@@ -10,9 +10,12 @@ use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Storage\Field\Ownership;
 
 /**
- * Reads and writes instances of one native entity class, going through the
- * IdentityMap so the same row is never hydrated twice, and through FieldValidator plus
- * the friendly uniqueness pre-check before anything is written.
+ * Reads and writes instances of one identifier, a native class-string or an
+ * editor-created prototype's own name, going through the IdentityMap so the same row
+ * is never hydrated twice, and through FieldValidator plus the friendly uniqueness
+ * pre-check before anything is written. Shape resolution and instantiation both go
+ * through EntityManager's PrototypeRegistry front door, never PrototypeShape or
+ * reflection directly, so either kind of identifier works the same way here.
  *
  * A Shared reference or collection item reached while hydrating another entity is a
  * lazy PHP 8.4 ghost object (see lazyFind()), not eagerly resolved, an owner holding
@@ -20,9 +23,9 @@ use XyloIsCoding\CoconutCms\Storage\Field\Ownership;
  * one. A direct find() call still resolves immediately, a caller asking for something
  * by id wants it now.
  *
- * Always operates on the whole Class Table Inheritance chain the class belongs to
+ * Always operates on the whole Class Table Inheritance chain the identifier belongs to
  * (base first), one table per level, plus whatever join/child tables its reference and
- * collection fields need. A class with no native parent is simply a chain of one.
+ * collection fields need. An identifier with no parent is simply a chain of one.
  *
  * A reference or collection field can only ever point at an already-persisted
  * instance, found() or just insert()-ed, since there's no id to store otherwise;
@@ -36,10 +39,10 @@ use XyloIsCoding\CoconutCms\Storage\Field\Ownership;
  */
 final class Repository
 {
-    /** @var class-string[] base first, ending with $class itself */
+    /** @var string[] base first, ending with $class itself */
     private readonly array $chain;
 
-    /** @var array<class-string, FieldDescriptor[]> each chain level's own fields */
+    /** @var array<string, FieldDescriptor[]> each chain level's own fields */
     private readonly array $ownFieldsByLevel;
 
     /** @var FieldDescriptor[] every field across the whole chain */
@@ -49,8 +52,8 @@ final class Repository
     private readonly array $prototypeValidators;
 
     /**
-     * @param class-string $class the entity class this repository reads and writes
-     * @param array<class-string, string> $tables entity class => table name, every chain level included
+     * @param string $class the identifier this repository reads and writes, native or editor-created
+     * @param array<string, string> $tables identifier => table name, every chain level included
      */
     public function __construct(
         private readonly Connection $connection,
@@ -59,18 +62,18 @@ final class Repository
         private readonly string $class,
         private readonly array $tables,
     ) {
-        $this->chain = PrototypeShape::chainOfClass($this->class);
+        $this->chain = $this->entityManager->chainOf($this->class);
 
         $ownFieldsByLevel = [];
         $fields = [];
         foreach ($this->chain as $level) {
-            $ownFieldsByLevel[$level] = PrototypeShape::ownFieldsOfClass($level);
+            $ownFieldsByLevel[$level] = $this->entityManager->ownFieldsOf($level);
             array_push($fields, ...$ownFieldsByLevel[$level]);
         }
 
         $this->ownFieldsByLevel = $ownFieldsByLevel;
         $this->fields = $fields;
-        $this->prototypeValidators = PrototypeShape::prototypeValidatorsOfClass($this->class);
+        $this->prototypeValidators = $this->entityManager->prototypeValidatorsOf($this->class);
     }
 
     public function find(string $id): ?object
@@ -85,7 +88,7 @@ final class Repository
             return null;
         }
 
-        $entity = (new ReflectionClass($this->class))->newInstanceArgs($values);
+        $entity = $this->entityManager->instantiate($this->class, $values);
         $this->identityMap->put($this->class, $id, $entity);
 
         return $entity;
@@ -106,8 +109,21 @@ final class Repository
             return $cached;
         }
 
+        $ghost = $this->entityManager->isEditorCreated($this->class)
+            ? $this->lazyDynamicEntity($id)
+            : $this->lazyNativeGhost($id);
+
+        $this->identityMap->put($this->class, $id, $ghost);
+
+        return $ghost;
+    }
+
+    /** A lazy ghost of $this->class itself, a real, reflectable native class. */
+    private function lazyNativeGhost(string $id): object
+    {
         $reflection = new ReflectionClass($this->class);
-        $ghost = $reflection->newLazyGhost(function (object $ghost) use ($reflection, $id): void {
+
+        return $reflection->newLazyGhost(function (object $ghost) use ($reflection, $id): void {
             $values = $this->hydrateValues($id)
                 ?? throw new LogicException(sprintf('%s #%s no longer exists, a reference should never dangle.', $this->class, $id));
 
@@ -115,10 +131,24 @@ final class Repository
                 $reflection->getProperty($name)->setRawValueWithoutLazyInitialization($ghost, $value);
             }
         });
+    }
 
-        $this->identityMap->put($this->class, $id, $ghost);
+    /**
+     * $this->class has no class of its own to reflect on (it's an editor-created
+     * name), so the lazy ghost is of DynamicEntity itself instead, with its own
+     * identifier and values properties filled in lazily.
+     */
+    private function lazyDynamicEntity(string $id): DynamicEntity
+    {
+        $reflection = new ReflectionClass(DynamicEntity::class);
 
-        return $ghost;
+        return $reflection->newLazyGhost(function (DynamicEntity $ghost) use ($reflection, $id): void {
+            $values = $this->hydrateValues($id)
+                ?? throw new LogicException(sprintf('%s #%s no longer exists, a reference should never dangle.', $this->class, $id));
+
+            $reflection->getProperty('identifier')->setRawValueWithoutLazyInitialization($ghost, $this->class);
+            $reflection->getProperty('values')->setRawValueWithoutLazyInitialization($ghost, $values);
+        });
     }
 
     /**
@@ -210,7 +240,7 @@ final class Repository
 
         $this->writeCollections($values, $id);
 
-        $entity = (new ReflectionClass($this->class))->newInstanceArgs($values);
+        $entity = $this->entityManager->instantiate($this->class, $values);
         $this->identityMap->put($this->class, $id, $entity);
 
         return $entity;
@@ -376,10 +406,10 @@ final class Repository
 
         // Owned: no independent repository, hydrate the child rows directly instead
         $rows = $this->connection->fetchAllAssociative(sprintf('SELECT * FROM %s WHERE owner_id = ?', $table), [$ownerId]);
-        $itemFields = PrototypeShape::ofClass($field->referencedShape);
+        $itemFields = $this->entityManager->fieldsOf($field->referencedShape);
 
         return array_map(
-            static fn (array $row): object => (new ReflectionClass($field->referencedShape))->newInstanceArgs(RowMapper::fromRow($itemFields, $row)),
+            fn (array $row): object => $this->entityManager->instantiate($field->referencedShape, RowMapper::fromRow($itemFields, $row)),
             $rows,
         );
     }
@@ -403,7 +433,7 @@ final class Repository
             return;
         }
 
-        $itemFields = PrototypeShape::ofClass($field->referencedShape);
+        $itemFields = $this->entityManager->fieldsOf($field->referencedShape);
         foreach ($items as $item) {
             $row = RowMapper::toRow($itemFields, RowMapper::propertiesOf($item, $itemFields));
             $row['owner_id'] = $ownerId;

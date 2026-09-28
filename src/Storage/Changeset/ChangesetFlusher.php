@@ -4,12 +4,10 @@ namespace XyloIsCoding\CoconutCms\Storage\Changeset;
 
 use Doctrine\DBAL\Connection;
 use LogicException;
-use ReflectionClass;
 use XyloIsCoding\CoconutCms\Storage\EntityManager;
 use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Storage\Permission\Actor;
 use XyloIsCoding\CoconutCms\Storage\Permission\FieldPermissionDenied;
-use XyloIsCoding\CoconutCms\Storage\PrototypeShape;
 use XyloIsCoding\CoconutCms\Storage\Repository;
 use XyloIsCoding\CoconutCms\Storage\RowMapper;
 use XyloIsCoding\CoconutCms\Storage\ValidationException;
@@ -60,7 +58,7 @@ final readonly class ChangesetFlusher
     private function apply(EntityChange $change, array &$tempIdToRealId, ?Actor $actor): EntityChangeRecord
     {
         $repository = $this->entityManager->repository($change->prototypeClass);
-        $fields = PrototypeShape::ofClass($change->prototypeClass);
+        $fields = $this->entityManager->fieldsOf($change->prototypeClass);
 
         // Before validation, an entity's own value-well-formedness is a lesser gate
         // than "is this actor even allowed to touch this field" at all. Delete's
@@ -84,7 +82,7 @@ final readonly class ChangesetFlusher
         $resolved = $this->resolveTempIds($change->values, $tempIdToRealId);
         $hydrated = $this->entityManager->hydrateReferences($fields, $resolved);
 
-        $entity = (new ReflectionClass($change->prototypeClass))->newInstanceArgs($hydrated);
+        $entity = $this->entityManager->instantiate($change->prototypeClass, $hydrated);
         $explicitId = is_string($change->target) ? $change->target : null;
         $id = $repository->insert($entity, $explicitId);
 
@@ -176,7 +174,7 @@ final readonly class ChangesetFlusher
         }
 
         $targetId = self::realId($b);
-        foreach (PrototypeShape::ofClass($a->prototypeClass) as $field) {
+        foreach ($this->entityManager->fieldsOf($a->prototypeClass) as $field) {
             if ($field->kind !== FieldKind::EntityReference || $field->referencedShape !== $b->prototypeClass) {
                 continue;
             }

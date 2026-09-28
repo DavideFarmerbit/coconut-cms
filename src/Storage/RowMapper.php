@@ -131,13 +131,23 @@ final class RowMapper
 
     /**
      * Reads a hydrated entity or value object's own property values back out, by
-     * name, matching its own FieldDescriptor[] shape.
+     * name, matching its own FieldDescriptor[] shape. A DynamicEntity has no
+     * properties to reflect on, its values are read directly instead.
      *
      * @param FieldDescriptor[] $fields
      * @return array<string, mixed>
      */
     public static function propertiesOf(object $object, array $fields): array
     {
+        if ($object instanceof DynamicEntity) {
+            $values = [];
+            foreach ($fields as $field) {
+                $values[$field->name] = $object->get($field->name);
+            }
+
+            return $values;
+        }
+
         $reflection = new ReflectionObject($object);
         $values = [];
 

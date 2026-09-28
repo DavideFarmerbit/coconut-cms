@@ -8,10 +8,12 @@ use Doctrine\DBAL\Types\Types;
 use JsonException;
 use LogicException;
 use ReflectionClass;
+use XyloIsCoding\CoconutCms\Storage\DynamicEntity;
 use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Storage\Field\Ownership;
 use XyloIsCoding\CoconutCms\Storage\PrototypeShape;
+use XyloIsCoding\CoconutCms\Storage\PrototypeValidator;
 
 /**
  * The persisted definitions of every editor-created prototype: its name, its parent
@@ -27,6 +29,10 @@ use XyloIsCoding\CoconutCms\Storage\PrototypeShape;
  * This is fixed, hand-designed infrastructure, not a FieldDescriptor-described shape
  * itself, it's the thing that makes that machinery work for the editor-assembled
  * source, so it's exempt from it.
+ *
+ * Also the one place that decides how a resolved values array turns into a live
+ * instance, see instantiate(), so Repository/ChangesetFlusher never need their own
+ * native-vs-editor-created branch.
  */
 final class PrototypeRegistry
 {
@@ -177,6 +183,43 @@ final class PrototypeRegistry
         );
 
         return array_map(self::fieldFromRow(...), $rows);
+    }
+
+    /**
+     * The full effective set of cross-field rules across the whole chain: only native
+     * levels contribute their own #[PrototypeValidation] validators, editor-created
+     * ones have none yet, same open problem and same scoping call as FieldValidator/
+     * FieldPermission. A native ancestor's rule still applies to an editor-created
+     * subclass of it, since the chain is walked regardless of where it stops being native.
+     *
+     * @return PrototypeValidator[]
+     */
+    public function prototypeValidatorsOf(string $identifier): array
+    {
+        $validators = [];
+        foreach ($this->chainOf($identifier) as $level) {
+            if (!$this->isEditorCreated($level)) {
+                array_push($validators, ...PrototypeShape::ownPrototypeValidatorsOfClass($level));
+            }
+        }
+
+        return $validators;
+    }
+
+    /**
+     * Turns a resolved values array into a live instance for $identifier: reflection's
+     * newInstanceArgs() for a native class, a DynamicEntity for an editor-created
+     * prototype, which has no class to reflect on or instantiate. The one place this
+     * decision gets made, every Repository/ChangesetFlusher call site that used to
+     * instantiate a native class directly goes through this instead.
+     *
+     * @param array<string, mixed> $values
+     */
+    public function instantiate(string $identifier, array $values): object
+    {
+        return $this->isEditorCreated($identifier)
+            ? new DynamicEntity($identifier, $values)
+            : (new ReflectionClass($identifier))->newInstanceArgs($values);
     }
 
     /** The nearest native ancestor in the chain, walking up from $identifier, itself included. */
