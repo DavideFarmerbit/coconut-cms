@@ -225,6 +225,43 @@ only ever safe for editor-created subclasses specifically, restricted to the saf
 operation set above; for native classes it's never available at all, by design — not a
 safety workaround, but what "native" is supposed to mean.
 
+### Global entity identity: one shared `entities` table
+
+(Design discussion, 2026-09-28, replacing the "Polymorphic entity references" phase
+this document never itself covered — see `ROADMAP.md` Phase 8.) Every entity, native or
+editor-created, gets a row in one shared `entities` table sitting above every
+prototype's own Class Table Inheritance chain — not one root per prototype family, one
+root, period: `id` (a real auto-increment PK, the one every chain's own top level is now
+an FK back to, extending Class Table Inheritance by exactly one more shared level),
+`owner` (nullable, self-referencing FK to `entities.id`, `CASCADE`), `owner_field`
+(nullable, the name of whichever Owned relationship put this row here), `position`
+(nullable, `-1` for a non-collection Owned relationship, an ordinal otherwise),
+`concrete_type` (the row's actual identifier, native or editor-created).
+
+This directly resolves the constraint "Why an Owned relationship always needs its own
+dedicated table" below was working around: that reasoning held only because a
+`CASCADE`-backed FK column has one fixed target table, and a reusable shape owned by two
+different owner types couldn't have one column pointing at both. Once every entity
+shares one id space regardless of concrete type, that constraint disappears — `owner`
+can point at literally any entity, so a shape never needs a dedicated per-relationship
+table just because a second, unrelated relationship might one day own it too. The
+sections below are marked where this supersedes what they originally decided; the
+original reasoning is left in place since it's exactly why the narrower,
+per-relationship version was the right call before a shared identity table existed.
+
+It also answers a question this document never posed: how a reference or collection
+field declared against a base prototype (`Product`) correctly rehydrates a concrete
+subtype assigned to it (a `Vegetable`, a `Meat`) — resolving a row's own concrete
+identifier becomes one indexed lookup (`concrete_type`) against the one shared root, not
+a discriminator that would otherwise need to live on whichever table happens to be a
+given chain's own top level.
+
+**Cost accepted deliberately**: every entity read, including the simplest standalone
+native class with no declared parent, now joins to `entities` once — before this, such a
+class's own table was self-sufficient, nothing to join. Traded for removing the
+per-relationship dedicated table and the discriminator-per-chain-root mechanism this
+would otherwise have needed. See `ROADMAP.md` Phase 8 for the concrete build-out.
+
 ### Join tables: when they're actually worth it
 
 Worth it when **both** hold: the item has a real, stable table to reference (a native
@@ -256,6 +293,11 @@ one parent (repeater items that have no life outside their parent) doesn't use a
 table at all, even if each item still needs its own row for querying — it's a
 back-pointer FK directly on the item's own row, `CASCADE`, per that section.
 
+**Updated by "Global entity identity" above**: that back-pointer FK is now the shared
+`entities.owner` column (plus `owner_field` to disambiguate which relationship), not a
+column on a table dedicated to that one relationship — the "no join table for Owned"
+conclusion still holds, only the storage location moved.
+
 ### FK `ON DELETE` policy: `RESTRICT` for Shared references, `CASCADE` for Owned ones
 
 Resolves a real tension between two already-decided mechanisms rather than being a
@@ -284,6 +326,13 @@ the undo pipeline, permanently unrecoverable through it.
 - **`SET NULL` is a legitimate choice only for references that are genuinely
   optional** — tied to whether that reference field actually carries a
   `RequiredValidator`; a required reference should never be allowed to silently go null.
+
+**Updated by "Global entity identity" above**: `CASCADE` for Owned relationships is now
+one FK, declared once on `entities.owner`, not something set per relationship on a
+per-relationship dedicated table. It still needs no exception for Class Table
+Inheritance's base→derived link, that link's own `CASCADE` stays exactly as decided
+here, `entities.owner`'s `CASCADE` is one more instance of the same general rule, not a
+replacement for it.
 
 **Confirmed this doesn't break undo, and why it's actually fine:** `CASCADE` only
 affects what the database does *after* a delete is issued — it has no bearing on
@@ -393,6 +442,18 @@ narrower feature this system doesn't need. Always generating the per-relationshi
 is the only version that's safe by construction rather than by convention, at the cost of
 one extra join for the (probably rare) case where a shape really is only ever owned by
 exactly one relationship.
+
+**Superseded by "Global entity identity" above.** The per-relationship dedicated table
+was the only way to be safe by construction *before* every entity shared one id space —
+a `CASCADE`-backed FK column had to commit to one fixed target table, so a shape reused
+by more than one owner type needed its own table per relationship to avoid a generic,
+integrity-losing polymorphic column. Once `owner` targets the one shared `entities`
+table instead of any specific prototype's own table, that same shape can be Owned by any
+number of unrelated relationships through the exact same column, disambiguated by
+`owner_field`, with no dedicated table and no loss of referential integrity — safe by
+construction for the same reason, a different construction. The Shared/Owned split
+itself, decided per relationship rather than per prototype, is unaffected; only the
+Owned side's storage mechanism moved.
 
 ### Identity Map + Repository + lazy loading
 

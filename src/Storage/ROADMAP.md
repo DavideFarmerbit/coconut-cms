@@ -355,169 +355,143 @@ level of its own chain (native or editor-created), returns a stable page via cur
 a correct has-more signal, and `count()` matches the same filter independent of
 pagination.
 
-## Phase 8 — Polymorphic entity references
+## Phase 8 — Global entity identity
 
-**Goal**: a reference or Shared collection field declared against a base identifier
-(native or editor-created) can hold, store, and correctly rehydrate as any concrete
-subtype of it, assigning a `Product`-typed field a `Vegetable` or a `Meat`. Not covered
-in `ARCHITECTURE.md`, surfaced by design discussion (2026-09-28) rather than tied to an
-existing decided section.
+**Goal**: every entity (native or editor-created) gets a row in one shared `entities`
+table, id, an optional self-referencing `owner`, and its concrete type, making
+polymorphic references, Owned-relationship storage, and native/editor reparenting fall
+out of one mechanism instead of three separate ones. Replaces the "Polymorphic entity
+references" plan that previously occupied this phase outright (design discussion,
+2026-09-28): that plan's per-chain discriminator (its Step A), its per-subtype Owned
+child tables (its Step C), and the dedicated-table-per-Owned-relationship rule in
+`ARCHITECTURE.md` ("Ownership: Owned vs. Shared") are all superseded, not extended, by
+this phase.
 
-**Writing already works, today, for free.** CTI means a subtype's row shares its `id`
-with every ancestor level, so a `product_id` FK is already satisfied by any subtype's
-row, no schema change needed there. `Repository::referencedId()` resolves by object
-identity through the `IdentityMap`, not by class, so assigning a `Vegetable` instance to
-a `Product`-typed field already stores correctly, native or editor-created, right now.
-**The entire gap is on the read side**: `readReference()`/`readCollection()`/`find()`
-all assume the field's declared (or requested) identifier is the concrete one, so a
-`Vegetable` row read back through a `Product`-typed anything comes back missing
-`Vegetable`'s own fields, or fails outright if its constructor differs.
+**What this buys, concretely.** The old plan needed three separate mechanisms: a
+discriminator column repeated on every chain's own root, a per-relationship Owned child
+table carrying its own CTI structure for subtypes, and a dedicated table for every
+Owned relationship in the first place, because a shared `owner_id` column couldn't
+target more than one table depending on who owns the shape (`ARCHITECTURE.md`,
+"Ownership: Owned vs. Shared", "Why an Owned relationship always needs its own
+dedicated table"). A single shared identity table removes the reason for all three at
+once: `owner` can point at any entity regardless of its concrete type, because every
+entity now shares one id space, not one per prototype family.
+
+**What this costs.** Every entity read, including a previously zero-join standalone
+native class, now joins to `entities`. Accepted (design discussion, 2026-09-28): the
+common case stops being free, in exchange for deleting three separate mechanisms and
+their open questions.
 
 Four dependency-ordered steps.
 
-### Step A: a discriminator column on each chain's root, populated once at insert
+### Step A: the shared `entities` table
 
-- The root (topmost, parentless) level of every chain gets a small extra column
-  (tentatively `_prototype`, a leading underscore to avoid ever colliding with a real
-  declared field, the same reasoning `id`/`data` already rely on), storing the row's
-  own concrete identifier. Matches how Doctrine's own Joined Table Inheritance places
-  its discriminator, "in the topmost table of the hierarchy," not copied onto every
-  level: a derived level's own table already answers "at least this subtype" just by a
-  row existing there, the only open question a discriminator ever needs to answer, "is
-  it something further derived than that," only ever needs one authoritative answer,
-  and every level already shares the same `id` to look it up by.
-- Every root, unconditionally, not just `#[EditorExtensible]` natives or
-  editor-created ones: a plain native subclass (`Product extends BaseProduct`, neither
-  one `#[EditorExtensible]`) is already an ordinary CTI chain today with no attribute
-  gating it, so there's no way to know upfront which tables might one day become the
-  base of a subclass, native subclassing needs no admin/editor involvement at all.
-- Looking it up is always dynamic, never cached or hardcoded: walk `chainOf($identifier)`
-  and read the column off whatever table currently sits at position 0. This is what
-  makes Step D's reparenting safe for free, once a class's chain actually changes,
-  every lookup already asks fresh, there's nothing stale to invalidate.
-- Populated by `Repository::insert()` on the root's own row, always `$this->class` (the
-  leaf actually being inserted), never touched by `update()`, an entity's own concrete
-  type never changes after creation.
-- A field literally named `_prototype` is rejected the same way any other reserved-name
-  collision already is elsewhere in this design.
+- One fixed table, not derived from any class, defined once in `SchemaBuilder` the same
+  way `ID_COLUMN`/`BLOB_COLUMN` are fixed constants today: `id` (autoincrement PK),
+  `owner` (nullable, self-referencing FK to `entities.id`, `ON DELETE CASCADE`
+  unconditionally, `owner` is only ever populated for an Owned relationship, which
+  always cascades, so no per-field policy branch is needed here the way
+  `EntityReference` columns still need one), `owner_field` (nullable string), `position`
+  (nullable int, `-1` for a non-collection Owned relationship), `concrete_type`
+  (string).
+- `EntityRegistrar::register()` builds and syncs this table unconditionally, first,
+  before any class-derived table, the one new bootstrap path that isn't reached through
+  `resolveTables()`/`resolveDefinitions()`'s class-walking, since `entities` belongs to
+  no class.
+- `owner`, `owner_field`, `concrete_type` are never separately declared anywhere.
+  `concrete_type` is whatever identifier `Repository::insert()` is actually inserting,
+  native or editor-created. `owner`/`owner_field`/`position` are derived from whichever
+  `Ownership::Owned` `FieldDescriptor` caused the write, its own already-declared
+  `name`, not a new attribute needing its own authoring surface.
 
-**Done when**: every chain's root table, native or editor-created, chain of one level or
-many, has the column, and every insert populates it correctly regardless of which level
-of the chain is actually being inserted.
+**Done when**: `entities` exists and syncs correctly alongside every other table; a
+fresh native class registered through `EntityRegistrar` gets it without any change to
+how that class declares its own fields.
 
-### Step B: polymorphic hydration everywhere a row turns into an object
+### Step B: every chain gets `entities` as its root
 
-- `EntityManager::concreteIdentifierOf(identifier, id)`: one small, indexed lookup
-  (read the discriminator off the chain's root row) resolving a base identifier plus an
-  id to the row's actual concrete identifier.
-- `Repository::find()`/`materialize()` become the one place this actually gets decided:
-  when the discriminator disagrees with `$this->class`, hydration delegates entirely to
-  the concrete identifier's own Repository (its own chain reaches levels this Repository
-  never even knows about), reusing the exact same Identity Map integration, not a
-  parallel path.
-- `readReference()`/`readCollection()`'s Shared branch, and
-  `EntityManager::hydrateReferences()`'s id-resolution path, all resolve the concrete
-  identifier before building a lazy ghost or Repository lookup, instead of assuming the
-  field's declared `referencedShape` is the concrete type.
-- `Query` stays scoped exactly as Phase 7 built it, one identifier's own chain only for
-  filtering/sorting/pagination, but the row-to-object step (`materialize()`) becomes
-  polymorphic the same way `find()` does: a `Query::for('Product')` result can come back
-  as a mix of `Product`/`Vegetable`/`Meat` instances, each fully hydrated, without
-  `Query` itself needing to know about any of them upfront.
+- `entities` becomes chain position 0 for every identifier, native or editor-created,
+  standalone or already part of an inheritance chain, `SchemaBuilder::tablesForChain()`/
+  `tableFor()` both grow this implicit level. There's no more "chain of one, no join"
+  case, every entity is a chain of at least two from now on.
+- `Repository::insert()` writes the root row into `entities` first, this is where `id`
+  actually originates now, not the class's own former-root table, then proceeds through
+  the rest of the chain exactly as today, using that id.
+- `Repository::delete()` is unaffected in spirit, deleting the `entities` row already
+  cascades down through every derived level via the existing per-level CASCADE join, and
+  now also cascades to every Owned entity via `entities.owner`, for free, same
+  mechanism.
+- Discriminator resolution (`EntityManager::concreteIdentifierOf()`, replacing the old
+  plan's per-chain walk) becomes one indexed lookup: `SELECT concrete_type FROM
+  entities WHERE id = ?`. No more "walk `chainOf($identifier)` and read whatever sits
+  at position 0," there's only ever one root table for every identifier now.
+- `Repository::find()`/`materialize()`/`Query`'s row-to-object step resolve the
+  concrete identifier from that lookup before hydrating, same polymorphic-hydration
+  requirement the old plan's Step B already described, simpler to implement since
+  there's one shared root instead of one per prototype family.
+- `Query::fromClause()` prepends the `entities` join for every query.
 
-**Done when**: a `Vegetable` assigned to a `Product`-typed reference field (native or
-editor-created) reads back as a fully-hydrated `Vegetable`, not a partial `Product`,
-through all four paths this phase touches, a direct reference, a Shared collection, a
-direct `find()` on the base identifier, and a `Query` result row, both native and
-editor-created subtypes.
+**Done when**: a `Vegetable` assigned anywhere a `Product`-typed reference is declared
+reads back as a fully-hydrated `Vegetable`, through a direct reference, a `find()` on
+the base identifier, and a `Query` result row, both native and editor-created, the same
+acceptance bar the old plan's Step B set, now met structurally instead of through a
+per-chain discriminator.
 
-### Step C: Owned collections (structural gap this surfaces, mechanism not settled yet)
+### Step C: Owned relationships move onto `entities.owner`/`owner_field`/`position`
 
-Owned collections have a deeper, pre-existing gap this surfaces rather than causes:
-`SchemaBuilder::collectionTables()`'s Owned branch builds one flat child table sized
-for the declared item type's own flattened fields, no per-CTI-level child tables exist
-at all, so a `Vegetable`-shaped owned item has nowhere to store its own extra fields
-today, independent of polymorphism.
+- A singular Owned reference no longer gets a column on the owner's own table. A
+  `Product.featuredImage` (Owned `MediaAsset`) is found by `SELECT * FROM entities
+  WHERE owner = ? AND owner_field = 'featuredImage' AND position = -1`, then hydrated
+  through `MediaAsset`'s own repository, same as any other entity, nothing
+  `Product`-specific about `MediaAsset`'s own table.
+- An Owned collection is the same query without the `position = -1` filter, ordered by
+  `position`, no more per-relationship child table (`{ownerTable}_{field}`), and
+  therefore no more version of the old plan's Step C problem (giving that child table
+  its own CTI structure for subtypes): an owned `Vegetable` collection item already
+  lives in the ordinary `vegetable` table via its own chain (Step B), fully polymorphic
+  with zero extra mechanism.
+- `SchemaBuilder::addReferenceColumn()` drops its Owned/`CASCADE` branch entirely (only
+  `Ownership::Shared` reaches it now, always `RESTRICT`). `SchemaBuilder::collectionTables()`
+  drops its whole Owned branch (only the Shared/pivot-table branch remains).
+- `Repository`'s reference/collection read-write paths (`readReference()`,
+  `readCollection()`, `writeCollection()`, `rowWithReferences()`) gain a new Owned
+  branch: writing means inserting/updating the item through its own repository and
+  setting `owner`/`owner_field`/`position` on its `entities` row; reading means the
+  reverse-indexed lookup above. An index on `(owner, owner_field)` backs it.
+- **Shared is untouched**: a singular Shared reference stays a direct FK column
+  (`RESTRICT`); a Shared collection stays a real pivot table. Only Owned moves.
+- Reordering a collection is an ordinary multi-entity `Changeset`, each moved item's
+  `EntityChange::update()` touches its own `position` field, no new write-path
+  mechanism needed.
+- The undo-log's pre-delete snapshot, which already needs to walk every Owned child of
+  an entity being deleted, simplifies to one query (`SELECT * FROM entities WHERE
+  owner = ?`) instead of a sweep across as many per-relationship tables as the owner has
+  Owned fields.
 
-- Shape of the fix: give an Owned collection's child table the same base-plus-derived
-  structure a top-level CTI chain already has, just namespaced per (owner table, field)
-  instead of being independently addressable: `{ownerTable}_{field}` stays the base
-  child table, `{ownerTable}_{field}_{subtype}` holds a concrete subtype's own extra
-  fields, joined by id, same as any other CTI derived level.
-- **Always on, no opt-out or opt-in flag, every Owned collection** (design discussion,
-  2026-09-28): considered and rejected gating this behind a flag, for the same reason
-  Step A's discriminator column has no conditional form. A plain native subclass, or an
-  editor-created one, can appear on the declared item kind at any time with no attribute
-  or admin action gating it, so a flag set at declaration time could always be wrong the
-  moment reality diverges from it. It's also free for the common, non-polymorphic case
-  (a `GalleryItem`-style repeater with no subtype, ever): the discriminator is already
-  sitting on the row `readCollection()` already fetched, comparing it against the
-  declared item kind costs nothing new, and it always matches, so nothing further ever
-  runs. The one extra lookup (a subtype's own child table) only fires for a row that
-  genuinely is a subtype, exactly when that work is actually needed.
-- **Open question, not resolved yet**: *when* does `{ownerTable}_{field}_{subtype}`
-  actually get created? A native subtype is knowable upfront, through reflection, same
-  as everything else native. An editor-created subtype of the declared item kind can
-  appear at any time, admin-triggered, with no existing mechanism that knows every
-  Owned-collection field across the app that would need a new child table the moment
-  it's created. Auto-creating it on first write (DDL as a side effect of an ordinary
-  insert, not through `SchemaEditor`) is the leading candidate, but it's a genuinely new
-  kind of automatic schema evolution, not an extension of anything already decided in
-  `ARCHITECTURE.md`, worth confirming on its own before building it, not assuming it as
-  part of this phase's "already decided" scope.
+**Done when**: a `Product` with both an Owned singular reference and an Owned
+collection of the same referenced type (two fields, same target type, disambiguated
+only by `owner_field`) round-trips correctly through insert, find, and delete-cascade;
+an owned item's own subtype fields persist and rehydrate with no dedicated child table
+involved.
 
-**Done when**: an Owned collection whose declared item kind turns out to have a
-concrete subtype can hold that subtype's instance with its own extra fields,
-round-tripping correctly through insert and find, for both a native subtype and an
-editor-created one, with zero behavior change for a collection whose items never have
-one.
+### Step D: reparenting, uniform mechanism, backfill still open
 
-### Step D: a parent changing, being added, or being removed
+- Native and editor-created reparenting (add/change/remove a class's parent) become the
+  mechanically identical operation once every chain already has `entities` as its
+  structural top: inserting or removing one CTI level between `entities` and the
+  class's own table, no more "was this previously a root or not" special case to split
+  on.
+- **Not resolved by this phase, and not treated as blocking it**: backfilling values for
+  a newly-required base's own fields on already-existing rows has no more of an answer
+  here than the old plan's own Step D left it, a human (or an explicit admin-supplied
+  default) still has to decide those values. Since there's no real data in this system
+  yet (2026-09-28), this is deliberately left open rather than designed against a
+  hypothetical migration, revisit once real data makes it a live question.
 
-Once Step A's root-only discriminator exists, whether a class is currently a root or a
-derived level is itself something that can change, a class gaining, losing, or
-switching its parent restructures its whole chain, not just its own table. This is a
-much bigger problem than Phase 6.3's rename: renaming only ever had to fix stale text
-referencing an identifier, here the chain shape itself changes, which can mean existing
-rows needing brand-new counterpart rows in a table that didn't apply to them before, or
-a level's own columns needing to merge into (or split out of) another table entirely,
-real data migration, not just metadata and a table rename.
-
-- **Editor-created: parent changed is the only real case.** `SchemaEditor::createPrototype()`
-  requires a `$parent` argument, a parentless editor-created prototype isn't a
-  supported state at all, so "parent added"/"parent removed" don't apply here, only
-  re-pointing from one existing parent to a different existing one. This is the more
-  tractable case: `SchemaEditor`/`PrototypeRegistry` already own every table and every
-  piece of metadata involved (unlike native), so a real, admin-triggerable operation is
-  plausible here, the open part is exclusively the backfill question below, not the
-  metadata/DDL side, which existing machinery already mostly covers.
-- **Native: all three cases are real**, and none of them touch `PrototypeRegistry` at
-  all, a native class's parent is never persisted anywhere, `parentOf()` always reflects
-  `getParentClass()` live. Which means the "change" already happened the moment the
-  developer edited their source, what's actually missing isn't a metadata fixup, it's
-  making the *database* catch up to a chain shape the source already declares:
-  - *Added* (a previously-parentless class gets a new ancestor): every existing row
-    needs a new counterpart row inserted into the new base's table, same id, values
-    for whatever fields that base declares.
-  - *Changed* (an existing parent is swapped for a different one): existing rows need
-    counterpart rows in the new base's table instead of the old one, plus deciding what
-    happens to the now-orphaned rows in the old one.
-  - *Removed* (a class becomes standalone): the old base's columns need to fold into
-    the class's own table, or that data is lost.
-- **Open question, not resolved yet**: how much of this is ever safe to automate versus
-  belongs entirely to the existing native "reviewed migration" workflow. The backfill
-  values needed for a newly-required base's own fields aren't derivable from anything
-  the system already knows, a human (or an explicit admin-supplied default/mapping)
-  has to decide them either way. Whether any part of this becomes a real, callable
-  operation (mirroring `SchemaEditor::rename()`'s shape) or stays "identify what
-  changed, hand off to a human-authored migration" the same way any other native schema
-  change already does, isn't decided yet.
-
-**Done when**: at minimum, a documented, correct fixup procedure exists for each of the
-four cases (three native, one editor-created), covering what has to change and in what
-order; whether any of them become an automated, callable operation versus stay a
-manual/reviewed migration is a decision this step's own investigation should resolve,
-not something assumed going in.
+**Done when**: a documented, correct procedure exists for inserting/removing a CTI
+level for both native and editor-created classes structurally (the metadata/DDL side);
+the backfill-values question is explicitly logged as still open, not silently assumed
+solved.
 
 ## Shelf items
 
