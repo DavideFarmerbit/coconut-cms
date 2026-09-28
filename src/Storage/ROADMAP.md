@@ -281,19 +281,79 @@ with an existing table is rejected by the same guard Phase 6.2 introduced.
 ## Phase 7 — Admin list/filter views
 
 **Goal**: browse, filter, and sort content across native and editor-created prototypes,
-including fields defined at any inheritance level.
+including fields defined at any inheritance level, backed by a real query-builder and
+cursor pagination, not anything `OFFSET`-based. Two dependency-ordered pieces (design
+discussion, 2026-09-28): the query-builder can't hydrate a result row into anything
+without the first piece existing, so it's built first even though the roadmap bullet
+that originally named it came second.
 
-- Query-builder resolving a filterable field to its real column *and* which
-  inheritance-level table holds it, joining as needed ("Admin list/filter views")
-- Plain `LIMIT`/`OFFSET` pagination (already decided as sufficient for v1)
-- Picks up the work Phase 5 deliberately deferred: a `DynamicEntity`-style generic
-  instance representation for editor-created prototypes, and wiring it into
-  `Repository`/`ChangesetFlusher` — this phase is the first one that actually needs to
-  *read* editor-created content, so it's the natural place for that to land, not a new
-  scope addition
+### Step A: a DynamicEntity representation, wired into Repository/ChangesetFlusher
 
-**Done when**: a list view for a base prototype can filter/sort by a field declared on
-a derived editor-created subclass, joining the right table transparently.
+Picks up the work Phase 5 deliberately deferred: `Repository`/`ChangesetFlusher` have
+only ever known how to reflect and instantiate a real native class, this is the first
+phase that actually needs to *read and write* editor-created content, not just mutate
+its schema (`SchemaEditor`'s job, unchanged).
+
+- `DynamicEntity`: identifier plus a values array, the editor-created counterpart to a
+  hydrated native instance, no class to reflect on or instantiate
+- `PrototypeRegistry::instantiate(identifier, values)`: native resolves through
+  reflection's `newInstanceArgs()`, editor-created builds a `DynamicEntity` instead, the
+  one place this decision gets made, reused by every call site that currently
+  instantiates a native class directly
+- `PrototypeRegistry::prototypeValidatorsOf(identifier)`: walks the whole chain, only
+  pulling `#[PrototypeValidation]` off native levels, so a native ancestor's cross-field
+  rule still applies to an editor-created subclass of it, matching how
+  `FieldValidator`/`FieldPermission` already flow down a mixed chain
+- `Repository`'s remaining native-only calls (`PrototypeShape::chainOfClass()`/
+  `ownFieldsOfClass()`, raw `newInstanceArgs()`) route through new thin `EntityManager`
+  delegate methods to its own `PrototypeRegistry`, instead of calling `PrototypeShape`
+  directly
+- `EntityManager` gains an optional `?PrototypeRegistry $registry = null` constructor
+  parameter, defaulting to a fresh one built from the same connection when not supplied,
+  the same "optional, sensible default" idiom already used for `?Actor $actor = null` and
+  `?callable $mustPrecede = null` elsewhere; lets a caller share one instance with
+  `SchemaEditor` instead of always getting two independent (if harmlessly stateless) ones
+- `RowMapper::propertiesOf()` gets an `instanceof DynamicEntity` branch to read values
+  back out without reflection
+- `ChangesetFlusher`'s two remaining native-only `PrototypeShape::ofClass()` calls
+  (`apply()`, `deleteMustPrecede()`) route through the same `EntityManager` delegates
+- Table names stay exactly as today: one explicit `$tables` map (identifier => table
+  name) covering both native and editor-created identifiers, same mechanism, no new
+  dynamic lookup; an editor-created identifier's entry is added the same way a native
+  one already is, not derived on demand
+
+**Done when**: an editor-created prototype's instance can be created, found, updated,
+and deleted through the exact same `Repository`/`ChangesetFlusher` path a native class
+already uses, including a chain mixing native and editor-created levels, and a native
+ancestor's `PrototypeValidator` still applies to an editor-created subclass of it.
+
+### Step B: the query-builder
+
+- `Query::for($identifier)->where(...)->orderBy(...)->after($cursor)->limit($n)->get()`,
+  scoped to `$identifier`'s own chain (base through itself), never sideways across
+  sibling subclasses or down into further subclasses of it, each editor-created content
+  type is independently admin-managed everywhere else in this design, this isn't a new
+  exception ("Admin list/filter views")
+- Resolves a field to its real column *and* which chain-level table holds it, the same
+  "declaring table" resolution `Repository` already has, reused rather than duplicated
+- A genuine new SQL capability: one real multi-table `JOIN` across the whole chain with
+  per-level column aliasing (`level__column`, `id`/`data` collide across every level
+  otherwise), replacing `Repository::find()`'s one-query-per-level approach, which would
+  be an N+1 disaster for a list of rows instead of a single lookup by id
+- Cursor/keyset pagination (sort-column value + primary key tiebreaker), committed to
+  from the start per `ARCHITECTURE.md`, not `LIMIT`/`OFFSET`; this roadmap previously
+  said the opposite, a stale mismatch corrected here (2026-09-28). A portable OR-chain
+  `WHERE` (`col > ? OR (col = ? AND id > ?)`), avoiding row-value-comparison portability
+  issues, plus a fetch-`N+1`-to-detect-a-next-page trick
+- `count()` reusing the exact same `WHERE`, independent of pagination, for a "showing
+  X-Y of Z" display
+- Deliberately out of scope: filtering by something inside a collection/join table
+  (`EXISTS`-style semantics), already called out as a non-goal in `ARCHITECTURE.md`
+
+**Done when**: a list view for an identifier can filter/sort by a field declared on any
+level of its own chain (native or editor-created), returns a stable page via cursor with
+a correct has-more signal, and `count()` matches the same filter independent of
+pagination.
 
 ## Shelf items
 
