@@ -108,6 +108,47 @@ final class SchemaBuilder
     }
 
     /**
+     * Every real column name $fields would produce, in the exact order buildTable()
+     * physically creates them: 'id' isn't included, Repository/Query add it
+     * separately, a Collection field never has one (its own join/child table
+     * instead), an EntityReference always contributes {name}_id regardless of
+     * queryable, an EmbeddedValueObject recurses and flattens the same way
+     * addColumns() does. Needs no $tables map, unlike addColumns(), a reference
+     * column's name never depends on what its target resolves to.
+     *
+     * Used by Query to slice/alias a level's own row without touching the live
+     * database or building a throwaway Table just to read its column names back.
+     *
+     * @param FieldDescriptor[] $fields
+     * @return string[]
+     */
+    public static function realColumnNames(array $fields, string $prefix = ''): array
+    {
+        $names = [];
+        foreach ($fields as $field) {
+            if ($field->kind === FieldKind::EmbeddedValueObject) {
+                array_push($names, ...self::realColumnNames(PrototypeShape::ofClass($field->referencedShape), $prefix . $field->name . '_'));
+
+                continue;
+            }
+
+            if ($field->kind === FieldKind::EntityReference) {
+                $names[] = $prefix . $field->name . '_id';
+
+                continue;
+            }
+
+            if ($field->kind === FieldKind::Collection || !$field->queryable) {
+                continue;
+            }
+
+            $names[] = $prefix . $field->name;
+        }
+
+        return $names;
+    }
+
+    /**
      * @param array<class-string, string> $tables
      * @param Table[] $extra
      */

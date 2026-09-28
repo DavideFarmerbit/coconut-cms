@@ -84,10 +84,37 @@ final class Repository
         }
 
         $values = $this->hydrateValues($id);
-        if ($values === null) {
-            return null;
+
+        return $values === null ? null : $this->instantiateAndCache($id, $values);
+    }
+
+    /**
+     * Materializes a row Query already fetched through its own single multi-table
+     * JOIN across the whole chain, instead of this Repository's own one-query-per-
+     * level find(), which would be an N+1 disaster for a list of rows. Reuses the
+     * exact same reference/collection resolution and Identity Map integration find()
+     * has, a query-fetched entity behaves identically to a directly-found one.
+     *
+     * @param array<string, array<string, mixed>> $rowsByLevel each chain level's own raw row
+     */
+    public function materialize(string $id, array $rowsByLevel): object
+    {
+        $cached = $this->identityMap->get($this->class, $id);
+        if ($cached !== null) {
+            return $cached;
         }
 
+        $values = [];
+        foreach ($this->chain as $level) {
+            $values = [...$values, ...$this->valuesForLevel($level, $rowsByLevel[$level], $id)];
+        }
+
+        return $this->instantiateAndCache($id, $values);
+    }
+
+    /** @param array<string, mixed> $values */
+    private function instantiateAndCache(string $id, array $values): object
+    {
         $entity = $this->entityManager->instantiate($this->class, $values);
         $this->identityMap->put($this->class, $id, $entity);
 
@@ -155,7 +182,8 @@ final class Repository
      * Everything find()/lazyFind() need to construct or populate an instance, kept
      * separate so a lazy ghost's initializer can fill itself in with the exact same
      * logic find() uses to build constructor args, without going through find() and
-     * its own IdentityMap check again.
+     * its own IdentityMap check again. Fetches its own rows one level at a time;
+     * materialize() is the counterpart for rows already fetched some other way.
      *
      * @return array<string, mixed>|null null if the row no longer exists
      */
@@ -172,15 +200,31 @@ final class Repository
                 return null;
             }
 
-            $levelFields = $this->ownFieldsByLevel[$level];
-            $values = [...$values, ...RowMapper::fromRow($levelFields, $row)];
+            $values = [...$values, ...$this->valuesForLevel($level, $row, $id)];
+        }
 
-            foreach ($levelFields as $field) {
-                if ($field->kind === FieldKind::EntityReference) {
-                    $values[$field->name] = $this->readReference($field, $row);
-                } elseif ($field->kind === FieldKind::Collection) {
-                    $values[$field->name] = $this->readCollection($field, $id);
-                }
+        return $values;
+    }
+
+    /**
+     * One chain level's own field values out of its own raw row: RowMapper's
+     * queryable-or-blob split, plus resolving whatever RowMapper skips entirely
+     * (EntityReference, Collection), those live in their own FK column or join/child
+     * table, not this row.
+     *
+     * @param array<string, mixed> $row this level's own raw row
+     * @return array<string, mixed>
+     */
+    private function valuesForLevel(string $level, array $row, string $id): array
+    {
+        $levelFields = $this->ownFieldsByLevel[$level];
+        $values = RowMapper::fromRow($levelFields, $row);
+
+        foreach ($levelFields as $field) {
+            if ($field->kind === FieldKind::EntityReference) {
+                $values[$field->name] = $this->readReference($field, $row);
+            } elseif ($field->kind === FieldKind::Collection) {
+                $values[$field->name] = $this->readCollection($field, $id);
             }
         }
 

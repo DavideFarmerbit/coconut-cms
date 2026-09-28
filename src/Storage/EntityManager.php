@@ -3,10 +3,12 @@
 namespace XyloIsCoding\CoconutCms\Storage;
 
 use Doctrine\DBAL\Connection;
+use LogicException;
 use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Storage\Field\Ownership;
 use XyloIsCoding\CoconutCms\Storage\Prototype\PrototypeRegistry;
+use XyloIsCoding\CoconutCms\Storage\Query\Query;
 
 /**
  * Hands out one Repository per identifier (a native class-string or an editor-created
@@ -48,6 +50,17 @@ final class EntityManager
     public function repository(string $identifier): Repository
     {
         return $this->repositories[$identifier] ??= new Repository($this->connection, $this->identityMap, $this, $identifier, $this->tables);
+    }
+
+    /** Filters, sorts, and cursor-paginates $identifier's own chain, see Query. */
+    public function query(string $identifier): Query
+    {
+        return new Query($this->connection, $this, $identifier);
+    }
+
+    public function tableOf(string $identifier): string
+    {
+        return $this->tables[$identifier] ?? throw new LogicException(sprintf('No table registered for "%s".', $identifier));
     }
 
     /** The id a previously find()/insert()-ed instance was registered under, if any, across every identifier this manager handles. */
