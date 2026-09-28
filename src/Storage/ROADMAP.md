@@ -355,6 +355,170 @@ level of its own chain (native or editor-created), returns a stable page via cur
 a correct has-more signal, and `count()` matches the same filter independent of
 pagination.
 
+## Phase 8 — Polymorphic entity references
+
+**Goal**: a reference or Shared collection field declared against a base identifier
+(native or editor-created) can hold, store, and correctly rehydrate as any concrete
+subtype of it, assigning a `Product`-typed field a `Vegetable` or a `Meat`. Not covered
+in `ARCHITECTURE.md`, surfaced by design discussion (2026-09-28) rather than tied to an
+existing decided section.
+
+**Writing already works, today, for free.** CTI means a subtype's row shares its `id`
+with every ancestor level, so a `product_id` FK is already satisfied by any subtype's
+row, no schema change needed there. `Repository::referencedId()` resolves by object
+identity through the `IdentityMap`, not by class, so assigning a `Vegetable` instance to
+a `Product`-typed field already stores correctly, native or editor-created, right now.
+**The entire gap is on the read side**: `readReference()`/`readCollection()`/`find()`
+all assume the field's declared (or requested) identifier is the concrete one, so a
+`Vegetable` row read back through a `Product`-typed anything comes back missing
+`Vegetable`'s own fields, or fails outright if its constructor differs.
+
+Four dependency-ordered steps.
+
+### Step A: a discriminator column on each chain's root, populated once at insert
+
+- The root (topmost, parentless) level of every chain gets a small extra column
+  (tentatively `_prototype`, a leading underscore to avoid ever colliding with a real
+  declared field, the same reasoning `id`/`data` already rely on), storing the row's
+  own concrete identifier. Matches how Doctrine's own Joined Table Inheritance places
+  its discriminator, "in the topmost table of the hierarchy," not copied onto every
+  level: a derived level's own table already answers "at least this subtype" just by a
+  row existing there, the only open question a discriminator ever needs to answer, "is
+  it something further derived than that," only ever needs one authoritative answer,
+  and every level already shares the same `id` to look it up by.
+- Every root, unconditionally, not just `#[EditorExtensible]` natives or
+  editor-created ones: a plain native subclass (`Product extends BaseProduct`, neither
+  one `#[EditorExtensible]`) is already an ordinary CTI chain today with no attribute
+  gating it, so there's no way to know upfront which tables might one day become the
+  base of a subclass, native subclassing needs no admin/editor involvement at all.
+- Looking it up is always dynamic, never cached or hardcoded: walk `chainOf($identifier)`
+  and read the column off whatever table currently sits at position 0. This is what
+  makes Step D's reparenting safe for free, once a class's chain actually changes,
+  every lookup already asks fresh, there's nothing stale to invalidate.
+- Populated by `Repository::insert()` on the root's own row, always `$this->class` (the
+  leaf actually being inserted), never touched by `update()`, an entity's own concrete
+  type never changes after creation.
+- A field literally named `_prototype` is rejected the same way any other reserved-name
+  collision already is elsewhere in this design.
+
+**Done when**: every chain's root table, native or editor-created, chain of one level or
+many, has the column, and every insert populates it correctly regardless of which level
+of the chain is actually being inserted.
+
+### Step B: polymorphic hydration everywhere a row turns into an object
+
+- `EntityManager::concreteIdentifierOf(identifier, id)`: one small, indexed lookup
+  (read the discriminator off the chain's root row) resolving a base identifier plus an
+  id to the row's actual concrete identifier.
+- `Repository::find()`/`materialize()` become the one place this actually gets decided:
+  when the discriminator disagrees with `$this->class`, hydration delegates entirely to
+  the concrete identifier's own Repository (its own chain reaches levels this Repository
+  never even knows about), reusing the exact same Identity Map integration, not a
+  parallel path.
+- `readReference()`/`readCollection()`'s Shared branch, and
+  `EntityManager::hydrateReferences()`'s id-resolution path, all resolve the concrete
+  identifier before building a lazy ghost or Repository lookup, instead of assuming the
+  field's declared `referencedShape` is the concrete type.
+- `Query` stays scoped exactly as Phase 7 built it, one identifier's own chain only for
+  filtering/sorting/pagination, but the row-to-object step (`materialize()`) becomes
+  polymorphic the same way `find()` does: a `Query::for('Product')` result can come back
+  as a mix of `Product`/`Vegetable`/`Meat` instances, each fully hydrated, without
+  `Query` itself needing to know about any of them upfront.
+
+**Done when**: a `Vegetable` assigned to a `Product`-typed reference field (native or
+editor-created) reads back as a fully-hydrated `Vegetable`, not a partial `Product`,
+through all four paths this phase touches, a direct reference, a Shared collection, a
+direct `find()` on the base identifier, and a `Query` result row, both native and
+editor-created subtypes.
+
+### Step C: Owned collections (structural gap this surfaces, mechanism not settled yet)
+
+Owned collections have a deeper, pre-existing gap this surfaces rather than causes:
+`SchemaBuilder::collectionTables()`'s Owned branch builds one flat child table sized
+for the declared item type's own flattened fields, no per-CTI-level child tables exist
+at all, so a `Vegetable`-shaped owned item has nowhere to store its own extra fields
+today, independent of polymorphism.
+
+- Shape of the fix: give an Owned collection's child table the same base-plus-derived
+  structure a top-level CTI chain already has, just namespaced per (owner table, field)
+  instead of being independently addressable: `{ownerTable}_{field}` stays the base
+  child table, `{ownerTable}_{field}_{subtype}` holds a concrete subtype's own extra
+  fields, joined by id, same as any other CTI derived level.
+- **Always on, no opt-out or opt-in flag, every Owned collection** (design discussion,
+  2026-09-28): considered and rejected gating this behind a flag, for the same reason
+  Step A's discriminator column has no conditional form. A plain native subclass, or an
+  editor-created one, can appear on the declared item kind at any time with no attribute
+  or admin action gating it, so a flag set at declaration time could always be wrong the
+  moment reality diverges from it. It's also free for the common, non-polymorphic case
+  (a `GalleryItem`-style repeater with no subtype, ever): the discriminator is already
+  sitting on the row `readCollection()` already fetched, comparing it against the
+  declared item kind costs nothing new, and it always matches, so nothing further ever
+  runs. The one extra lookup (a subtype's own child table) only fires for a row that
+  genuinely is a subtype, exactly when that work is actually needed.
+- **Open question, not resolved yet**: *when* does `{ownerTable}_{field}_{subtype}`
+  actually get created? A native subtype is knowable upfront, through reflection, same
+  as everything else native. An editor-created subtype of the declared item kind can
+  appear at any time, admin-triggered, with no existing mechanism that knows every
+  Owned-collection field across the app that would need a new child table the moment
+  it's created. Auto-creating it on first write (DDL as a side effect of an ordinary
+  insert, not through `SchemaEditor`) is the leading candidate, but it's a genuinely new
+  kind of automatic schema evolution, not an extension of anything already decided in
+  `ARCHITECTURE.md`, worth confirming on its own before building it, not assuming it as
+  part of this phase's "already decided" scope.
+
+**Done when**: an Owned collection whose declared item kind turns out to have a
+concrete subtype can hold that subtype's instance with its own extra fields,
+round-tripping correctly through insert and find, for both a native subtype and an
+editor-created one, with zero behavior change for a collection whose items never have
+one.
+
+### Step D: a parent changing, being added, or being removed
+
+Once Step A's root-only discriminator exists, whether a class is currently a root or a
+derived level is itself something that can change, a class gaining, losing, or
+switching its parent restructures its whole chain, not just its own table. This is a
+much bigger problem than Phase 6.3's rename: renaming only ever had to fix stale text
+referencing an identifier, here the chain shape itself changes, which can mean existing
+rows needing brand-new counterpart rows in a table that didn't apply to them before, or
+a level's own columns needing to merge into (or split out of) another table entirely,
+real data migration, not just metadata and a table rename.
+
+- **Editor-created: parent changed is the only real case.** `SchemaEditor::createPrototype()`
+  requires a `$parent` argument, a parentless editor-created prototype isn't a
+  supported state at all, so "parent added"/"parent removed" don't apply here, only
+  re-pointing from one existing parent to a different existing one. This is the more
+  tractable case: `SchemaEditor`/`PrototypeRegistry` already own every table and every
+  piece of metadata involved (unlike native), so a real, admin-triggerable operation is
+  plausible here, the open part is exclusively the backfill question below, not the
+  metadata/DDL side, which existing machinery already mostly covers.
+- **Native: all three cases are real**, and none of them touch `PrototypeRegistry` at
+  all, a native class's parent is never persisted anywhere, `parentOf()` always reflects
+  `getParentClass()` live. Which means the "change" already happened the moment the
+  developer edited their source, what's actually missing isn't a metadata fixup, it's
+  making the *database* catch up to a chain shape the source already declares:
+  - *Added* (a previously-parentless class gets a new ancestor): every existing row
+    needs a new counterpart row inserted into the new base's table, same id, values
+    for whatever fields that base declares.
+  - *Changed* (an existing parent is swapped for a different one): existing rows need
+    counterpart rows in the new base's table instead of the old one, plus deciding what
+    happens to the now-orphaned rows in the old one.
+  - *Removed* (a class becomes standalone): the old base's columns need to fold into
+    the class's own table, or that data is lost.
+- **Open question, not resolved yet**: how much of this is ever safe to automate versus
+  belongs entirely to the existing native "reviewed migration" workflow. The backfill
+  values needed for a newly-required base's own fields aren't derivable from anything
+  the system already knows, a human (or an explicit admin-supplied default/mapping)
+  has to decide them either way. Whether any part of this becomes a real, callable
+  operation (mirroring `SchemaEditor::rename()`'s shape) or stays "identify what
+  changed, hand off to a human-authored migration" the same way any other native schema
+  change already does, isn't decided yet.
+
+**Done when**: at minimum, a documented, correct fixup procedure exists for each of the
+four cases (three native, one editor-created), covering what has to change and in what
+order; whether any of them become an automated, callable operation versus stay a
+manual/reviewed migration is a decision this step's own investigation should resolve,
+not something assumed going in.
+
 ## Shelf items
 
 Not numbered phases — pick these up only once a real need shows up, not preemptively.
