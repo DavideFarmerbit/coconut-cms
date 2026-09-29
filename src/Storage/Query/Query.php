@@ -27,6 +27,10 @@ use XyloIsCoding\CoconutCms\Storage\SchemaBuilder;
  * on the chain can be filtered or sorted by, not a blob-only field, an embed's own
  * nested field, or a collection, same "stays out of scope" as everywhere else in this
  * design ("Admin list/filter views").
+ *
+ * A result row hydrates as $identifier's own base type by default, even if the row is
+ * physically a concrete subtype of it, see hydrateConcreteTypes() to opt into resolving
+ * the real subtype instead (ROADMAP.md "Phase 8, Step B Fix 1").
  */
 final class Query
 {
@@ -38,6 +42,7 @@ final class Query
     private string $sortDirection = 'ASC';
     private ?Cursor $cursor = null;
     private int $limitCount = 50;
+    private bool $hydrateConcreteTypes = false;
 
     /** @var string[] base first, ending with $identifier itself */
     private readonly array $chain;
@@ -98,6 +103,22 @@ final class Query
         return $this;
     }
 
+    /**
+     * Opt-in, off by default: resolves each row's real concrete subtype (native or
+     * editor-created) instead of always hydrating as $identifier's own base type. Costs
+     * one extra Repository::findMany() batch per distinct subtype found in the page,
+     * not per row, but that cost is workload-dependent (a page mixing many distinct
+     * subtypes still costs one batch each), so it never applies silently. See
+     * ROADMAP.md "Phase 8, Step B Fix 1" for why this stays opt-in rather than the
+     * default.
+     */
+    public function hydrateConcreteTypes(): self
+    {
+        $this->hydrateConcreteTypes = true;
+
+        return $this;
+    }
+
     public function get(): Page
     {
         [$filterSql, $filterParams] = $this->filterSql();
@@ -123,20 +144,42 @@ final class Query
         $columnNamesByLevel = $this->columnNamesByLevel();
         $repository = $this->entityManager->repository($this->identifier);
 
+        $orderedIds = [];
         $items = [];
+        $foreignIdsByType = [];
         $lastId = null;
         $lastSortValue = null;
         foreach ($rows as $row) {
-            [$id, $rowsByLevel] = $this->splitRow($row, $columnNamesByLevel);
+            $concreteType = $this->hydrateConcreteTypes ? array_pop($row) : null;
 
-            $items[] = $repository->materialize($id, $rowsByLevel);
+            [$id, $rowsByLevel] = $this->splitRow($row, $columnNamesByLevel);
+            $orderedIds[] = $id;
+
+            if ($concreteType !== null && $concreteType !== $this->identifier) {
+                $foreignIdsByType[$concreteType][] = $id;
+            } else {
+                $items[$id] = $repository->materialize($id, $rowsByLevel);
+            }
+
             $lastId = $id;
             $lastSortValue = $this->sortField === null ? null : $this->sortValueFromRows($rowsByLevel);
         }
 
+        // One batched lookup per distinct foreign subtype in the page, not one per row.
+        foreach ($foreignIdsByType as $concreteType => $ids) {
+            $items += $this->entityManager->repository($concreteType)->findMany($ids);
+        }
+
+        $orderedItems = [];
+        foreach ($orderedIds as $id) {
+            if (isset($items[$id])) {
+                $orderedItems[] = $items[$id];
+            }
+        }
+
         $nextCursor = $hasMore && $lastId !== null ? new Cursor($lastSortValue, $lastId) : null;
 
-        return new Page($items, $hasMore, $nextCursor);
+        return new Page($orderedItems, $hasMore, $nextCursor);
     }
 
     /** The same WHERE filterSql() would use, independent of sorting/pagination, for a "showing X-Y of Z" display. */
@@ -148,9 +191,16 @@ final class Query
         return (int) $this->connection->fetchOne(sprintf('SELECT COUNT(*) FROM %s %s', $this->fromClause(), $whereSql), $filterParams);
     }
 
+    /** With hydrateConcreteTypes() set, entities.concrete_type is appended as the row's last column, popped off in get() before splitRow() runs. */
     private function selectList(): string
     {
-        return implode(', ', array_map(static fn (int $index): string => sprintf('t%d.*', $index), array_keys($this->chain)));
+        $columns = array_map(static fn (int $index): string => sprintf('t%d.*', $index), array_keys($this->chain));
+
+        if ($this->hydrateConcreteTypes) {
+            $columns[] = 'te.concrete_type';
+        }
+
+        return implode(', ', $columns);
     }
 
     private function fromClause(): string
@@ -159,6 +209,10 @@ final class Query
 
         for ($index = 1; $index < count($this->chain); $index++) {
             $sql .= sprintf(' JOIN %s AS t%d ON t%d.id = t0.id', $this->entityManager->tableOf($this->chain[$index]), $index, $index);
+        }
+
+        if ($this->hydrateConcreteTypes) {
+            $sql .= sprintf(' JOIN %s AS te ON te.id = t0.id', SchemaBuilder::ENTITIES_TABLE);
         }
 
         return $sql;

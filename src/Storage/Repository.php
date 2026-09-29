@@ -2,6 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Storage;
 
+use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use LogicException;
 use ReflectionClass;
@@ -122,6 +123,64 @@ final class Repository
         }
 
         return $this->instantiateAndCache($id, $values);
+    }
+
+    /**
+     * Batch-fetches several ids of this exact identifier at once: one query per chain
+     * level (WHERE id IN (...)), not one per id, the same "one query per level" cost
+     * find() already pays for a single id, now shared across however many ids are in
+     * the batch. Used by Query::hydrateConcreteTypes() to resolve a page's
+     * foreign-subtype rows without one lookup per row, see ROADMAP.md "Step B Fix 1".
+     * Every id here must already be known to be this exact identifier's concrete type,
+     * unlike find(), this never resolves or delegates polymorphically itself.
+     *
+     * @param string[] $ids
+     * @return array<string, object> id => hydrated instance, missing entries for any id
+     *   that no longer exists, the batch equivalent of find() returning null
+     */
+    public function findMany(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        $result = [];
+        $remaining = [];
+        foreach ($ids as $id) {
+            $cached = $this->identityMap->get($this->class, $id);
+            if ($cached !== null) {
+                $result[$id] = $cached;
+            } else {
+                $remaining[] = $id;
+            }
+        }
+
+        if ($remaining === []) {
+            return $result;
+        }
+
+        $rowsByIdAndLevel = [];
+        foreach ($this->chain as $level) {
+            $rows = $this->connection->fetchAllAssociative(
+                sprintf('SELECT * FROM %s WHERE %s IN (?)', $this->table($level), SchemaBuilder::ID_COLUMN),
+                [$remaining],
+                [ArrayParameterType::STRING],
+            );
+
+            foreach ($rows as $row) {
+                $rowsByIdAndLevel[(string) $row[SchemaBuilder::ID_COLUMN]][$level] = $row;
+            }
+        }
+
+        foreach ($remaining as $id) {
+            if (!isset($rowsByIdAndLevel[$id]) || count($rowsByIdAndLevel[$id]) !== count($this->chain)) {
+                continue;
+            }
+
+            $result[$id] = $this->materialize($id, $rowsByIdAndLevel[$id]);
+        }
+
+        return $result;
     }
 
     /** @param array<string, mixed> $values */
