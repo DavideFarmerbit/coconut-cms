@@ -46,6 +46,7 @@ final class SchemaBuilder
         $table->addColumn('concrete_type', Types::STRING);
         $table->setPrimaryKey([self::ID_COLUMN]);
         $table->addForeignKeyConstraint(self::ENTITIES_TABLE, ['owner'], [self::ID_COLUMN], ['onDelete' => 'CASCADE']);
+        $table->addIndex(['owner', 'owner_field']);
 
         return $table;
     }
@@ -60,7 +61,7 @@ final class SchemaBuilder
     {
         $extra = [];
 
-        return self::withEntitiesForeignKey(self::buildTable($tableName, $fields, [], $extra, false));
+        return self::withEntitiesForeignKey(self::buildTable($tableName, $fields, [], $extra));
     }
 
     /**
@@ -71,7 +72,7 @@ final class SchemaBuilder
     public static function tablesFor(string $tableName, array $fields, array $tables): array
     {
         $extra = [];
-        $table = self::withEntitiesForeignKey(self::buildTable($tableName, $fields, $tables, $extra, false));
+        $table = self::withEntitiesForeignKey(self::buildTable($tableName, $fields, $tables, $extra));
 
         return [$table, ...$extra];
     }
@@ -101,7 +102,7 @@ final class SchemaBuilder
 
         foreach ($chain as $level) {
             $tableName = self::tableOf($level, $tables);
-            $table = self::buildTable($tableName, $ownFieldsOfLevel($level), $tables, $extra, false);
+            $table = self::buildTable($tableName, $ownFieldsOfLevel($level), $tables, $extra);
             $table->addForeignKeyConstraint($previousTable ?? self::ENTITIES_TABLE, [self::ID_COLUMN], [self::ID_COLUMN], ['onDelete' => 'CASCADE']);
 
             $result[] = $table;
@@ -122,14 +123,11 @@ final class SchemaBuilder
      * @param FieldDescriptor[] $fields
      * @param array<class-string, string> $tables
      * @param Table[] $extra filled with any join/child table a reference or collection field needs
-     * @param bool $autoIncrementId only an Owned collection's own child table still
-     *   autoincrements its own id (Phase 8 Step C moves it onto entities.owner instead,
-     *   not yet); every other table's id now originates from entities and is just an FK
      */
-    private static function buildTable(string $tableName, array $fields, array $tables, array &$extra, bool $autoIncrementId): Table
+    private static function buildTable(string $tableName, array $fields, array $tables, array &$extra): Table
     {
         $table = new Table($tableName);
-        $table->addColumn(self::ID_COLUMN, Types::INTEGER, ['autoincrement' => $autoIncrementId]);
+        $table->addColumn(self::ID_COLUMN, Types::INTEGER);
         $table->setPrimaryKey([self::ID_COLUMN]);
 
         foreach ($fields as $field) {
@@ -144,11 +142,13 @@ final class SchemaBuilder
     /**
      * Every real column name $fields would produce, in the exact order buildTable()
      * physically creates them: 'id' isn't included, Repository/Query add it
-     * separately, a Collection field never has one (its own join/child table
-     * instead), an EntityReference always contributes {name}_id regardless of
-     * queryable, an EmbeddedValueObject recurses and flattens the same way
-     * addColumns() does. Needs no $tables map, unlike addColumns(), a reference
-     * column's name never depends on what its target resolves to.
+     * separately, a Collection field never has one (its own join/child table for
+     * Shared, entities.owner for Owned), a Shared EntityReference contributes
+     * {name}_id regardless of queryable, an Owned one has no column at all (Phase 8
+     * Step C: resolved through entities.owner/owner_field instead), an
+     * EmbeddedValueObject recurses and flattens the same way addColumns() does. Needs
+     * no $tables map, unlike addColumns(), a reference column's name never depends on
+     * what its target resolves to.
      *
      * Used by Query to slice/alias a level's own row without touching the live
      * database or building a throwaway Table just to read its column names back.
@@ -167,7 +167,9 @@ final class SchemaBuilder
             }
 
             if ($field->kind === FieldKind::EntityReference) {
-                $names[] = $prefix . $field->name . '_id';
+                if ($field->ownership === Ownership::Shared) {
+                    $names[] = $prefix . $field->name . '_id';
+                }
 
                 continue;
             }
@@ -197,7 +199,10 @@ final class SchemaBuilder
         }
 
         if ($field->kind === FieldKind::EntityReference) {
-            self::addReferenceColumn($table, $field, $prefix, $tables);
+            // Owned gets no column at all: resolved through entities.owner/owner_field instead (Phase 8 Step C).
+            if ($field->ownership === Ownership::Shared) {
+                self::addReferenceColumn($table, $field, $prefix, $tables);
+            }
 
             return;
         }
@@ -240,8 +245,10 @@ final class SchemaBuilder
      * Shared: a many-to-many join table, its own row disappears with either side, the
      * two entities themselves keep their own independent lifecycle either way.
      *
-     * Owned: a dedicated child table (not a join table), a back-pointer FK to the
-     * owner, CASCADE, since a row here has no life apart from its one owner.
+     * Owned: no table of its own at all (Phase 8 Step C). Each item is a real,
+     * independently-tabled entity via its own chain, found through
+     * entities.owner/owner_field/position instead of a dedicated per-relationship
+     * child table, see Repository::readCollection()/writeCollection().
      *
      * @param array<class-string, string> $tables
      * @return Table[]
@@ -256,28 +263,21 @@ final class SchemaBuilder
             ));
         }
 
-        $name = $ownerTable . '_' . $field->name;
-
-        if ($field->ownership === Ownership::Shared) {
-            $itemTable = self::tableOf($field->referencedShape, $tables);
-
-            $join = new Table($name);
-            $join->addColumn('owner_id', Types::INTEGER);
-            $join->addColumn('item_id', Types::INTEGER);
-            $join->setPrimaryKey(['owner_id', 'item_id']);
-            $join->addForeignKeyConstraint($ownerTable, ['owner_id'], [self::ID_COLUMN], ['onDelete' => 'CASCADE']);
-            $join->addForeignKeyConstraint($itemTable, ['item_id'], [self::ID_COLUMN], ['onDelete' => 'CASCADE']);
-
-            return [$join];
+        if ($field->ownership === Ownership::Owned) {
+            return [];
         }
 
-        // Not yet on entities.owner (Phase 8 Step C), still its own autoincrementing child table.
-        $childExtra = [];
-        $child = self::buildTable($name, PrototypeShape::ofClass($field->referencedShape), $tables, $childExtra, true);
-        $child->addColumn('owner_id', Types::INTEGER);
-        $child->addForeignKeyConstraint($ownerTable, ['owner_id'], [self::ID_COLUMN], ['onDelete' => 'CASCADE']);
+        $name = $ownerTable . '_' . $field->name;
+        $itemTable = self::tableOf($field->referencedShape, $tables);
 
-        return [$child, ...$childExtra];
+        $join = new Table($name);
+        $join->addColumn('owner_id', Types::INTEGER);
+        $join->addColumn('item_id', Types::INTEGER);
+        $join->setPrimaryKey(['owner_id', 'item_id']);
+        $join->addForeignKeyConstraint($ownerTable, ['owner_id'], [self::ID_COLUMN], ['onDelete' => 'CASCADE']);
+        $join->addForeignKeyConstraint($itemTable, ['item_id'], [self::ID_COLUMN], ['onDelete' => 'CASCADE']);
+
+        return [$join];
     }
 
     /** @param array<class-string, string> $tables */

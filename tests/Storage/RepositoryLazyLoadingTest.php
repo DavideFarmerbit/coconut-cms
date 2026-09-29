@@ -25,13 +25,14 @@ final class RepositoryLazyLoadingTest extends TestCase
         $this->connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
         $this->connection->executeStatement('PRAGMA foreign_keys = ON');
 
-        $tables = [Category::class => 'categories', Tag::class => 'tags', RelatedProduct::class => 'products'];
+        $tables = [Category::class => 'categories', Tag::class => 'tags', GalleryItem::class => 'gallery', RelatedProduct::class => 'products'];
 
         $synchronizer = new SchemaSynchronizer($this->connection);
         $synchronizer->sync(SchemaBuilder::entitiesTable());
         $synchronizer->syncAll([
             SchemaBuilder::tableFor('categories', PrototypeShape::ofClass(Category::class)),
             SchemaBuilder::tableFor('tags', PrototypeShape::ofClass(Tag::class)),
+            SchemaBuilder::tableFor('gallery', PrototypeShape::ofClass(GalleryItem::class)),
         ]);
         $synchronizer->syncAll(SchemaBuilder::tablesFor('products', PrototypeShape::ofClass(RelatedProduct::class), $tables));
 
@@ -59,6 +60,7 @@ final class RepositoryLazyLoadingTest extends TestCase
         $entityManager = new EntityManager($this->connection, [
             Category::class => 'categories',
             Tag::class => 'tags',
+            GalleryItem::class => 'gallery',
             RelatedProduct::class => 'products',
         ]);
 
@@ -79,6 +81,7 @@ final class RepositoryLazyLoadingTest extends TestCase
         $entityManager = new EntityManager($this->connection, [
             Category::class => 'categories',
             Tag::class => 'tags',
+            GalleryItem::class => 'gallery',
             RelatedProduct::class => 'products',
         ]);
 

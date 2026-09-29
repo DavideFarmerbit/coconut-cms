@@ -18,29 +18,34 @@ use XyloIsCoding\CoconutCms\Storage\Attributes\Ownership;
  * through EntityManager's PrototypeRegistry front door, never PrototypeShape or
  * reflection directly, so either kind of identifier works the same way here.
  *
- * A Shared reference or collection item reached while hydrating another entity is a
- * lazy PHP 8.4 ghost object (see lazyFind()), not eagerly resolved, an owner holding
- * many of these never pays for hydrating any of them until something actually touches
- * one. A direct find() call still resolves immediately, a caller asking for something
+ * A reference or collection item reached while hydrating another entity is a lazy PHP
+ * 8.4 ghost object (see lazyFind()), not eagerly resolved, an owner holding many of
+ * these never pays for hydrating any of them until something actually touches one, true
+ * of both Shared and Owned since Phase 8 Step C: an Owned item is a real, independently
+ * tabled entity like any other, not a raw row read straight out of a dedicated child
+ * table. A direct find() call still resolves immediately, a caller asking for something
  * by id wants it now.
  *
  * Always operates on the whole Class Table Inheritance chain the identifier belongs to
- * (base first), one table per level, plus whatever join/child tables its reference and
- * collection fields need. An identifier with no parent is simply a chain of one, on top
+ * (base first), one table per level, plus whatever join table a Shared reference or
+ * collection field needs. An identifier with no parent is simply a chain of one, on top
  * of the shared entities table every chain roots on (Phase 8): that's where insert()
  * actually originates an id and delete() actually removes a row, find()/lazyFind()
  * resolve entities.concrete_type first so a base-typed lookup or reference hydrates as
  * whatever concrete subtype the row actually is.
  *
- * A reference or collection field can only ever point at an already-persisted
+ * A Shared reference or collection field can only ever point at an already-persisted
  * instance, found() or just insert()-ed, since there's no id to store otherwise;
  * Phase 3's Changeset/TempId machinery is what lets a caller create and link several
- * entities in one atomic step instead.
+ * entities in one atomic step instead. An Owned reference or collection field is the
+ * opposite: the item is never pre-persisted, it's inserted through its own Repository
+ * as part of its owner's own write (Phase 8 Step C), then marked
+ * entities.owner/owner_field/position, no column or dedicated child table of its own.
  *
  * Update takes a plain field => value array of changes for now, a stand-in for the
- * real Changeset write path that Phase 3 replaces this with. Writing a collection
- * always replaces its whole set rather than diffing it, a simplification Phase 3's
- * real changeset removes.
+ * real Changeset write path that Phase 3 replaces this with. Writing a collection, or
+ * an Owned singular reference, always replaces whatever was there before rather than
+ * diffing it, a simplification Phase 3's real changeset removes.
  */
 final class Repository
 {
@@ -303,7 +308,7 @@ final class Repository
 
         foreach ($levelFields as $field) {
             if ($field->kind === FieldKind::EntityReference) {
-                $values[$field->name] = $this->readReference($field, $row);
+                $values[$field->name] = $this->readReference($field, $row, $id);
             } elseif ($field->kind === FieldKind::Collection) {
                 $values[$field->name] = $this->readCollection($field, $id);
             }
@@ -337,6 +342,7 @@ final class Repository
             $this->connection->insert($this->table($level), $row);
         }
 
+        $this->writeOwnedReferences($values, $id);
         $this->writeCollections($values, $id);
         $this->identityMap->put($this->class, $id, $entity);
 
@@ -363,6 +369,7 @@ final class Repository
             $this->connection->update($this->table($level), $row, [SchemaBuilder::ID_COLUMN => $id]);
         }
 
+        $this->writeOwnedReferences($values, $id);
         $this->writeCollections($values, $id);
 
         $entity = $this->entityManager->instantiate($this->class, $values);
@@ -449,7 +456,7 @@ final class Repository
         $row = RowMapper::toRow($levelFields, $values);
 
         foreach ($levelFields as $field) {
-            if ($field->kind === FieldKind::EntityReference) {
+            if ($field->kind === FieldKind::EntityReference && $field->ownership === Ownership::Shared) {
                 $row[self::referenceColumn($field)] = $this->referencedId($field, $values[$field->name]);
             }
         }
@@ -465,6 +472,46 @@ final class Repository
                 $this->writeCollection($field, $ownerId, $values[$field->name] ?? []);
             }
         }
+    }
+
+    /**
+     * Owned singular references: the item, not yet persisted, is inserted through its
+     * own Repository (as part of the owner's own write), then its entities row is
+     * marked owner/owner_field/position = -1. Always replaces whatever was there
+     * before rather than diffing it, same simplification writeCollection() already
+     * accepts, see class docblock.
+     *
+     * @param array<string, mixed> $values
+     */
+    private function writeOwnedReferences(array $values, string $ownerId): void
+    {
+        foreach ($this->fields as $field) {
+            if ($field->kind === FieldKind::EntityReference && $field->ownership === Ownership::Owned) {
+                $this->writeOwnedReference($field, $ownerId, $values[$field->name] ?? null);
+            }
+        }
+    }
+
+    private function writeOwnedReference(FieldDescriptor $field, string $ownerId, ?object $item): void
+    {
+        $this->connection->delete(SchemaBuilder::ENTITIES_TABLE, ['owner' => $ownerId, 'owner_field' => $field->name, 'position' => -1]);
+
+        if ($item === null) {
+            return;
+        }
+
+        $itemId = $this->entityManager->repository(self::identifierOf($item))->insert($item);
+        $this->connection->update(
+            SchemaBuilder::ENTITIES_TABLE,
+            ['owner' => $ownerId, 'owner_field' => $field->name, 'position' => -1],
+            [SchemaBuilder::ID_COLUMN => $itemId],
+        );
+    }
+
+    /** The identifier to look up this hydrated item's own Repository by: its own class, or a DynamicEntity's own stored identifier. */
+    private static function identifierOf(object $item): string
+    {
+        return $item instanceof DynamicEntity ? $item->identifier : $item::class;
     }
 
     private static function referenceColumn(FieldDescriptor $field): string
@@ -483,8 +530,18 @@ final class Repository
             ?? throw new ValidationException(sprintf('Field "%s" must reference an already-persisted %s.', $field->name, $field->referencedShape));
     }
 
-    private function readReference(FieldDescriptor $field, array $row): ?object
+    /** $ownerId is this level's own row id, needed for the Owned branch's reverse lookup, unused by the Shared branch. */
+    private function readReference(FieldDescriptor $field, array $row, string $ownerId): ?object
     {
+        if ($field->ownership === Ownership::Owned) {
+            $itemId = $this->connection->fetchOne(
+                sprintf('SELECT %s FROM %s WHERE owner = ? AND owner_field = ? AND position = -1', SchemaBuilder::ID_COLUMN, SchemaBuilder::ENTITIES_TABLE),
+                [$ownerId, $field->name],
+            );
+
+            return $itemId === false ? null : $this->entityManager->repository($field->referencedShape)->lazyFind((string) $itemId);
+        }
+
         $id = $row[self::referenceColumn($field)] ?? null;
         if ($id === null) {
             return null;
@@ -513,56 +570,58 @@ final class Repository
     }
 
     /**
-     * @return object[] Shared items are lazy, only the id list is fetched eagerly
-     *   (unavoidable, that's what "which items are in the collection" means), each
-     *   item's own hydration waits until it's actually touched. Owned items have no
-     *   such cost to defer, their own data already comes back in this one query.
+     * @return object[] Every item is lazy either way, only the id list (Shared: from
+     *   the pivot table; Owned: from entities, ordered by position) is fetched eagerly,
+     *   each item's own hydration waits until it's actually touched.
      */
     private function readCollection(FieldDescriptor $field, string $ownerId): array
     {
-        $table = $this->collectionTable($field);
+        $itemIds = $field->ownership === Ownership::Owned
+            ? $this->connection->fetchFirstColumn(
+                sprintf('SELECT %s FROM %s WHERE owner = ? AND owner_field = ? ORDER BY position ASC', SchemaBuilder::ID_COLUMN, SchemaBuilder::ENTITIES_TABLE),
+                [$ownerId, $field->name],
+            )
+            : $this->connection->fetchFirstColumn(sprintf('SELECT item_id FROM %s WHERE owner_id = ?', $this->collectionTable($field)), [$ownerId]);
 
-        if ($field->ownership === Ownership::Shared) {
-            $itemIds = $this->connection->fetchFirstColumn(sprintf('SELECT item_id FROM %s WHERE owner_id = ?', $table), [$ownerId]);
-            $itemRepository = $this->entityManager->repository($field->referencedShape);
+        $itemRepository = $this->entityManager->repository($field->referencedShape);
 
-            return array_map(static fn (int|string $itemId): object => $itemRepository->lazyFind((string) $itemId), $itemIds);
-        }
-
-        // Owned: no independent repository, hydrate the child rows directly instead
-        $rows = $this->connection->fetchAllAssociative(sprintf('SELECT * FROM %s WHERE owner_id = ?', $table), [$ownerId]);
-        $itemFields = $this->entityManager->fieldsOf($field->referencedShape);
-
-        return array_map(
-            fn (array $row): object => $this->entityManager->instantiate($field->referencedShape, RowMapper::fromRow($itemFields, $row)),
-            $rows,
-        );
+        return array_map(static fn (int|string $itemId): object => $itemRepository->lazyFind((string) $itemId), $itemIds);
     }
 
-    /** @param object[] $items */
+    /**
+     * Replaces the whole set rather than diffing it, correct but not minimal, see
+     * class docblock. Owned: every existing item at this owner/owner_field is deleted
+     * (cascading through its own chain via entities), each new item is inserted fresh
+     * through its own Repository and marked owner/owner_field/position, no dedicated
+     * child table involved.
+     *
+     * @param object[] $items
+     */
     private function writeCollection(FieldDescriptor $field, string $ownerId, array $items): void
     {
-        $table = $this->collectionTable($field);
+        if ($field->ownership === Ownership::Owned) {
+            $this->connection->delete(SchemaBuilder::ENTITIES_TABLE, ['owner' => $ownerId, 'owner_field' => $field->name]);
 
-        // Replaces the whole set rather than diffing it, correct but not minimal, see class docblock.
-        $this->connection->delete($table, ['owner_id' => $ownerId]);
-
-        if ($field->ownership === Ownership::Shared) {
-            foreach ($items as $item) {
-                $itemId = $this->identityMap->idOf($item)
-                    ?? throw new ValidationException(sprintf('Field "%s" must reference already-persisted %s instances.', $field->name, $field->referencedShape));
-
-                $this->connection->insert($table, ['owner_id' => $ownerId, 'item_id' => $itemId]);
+            foreach (array_values($items) as $position => $item) {
+                $itemId = $this->entityManager->repository(self::identifierOf($item))->insert($item);
+                $this->connection->update(
+                    SchemaBuilder::ENTITIES_TABLE,
+                    ['owner' => $ownerId, 'owner_field' => $field->name, 'position' => $position],
+                    [SchemaBuilder::ID_COLUMN => $itemId],
+                );
             }
 
             return;
         }
 
-        $itemFields = $this->entityManager->fieldsOf($field->referencedShape);
+        $table = $this->collectionTable($field);
+        $this->connection->delete($table, ['owner_id' => $ownerId]);
+
         foreach ($items as $item) {
-            $row = RowMapper::toRow($itemFields, RowMapper::propertiesOf($item, $itemFields));
-            $row['owner_id'] = $ownerId;
-            $this->connection->insert($table, $row);
+            $itemId = $this->identityMap->idOf($item)
+                ?? throw new ValidationException(sprintf('Field "%s" must reference already-persisted %s instances.', $field->name, $field->referencedShape));
+
+            $this->connection->insert($table, ['owner_id' => $ownerId, 'item_id' => $itemId]);
         }
     }
 }

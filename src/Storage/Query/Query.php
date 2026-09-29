@@ -7,6 +7,7 @@ use LogicException;
 use XyloIsCoding\CoconutCms\Storage\EntityManager;
 use XyloIsCoding\CoconutCms\Storage\Attributes\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Storage\Attributes\FieldKind;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Ownership;
 use XyloIsCoding\CoconutCms\Storage\SchemaBuilder;
 
 /**
@@ -329,7 +330,9 @@ final class Query
      * Which chain level declares $fieldName, its real column name, and its
      * FieldDescriptor. Throws for anything with no real column to reference in SQL: a
      * blob-only field, an EmbeddedValueObject (queryable is always false for both,
-     * enforced by FieldDescriptor's own factories), or a Collection.
+     * enforced by FieldDescriptor's own factories), a Collection, or an Owned
+     * EntityReference (Phase 8 Step C: resolved through entities.owner/owner_field, no
+     * column of its own, only a Shared reference still has one).
      *
      * @return array{0: int, 1: string, 2: FieldDescriptor}
      */
@@ -342,6 +345,7 @@ final class Query
                 }
 
                 $column = match (true) {
+                    $field->kind === FieldKind::EntityReference && $field->ownership === Ownership::Owned => throw new LogicException(sprintf('"%s" has no real column to filter/sort by, it is an Owned reference.', $fieldName)),
                     $field->kind === FieldKind::EntityReference => $fieldName . '_id',
                     $field->queryable => $fieldName,
                     default => throw new LogicException(sprintf('"%s" has no real column to filter/sort by, it is not queryable.', $fieldName)),

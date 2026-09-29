@@ -29,6 +29,7 @@ final class RepositoryRelationsTest extends TestCase
         $tables = [
             Category::class => 'categories',
             Tag::class => 'tags',
+            GalleryItem::class => 'gallery',
             RelatedProduct::class => 'products',
         ];
 
@@ -37,6 +38,7 @@ final class RepositoryRelationsTest extends TestCase
         $synchronizer->syncAll([
             SchemaBuilder::tableFor('categories', PrototypeShape::ofClass(Category::class)),
             SchemaBuilder::tableFor('tags', PrototypeShape::ofClass(Tag::class)),
+            SchemaBuilder::tableFor('gallery', PrototypeShape::ofClass(GalleryItem::class)),
         ]);
         $synchronizer->syncAll(SchemaBuilder::tablesFor('products', PrototypeShape::ofClass(RelatedProduct::class), $tables));
 
@@ -111,7 +113,7 @@ final class RepositoryRelationsTest extends TestCase
 
         $this->entityManager->repository(RelatedProduct::class)->delete($id);
 
-        self::assertSame(0, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM products_gallery'));
+        self::assertSame(0, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM gallery'));
         self::assertSame(0, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM products_tags'));
         self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM tags WHERE id = ?', [$tagId]));
     }
@@ -134,6 +136,6 @@ final class RepositoryRelationsTest extends TestCase
         ]);
 
         self::assertSame(['only one now'], array_map(static fn (GalleryItem $item): string => $item->caption, $updated->gallery));
-        self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM products_gallery'));
+        self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM gallery'));
     }
 }

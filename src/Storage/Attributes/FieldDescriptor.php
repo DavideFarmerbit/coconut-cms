@@ -132,9 +132,11 @@ final readonly class FieldDescriptor
     }
 
     /**
-     * A reference to another entity. Always a real FK column regardless of
+     * A reference to another entity. Shared: always a real FK column regardless of
      * `queryable`/`unique`, those only control indexing/filtering on a column that
-     * exists either way.
+     * exists either way. Owned (Phase 8 Step C): no column at all, resolved through
+     * entities.owner/owner_field instead, so `queryable`/`unique` have nothing to act
+     * on and are meaningless here.
      *
      * @param FieldValidator[] $validators
      */
@@ -165,9 +167,11 @@ final readonly class FieldDescriptor
 
     /**
      * A repeated list of values. EntityReference items always get a real join table
-     * (Shared) or a dedicated child table (Owned) regardless of `queryable`.
-     * EmbeddedValueObject/scalar items live in the JSON blob instead, always
-     * non-queryable, filtering an outer list by a value inside it is out of scope.
+     * (Shared) or, since Phase 8 Step C, no table at all (Owned, resolved through
+     * entities.owner/owner_field, each item a real independently-tabled entity via its
+     * own chain), regardless of `queryable`. EmbeddedValueObject/scalar items live in
+     * the JSON blob instead, always non-queryable, filtering an outer list by a value
+     * inside it is out of scope.
      *
      * @param FieldValidator[] $validators
      */
