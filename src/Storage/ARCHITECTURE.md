@@ -262,6 +262,53 @@ class's own table was self-sufficient, nothing to join. Traded for removing the
 per-relationship dedicated table and the discriminator-per-chain-root mechanism this
 would otherwise have needed. See `ROADMAP.md` Phase 8 for the concrete build-out.
 
+### Defaulted instances: what backfills a new field or a new parent-level row
+
+(Design discussion, 2026-09-28.) Two situations, both already named above as open
+questions, turn out to need the same missing piece: an ordinary new field added to an
+already-populated class needs *some* value for existing rows, and a class gaining a new
+parent (Class Table Inheritance's reparenting case) needs a whole new counterpart row,
+one value per field the new parent declares. Neither had an answer beyond "a human
+decides" until now.
+
+**Every native class, and every shape ever used as an `#[Embed]` target, must be able to
+produce a defaulted instance**: either a real zero-argument constructor, or a static
+method (visibility doesn't matter, `private` is fine) carrying a new `#[DefaultInstance]`
+attribute — a class-level marker in the same family as `#[Table]`/`#[EditorExtensible]`,
+needed because reflection has no other way to know which of a class's static methods is
+*the* one. A constructor requiring real arguments (the ordinary case for most classes
+here) simply can't double as this, hence the attribute-marked alternative rather than
+forcing every class into an awkward zero-arg shape just to satisfy this requirement.
+
+**Editor-created fields carry their own explicit default instead**, since there's no
+constructor to derive one from: `FieldDescriptor`'s `scalar()`/`choice()`/`embed()`
+factories gain an optional `default` value, set through a slot in the editor's
+field-authoring UI and persisted in the generated schema alongside everything else about
+that field. `reference()`/`collection()` deliberately don't get one, a reference field's
+"default" would mean fabricating a valid target row out of nothing, a business decision
+this mechanism has no business making, out of scope here the same way it's out of scope
+for native code.
+
+**Resolution order for any field needing a default value**: the field's own explicit
+default if one was set (editor-created fields only) → otherwise the field's own type's
+defaulted instance (a native class's constructor/`#[DefaultInstance]` factory; an
+editor-created identifier's own defaulted instance, built recursively the same way, from
+each of its own fields' resolved defaults) → otherwise throw. This is one mechanism
+serving three call sites: an ordinary new column, a newly required parent-level row
+(Class Table Inheritance reparenting), and a shape embedded via `#[Embed]` gaining a new
+field, which needs the exact same treatment propagated to every table that embeds it
+(see "Entity vs. Value Object" above).
+
+**Fail as soon as possible, not at migration time.** For a native class, this is
+checkable the moment it's registered, the same moment `EntityRegistrar` already fails
+loudly on a table-name collision: walk every registered class's full field tree,
+recursively through every `#[Embed]`/`#[Reference]` target reached along the way, and
+require a defaulted instance for each distinct class found, before any schema work
+starts. For an editor-created field, the equivalent moment is `SchemaEditor` field-save
+time: a field referencing a type with neither an explicit default nor a defaulted
+instance is rejected on the spot, never allowed into a state that only fails later when
+something actually tries to backfill it.
+
 ### Join tables: when they're actually worth it
 
 Worth it when **both** hold: the item has a real, stable table to reference (a native
@@ -390,6 +437,21 @@ Value-Object-level storage tactic, not a third option competing with Entity vs. 
 Object — it's what to reach for when a value object (no identity/sharing need) has a
 specific sub-field that needs DB-level querying, without promoting the whole value
 object to a full Entity just to get that one field indexable.
+
+**There is no such thing as "a Value Object shape," reinforced by design discussion
+(2026-09-28) after an early draft of "Global entity identity" briefly drifted from this**:
+since the choice is always made at the field-declaration site, never baked into the
+referenced shape itself, any registered identifier, native or editor-created, is a valid
+`#[Embed]` target, the exact same identifier can be independently `#[Reference]`d as a
+full standalone entity somewhere else at the same time. `FieldDescriptor::embed()`'s
+target therefore has to resolve through the same identifier-based `PrototypeRegistry`
+lookup every reference/collection field already uses, not `PrototypeShape::ofClass()`'s
+native-only reflection, which is what `SchemaBuilder::addColumns()` calls today, a real
+gap this surfaced rather than a hypothetical one. Fixing it needs no new authoring
+surface on the editor side, an editor already defines prototypes generically; it only
+needs `SchemaBuilder` to take an identifier-resolving callable the way
+`tablesForChain()` already takes `$ownFieldsOfLevel`, instead of hardcoding the native
+path. See `ROADMAP.md` Phase 8.
 
 ### Ownership: Owned vs. Shared decides who gets independent undo history
 

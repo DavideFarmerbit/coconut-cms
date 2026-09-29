@@ -474,24 +474,83 @@ only by `owner_field`) round-trips correctly through insert, find, and delete-ca
 an owned item's own subtype fields persist and rehydrate with no dedicated child table
 involved.
 
-### Step D: reparenting, uniform mechanism, backfill still open
+### Step D: reparenting, uniform mechanism, backfill resolved by Step F
 
 - Native and editor-created reparenting (add/change/remove a class's parent) become the
   mechanically identical operation once every chain already has `entities` as its
   structural top: inserting or removing one CTI level between `entities` and the
   class's own table, no more "was this previously a root or not" special case to split
   on.
-- **Not resolved by this phase, and not treated as blocking it**: backfilling values for
-  a newly-required base's own fields on already-existing rows has no more of an answer
-  here than the old plan's own Step D left it, a human (or an explicit admin-supplied
-  default) still has to decide those values. Since there's no real data in this system
-  yet (2026-09-28), this is deliberately left open rather than designed against a
-  hypothetical migration, revisit once real data makes it a live question.
+- **The backfill question this step originally left open is resolved by Step F's
+  defaulted-instance mechanism** (design discussion, 2026-09-28), not by this step
+  itself: every existing row needing a new counterpart row in the new parent's own table
+  gets one built from that parent's own defaulted instance. What Step F doesn't resolve,
+  and isn't a mechanical question at all, is whether a generic default is the *business-*
+  *appropriate* value for rows retroactively reclassified this way, a human still reviews
+  that, the same review any native migration already gets.
 
 **Done when**: a documented, correct procedure exists for inserting/removing a CTI
-level for both native and editor-created classes structurally (the metadata/DDL side);
-the backfill-values question is explicitly logged as still open, not silently assumed
-solved.
+level for both native and editor-created classes structurally (the metadata/DDL side),
+using Step F to fill every new row it creates.
+
+### Step E: `#[Embed]` resolves any identifier generically, not just native classes
+
+Closes a gap surfaced by the same design discussion (2026-09-28) that produced this
+phase, not caused by it: `SchemaBuilder::addColumns()`'s `EmbeddedValueObject` branch
+calls `PrototypeShape::ofClass($field->referencedShape)` directly today, the
+native-only reflection path, so an editor-created identifier can never be an `#[Embed]`
+target even though nothing about "Value Object" was ever supposed to be a property of
+the shape itself (see "Entity vs. Value Object" in `ARCHITECTURE.md`, and its
+2026-09-28 amendment).
+
+- `SchemaBuilder` takes an identifier-resolving callable for embed fields, the same
+  shape `tablesForChain()` already takes as `$ownFieldsOfLevel`, defaulting to
+  `PrototypeShape::ofClass(...)` for a plain native-only caller, swappable for
+  `PrototypeRegistry::fieldsOf(...)` wherever an editor-created identifier needs to be
+  reachable too.
+- No new editor-facing authoring surface needed, an editor already defines prototypes
+  through the existing schema-authoring mechanism; the only thing that changes is which
+  identifiers `#[Embed]`/`embed()` are allowed to name.
+- The exact same identifier stays simultaneously usable as a `#[Reference]` target
+  elsewhere, at the same time, unaffected, this was always meant to be a per-field
+  choice, never a fork in what the referenced identifier itself is.
+
+**Done when**: an editor-created identifier can be named as an `#[Embed]`/`embed()`
+target and its fields flatten into the owner's columns/blob exactly the way a native
+class's already do, with no behavior change for existing native-on-native embeds (the
+`EntityRegistrarTest` coverage added 2026-09-28 keeps passing unmodified).
+
+### Step F: defaulted instances, backfilling a new field or a new parent-level row
+
+See `ARCHITECTURE.md`, "Defaulted instances: what backfills a new field or a new
+parent-level row" for the full decision. Concretely:
+
+- A new `#[DefaultInstance]` class-level attribute marking a static factory method, the
+  fallback for any class whose real constructor takes required arguments; a real
+  zero-argument constructor needs no attribute, it already is one.
+- `FieldDescriptor`'s `scalar()`/`choice()`/`embed()` factories gain an optional
+  `default` value; the editor's field-authoring UI gains the corresponding input,
+  persisted in the generated schema. `reference()`/`collection()` don't get one,
+  fabricating a valid reference target isn't this mechanism's job.
+- A resolution function implementing the documented fallback order (field's own
+  explicit default → the field's type's own defaulted instance, native or
+  editor-created, resolved recursively → throw), used by three call sites: an ordinary
+  new column's backfill, Step D's new parent-level row, and Step E-enabled `#[Embed]`
+  propagation (a shape gaining a field needs every table embedding it backfilled the
+  same way).
+- The eager failure checks: `EntityRegistrar::register()` walks every registered
+  class's full field tree, recursively through every reachable `#[Embed]`/`#[Reference]`
+  target, and fails registration (same posture as the existing table-name collision
+  guard) if any distinct class found has neither a zero-arg constructor nor
+  `#[DefaultInstance]`. `SchemaEditor` runs the equivalent check at field-save time for
+  editor-created fields, rejecting a save that would leave a field with no explicit
+  default and no defaulted-instance-capable type.
+
+**Done when**: a class missing both a zero-arg constructor and `#[DefaultInstance]`
+fails registration immediately, naming the class, before any schema work starts; an
+editor-created field referencing a type with no usable default is rejected at save time,
+not at migration time; a new column, a new parent-level row, and an `#[Embed]`-propagated
+column all backfill correctly using the same resolution function.
 
 ## Shelf items
 
