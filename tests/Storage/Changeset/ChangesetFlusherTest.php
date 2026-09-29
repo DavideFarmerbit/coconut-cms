@@ -37,6 +37,7 @@ final class ChangesetFlusherTest extends TestCase
         $tables = [Category::class => 'categories', Tag::class => 'tags', RelatedProduct::class => 'products'];
 
         $synchronizer = new SchemaSynchronizer($this->connection);
+        $synchronizer->sync(SchemaBuilder::entitiesTable());
         $synchronizer->syncAll([
             SchemaBuilder::tableFor('categories', PrototypeShape::ofClass(Category::class)),
             SchemaBuilder::tableFor('tags', PrototypeShape::ofClass(Tag::class)),

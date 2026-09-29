@@ -20,8 +20,10 @@ final class RepositoryPrototypeValidatorTest extends TestCase
     {
         $connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
 
+        $synchronizer = new SchemaSynchronizer($connection);
+        $synchronizer->sync(SchemaBuilder::entitiesTable());
         $fields = PrototypeShape::ofClass(Booking::class);
-        (new SchemaSynchronizer($connection))->sync(SchemaBuilder::tableFor('bookings', $fields));
+        $synchronizer->sync(SchemaBuilder::tableFor('bookings', $fields));
 
         $this->repository = (new EntityManager($connection, [Booking::class => 'bookings']))->repository(Booking::class);
     }

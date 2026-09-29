@@ -119,8 +119,11 @@ final class EntityRegistrarTest extends TestCase
         $connection = $this->connection();
         $synchronizer = new SchemaSynchronizer($connection);
         $synchronizer->syncAll(PrototypeRegistry::schemaTables());
+        $synchronizer->sync(SchemaBuilder::entitiesTable());
         $synchronizer->sync(SchemaBuilder::tableFor('legacy_orders', PrototypeShape::ofClass(RenamedOrder::class)));
-        $connection->insert('legacy_orders', ['reference' => 'REF-1', 'data' => '{}']);
+        $connection->insert('entities', ['concrete_type' => 'XyloIsCoding\\Legacy\\FruitOrder']);
+        $orderId = $connection->lastInsertId();
+        $connection->insert('legacy_orders', ['id' => $orderId, 'reference' => 'REF-1', 'data' => '{}']);
 
         $registry = new PrototypeRegistry($connection);
         $registry->define('SpecialOrder', 'XyloIsCoding\\Legacy\\FruitOrder');

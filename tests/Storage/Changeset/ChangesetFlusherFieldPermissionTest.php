@@ -31,7 +31,9 @@ final class ChangesetFlusherFieldPermissionTest extends TestCase
     {
         $this->connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
 
-        (new SchemaSynchronizer($this->connection))->sync(SchemaBuilder::tableFor('notes', PrototypeShape::ofClass(RestrictedNote::class)));
+        $synchronizer = new SchemaSynchronizer($this->connection);
+        $synchronizer->sync(SchemaBuilder::entitiesTable());
+        $synchronizer->sync(SchemaBuilder::tableFor('notes', PrototypeShape::ofClass(RestrictedNote::class)));
 
         $this->entityManager = new EntityManager($this->connection, [RestrictedNote::class => 'notes']);
         $this->undoLog = new InMemoryUndoLog();

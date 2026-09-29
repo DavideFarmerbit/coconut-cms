@@ -49,6 +49,7 @@ final class DynamicEntityTest extends TestCase
 
         $synchronizer = new SchemaSynchronizer($this->connection);
         $synchronizer->syncAll(PrototypeRegistry::schemaTables());
+        $synchronizer->sync(SchemaBuilder::entitiesTable());
         $synchronizer->sync(SchemaBuilder::tableFor('extensible_products', PrototypeShape::ofClass(ExtensibleProduct::class)));
 
         $this->registry = new PrototypeRegistry($this->connection);

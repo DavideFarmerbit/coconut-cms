@@ -38,6 +38,7 @@ final class SchemaEditorTest extends TestCase
 
         $synchronizer = new SchemaSynchronizer($this->connection);
         $synchronizer->syncAll(PrototypeRegistry::schemaTables());
+        $synchronizer->sync(SchemaBuilder::entitiesTable());
         $synchronizer->sync(SchemaBuilder::tableFor('extensible_products', PrototypeShape::ofClass(ExtensibleProduct::class)));
         $synchronizer->sync(SchemaBuilder::tableFor('sealed_products', PrototypeShape::ofClass(SealedProduct::class)));
         $synchronizer->sync(SchemaBuilder::tableFor('tags', PrototypeShape::ofClass(Tag::class)));
@@ -52,6 +53,16 @@ final class SchemaEditorTest extends TestCase
 
         $this->manager = new SimpleActor(['store-manager']);
         $this->outsider = new SimpleActor([]);
+    }
+
+    /** Inserts entities's own root row first, id now originates there (Phase 8 Step B), then the extensible_products row it owns. */
+    private function insertExtensibleProduct(string $sku): string
+    {
+        $this->connection->insert('entities', ['concrete_type' => ExtensibleProduct::class]);
+        $id = (string) $this->connection->lastInsertId();
+        $this->connection->insert('extensible_products', ['id' => $id, 'sku' => $sku, 'data' => '{}']);
+
+        return $id;
     }
 
     public function testCreatingASubclassWithoutPermissionIsRejectedBeforeAnyDdl(): void
@@ -118,8 +129,7 @@ final class SchemaEditorTest extends TestCase
         ], $this->manager);
         $table = $this->editor->tableOf('Electronics');
 
-        $this->connection->insert('extensible_products', ['sku' => 'A1', 'data' => '{}']);
-        $id1 = $this->connection->lastInsertId();
+        $id1 = $this->insertExtensibleProduct('A1');
         $this->connection->insert($table, ['id' => $id1, 'voltage' => 110, 'data' => '{}']);
 
         $operation = $this->editor->dropColumn('Electronics', 'voltage', $this->manager);
@@ -137,8 +147,7 @@ final class SchemaEditorTest extends TestCase
         ], $this->manager);
         $table = $this->editor->tableOf('Electronics');
 
-        $this->connection->insert('extensible_products', ['sku' => 'A1', 'data' => '{}']);
-        $id = $this->connection->lastInsertId();
+        $id = $this->insertExtensibleProduct('A1');
         $this->connection->insert($table, ['id' => $id, 'voltage' => 110, 'data' => '{}']);
 
         $operation = $this->editor->dropColumn('Electronics', 'voltage', $this->manager);
@@ -196,8 +205,7 @@ final class SchemaEditorTest extends TestCase
         ], $this->manager);
         $oldTable = $this->editor->tableOf('Electronics');
 
-        $this->connection->insert('extensible_products', ['sku' => 'A1', 'data' => '{}']);
-        $id = $this->connection->lastInsertId();
+        $id = $this->insertExtensibleProduct('A1');
         $this->connection->insert($oldTable, ['id' => $id, 'voltage' => 110, 'data' => '{}']);
 
         $this->editor->rename('Electronics', 'Gadgets', $this->manager);
@@ -222,12 +230,10 @@ final class SchemaEditorTest extends TestCase
 
         // Proves the FK on warranty.coveredproduct_id followed the table rename by
         // itself, no manual fixup: inserting against the new "gadgets" table succeeds.
-        $this->connection->insert('extensible_products', ['sku' => 'A1', 'data' => '{}']);
-        $productId = $this->connection->lastInsertId();
+        $productId = $this->insertExtensibleProduct('A1');
         $this->connection->insert('gadgets', ['id' => $productId, 'data' => '{}']);
 
-        $this->connection->insert('extensible_products', ['sku' => 'A2', 'data' => '{}']);
-        $warrantyId = $this->connection->lastInsertId();
+        $warrantyId = $this->insertExtensibleProduct('A2');
         $this->connection->insert('warranty', ['id' => $warrantyId, 'coveredproduct_id' => $productId, 'data' => '{}']);
 
         self::assertSame($productId, (string) $this->connection->fetchOne('SELECT coveredproduct_id FROM warranty WHERE id = ?', [$warrantyId]));

@@ -63,6 +63,22 @@ final class EntityManager
         return $this->tables[$identifier] ?? throw new LogicException(sprintf('No table registered for "%s".', $identifier));
     }
 
+    /**
+     * The identifier an id's row actually concretely is, native or editor-created, via
+     * the shared entities table (Phase 8), one indexed lookup instead of walking a
+     * chain to find whatever sits at position 0. Null if no entities row exists for
+     * $id at all.
+     */
+    public function concreteIdentifierOf(string $id): ?string
+    {
+        $type = $this->connection->fetchOne(
+            sprintf('SELECT concrete_type FROM %s WHERE %s = ?', SchemaBuilder::ENTITIES_TABLE, SchemaBuilder::ID_COLUMN),
+            [$id],
+        );
+
+        return $type === false ? null : $type;
+    }
+
     /** The id a previously find()/insert()-ed instance was registered under, if any, across every identifier this manager handles. */
     public function idOf(object $instance): ?string
     {

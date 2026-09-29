@@ -25,7 +25,11 @@ use XyloIsCoding\CoconutCms\Storage\Attributes\Ownership;
  *
  * Always operates on the whole Class Table Inheritance chain the identifier belongs to
  * (base first), one table per level, plus whatever join/child tables its reference and
- * collection fields need. An identifier with no parent is simply a chain of one.
+ * collection fields need. An identifier with no parent is simply a chain of one, on top
+ * of the shared entities table every chain roots on (Phase 8): that's where insert()
+ * actually originates an id and delete() actually removes a row, find()/lazyFind()
+ * resolve entities.concrete_type first so a base-typed lookup or reference hydrates as
+ * whatever concrete subtype the row actually is.
  *
  * A reference or collection field can only ever point at an already-persisted
  * instance, found() or just insert()-ed, since there's no id to store otherwise;
@@ -83,6 +87,14 @@ final class Repository
             return $cached;
         }
 
+        $concreteType = $this->entityManager->concreteIdentifierOf($id);
+        if ($concreteType === null) {
+            return null;
+        }
+        if ($concreteType !== $this->class) {
+            return $this->entityManager->repository($concreteType)->find($id);
+        }
+
         $values = $this->hydrateValues($id);
 
         return $values === null ? null : $this->instantiateAndCache($id, $values);
@@ -128,12 +140,22 @@ final class Repository
      * loaded. Falls back to whatever's already in the IdentityMap, real or another
      * still-untouched ghost, so "the same id resolves to the same instance" keeps
      * holding regardless of how many places reach for it before anything triggers it.
+     *
+     * Still resolves concrete_type eagerly, a lazy ghost has to be built as a real
+     * instance of some concrete class, PHP's lazy-ghost API leaves no way to defer that
+     * part. One cheap indexed lookup, not the full row, the "every entity read now
+     * joins to entities" cost ARCHITECTURE.md accepts, not a laziness regression.
      */
     public function lazyFind(string $id): object
     {
         $cached = $this->identityMap->get($this->class, $id);
         if ($cached !== null) {
             return $cached;
+        }
+
+        $concreteType = $this->entityManager->concreteIdentifierOf($id) ?? $this->class;
+        if ($concreteType !== $this->class) {
+            return $this->entityManager->repository($concreteType)->lazyFind($id);
         }
 
         $ghost = $this->entityManager->isEditorCreated($this->class)
@@ -243,17 +265,17 @@ final class Repository
         $this->validate($values);
         $this->assertUnique($values, null);
 
-        $id = $explicitId;
+        $entitiesRow = ['concrete_type' => $this->class];
+        if ($explicitId !== null) {
+            $entitiesRow[SchemaBuilder::ID_COLUMN] = $explicitId;
+        }
+        $this->connection->insert(SchemaBuilder::ENTITIES_TABLE, $entitiesRow);
+        $id = $explicitId ?? (string) $this->connection->lastInsertId();
+
         foreach ($this->chain as $level) {
             $row = $this->rowWithReferences($this->ownFieldsByLevel[$level], $values);
-
-            if ($id === null) {
-                $this->connection->insert($this->table($level), $row);
-                $id = (string) $this->connection->lastInsertId();
-            } else {
-                $row[SchemaBuilder::ID_COLUMN] = $id;
-                $this->connection->insert($this->table($level), $row);
-            }
+            $row[SchemaBuilder::ID_COLUMN] = $id;
+            $this->connection->insert($this->table($level), $row);
         }
 
         $this->writeCollections($values, $id);
@@ -290,10 +312,10 @@ final class Repository
         return $entity;
     }
 
-    /** Deleting the base row cascades through every derived level, and every Owned collection, automatically. */
+    /** Deleting the entities row cascades through every derived level, and every Owned collection, automatically. */
     public function delete(string $id): void
     {
-        $this->connection->delete($this->table($this->chain[0]), [SchemaBuilder::ID_COLUMN => $id]);
+        $this->connection->delete(SchemaBuilder::ENTITIES_TABLE, [SchemaBuilder::ID_COLUMN => $id]);
         $this->identityMap->forget($this->class, $id);
     }
 

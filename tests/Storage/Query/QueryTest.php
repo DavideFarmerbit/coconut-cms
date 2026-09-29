@@ -50,7 +50,9 @@ final class QueryTest extends TestCase
         $this->connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
         $this->connection->executeStatement('PRAGMA foreign_keys = ON');
 
-        (new SchemaSynchronizer($this->connection))->syncAll(
+        $synchronizer = new SchemaSynchronizer($this->connection);
+        $synchronizer->sync(SchemaBuilder::entitiesTable());
+        $synchronizer->syncAll(
             SchemaBuilder::tablesForChain(PrototypeShape::chainOfClass(PremiumDigitalProduct::class), self::TABLES),
         );
 
@@ -153,7 +155,9 @@ final class QueryTest extends TestCase
     public function testFilteringByANonQueryableBlobOnlyFieldIsRejected(): void
     {
         $connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
-        (new SchemaSynchronizer($connection))->sync(SchemaBuilder::tableFor('products', PrototypeShape::ofClass(Product::class)));
+        $synchronizer = new SchemaSynchronizer($connection);
+        $synchronizer->sync(SchemaBuilder::entitiesTable());
+        $synchronizer->sync(SchemaBuilder::tableFor('products', PrototypeShape::ofClass(Product::class)));
         $entityManager = new EntityManager($connection, [Product::class => 'products']);
 
         $this->expectException(LogicException::class);
@@ -164,7 +168,9 @@ final class QueryTest extends TestCase
     public function testABoolFieldFiltersAndSortsCorrectly(): void
     {
         $connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
-        (new SchemaSynchronizer($connection))->sync(SchemaBuilder::tableFor('products', PrototypeShape::ofClass(Product::class)));
+        $synchronizer = new SchemaSynchronizer($connection);
+        $synchronizer->sync(SchemaBuilder::entitiesTable());
+        $synchronizer->sync(SchemaBuilder::tableFor('products', PrototypeShape::ofClass(Product::class)));
         $entityManager = new EntityManager($connection, [Product::class => 'products']);
         $repository = $entityManager->repository(Product::class);
 
@@ -184,6 +190,7 @@ final class QueryTest extends TestCase
         $tables = [Category::class => 'categories', Tag::class => 'tags', RelatedProduct::class => 'products'];
 
         $synchronizer = new SchemaSynchronizer($connection);
+        $synchronizer->sync(SchemaBuilder::entitiesTable());
         $synchronizer->syncAll([
             SchemaBuilder::tableFor('categories', PrototypeShape::ofClass(Category::class)),
             SchemaBuilder::tableFor('tags', PrototypeShape::ofClass(Tag::class)),
@@ -213,6 +220,7 @@ final class QueryTest extends TestCase
 
         $synchronizer = new SchemaSynchronizer($connection);
         $synchronizer->syncAll(PrototypeRegistry::schemaTables());
+        $synchronizer->sync(SchemaBuilder::entitiesTable());
         $synchronizer->sync(SchemaBuilder::tableFor('extensible_products', PrototypeShape::ofClass(ExtensibleProduct::class)));
 
         $registry = new PrototypeRegistry($connection);

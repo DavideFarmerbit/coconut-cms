@@ -25,8 +25,10 @@ final class RepositoryTest extends TestCase
     {
         $this->connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
 
+        $synchronizer = new SchemaSynchronizer($this->connection);
+        $synchronizer->sync(SchemaBuilder::entitiesTable());
         $fields = PrototypeShape::ofClass(Product::class);
-        (new SchemaSynchronizer($this->connection))->sync(SchemaBuilder::tableFor('products', $fields));
+        $synchronizer->sync(SchemaBuilder::tableFor('products', $fields));
 
         $this->repository = (new EntityManager($this->connection, [Product::class => 'products']))->repository(Product::class);
     }
@@ -107,23 +109,23 @@ final class RepositoryTest extends TestCase
     public function testTheUniqueConstraintIsReallyEnforcedAtTheDatabaseLevelToo(): void
     {
         $fields = PrototypeShape::ofClass(Product::class);
-        $this->connection->insert('products', RowMapper::toRow($fields, [
+        $this->connection->insert('products', [...RowMapper::toRow($fields, [
             'sku' => 'ABC-1',
             'name' => 'Widget',
             'description' => '',
             'address' => new Address('Rome', ''),
             'active' => true,
-        ]));
+        ]), 'id' => 100]);
 
         $this->expectException(UniqueConstraintViolationException::class);
 
         // bypasses the repository's own friendly pre-check to prove the real constraint holds independently
-        $this->connection->insert('products', RowMapper::toRow($fields, [
+        $this->connection->insert('products', [...RowMapper::toRow($fields, [
             'sku' => 'ABC-1',
             'name' => 'Widget 2',
             'description' => '',
             'address' => new Address('Milan', ''),
             'active' => true,
-        ]));
+        ]), 'id' => 101]);
     }
 }

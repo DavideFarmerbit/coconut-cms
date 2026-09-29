@@ -51,7 +51,8 @@ final class SchemaBuilder
     }
 
     /**
-     * A prototype with no reference or collection fields, so it needs exactly one table.
+     * A prototype with no reference or collection fields, so it needs exactly one table
+     * of its own, on top of the implicit entities root every chain now has (Phase 8).
      *
      * @param FieldDescriptor[] $fields
      */
@@ -59,7 +60,7 @@ final class SchemaBuilder
     {
         $extra = [];
 
-        return self::buildTable($tableName, $fields, [], $extra);
+        return self::withEntitiesForeignKey(self::buildTable($tableName, $fields, [], $extra, false));
     }
 
     /**
@@ -70,15 +71,17 @@ final class SchemaBuilder
     public static function tablesFor(string $tableName, array $fields, array $tables): array
     {
         $extra = [];
-        $table = self::buildTable($tableName, $fields, $tables, $extra);
+        $table = self::withEntitiesForeignKey(self::buildTable($tableName, $fields, $tables, $extra, false));
 
         return [$table, ...$extra];
     }
 
     /**
-     * Class Table Inheritance: one table per level, base first. Each derived level's
-     * own id column is also its FK back to the previous level's row, CASCADE, since a
-     * derived row has no meaning without its base row.
+     * Class Table Inheritance: one table per level, base first, on top of the implicit
+     * entities root every chain now has (Phase 8), the same shared identity table for
+     * every identifier, not one root per chain. Each level's own id column is also its
+     * FK back to the previous level's row (or entities itself, for the first level),
+     * CASCADE, since a derived row has no meaning without its base row.
      *
      * @param class-string[] $chain base first, PrototypeShape::chainOfClass() order
      * @param array<class-string, string> $tables entity class => table name, every level included
@@ -98,11 +101,8 @@ final class SchemaBuilder
 
         foreach ($chain as $level) {
             $tableName = self::tableOf($level, $tables);
-            $table = self::buildTable($tableName, $ownFieldsOfLevel($level), $tables, $extra, $previousTable === null);
-
-            if ($previousTable !== null) {
-                $table->addForeignKeyConstraint($previousTable, [self::ID_COLUMN], [self::ID_COLUMN], ['onDelete' => 'CASCADE']);
-            }
+            $table = self::buildTable($tableName, $ownFieldsOfLevel($level), $tables, $extra, false);
+            $table->addForeignKeyConstraint($previousTable ?? self::ENTITIES_TABLE, [self::ID_COLUMN], [self::ID_COLUMN], ['onDelete' => 'CASCADE']);
 
             $result[] = $table;
             $previousTable = $tableName;
@@ -111,12 +111,22 @@ final class SchemaBuilder
         return [...$result, ...$extra];
     }
 
+    private static function withEntitiesForeignKey(Table $table): Table
+    {
+        $table->addForeignKeyConstraint(self::ENTITIES_TABLE, [self::ID_COLUMN], [self::ID_COLUMN], ['onDelete' => 'CASCADE']);
+
+        return $table;
+    }
+
     /**
      * @param FieldDescriptor[] $fields
      * @param array<class-string, string> $tables
      * @param Table[] $extra filled with any join/child table a reference or collection field needs
+     * @param bool $autoIncrementId only an Owned collection's own child table still
+     *   autoincrements its own id (Phase 8 Step C moves it onto entities.owner instead,
+     *   not yet); every other table's id now originates from entities and is just an FK
      */
-    private static function buildTable(string $tableName, array $fields, array $tables, array &$extra, bool $autoIncrementId = true): Table
+    private static function buildTable(string $tableName, array $fields, array $tables, array &$extra, bool $autoIncrementId): Table
     {
         $table = new Table($tableName);
         $table->addColumn(self::ID_COLUMN, Types::INTEGER, ['autoincrement' => $autoIncrementId]);
@@ -261,8 +271,9 @@ final class SchemaBuilder
             return [$join];
         }
 
+        // Not yet on entities.owner (Phase 8 Step C), still its own autoincrementing child table.
         $childExtra = [];
-        $child = self::buildTable($name, PrototypeShape::ofClass($field->referencedShape), $tables, $childExtra);
+        $child = self::buildTable($name, PrototypeShape::ofClass($field->referencedShape), $tables, $childExtra, true);
         $child->addColumn('owner_id', Types::INTEGER);
         $child->addForeignKeyConstraint($ownerTable, ['owner_id'], [self::ID_COLUMN], ['onDelete' => 'CASCADE']);
 

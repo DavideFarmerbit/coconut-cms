@@ -30,7 +30,9 @@ final class RepositoryInheritanceTest extends TestCase
         $this->connection = DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]);
         $this->connection->executeStatement('PRAGMA foreign_keys = ON');
 
-        (new SchemaSynchronizer($this->connection))->syncAll(
+        $synchronizer = new SchemaSynchronizer($this->connection);
+        $synchronizer->sync(SchemaBuilder::entitiesTable());
+        $synchronizer->syncAll(
             SchemaBuilder::tablesForChain(PrototypeShape::chainOfClass(PremiumDigitalProduct::class), self::TABLES),
         );
 
