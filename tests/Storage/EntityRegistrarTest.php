@@ -19,6 +19,7 @@ use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Product;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Registrar\CollisionA;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Registrar\CollisionB;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Registrar\NamedTable;
+use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Registrar\ProductBeforeAddressGainedCity;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Registrar\RenamedOrder;
 
 /**
@@ -119,6 +120,30 @@ final class EntityRegistrarTest extends TestCase
         self::assertNotContains('legacy_orders', $tableNames);
         self::assertSame('REF-1', $connection->fetchOne('SELECT reference FROM renamedorder'));
         self::assertSame(RenamedOrder::class, $registry->parentOf('SpecialOrder'));
+    }
+
+    public function testAnEmbeddedValueObjectGainingAQueryableFieldAddsTheColumnOnReRegistration(): void
+    {
+        $connection = $this->connection();
+
+        // Simulate a table as it existed before Address gained its queryable `city`
+        // field, same table name the real Product derives to.
+        (new SchemaSynchronizer($connection))->sync(
+            SchemaBuilder::tableFor('product', PrototypeShape::ofClass(ProductBeforeAddressGainedCity::class)),
+        );
+        self::assertNotContains(
+            'address_city',
+            array_keys($connection->createSchemaManager()->listTableColumns('product')),
+        );
+
+        // Registering the real, current Product (whose Address embed already declares
+        // `city`) diffs against that same table and must add the missing column.
+        EntityRegistrar::register($connection, [Product::class]);
+
+        self::assertContains(
+            'address_city',
+            array_keys($connection->createSchemaManager()->listTableColumns('product')),
+        );
     }
 
     public function testRenameIsANoOpWhenTheNewClassDerivesTheSameTableNameAsBefore(): void
