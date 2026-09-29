@@ -524,6 +524,71 @@ only by `owner_field`) round-trips correctly through insert, find, and delete-ca
 an owned item's own subtype fields persist and rehydrate with no dedicated child table
 involved.
 
+### Step C Fix 1: `owner_field` goes stale on a field rename, silently hiding the owned item
+
+(Design discussion, 2026-09-29, surfaced by a design review after Step C shipped, not
+by a test failure.) Every Owned read (`readReference()`/`readCollection()`) looks up
+`entities` by `owner_field = $field->name`, the field's *current* name. Renaming a
+field (a native source edit, or an editor-created field rename if that ever gets built)
+leaves every already-stored `owner_field` value pointing at the old name. The owned
+item's own `entities` row, and everything under its own chain, still physically exists
+and is still correctly linked via `entities.owner`, just no longer findable by the new
+name. Not data loss: deleting the owner still cascades and cleans it up through `owner`
+alone, `owner_field` never gates that. But between the rename and that eventual delete,
+the field silently reads back empty, no error, no warning.
+
+Two mitigations were considered and set aside, not built: a `{field}_id REFERENCES
+entities(id)` redundant forward column on the owner for the singular case (workable
+now specifically because Phase 8 made `entities.id` a target-table-agnostic FK target,
+which is what made this column impossible before Step C existed at all), and an
+`owned_relationships` metadata table mirroring `prototypes`/`prototype_fields`, for
+cross-tool discoverability plus an `owner_field`-drift audit query covering both the
+singular and collection cases.
+
+**Decision: documented, not fixed, for now.** Matches the project's existing stance on
+renames generally (`ARCHITECTURE.md`/Phase 6.3: field renames are policy-forbidden,
+model it as add a new column and deprecate the old one instead), just newly visible in
+`owner_field` specifically since Step C introduced it. Revisit if it proves to matter
+in practice.
+
+### Step C Fix 2: `entities.concrete_type` goes stale on an identifier rename, breaking every existing row of that type
+
+(Design discussion, 2026-09-29, surfaced by the same review.) Not Owned-specific, and
+more serious than Fix 1: neither `EntityRegistrar::rename()` (native) nor
+`PrototypeRegistry::rename()`/`renameReferences()` (editor-created) touch
+`entities.concrete_type` at all today, only `prototypes.parent`/
+`prototype_fields.referenced_shape` and the table itself. `entities.concrete_type` is a
+Phase 8 Step B mechanism, introduced after the Phase 6.2/6.3 rename fixup already
+existed, and was never wired into it.
+
+Concretely: after a rename, every already-persisted row of that type keeps the *old*
+identifier string in its own `entities.concrete_type`. `Repository::find()`/
+`lazyFind()` resolve `concrete_type`, see it doesn't match the (renamed) repository's
+own class, and try to delegate to a repository for an identifier that no longer
+resolves to anything real: `class_exists()` fails for a native class that's actually
+gone, or, worse, fails for a class that was simply renamed, so
+`PrototypeRegistry::isEditorCreated()` wrongly treats the stale string as
+editor-created, looks it up in `prototypes`, finds nothing, and throws a "Unknown
+prototype" `LogicException`. Every existing row of a renamed type becomes unreadable
+through the ordinary Repository path, not just its Owned relationships. Untested
+today: `EntityRegistrarTest`'s rename coverage only checks raw SQL after a rename,
+never `find()` on a pre-existing row afterward, which is exactly how this stayed
+hidden.
+
+**Fix, not yet built**: `PrototypeRegistry::renameReferences()` (already shared by both
+the native and editor-created rename paths, the one place identifier renames get fixed
+up regardless of origin) needs to also run `UPDATE entities SET concrete_type = ?
+WHERE concrete_type = ?` (old identifier to new), the same shape of fixup it already
+does for `prototypes.parent`/`prototype_fields.referenced_shape`, extended to cover
+`entities`, the one additional place a rename-sensitive identifier is stored.
+
+**Done when**: renaming a native class, and separately an editor-created prototype,
+both leave every pre-existing row of that type, and its own Owned children if any,
+fully readable through `find()`/`lazyFind()`/`Query` afterward under the new
+identifier, with no manual data migration; a rename test exercises this by inserting
+before the rename and reading after, not just checking the schema/registry side the way
+existing rename tests do.
+
 ### Step D: reparenting, uniform mechanism, backfill resolved by Step F
 
 - Native and editor-created reparenting (add/change/remove a class's parent) become the
