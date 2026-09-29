@@ -26,6 +26,30 @@ final class SchemaBuilder
     /** The primary key column, an auto-incrementing integer, exposed to PHP as a string id. */
     public const string ID_COLUMN = 'id';
 
+    /** The shared identity table every entity chain roots on (Phase 8), not derived from any class. */
+    public const string ENTITIES_TABLE = 'entities';
+
+    /**
+     * The one shared entities table: id, an optional self-referencing owner (which
+     * Owned relationship put this row here, and where in it), and the row's actual
+     * concrete identifier. Fixed, hand-designed infrastructure, not derived from a
+     * FieldDescriptor shape, the same posture PrototypeRegistry::schemaTables() takes
+     * for its own meta-schema tables.
+     */
+    public static function entitiesTable(): Table
+    {
+        $table = new Table(self::ENTITIES_TABLE);
+        $table->addColumn(self::ID_COLUMN, Types::INTEGER, ['autoincrement' => true]);
+        $table->addColumn('owner', Types::INTEGER)->setNotnull(false);
+        $table->addColumn('owner_field', Types::STRING)->setNotnull(false);
+        $table->addColumn('position', Types::INTEGER)->setNotnull(false);
+        $table->addColumn('concrete_type', Types::STRING);
+        $table->setPrimaryKey([self::ID_COLUMN]);
+        $table->addForeignKeyConstraint(self::ENTITIES_TABLE, ['owner'], [self::ID_COLUMN], ['onDelete' => 'CASCADE']);
+
+        return $table;
+    }
+
     /**
      * A prototype with no reference or collection fields, so it needs exactly one table.
      *

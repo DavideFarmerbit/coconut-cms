@@ -51,6 +51,18 @@ final class EntityRegistrarTest extends TestCase
         self::assertSame('Widget', $entityManager->repository(Product::class)->find($id)->name);
     }
 
+    public function testRegisteringAClassAlsoSyncsTheSharedEntitiesTable(): void
+    {
+        $connection = $this->connection();
+        EntityRegistrar::register($connection, [Product::class]);
+
+        $tableNames = $connection->createSchemaManager()->listTableNames();
+        self::assertContains('entities', $tableNames);
+
+        $columns = array_keys($connection->createSchemaManager()->listTableColumns('entities'));
+        self::assertSame(['id', 'owner', 'owner_field', 'position', 'concrete_type'], $columns);
+    }
+
     public function testAnExplicitTableNameAttributeOverridesTheDerivedFallback(): void
     {
         $connection = $this->connection();

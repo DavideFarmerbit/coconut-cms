@@ -26,9 +26,11 @@ final class EntityRegistrar
      */
     public static function register(Connection $connection, array $classes): EntityManager
     {
-        $tables = self::resolveTables($classes);
+        $synchronizer = new SchemaSynchronizer($connection);
+        $synchronizer->sync(SchemaBuilder::entitiesTable());
 
-        (new SchemaSynchronizer($connection))->syncAll(self::resolveDefinitions($classes, $tables));
+        $tables = self::resolveTables($classes);
+        $synchronizer->syncAll(self::resolveDefinitions($classes, $tables));
 
         return new EntityManager($connection, $tables);
     }
