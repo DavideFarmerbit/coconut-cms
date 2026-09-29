@@ -5,7 +5,7 @@ namespace XyloIsCoding\CoconutCms\Storage\Changeset;
 use Doctrine\DBAL\Connection;
 use LogicException;
 use XyloIsCoding\CoconutCms\Storage\EntityManager;
-use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Storage\Attributes\FieldKind;
 use XyloIsCoding\CoconutCms\Storage\Permission\Actor;
 use XyloIsCoding\CoconutCms\Storage\Permission\FieldPermissionDenied;
 use XyloIsCoding\CoconutCms\Storage\Repository;
@@ -74,7 +74,7 @@ final readonly class ChangesetFlusher
     }
 
     /**
-     * @param \XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor[] $fields
+     * @param \XyloIsCoding\CoconutCms\Storage\Attributes\FieldDescriptor[] $fields
      * @param array<string, string> $tempIdToRealId
      */
     private function applyCreate(EntityChange $change, Repository $repository, array $fields, array &$tempIdToRealId): EntityChangeRecord
@@ -94,7 +94,7 @@ final readonly class ChangesetFlusher
     }
 
     /**
-     * @param \XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor[] $fields
+     * @param \XyloIsCoding\CoconutCms\Storage\Attributes\FieldDescriptor[] $fields
      * @param array<string, string> $tempIdToRealId
      */
     private function applyUpdate(EntityChange $change, Repository $repository, array $fields, array $tempIdToRealId): EntityChangeRecord
@@ -113,7 +113,7 @@ final readonly class ChangesetFlusher
         return new EntityChangeRecord(EntityChangeKind::Update, $id, $change->prototypeClass, $before, $hydrated);
     }
 
-    /** @param \XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor[] $fields */
+    /** @param \XyloIsCoding\CoconutCms\Storage\Attributes\FieldDescriptor[] $fields */
     private function applyDelete(EntityChange $change, Repository $repository, array $fields): EntityChangeRecord
     {
         $id = self::realId($change);
@@ -128,7 +128,7 @@ final readonly class ChangesetFlusher
     }
 
     /**
-     * @param \XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor[] $fields
+     * @param \XyloIsCoding\CoconutCms\Storage\Attributes\FieldDescriptor[] $fields
      * @param string[] $changedFieldNames
      */
     private function assertCanWriteFields(array $fields, array $changedFieldNames, ?Actor $actor): void

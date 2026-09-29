@@ -2,7 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Registrar\CollisionA;
 
-use XyloIsCoding\CoconutCms\Storage\Field\Field;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Field;
 
 /** Shares its short class name with CollisionB\Order on purpose, to exercise the registrar's collision guard. */
 final readonly class Order

@@ -13,19 +13,19 @@ use XyloIsCoding\CoconutCms\Storage\Changeset\InMemoryUndoLog;
 use XyloIsCoding\CoconutCms\Storage\Changeset\TempId;
 use XyloIsCoding\CoconutCms\Storage\DynamicEntity;
 use XyloIsCoding\CoconutCms\Storage\EntityManager;
-use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
-use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
-use XyloIsCoding\CoconutCms\Storage\Field\Ownership;
+use XyloIsCoding\CoconutCms\Storage\Attributes\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Storage\Attributes\FieldKind;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Ownership;
 use XyloIsCoding\CoconutCms\Storage\PrototypeShape;
-use XyloIsCoding\CoconutCms\Storage\Prototype\InMemorySchemaUndoLog;
-use XyloIsCoding\CoconutCms\Storage\Prototype\PrototypeRegistry;
-use XyloIsCoding\CoconutCms\Storage\Prototype\SchemaEditor;
+use XyloIsCoding\CoconutCms\Storage\Schema\InMemorySchemaUndoLog;
+use XyloIsCoding\CoconutCms\Storage\Schema\PrototypeRegistry;
+use XyloIsCoding\CoconutCms\Storage\Schema\SchemaEditor;
 use XyloIsCoding\CoconutCms\Storage\SchemaBuilder;
 use XyloIsCoding\CoconutCms\Storage\SchemaSynchronizer;
 use XyloIsCoding\CoconutCms\Storage\ValidationException;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\DynamicEntity\ValidatedEvent;
-use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Prototype\ExtensibleProduct;
-use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Prototype\SimpleActor;
+use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Schema\ExtensibleProduct;
+use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Schema\SimpleActor;
 
 /**
  * Phase 7, Step A: an editor-created prototype's instance reads and writes through the

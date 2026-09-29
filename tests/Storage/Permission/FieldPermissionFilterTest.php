@@ -8,7 +8,7 @@ use XyloIsCoding\CoconutCms\Storage\PrototypeShape;
 use XyloIsCoding\CoconutCms\Storage\RowMapper;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Permission\Employee;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Permission\Salary;
-use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Prototype\SimpleActor;
+use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Schema\SimpleActor;
 
 final class FieldPermissionFilterTest extends TestCase
 {

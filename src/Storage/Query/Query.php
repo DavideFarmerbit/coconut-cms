@@ -5,8 +5,8 @@ namespace XyloIsCoding\CoconutCms\Storage\Query;
 use Doctrine\DBAL\Connection;
 use LogicException;
 use XyloIsCoding\CoconutCms\Storage\EntityManager;
-use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
-use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Storage\Attributes\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Storage\Attributes\FieldKind;
 use XyloIsCoding\CoconutCms\Storage\SchemaBuilder;
 
 /**

@@ -2,11 +2,11 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Relations;
 
-use XyloIsCoding\CoconutCms\Storage\Field\Collection;
-use XyloIsCoding\CoconutCms\Storage\Field\Field;
-use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
-use XyloIsCoding\CoconutCms\Storage\Field\Ownership;
-use XyloIsCoding\CoconutCms\Storage\Field\Reference;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Collection;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Field;
+use XyloIsCoding\CoconutCms\Storage\Attributes\FieldKind;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Ownership;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Reference;
 
 /** An entity with one of each relationship kind: a Shared reference, a Shared collection, and an Owned collection. */
 final readonly class RelatedProduct

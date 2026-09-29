@@ -2,8 +2,8 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Validation;
 
-use XyloIsCoding\CoconutCms\Storage\Field\Field;
-use XyloIsCoding\CoconutCms\Storage\Field\PrototypeValidation;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Field;
+use XyloIsCoding\CoconutCms\Storage\Attributes\PrototypeValidation;
 
 /** A prototype-level cross-field rule, no single field's own descriptor could express this. */
 #[PrototypeValidation(validators: [new EndAfterStartValidator()])]

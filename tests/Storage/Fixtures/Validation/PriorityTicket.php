@@ -2,8 +2,8 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Validation;
 
-use XyloIsCoding\CoconutCms\Storage\Field\Field;
-use XyloIsCoding\CoconutCms\Storage\Field\PrototypeValidation;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Field;
+use XyloIsCoding\CoconutCms\Storage\Attributes\PrototypeValidation;
 
 /** A derived level with its own, independent cross-field rule, on top of the base level's. */
 #[PrototypeValidation(validators: [new PriorityInRangeValidator()])]

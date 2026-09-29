@@ -5,11 +5,11 @@ namespace XyloIsCoding\CoconutCms\Tests\Storage;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
-use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
-use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
-use XyloIsCoding\CoconutCms\Storage\Prototype\PrototypeRegistry;
+use XyloIsCoding\CoconutCms\Storage\Attributes\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Storage\Attributes\FieldKind;
+use XyloIsCoding\CoconutCms\Storage\Schema\PrototypeRegistry;
 use XyloIsCoding\CoconutCms\Storage\SchemaSynchronizer;
-use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Prototype\ExtensibleProduct;
+use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Schema\ExtensibleProduct;
 
 final class PrototypeRegistryTest extends TestCase
 {

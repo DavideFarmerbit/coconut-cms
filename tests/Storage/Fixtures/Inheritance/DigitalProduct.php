@@ -2,7 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Inheritance;
 
-use XyloIsCoding\CoconutCms\Storage\Field\Field;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Field;
 
 /**
  * A middle level: $sku and $name are forwarded to BaseProduct's own constructor, not

@@ -2,9 +2,9 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\DynamicEntity;
 
-use XyloIsCoding\CoconutCms\Storage\Field\EditorExtensible;
-use XyloIsCoding\CoconutCms\Storage\Field\Field;
-use XyloIsCoding\CoconutCms\Storage\Field\PrototypeValidation;
+use XyloIsCoding\CoconutCms\Storage\Attributes\EditorExtensible;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Field;
+use XyloIsCoding\CoconutCms\Storage\Attributes\PrototypeValidation;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Validation\EndAfterStartValidator;
 
 /** A native class, extensible by admins, with its own cross-field rule an editor-created subclass of it should still be bound by. */

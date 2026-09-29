@@ -5,7 +5,7 @@ namespace XyloIsCoding\CoconutCms\Storage;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Schema\Table;
 use LogicException;
-use XyloIsCoding\CoconutCms\Storage\Prototype\PrototypeRegistry;
+use XyloIsCoding\CoconutCms\Storage\Schema\PrototypeRegistry;
 
 /**
  * The developer-facing setup path for native classes: derives each class's table name

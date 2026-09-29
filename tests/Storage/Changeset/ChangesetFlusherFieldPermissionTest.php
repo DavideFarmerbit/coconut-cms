@@ -16,7 +16,7 @@ use XyloIsCoding\CoconutCms\Storage\PrototypeShape;
 use XyloIsCoding\CoconutCms\Storage\SchemaBuilder;
 use XyloIsCoding\CoconutCms\Storage\SchemaSynchronizer;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Permission\RestrictedNote;
-use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Prototype\SimpleActor;
+use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Schema\SimpleActor;
 
 final class ChangesetFlusherFieldPermissionTest extends TestCase
 {

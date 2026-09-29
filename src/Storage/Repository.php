@@ -5,9 +5,9 @@ namespace XyloIsCoding\CoconutCms\Storage;
 use Doctrine\DBAL\Connection;
 use LogicException;
 use ReflectionClass;
-use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
-use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
-use XyloIsCoding\CoconutCms\Storage\Field\Ownership;
+use XyloIsCoding\CoconutCms\Storage\Attributes\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Storage\Attributes\FieldKind;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Ownership;
 
 /**
  * Reads and writes instances of one identifier, a native class-string or an

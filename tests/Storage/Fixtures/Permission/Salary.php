@@ -2,7 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Permission;
 
-use XyloIsCoding\CoconutCms\Storage\Field\Field;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Field;
 use XyloIsCoding\CoconutCms\Storage\Permission\RolePermission;
 
 /** An embedded value object with its own restricted field, to prove read-filtering recurses. */

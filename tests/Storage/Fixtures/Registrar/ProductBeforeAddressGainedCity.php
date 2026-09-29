@@ -2,8 +2,8 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Registrar;
 
-use XyloIsCoding\CoconutCms\Storage\Field\Embed;
-use XyloIsCoding\CoconutCms\Storage\Field\Field;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Embed;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Field;
 
 /**
  * Same shape as Fixtures\Product, but embedding AddressBeforeCityField instead of the

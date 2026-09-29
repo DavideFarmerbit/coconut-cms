@@ -8,14 +8,14 @@ use ReflectionClass;
 use ReflectionNamedType;
 use ReflectionParameter;
 use ReflectionProperty;
-use XyloIsCoding\CoconutCms\Storage\Field\Collection;
-use XyloIsCoding\CoconutCms\Storage\Field\Embed;
-use XyloIsCoding\CoconutCms\Storage\Field\Field;
-use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
-use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
-use XyloIsCoding\CoconutCms\Storage\Field\PrototypeValidation;
-use XyloIsCoding\CoconutCms\Storage\Field\Reference;
-use XyloIsCoding\CoconutCms\Storage\Field\TableName;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Collection;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Embed;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Field;
+use XyloIsCoding\CoconutCms\Storage\Attributes\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Storage\Attributes\FieldKind;
+use XyloIsCoding\CoconutCms\Storage\Attributes\PrototypeValidation;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Reference;
+use XyloIsCoding\CoconutCms\Storage\Attributes\TableName;
 
 /**
  * Builds a native class's FieldDescriptor[] shape from its constructor-promoted

@@ -2,7 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Relations;
 
-use XyloIsCoding\CoconutCms\Storage\Field\Field;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Field;
 
 /** A Shared reference target: independently referenceable from more than one Product. */
 final readonly class Category

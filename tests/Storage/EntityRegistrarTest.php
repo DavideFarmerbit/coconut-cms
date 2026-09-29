@@ -8,7 +8,7 @@ use LogicException;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Storage\EntityRegistrar;
 use XyloIsCoding\CoconutCms\Storage\PrototypeShape;
-use XyloIsCoding\CoconutCms\Storage\Prototype\PrototypeRegistry;
+use XyloIsCoding\CoconutCms\Storage\Schema\PrototypeRegistry;
 use XyloIsCoding\CoconutCms\Storage\SchemaBuilder;
 use XyloIsCoding\CoconutCms\Storage\SchemaSynchronizer;
 use XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Address;

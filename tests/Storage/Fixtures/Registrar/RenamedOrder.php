@@ -2,7 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Storage\Fixtures\Registrar;
 
-use XyloIsCoding\CoconutCms\Storage\Field\Field;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Field;
 
 /** Stands in for "the class after a rename", used against a table built under some other, pre-rename name. */
 final readonly class RenamedOrder

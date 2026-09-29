@@ -2,10 +2,10 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Storage\Fixtures;
 
-use XyloIsCoding\CoconutCms\Storage\Field\Embed;
-use XyloIsCoding\CoconutCms\Storage\Field\Field;
-use XyloIsCoding\CoconutCms\Storage\Field\Validator\MaxLengthValidator;
-use XyloIsCoding\CoconutCms\Storage\Field\Validator\RequiredValidator;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Embed;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Field;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Validator\MaxLengthValidator;
+use XyloIsCoding\CoconutCms\Storage\Attributes\Validator\RequiredValidator;
 
 /** A Phase 1 entity fixture: queryable + unique + blob-only scalars, plus an embed. */
 final readonly class Product

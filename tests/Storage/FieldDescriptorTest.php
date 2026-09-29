@@ -4,8 +4,8 @@ namespace XyloIsCoding\CoconutCms\Tests\Storage;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use XyloIsCoding\CoconutCms\Storage\Field\FieldDescriptor;
-use XyloIsCoding\CoconutCms\Storage\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Storage\Attributes\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Storage\Attributes\FieldKind;
 
 final class FieldDescriptorTest extends TestCase
 {
