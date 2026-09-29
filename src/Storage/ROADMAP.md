@@ -437,6 +437,56 @@ the base identifier, and a `Query` result row, both native and editor-created, t
 acceptance bar the old plan's Step B set, now met structurally instead of through a
 per-chain discriminator.
 
+### Step B Fix 1: Query's own result rows stay base-typed by default, an explicit opt-in for full polymorphic hydration
+
+(Design discussion, 2026-09-29, surfaced while implementing Step B.) Step B's own "Done
+when" bar names three access paths for a concrete subtype assigned somewhere its base
+type is referenced: a direct reference, a `find()` on the base identifier, and a `Query`
+result row. The first two are fully polymorphic as implemented: `find()`/`lazyFind()`
+resolve `entities.concrete_type` and delegate to the concrete identifier's own
+Repository whenever it differs from the declared class, and `Query::get()`'s
+reference-field hydration reuses that same path for free (a `Basket` row's `item` field
+resolves to the real `Vegetable`, lazily). What's not implemented: `Query`'s own primary
+result rows. `Query::fromClause()`/`selectList()` only ever join/select the *queried*
+identifier's own chain, so a row that's physically a `Vegetable` never has `color`
+fetched at all, structurally, not just under-hydrated; `Query::get()` always
+`materialize()`s using the queried identifier's own Repository.
+
+**Decision: stays opt-in, not the default.** A batched-by-`concrete_type` fix (group a
+page's foreign rows by distinct subtype, one `Repository::findMany()` batch per distinct
+subtype rather than one lookup per row) only bounds cost when subtypes cluster within a
+page. It doesn't bound the worst case: a page mixing many distinct subtypes still costs
+one extra query-batch per distinct subtype, and a genuinely heterogeneous admin content
+browser (native and editor-created prototypes mixed) is the realistic case this feature
+serves, not a rare edge condition. Defaulting to it would reintroduce, one layer up, the
+exact eager/unpredictable-cost problem Phase 6.1's lazy-loading fix exists to prevent,
+and would make that cost invisible to the caller, the opposite of this system's existing
+posture everywhere else (lazy references, cursor pagination chosen specifically to avoid
+unpredictable per-row cost).
+
+- `Repository::findMany(array $ids): object[]`, a new batch-fetch primitive: one query
+  per chain level (`WHERE id IN (...)`), not one per id, the same "one query per level"
+  cost `find()` already pays for a single id, now shared across however many ids are in
+  the batch.
+- `Query::hydrateConcreteTypes()`, an explicit opt-in, off by default. Naming and
+  behavior need to be unambiguous at the call site, precisely because `Query` now has two
+  visibly different row-hydration behaviors: calling it must be the only way to get a
+  `Vegetable` back from a `GroceryItem` query, no implicit or partial version, so reading
+  a `Query::for(...)` chain tells you which behavior you get without having to check
+  `Query`'s own implementation.
+- With it set: `fromClause()` joins `entities` (only then, not unconditionally) to pull
+  `concrete_type` alongside each row; `get()` groups foreign rows by distinct
+  `concrete_type` and resolves each group through `findMany()` instead of `materialize()`.
+- Without it (the default): behavior is exactly what Step B already shipped, a `Query`
+  result row hydrates as the queried identifier's own base type, only a reference field
+  reached from it resolves polymorphically.
+
+**Done when**: `Query::for(GroceryItem::class)->hydrateConcreteTypes()->get()` returns
+real `Vegetable` objects (fields and all) for rows that are `Vegetable`s, a plain
+`Query::for(GroceryItem::class)->get()` still returns base-typed objects only, and a page
+mixing three subtypes costs exactly three extra batched lookups regardless of how many
+rows exist per subtype, not one per row.
+
 ### Step C: Owned relationships move onto `entities.owner`/`owner_field`/`position`
 
 - A singular Owned reference no longer gets a column on the owner's own table. A
