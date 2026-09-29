@@ -11,6 +11,26 @@ items are resolved here, a few are explicitly still open (see "Deferred" at the 
 Not a frozen spec. Revisit as implementation surfaces constraints this discussion didn't
 anticipate.
 
+## Namespaces and migration path
+
+The old `Storage` namespace covered too many distinct concepts at once (entity
+persistence, schema/migrations, editor authoring) — part of what made Phase 8 feel
+entangled. The rewrite splits it into three: **`Entity\`** for the persistence/runtime
+half (entities table, identity map, repositories, changesets, query builder, undo/draft),
+**`Schema\`** for the shape/mutation half (`FieldDescriptor`, prototype registry,
+migrations, rename/retype/reparent), and **`Editor\`** for the admin-facing authoring
+surface sitting on top of both, consuming rather than merging into either — the same
+pattern `Routing\` and `Core\Error\` already use in this codebase.
+
+**The old `Storage\` namespace is left untouched during the rewrite, not migrated,
+extended, or deleted.** It keeps working exactly as it does today and stays available as
+a running reference to consult while the new `Entity\`/`Schema\`/`Editor\` code is built —
+deliberately not reused or built on top of, to keep the rewrite a clean-room effort rather
+than dragging the old entanglement forward. `Storage\` gets retired (or its name reclaimed
+for something else) only once it's no longer needed for that reference purpose — no fixed
+point in the roadmap for that, revisit once the new namespaces actually cover everything
+`Storage\` did.
+
 ## The goal
 
 Unchanged from the original design: an admin editor in the spirit of Unreal's
@@ -333,9 +353,10 @@ state) could reference them.
   default (blocked) is decided; the touched-field-bookkeeping refinement is not.
 - **Exact attribute/API surface** for `#[DefaultInstance]`, converter classes, rename/retype
   invocation parameters — this document is architecture, not the implementation API.
-- **Naming conventions pass.** Explicitly one of the goals motivating this rewrite; not
-  addressed in this document — terminology here (`Owned`/`Shared`, `Embed`, `FieldDescriptor`,
-  ...) is carried over from the old design unchanged and is a candidate for renaming later.
+- **Naming conventions pass.** Namespace-level naming is decided (`Entity\`/`Schema\`/
+  `Editor\`, see above), but class/method-level terminology (`Owned`/`Shared`, `Embed`,
+  `FieldDescriptor`, ...) is still carried over from the old design unchanged and remains
+  a candidate for renaming later.
 
 ## Explicitly out of scope (unchanged from the old design)
 
