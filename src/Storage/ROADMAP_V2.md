@@ -6,14 +6,14 @@ headings in that document; build against it, not a re-explanation here. Supersed
 roadmap's phases 1-8C stay as-is under the old `Storage\` namespace, left untouched as a
 reference (see `ARCHITECTURE_V2.md`, "Namespaces and migration path").
 
-**Scope**: this roadmap covers `Entity\`, `Schema\`, `Changeset\`, and `Permission\` — the
+**Scope**: this roadmap covers `Persistence\Entity\`, `Persistence\Schema\`, `Persistence\Changeset\`, and `Persistence\Permission\` — the
 backend. `Editor\` (the admin-facing authoring UI, including the client-side
 `LocalCommand`/`RemoteCommand` stack) is a separate, later track, built once enough
 backend exists to author and drive it against — not numbered as phases here.
 
 **The one structural fix this roadmap is built around**: `entities` is the universal root
-from Phase 1, and every phase from Phase 1 onward builds `Entity\Repository`/
-`Changeset\ChangesetFlusher`/`Entity\Query` against `Schema\PrototypeRegistry`'s generic
+from Phase 1, and every phase from Phase 1 onward builds `Persistence\Entity\Repository`/
+`Persistence\Changeset\ChangesetFlusher`/`Persistence\Entity\Query` against `Persistence\Schema\PrototypeRegistry`'s generic
 identifier interface — never against native reflection directly, even in Phase 1 when
 native classes are the only identifier kind that exists. This is a deliberate reversal of
 the old roadmap, where global entity identity landed at Phase 8 and generic
@@ -33,17 +33,17 @@ sub-phases (`1.1`, `1.2`, ...), each ending in its own independently testable "D
 
 **Goal**: `entities` is the root of every chain from row one; a hand-written native class
 with scalar fields round-trips through real storage, but every access path goes through
-`Schema\PrototypeRegistry`'s generic interface, not native reflection directly.
+`Persistence\Schema\PrototypeRegistry`'s generic interface, not native reflection directly.
 
 ### 1.1 — Registry and registration plumbing, no data yet
 
-- `Schema\FieldDescriptor`/`FieldKind` — `scalar()` factory only for now ("Shape comes
+- `Persistence\Schema\FieldDescriptor`/`FieldKind` — `scalar()` factory only for now ("Shape comes
   from a neutral descriptor"). Later kinds' factories (`valueObject()`, `embed()`,
   `reference()`, `collection()`) are added in the phase that implements them, not stubbed
   early.
 - The fixed `entities` table (`id` uuid, `owner`, `owner_field`, `position`,
   `concrete_identifier`) ("Global entity identity").
-- `Schema\PrototypeRegistry` interface (`fieldsOf(identifier)`, `instantiate(identifier,
+- `Persistence\Schema\PrototypeRegistry` interface (`fieldsOf(identifier)`, `instantiate(identifier,
   values)`, `chainOf(identifier)`) — one implementation for native classes via reflection,
   written so a second, editor-created implementation can be added in Phase 6 with zero
   change to any caller.
@@ -61,28 +61,28 @@ table name fail registration with an actionable error. No data written yet.
 
 - The `entities` table itself built and synced unconditionally, before any class-derived
   table.
-- `Schema\SchemaBuilder`/`SchemaSynchronizer`: Doctrine DBAL `Schema`/`Comparator`-based
+- `Persistence\Schema\SchemaBuilder`/`SchemaSynchronizer`: Doctrine DBAL `Schema`/`Comparator`-based
   sync. Every field is a real column, full stop — there's no blob tier to ever build
   ("No blobs. Every field is a real column or a real table.").
 - CTI chain of at least 2 for every identifier (`entities` + the class's own table) — no
   "chain of one, no join" case, even for a standalone class with no declared parent.
-- `Entity\Repository`/`IdentityMap`: insert writes the root row into `entities` first
+- `Persistence\Entity\Repository`/`IdentityMap`: insert writes the root row into `entities` first
   (this is where `id` originates), then the class's own row; find/delete join through
   `entities`; identity map scoped per request.
-- A throwaway second `Schema\PrototypeRegistry` implementation (a fake, not the
-  editor-created one Phase 6 builds for real) — exercised through `Entity\Repository` in a
+- A throwaway second `Persistence\Schema\PrototypeRegistry` implementation (a fake, not the
+  editor-created one Phase 6 builds for real) — exercised through `Persistence\Entity\Repository` in a
   test here, not deferred to Phase 6, to catch a native-specific assumption leaking into
   `Repository`/`SchemaBuilder` immediately instead of five phases later.
 
 **Done when**: a scalar-only native class actually round-trips create/read/update/delete
-through `Entity\Repository` — which calls only `PrototypeRegistry`, never reflects
+through `Persistence\Entity\Repository` — which calls only `PrototypeRegistry`, never reflects
 directly — rooted under `entities` via CTI, backed by a migration-generated table; the same
 round-trip also works end to end through the throwaway second `PrototypeRegistry`
 implementation, proving `Repository` never assumed native reflection along the way.
 
 ### 1.3 — Validation, uniqueness, and backfill correctness
 
-- `Schema\FieldValidator` strategy interface, a couple of default validators.
+- `Persistence\Schema\FieldValidator` strategy interface, a couple of default validators.
 - Uniqueness: `unique` flag, real `UNIQUE` constraint, friendly pre-check.
 - `#[DefaultInstance]` + resolution order + the eager-failure registration walk
   ("Defaulted instances") — brought in now, not deferred to a late phase, since
@@ -187,10 +187,10 @@ two separate steps), undo/draft, permissions, editor-created prototypes, `Query`
 **Goal**: every multi-entity write goes through an explicit, atomic changeset with a real
 topological sort — no more manual two-step create-then-attach.
 
-- `Changeset\Changeset`/`EntityChange`/`TempId` ("Content write path").
-- `Changeset\ChangesetSorter`: full topological sort resolving `TempId` dependency edges;
+- `Persistence\Changeset\Changeset`/`EntityChange`/`TempId` ("Content write path").
+- `Persistence\Changeset\ChangesetSorter`: full topological sort resolving `TempId` dependency edges;
   cycles rejected outright with a clear, named error.
-- `Changeset\ChangesetFlusher`: applies a changeset as one atomic database transaction.
+- `Persistence\Changeset\ChangesetFlusher`: applies a changeset as one atomic database transaction.
 - Concurrent-write protection: an `expectedOperationId` receipt, reject-by-default with an
   explicit override to retry.
 
@@ -212,7 +212,7 @@ per-entity `EntityChangeRecord` design; nothing is ever pruned automatically.
 
 ### 5.1 — Logging only, no undo yet
 
-- `Changeset\Undo\Revision` (metadata-only, one per flush) + `Changeset\Undo\EntityChangeRecord`
+- `Persistence\Changeset\Undo\Revision` (metadata-only, one per flush) + `Persistence\Changeset\Undo\EntityChangeRecord`
   (per-entity diff, FK'd to the `Revision`) ("Content undo, draft, and revision history").
 
 **Done when**: every flush produces a correct `Revision` and correct per-entity
@@ -226,7 +226,7 @@ undo capability exists yet.
   `ChangesetFlusher`, outright refusal (never silent-partial) if any touched entity's
   record is missing or conflicted.
 - Redo (undo-the-undo, no new mechanism).
-- Undo authorization: a `Permission\` check that the `Revision` belongs to the requesting
+- Undo authorization: a `Persistence\Permission\` check that the `Revision` belongs to the requesting
   user/session, checked once, before the inverse changeset is even computed.
 
 **Done when**: a multi-entity `Revision` undoes atomically with a per-entity conflict
@@ -234,7 +234,7 @@ check; redo restores it exactly; undoing with someone else's `Revision` id is re
 
 ### 5.3 — Draft
 
-- `Changeset\Draft\DraftStore`/`DraftPreview`: a persisted-but-unflushed changeset plus an
+- `Persistence\Changeset\Draft\DraftStore`/`DraftPreview`: a persisted-but-unflushed changeset plus an
   in-memory apply/preview function; publishing flushes the exact same changeset through
   the exact same path, producing a `Revision` like any other flush.
 
@@ -248,7 +248,7 @@ as an ordinary flush.
   can't be meaningfully exercised until Phase 6 introduces schema mutation — noted, not a
   blocker.
 - A manual pruning tool: explicit, human-triggered, no automatic policy of any kind, gated
-  by a new `Permission\HistoryPermission` ("Permissions").
+  by a new `Persistence\Permission\HistoryPermission` ("Permissions").
 
 **Done when**: manually pruning one touched entity's `EntityChangeRecord` and then
 attempting to undo the `Revision` it belonged to produces a clean, specific refusal, not a
@@ -268,16 +268,16 @@ built generically, no retrofit.
 
 ### 6.1 — Second identifier kind, minimal creation path
 
-- `Schema\DynamicEntity` + the editor-created implementation of
+- `Persistence\Schema\DynamicEntity` + the editor-created implementation of
   `PrototypeRegistry::instantiate()`/`fieldsOf()` — the second identifier kind the
   registry interface has supported since Phase 1.
-- `Schema\SchemaEditor::createPrototype()` — minimal, scalar fields only, no parent
+- `Persistence\Schema\SchemaEditor::createPrototype()` — minimal, scalar fields only, no parent
   complexity yet.
-- `Permission\SchemaPermission` gating from the start, not bolted on after.
+- `Persistence\Permission\SchemaPermission` gating from the start, not bolted on after.
 
 **Done when**: an admin without `SchemaPermission` cannot create a prototype; one who does
 can create a fresh editor-created prototype with scalar fields, immediately
-readable/writable through the exact same `Entity\Repository`/`Changeset\ChangesetFlusher`
+readable/writable through the exact same `Persistence\Entity\Repository`/`Persistence\Changeset\ChangesetFlusher`
 every native class already uses — no separate wiring step, since the wiring already
 existed.
 
@@ -326,7 +326,7 @@ auditing tool) applies.
 
 **Goal**: `FieldPermission` enforced everywhere a field's value is read or written.
 
-- `Permission\FieldPermission` strategy interface, a default role-based implementation.
+- `Persistence\Permission\FieldPermission` strategy interface, a default role-based implementation.
 - Three enforcement points: read-time filtering on hydration, a mandatory server-side
   write gate inside the `Changeset` flush path (before validation), and a client-side
   UX-only gate (noted for the `Editor\` track, not built here).
@@ -345,7 +345,7 @@ inheritance level, cursor-paginated from the start.
 
 ### 8.1 — Base query builder
 
-- `Entity\Query`: `Query::for($identifier)->where(...)->orderBy(...)->after($cursor)->limit($n)->get()`
+- `Persistence\Entity\Query`: `Query::for($identifier)->where(...)->orderBy(...)->after($cursor)->limit($n)->get()`
   ("Admin list/filter views").
 - Resolves a field to its real column *and* which chain-level table holds it.
 - One multi-table `JOIN` across the whole chain with per-level column aliasing, replacing
@@ -363,7 +363,7 @@ that field's values through sort order or which rows pass the filter.
 
 ### 8.2 — Opt-in polymorphic hydration
 
-- `Entity\Repository::findMany(array $ids)`, batched by chain level.
+- `Persistence\Entity\Repository::findMany(array $ids)`, batched by chain level.
 - `Query::hydrateConcreteTypes()`, off by default.
 
 **Done when**: a page mixing several distinct concrete subtypes costs exactly one extra

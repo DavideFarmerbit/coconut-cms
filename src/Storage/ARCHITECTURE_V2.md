@@ -15,25 +15,33 @@ anticipate.
 
 The old `Storage` namespace covered too many distinct concepts at once (entity
 persistence, schema/migrations, editor authoring, write-path/undo, permissions) — part of
-what made Phase 8 feel entangled. The rewrite splits it into five top-level namespaces:
+what made Phase 8 feel entangled. The rewrite splits it into four backend namespaces
+nested under one shared parent, **`Persistence\`**, kept purely for filesystem/`src\`-root
+tidiness — nesting doesn't reintroduce the old entanglement, since each of the four stays
+just as cleanly separated a namespace as it would be at the `src\` root, only its prefix
+changes:
 
-- **`Entity\`** — the persistence/runtime core: entities table, identity map,
+- **`Persistence\Entity\`** — the persistence/runtime core: entities table, identity map,
   repositories, row mapping, query builder.
-- **`Schema\`** — the shape/mutation half: `FieldDescriptor`, prototype registry,
-  `SchemaBuilder`/`SchemaSynchronizer`/`SchemaEditor`, migrations, rename/retype/reparent,
-  attributes (`#[Table]`, `#[EditorExtensible]`, `#[DefaultInstance]`, ...). `EntityRegistrar`
-  lives here too — despite its name, its job is registering a native class's *schema*, not
-  runtime entity state.
-- **`Changeset\`** — the write path, promoted to its own top-level namespace rather than a
-  subfolder of `Entity\`, since undo and draft are really just two different things done
+- **`Persistence\Schema\`** — the shape/mutation half: `FieldDescriptor`, prototype
+  registry, `SchemaBuilder`/`SchemaSynchronizer`/`SchemaEditor`, migrations,
+  rename/retype/reparent, attributes (`#[Table]`, `#[EditorExtensible]`,
+  `#[DefaultInstance]`, ...). `EntityRegistrar` lives here too — despite its name, its job
+  is registering a native class's *schema*, not runtime entity state.
+- **`Persistence\Changeset\`** — the write path, promoted to its own namespace rather than
+  a subfolder of `Persistence\Entity\`, since undo and draft are really just two different things done
   with the same object rather than separate subsystems: `Changeset`/`EntityChange`/
-  `TempId`/`ChangesetSorter`/`ChangesetFlusher` at the top, **`Changeset\Undo\`**
-  (`UndoLog`, `ChangesetOperation`, conflict detection) and **`Changeset\Draft\`**
-  (`DraftStore`, `DraftPreview`) nested underneath.
-- **`Permission\`** — shared by all of the above rather than split across them: `Actor`,
-  `SchemaPermission`, `FieldPermission`, `RolePermission`, and any other auth-level class.
-- **`Editor\`** — the admin-facing authoring surface, consuming the other four rather than
-  merging into any of them.
+  `TempId`/`ChangesetSorter`/`ChangesetFlusher` at the top, **`Persistence\Changeset\Undo\`**
+  (`UndoLog`, `ChangesetOperation`, conflict detection) and
+  **`Persistence\Changeset\Draft\`** (`DraftStore`, `DraftPreview`) nested underneath.
+- **`Persistence\Permission\`** — shared by all of the above rather than split across
+  them: `Actor`, `SchemaPermission`, `FieldPermission`, `HistoryPermission`,
+  `RolePermission`, and any other auth-level class.
+
+**`Editor\`** — the admin-facing authoring surface, consuming the other four rather than
+merging into any of them — stays its own top-level namespace, not nested under
+`Persistence\`: it's the UI-facing surface built on top of this system, not part of the
+persistence system itself, a separate later track per `ROADMAP_V2.md`.
 
 Same pattern `Routing\` and `Core\Error\` already use in this codebase: one class per
 file, subdirectories mirror sub-namespaces, `tests/` mirrors `src/` 1:1 folder-for-folder,
@@ -41,12 +49,11 @@ plus a `Fixtures/` folder for test-only support classes.
 
 **The old `Storage\` namespace is left untouched during the rewrite, not migrated,
 extended, or deleted.** It keeps working exactly as it does today and stays available as
-a running reference to consult while the new `Entity\`/`Schema\`/`Editor\` code is built —
+a running reference to consult while the new `Persistence\`/`Editor\` code is built —
 deliberately not reused or built on top of, to keep the rewrite a clean-room effort rather
-than dragging the old entanglement forward. `Storage\` gets retired (or its name reclaimed
-for something else) only once it's no longer needed for that reference purpose — no fixed
-point in the roadmap for that, revisit once the new namespaces actually cover everything
-`Storage\` did.
+than dragging the old entanglement forward. `Storage\` gets retired once it's no longer
+needed for that reference purpose — no fixed point in the roadmap for that, revisit once
+`Persistence\` actually covers everything `Storage\` did.
 
 ## The goal
 
@@ -359,7 +366,7 @@ history" (query that entity's own `EntityChangeRecord` chain) without either que
 fighting the other's retention needs.
 
 **No automatic pruning, anywhere, ever — manual only, and gated by a dedicated
-`Permission\HistoryPermission`** — a narrow capability check via the same `Actor::hasRole()`
+`Persistence\Permission\HistoryPermission`** — a narrow capability check via the same `Actor::hasRole()`
 `SchemaPermission`/`FieldPermission` are already built on, kept as its own permission
 rather than folded into `SchemaPermission`: pruning destroys content history, it isn't a
 schema mutation, and conflating the two would make `SchemaPermission` mean two different
@@ -413,8 +420,8 @@ pruning something else.
   stops a client calling the undo endpoint directly with a `Revision` id it didn't itself
   produce, and if the caller happens to have ordinary write permission on the affected
   field(s), the server would undo someone else's `Revision` passing as the caller's own
-  Ctrl+Z. Undoing a specific `Revision` now requires a real check, behind `Permission\`,
-  that the `Revision` actually belongs to the requesting user/session, checked once,
+  Ctrl+Z. Undoing a specific `Revision` now requires a real check, behind
+  `Persistence\Permission\`, that the `Revision` actually belongs to the requesting user/session, checked once,
   before the inverse changeset is even computed — in addition to, not instead of, the
   ordinary write-gate. Revision-history restore (the separate, deliberate surface below)
   is explicitly exempt from this check — reaching into anyone's past state there is the
@@ -542,8 +549,9 @@ human-triggered action.
   default (blocked) is decided; the touched-field-bookkeeping refinement is not.
 - **Exact attribute/API surface** for `#[DefaultInstance]`, converter classes, rename/retype
   invocation parameters — this document is architecture, not the implementation API.
-- **Naming conventions pass.** Namespace-level naming is decided (`Entity\`/`Schema\`/
-  `Editor\`, see above), but class/method-level terminology (`Owned`/`Shared`, `Embed`,
+- **Naming conventions pass.** Namespace-level naming is decided (`Persistence\Entity\`/
+  `Persistence\Schema\`/`Editor\`, see above), but class/method-level terminology
+  (`Owned`/`Shared`, `Embed`,
   `FieldDescriptor`, ...) is still carried over from the old design unchanged and remains
   a candidate for renaming later.
 
