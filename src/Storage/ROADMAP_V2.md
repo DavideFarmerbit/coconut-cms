@@ -142,13 +142,15 @@ proven in isolation before any relationship complexity is layered on top.
 
 ### 3.2 — Shared references and collections
 
-- Shared singular (FK column, `RESTRICT`), Shared collection (real pivot table)
-  ("References and collections").
+- Shared singular (FK column, `RESTRICT`), Shared collection (real pivot table with its
+  own `position` column, both FKs `CASCADE`) ("References and collections").
 
 **Done when**: a native class can Shared-reference another (`RESTRICT`-protected), and a
-Shared collection round-trips through a real pivot table; a `Reference` or `Collection`
-field declared on an `#[Embed]` target (now that both kinds exist) is rejected at
-registration time, not left to fail later.
+Shared collection round-trips through a real pivot table, ordered by `position`; deleting
+either side of a Shared collection relationship removes its own join rows via `CASCADE`
+without affecting the other side; a `Reference` or `Collection` field declared on an
+`#[Embed]` target (now that both kinds exist) is rejected at registration time, not left
+to fail later.
 
 ### 3.3 — Owned references and collections
 

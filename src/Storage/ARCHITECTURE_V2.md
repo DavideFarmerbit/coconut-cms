@@ -32,7 +32,7 @@ changes:
   a subfolder of `Persistence\Entity\`, since undo and draft are really just two different things done
   with the same object rather than separate subsystems: `Changeset`/`EntityChange`/
   `TempId`/`ChangesetSorter`/`ChangesetFlusher` at the top, **`Persistence\Changeset\Undo\`**
-  (`UndoLog`, `ChangesetOperation`, conflict detection) and
+  (`Revision`, `EntityChangeRecord`, conflict detection) and
   **`Persistence\Changeset\Draft\`** (`DraftStore`, `DraftPreview`) nested underneath.
 - **`Persistence\Permission\`** — shared by all of the above rather than split across
   them: `Actor`, `SchemaPermission`, `FieldPermission`, `HistoryPermission`,
@@ -184,7 +184,13 @@ registration, not at migration time.
 
 - **Shared, singular** (`SharedReference`): a real FK column on the referencing side,
   `RESTRICT`.
-- **Shared, collection**: a real pivot/join table, many-to-many.
+- **Shared, collection**: a real pivot/join table, many-to-many, with its own `position`
+  column — ordered from day one, same as Owned and non-entity collections. The pivot
+  carries `position` and nothing else, ever: a relationship that needs richer per-row
+  metadata (a note, a date, anything beyond order) isn't a bare many-to-many anymore and
+  should be modeled as a real join-entity (an Owned collection of small entities, each
+  holding a Shared singular reference to the actual target) instead of growing more
+  columns onto the pivot.
 - **Owned, singular** (`OwningReference`): no column on the owner's own table. Found via
   `SELECT * FROM entities WHERE owner = ? AND owner_field = ? AND position = -1`, hydrated
   through the owned entity's own repository. Deletion is app-mediated via `entities.owner`
@@ -214,7 +220,11 @@ entity gets a record" below; `RESTRICT` turns that same bug into a hard failure 
 absence is what the FK column's own nullability derives from, not a separate choice: a
 `SET NULL` constraint mechanically requires the column to actually be nullable at the DB
 level, so "optional (no `RequiredValidator`)" is the one place that decision is made,
-feeding both the column's nullability and the FK policy together.
+feeding both the column's nullability and the FK policy together. A Shared collection's
+pivot table is the one exception to all of the above: both its FK columns are `CASCADE`,
+on either side — a pivot row carries no independently-logged content of its own (not an
+entity, gets no `EntityChangeRecord`), so deleting either party removing its join rows
+along with it loses nothing worth protecting, unlike `entities.owner`.
 
 ## Defaulted instances: backfilling a new field or a new parent-level row
 
