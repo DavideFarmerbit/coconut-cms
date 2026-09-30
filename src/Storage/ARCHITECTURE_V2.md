@@ -14,13 +14,30 @@ anticipate.
 ## Namespaces and migration path
 
 The old `Storage` namespace covered too many distinct concepts at once (entity
-persistence, schema/migrations, editor authoring) — part of what made Phase 8 feel
-entangled. The rewrite splits it into three: **`Entity\`** for the persistence/runtime
-half (entities table, identity map, repositories, changesets, query builder, undo/draft),
-**`Schema\`** for the shape/mutation half (`FieldDescriptor`, prototype registry,
-migrations, rename/retype/reparent), and **`Editor\`** for the admin-facing authoring
-surface sitting on top of both, consuming rather than merging into either — the same
-pattern `Routing\` and `Core\Error\` already use in this codebase.
+persistence, schema/migrations, editor authoring, write-path/undo, permissions) — part of
+what made Phase 8 feel entangled. The rewrite splits it into five top-level namespaces:
+
+- **`Entity\`** — the persistence/runtime core: entities table, identity map,
+  repositories, row mapping, query builder.
+- **`Schema\`** — the shape/mutation half: `FieldDescriptor`, prototype registry,
+  `SchemaBuilder`/`SchemaSynchronizer`/`SchemaEditor`, migrations, rename/retype/reparent,
+  attributes (`#[Table]`, `#[EditorExtensible]`, `#[DefaultInstance]`, ...). `EntityRegistrar`
+  lives here too — despite its name, its job is registering a native class's *schema*, not
+  runtime entity state.
+- **`Changeset\`** — the write path, promoted to its own top-level namespace rather than a
+  subfolder of `Entity\`, since undo and draft are really just two different things done
+  with the same object rather than separate subsystems: `Changeset`/`EntityChange`/
+  `TempId`/`ChangesetSorter`/`ChangesetFlusher` at the top, **`Changeset\Undo\`**
+  (`UndoLog`, `ChangesetOperation`, conflict detection) and **`Changeset\Draft\`**
+  (`DraftStore`, `DraftPreview`) nested underneath.
+- **`Permission\`** — shared by all of the above rather than split across them: `Actor`,
+  `SchemaPermission`, `FieldPermission`, `RolePermission`, and any other auth-level class.
+- **`Editor\`** — the admin-facing authoring surface, consuming the other four rather than
+  merging into any of them.
+
+Same pattern `Routing\` and `Core\Error\` already use in this codebase: one class per
+file, subdirectories mirror sub-namespaces, `tests/` mirrors `src/` 1:1 folder-for-folder,
+plus a `Fixtures/` folder for test-only support classes.
 
 **The old `Storage\` namespace is left untouched during the rewrite, not migrated,
 extended, or deleted.** It keeps working exactly as it does today and stays available as
@@ -287,10 +304,23 @@ Content-only now (schema mutations are excluded per above). Three still-distinct
   changed field, not a full snapshot), count-based retention **per Shared entity** (an
   Owned relationship has no independent entry — its changes fold into its owner's own
   diff). Redo needs no new mechanism: undoing is itself a logged operation, redoing is
-  undoing the undo.
+  undoing the undo. **Retention scope for a multi-entity operation is an open problem —
+  see "Deferred" below.**
 - **Conflict detection on undo**: a later operation touching the same `(entity, field)`
   pair blocks the undo via an explicit check; a later operation creating a new dependency
   on an entity the undo would delete is already caught for free by `RESTRICT`.
+- **Undo authorization, reversing the v1 stance.** The old design concluded no dedicated
+  server-side check was needed beyond ordinary `FieldPermission` write-gating, reasoning
+  that a client only ever holds its own `operationId`s. **Decided differently here**: that
+  leaves a real loophole — nothing stops a client calling the undo endpoint directly with
+  an `operationId` it didn't itself produce, and if the caller happens to have ordinary
+  write permission on the affected field, the server would undo someone else's operation
+  passing as the caller's own Ctrl+Z. Undoing a specific `operationId` now requires a real
+  check, behind `Permission\`, that the operation actually belongs to the requesting
+  user/session, checked before the inverse changeset is even computed — in addition to,
+  not instead of, the ordinary write-gate. Revision-history restore (the separate,
+  deliberate surface) is explicitly exempt from this check — reaching into anyone's past
+  state there is the entire point of that surface.
 - **Client-side command stack**: `LocalCommand` (synchronous, in-memory, no server
   round-trip) vs. `RemoteCommand` (references a specific `operationId`, needs a visible
   pending state, never optimistically reverts before server confirmation) — one
@@ -369,6 +399,21 @@ state) could reference them.
 
 ## Deferred — not resolved in this document
 
+- **Retention scope for a multi-entity `ChangesetOperation`, genuinely unresolved.**
+  Retention is "last N operations per Shared entity," but one `ChangesetOperation` can
+  span several entities atomically (create a Tag, attach it to a Product — one operation,
+  two entities' histories). If the entities it spans have different retention windows,
+  there's no clean answer for when that one record gets pruned. Two candidate fixes were
+  considered and both rejected, worth recording so they aren't re-derived and re-rejected
+  later: **(a) keep the whole record alive until every entity it touched has aged it out**
+  (the same pattern used for `MediaAsset` file-byte reclamation) — rejected because the
+  surrounding *single*-entity operations for the entity that no longer needs it still get
+  pruned on schedule, leaving this one multi-entity record stranded as a gap-surrounded
+  island rather than part of a coherent, replayable chain. **(b) extend retention for
+  everything back to the oldest cross-entity dependency** — rejected because one
+  long-lived cross-entity relationship would force retaining every unrelated operation
+  system-wide back to that point, unboundedly, defeating the entire point of a per-entity
+  cap. No third option has been proposed yet.
 - **Fine-grained revision-history reachability across a schema change.** Conservative
   default (blocked) is decided; the touched-field-bookkeeping refinement is not.
 - **Exact attribute/API surface** for `#[DefaultInstance]`, converter classes, rename/retype
