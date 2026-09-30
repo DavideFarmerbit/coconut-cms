@@ -79,34 +79,52 @@ unlike `entities.owner`, which stayed `RESTRICT` per item 1 above. Folded into
 `ARCHITECTURE_V2.md` ("References and collections", "FK `ON DELETE` policy") and
 `ROADMAP_V2.md` (Phase 3.2).
 
-### 4. No described mechanism for "every table that embeds shape X" (now also: every dedicated per-field table's own name/lifecycle)
+### 4. No described mechanism for "every table that embeds shape X" (now also: every dedicated per-field table's own name/lifecycle) — **resolved (2026-09-30)**
 
 Three separate features depend on enumerating every physical table where a given shape's
 fields are flattened: new-field backfill ("an `#[Embed]`-propagated column... backfills
-every table that embeds it"), rename propagation, and retype propagation. All three assert
-the outcome ("propagates to every table that embeds it") without describing how that set
-is discovered. Native classes only get a *forward* field-tree walk (for defaulted-instance
-discovery), never a reverse index; editor-created schemas are data, presumably requiring a
-live scan at rename/retype time — never stated. Also unclear whether this set is meant to
-include the dedicated non-entity-collection child tables from "No blobs" (which flatten
-the same shape by the same rules into a different landing table) or only ordinary
-entity-row embeds.
+every table that embeds it"), rename propagation, and retype propagation. All three
+asserted the outcome ("propagates to every table that embeds it") without describing how
+that set is discovered. Native classes only got a *forward* field-tree walk (for
+defaulted-instance discovery), never a reverse index; editor-created schemas are data,
+presumably requiring a live scan at rename/retype time — never stated. Also unclear
+whether this set was meant to include the dedicated non-entity-collection child tables
+from "No blobs" (which flatten the same shape by the same rules into a different landing
+table) or only ordinary entity-row embeds.
 
 **A second, related gap surfaced while resolving item 3 above, folded in here rather than
 filed separately**: a Shared-collection pivot table and a non-entity-collection's dedicated
 child table are both tables whose *existence and name* are tied to one specific field
 declaration — unlike an ordinary column, which is what "Migrations and schema mutation"
-actually describes renaming/retyping. Neither document says what happens to that dedicated
+actually describes renaming/retyping. Neither document said what happens to that dedicated
 table when the field itself is renamed (does `product_tags` become `product_categories`?)
 or removed (does the table get dropped?). Owned collections don't have this problem at all
 — no per-field table, the item lives in its own already-independently-named CTI chain
-table — so this is specific to Shared collections and non-entity collections.
+table — so this is specific to Shared collections and non-entity collections. An initial
+draft resolution proposed making these dedicated table names *immutable* once created
+(reasoning from `#[Table]`'s explicit-pin escape hatch) — wrong, caught in review: an
+entity's own table name is *only* immutable when `#[Table]` is explicitly set; the
+derived-short-name fallback is fully coupled to the current class name and is expected to
+rename right along with it (that's the entire reason the rename mechanism takes an
+explicit mapping instead of inferring from a diff — so it can emit an `ALTER TABLE ...
+RENAME` instead of a data-losing drop+create).
 
-**Open**: name the actual embed-table-discovery mechanism (reverse index maintained at
-registration time, vs. live scan over every registered native class + every stored
-editor-created schema at rename/retype time), confirm it covers non-entity-collection
-child tables too, and separately decide how a Shared-collection/non-entity-collection
-field's own dedicated table tracks a rename and gets dropped on field removal.
+**Decided**: for discovery, native classes get the reverse edge as a byproduct of
+`EntityRegistrar::register()`'s existing forward walk (no new scan); editor-created
+schemas reuse the same live-scan the dangling-reference auditing tool already performs,
+checking a different predicate. Non-entity-collection child tables are confirmed to be
+found by this same walk/scan, not a separate mechanism. For the dedicated-table
+name/lifecycle question: these tables are derived names, exactly like an entity's own
+fallback-derived table name, not pinned ones — a field rename renames its own dedicated
+table through the same explicit-mapping mechanism, and a prototype-level rename (when its
+own table name is itself derived) automatically fans out to every dedicated table its
+fields derive a name from, the same one-explicit-trigger/mechanically-computed-consequences
+pattern already used for Embed-target column propagation. Field removal drops the
+dedicated table outright (native: whatever `Comparator` produces once the field
+disappears, reviewed like any other DDL; editor-created: a `SchemaEditor` operation with
+`dropColumn()`'s existing safe-DDL-only scoping, at table granularity). Folded into
+`ARCHITECTURE_V2.md` ("Migrations and schema mutation") and `ROADMAP_V2.md` (Phase 2,
+Phase 6.2, Phase 6.4).
 
 ## Lower-severity / worth a note
 

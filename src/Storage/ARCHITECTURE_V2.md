@@ -271,6 +271,20 @@ every embedding table has its own flattened copy of that column (`address.city` 
 `address_city`), so the rename must run against each one, not just the shape's own
 declaration.
 
+**A Shared-collection or non-entity-collection field's own dedicated table (the pivot
+table, or the "No blobs" child table) is a derived name too, not a pinned one** — same as
+an entity's own table name falls back to a derivation from the class's short name absent
+an explicit `#[Table]`. Renaming the field renames this dedicated table too, through the
+same explicit mapping above, never inferred by diffing; renaming the declaring
+prototype, when that prototype's own table name is itself derived rather than
+`#[Table]`-pinned, automatically fans out to every dedicated table its own fields derive a
+name from — one explicit trigger, mechanically computed consequences, the same pattern as
+the Embed-target column propagation just above, not something the developer separately
+re-declares per affected table. Removing the field drops the table outright: for native,
+whatever DDL `Comparator` produces once the field's declaration disappears from the class,
+reviewed like any other native DDL; for editor-created, a `SchemaEditor` operation with the
+same safe-DDL-only scoping `dropColumn()` already has, just at table granularity.
+
 **Retype is a real `ALTER`, never drop-and-recreate, and always needs an explicit
 converter — no attempt to guess how to convert existing data.** For native: the converter
 is passed alongside the rename mapping at migration-generation time. For editor-created:
@@ -279,6 +293,19 @@ supplied for a retype that needs one → refuse loudly, same "fail before, not d
 posture as everywhere else in this design. **Retyping a field on an `#[Embed]` target
 propagates the same way rename does** — every embedding table runs the same `ALTER` +
 converter against its own flattened copy of the column.
+
+**Finding "every table that embeds shape X"** — needed by new-field backfill above and by
+both propagation rules just above — reuses discovery machinery this design already builds
+for other reasons, not a new scan. For native classes, `EntityRegistrar::register()`'s
+existing full-field-tree walk (already visiting every `#[Embed]` site, ordinary field or
+collection-of-embed, while looking for defaulted instances) also records the reverse edge
+— shape X to every site embedding it — as a byproduct of that same pass, no extra cost.
+For editor-created schemas, the same live-scan the dangling-reference auditing tool below
+already performs over every stored schema, checking a different predicate (a field's kind,
+or a collection's item kind, is `embed(X)`) instead of "does this target still exist." A
+non-entity collection's dedicated child table is one of the sites this walk/scan finds,
+not a separate mechanism from an ordinary embedding field on the declaring prototype's own
+row — same abstract site, different landing table.
 
 **Retargeting a `Reference` field's own type (it used to point at `Category`, now it
 should point at `Tag`) is a retype, not a separate mechanism.** Same umbrella as above,

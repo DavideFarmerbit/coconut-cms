@@ -116,6 +116,10 @@ permissions enforcement, editor-created prototypes actually existing (the regist
 - Embed-of-Embed cycle detection at registration time.
 - `#[DefaultInstance]` propagation extended: an embedded shape gaining a field backfills
   every table that embeds it.
+- `EntityRegistrar::register()`'s full-field-tree walk records the reverse edge for every
+  `#[Embed]` site it visits (shape X to every table embedding it), as a byproduct of the
+  same pass, not a separate scan — this is what new-field backfill above, and rename/retype
+  propagation (Phase 6.2), both query.
 
 **Not yet**: references/collections, native CTI extension, `Changeset`, undo/draft,
 permissions, editor-created prototypes, `Query`.
@@ -124,7 +128,8 @@ permissions, editor-created prototypes, `Query`.
 field flattens recursively, including a nested embed and a nested value-object member; the
 same shape embedded twice under different field names on one entity works via dotted-path
 disambiguation; a test embedding A-in-B-in-A is rejected at registration instead of
-recursing forever.
+recursing forever; backfilling a new field on an embedded shape finds every embedding
+table via the reverse edge, not a fresh scan.
 
 ## Phase 3 — References & collections, native CTI extension, `MediaAsset`
 
@@ -312,7 +317,9 @@ immediately through the ordinary read/write path; renaming/retyping a field on a
 used as an `#[Embed]` target (introduced in Phase 2) propagates to every table embedding
 it, not just the shape's own declaration; retargeting a `Reference` field to a different
 target type converts every existing row through its required converter, refusing loudly
-if any row's existing target has no valid mapping.
+if any row's existing target has no valid mapping; renaming a Shared-collection or
+non-entity-collection field (introduced in Phase 3) renames its own dedicated table too,
+not just the field's metadata; removing such a field drops that dedicated table outright.
 
 ### 6.3 — Reparenting and `EditorExtensible`
 
@@ -333,10 +340,15 @@ if any row's existing target has no valid mapping.
   through the reviewed-migration tool; anything on the editor-schema side gets a
   `SchemaEditor` save-time block plus a separate, standalone auditing tool scanning every
   editor-created schema for breakage.
+- The same auditing-tool scan also answers "every editor-created table that embeds shape
+  X" (checking whether a stored schema's field kind, or a collection's item kind, is
+  `embed(X)`) — the editor-created half of the discovery mechanism Phase 2 built for
+  native classes, reused here rather than a second mechanism.
 
 **Done when**: deleting a prototype referenced elsewhere dangles, caught at the documented
 point for whichever context (native registration, reviewed migration, or the editor
-auditing tool) applies.
+auditing tool) applies; the auditing tool also correctly finds every editor-created schema
+embedding a given shape, exercised by a rename/retype on that shape propagating to them.
 
 **Not yet** (end of Phase 6): `FieldPermission`, `Query`.
 
