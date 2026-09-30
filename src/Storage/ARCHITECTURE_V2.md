@@ -77,6 +77,10 @@ above every prototype's own Class Table Inheritance chain — one root, period, 
 prototype family:
 
 - `id` — uuid, the identity every chain's own top level is now an FK back to.
+  **Re-confirmed** (not just carried over from the original baseline): uuid over an
+  autoincrementing PK, deliberately — avoids a single global sequence shared by every
+  entity in the system regardless of prototype, and keeps id generation possible without a
+  round-trip to the database first.
 - `owner` — nullable, self-referencing FK to `entities.id`, `ON DELETE CASCADE`.
 - `owner_field` — nullable, disambiguates which Owned relationship put this row here when
   the same shape is owned by more than one relationship.
@@ -112,11 +116,22 @@ exists to avoid. Consequences:
   What's left of it is purely an indexing decision — does this already-real column get a
   database index — independent of whether the field exists as a column at all (it
   always does).
-- A **collection of scalars or value-object-primitives** (non-entity items) can no longer
-  live as a JSON array. It gets its own dedicated child table: `(ownerId, position,
-  value column(s))`, `CASCADE`-deleted with the owner. This is a different, simpler
-  mechanism than an Owned-entity collection below — the items have no identity of their
-  own, nothing to look up in `entities` at all.
+- A **collection of scalars, value-object-primitives, or `#[Embed]` items** (non-entity
+  items) can no longer live as a JSON array. It gets its own dedicated child table:
+  `(ownerId, position, value column(s))`, `CASCADE`-deleted with the owner. This is a
+  different, simpler mechanism than an Owned-entity collection below — the items have no
+  identity of their own, nothing to look up in `entities` at all. For a scalar or
+  value-object item, `value column(s)` is exactly one column; for an Embed item, it's the
+  embedded shape's fields flattened into that child table's own columns, same recursive
+  flattening and restrictions (no `Reference`/`Collection` at any depth, cycle detection at
+  registration) as an Embed field on an ordinary entity row — the only difference is which
+  table the flattened columns land on, the owner's own row or this dedicated child table.
+
+**Tradeoff accepted knowingly**: unlimited-depth Embed flattening plus no blob tier means a
+deeply-nested shape can produce a wide table — real limits exist (Postgres ~1600
+columns/table, MySQL row-size ceilings) that the old design's blob tier partly existed to
+avoid. Almost certainly fine for realistic CMS content shapes; revisit only if an actual
+schema approaches these limits, not preemptively.
 
 ## Entity vs. Value Object vs. Embed
 
@@ -145,6 +160,10 @@ either of those isn't an embeddable, it's an entity. Adopted deliberately rather
 solving a harder problem (an embedded shape has no identity, so a `Collection` field
 inside one has no natural owner to attach a child table to). A shape that needs a
 reference or a collection must be used as a real `Entity`, never as an `#[Embed]` target.
+**Rejected eagerly, at registration time** — same posture as every other structural
+violation in this design (Embed-of-Embed cycles, defaulted-instance completeness): a
+`Reference` or `Collection` field found anywhere in an Embed target's field tree fails
+registration immediately, never a runtime or migration-time surprise.
 
 **Embed-of-Embed cycle detection is required at registration time** (A embeds B embeds A
 would otherwise recurse forever generating columns). Same posture as the existing
@@ -165,15 +184,19 @@ registration, not at migration time.
   Owned-child-table mechanism at all. This is the payoff of the shared `entities` table:
   the same reusable shape can be Owned by any number of unrelated relationships through
   the exact same `owner`/`owner_field` columns, no dedicated table per relationship.
-- **Non-entity collection** (scalar or value-object items): the dedicated child table
-  described under "No blobs" above — not the `entities` mechanism, since the items
-  aren't entities.
+- **Non-entity collection** (scalar, value-object, or `#[Embed]` items): the dedicated
+  child table described under "No blobs" above — not the `entities` mechanism, since the
+  items aren't entities.
 
 **FK `ON DELETE` policy**: `RESTRICT` (strictest) is the default for Shared references —
 the app-level topological sort in the write path is the real safe-ordering mechanism; the
 constraint is a correctness backstop, not something the normal path expects to hit.
 `CASCADE` for every Owned relationship, uniformly via `entities.owner`. `SET NULL` only
-for a reference that's genuinely optional (no `RequiredValidator`).
+for a reference that's genuinely optional (no `RequiredValidator`) — that absence is what
+the FK column's own nullability derives from, not a separate choice: a `SET NULL`
+constraint mechanically requires the column to actually be nullable at the DB level, so
+"optional (no `RequiredValidator`)" is the one place that decision is made, feeding both
+the column's nullability and the FK policy together.
 
 ## Defaulted instances: backfilling a new field or a new parent-level row
 
@@ -214,14 +237,30 @@ the signal is inherent — `SchemaEditor` performs one explicit admin-triggered 
 action, never inferred from a diff. Prototype-level rename works the same way and fixes up
 every stored reference to the old identifier: `prototypes.parent`, `entities.concrete_identifier`,
 every other prototype's `reference()`/`embed()`/`collection()` pointing at it, and any
-`owner_field` values.
+`owner_field` values. **Renaming a field on a shape used as an `#[Embed]` target
+propagates to every table that embeds it** — same reasoning as new-field backfill below:
+every embedding table has its own flattened copy of that column (`address.city` →
+`address_city`), so the rename must run against each one, not just the shape's own
+declaration.
 
 **Retype is a real `ALTER`, never drop-and-recreate, and always needs an explicit
 converter — no attempt to guess how to convert existing data.** For native: the converter
 is passed alongside the rename mapping at migration-generation time. For editor-created:
 the admin supplies/selects a converter class through `SchemaEditor`. No converter
 supplied for a retype that needs one → refuse loudly, same "fail before, not during"
-posture as everywhere else in this design.
+posture as everywhere else in this design. **Retyping a field on an `#[Embed]` target
+propagates the same way rename does** — every embedding table runs the same `ALTER` +
+converter against its own flattened copy of the column.
+
+**Retargeting a `Reference` field's own type (it used to point at `Category`, now it
+should point at `Tag`) is a retype, not a separate mechanism.** Same umbrella as above,
+just a converter whose input/output are entities instead of raw values: given the
+existing row's currently-referenced entity (loaded through the old FK id), the converter
+produces the new-target entity (found or freshly created) and its id is stored in its
+place; the FK constraint itself is dropped and recreated against the new target table as
+an ordinary part of the same `ALTER`. A converter that can't produce a valid target for
+some existing row fails the migration outright, same "no attempt to guess, refuse loudly"
+posture as any other retype — there's no new failure mode here, only the general one.
 
 **Changing a collection's item kind is treated identically to a retype** — a real
 conversion via an explicit converter run per existing item (e.g. each value-object item
@@ -285,10 +324,13 @@ same flush.
 
 **Full topological sort**, not a bounded heuristic — CMS content nests arbitrarily deep,
 and a hand-maintained list of "supported nesting patterns" doesn't scale. Dependency edges
-are derived automatically from the changeset's own reference structure. Read in opposite
-directions for inserts vs. deletes (insert the referenced entity first so its id exists;
-delete it last). **Cycles are rejected outright** with a clear error naming the cycle — no
-deferred-edge escape hatch until an actual case demonstrates it's needed.
+are derived automatically from the changeset's own reference structure — an Owned
+relationship's `owner` pointer is just another edge in that same structure, not a special
+case. Read in opposite directions for inserts vs. deletes (insert the referenced entity
+first so its id exists; delete it last). **Cycles are rejected outright** with a clear
+error naming the cycle — no deferred-edge escape hatch until an actual case demonstrates
+it's needed. This covers an ownership cycle (`A.owner = B`, `B.owner = A`) for free: it's
+the same reference-graph cycle check, not a mechanism needing its own carve-out.
 
 **Concurrent-write protection**: an `expectedOperationId` receipt, reject-by-default with
 an explicit override to retry.
@@ -304,12 +346,24 @@ monotonic sequence position, actor, kind), no diff data of its own. Every entity
 flush actually touched gets its own independent `EntityChangeRecord` (before/after per
 changed field, not a full snapshot — kept as a diff, unlike Envers's own full-row audit
 tables, for the storage-efficiency reasons already decided), FK'd back to that shared
-`Revision`. This answers both "what did this one database transaction cause, across
+`Revision` — **no carve-out for Owned entities.** The old design's "Owned folds into the
+owner's own diff, no independent record" rule is retracted: it made sense when an Owned
+row lived in a per-relationship child table with no identity of its own, but an Owned
+entity now has a full `entities` row exactly like a Shared one, so nothing structurally
+distinguishes it in the undo/logging path anymore. One rule for every touched entity,
+Owned or Shared, is also what lets the per-touched-entity conflict check in undo (below)
+cover Owned for free, with no ownership-based special case. This answers both "what did
+this one database transaction cause, across
 everything it touched" (query by `Revision` id) and "what's this one entity's own
 history" (query that entity's own `EntityChangeRecord` chain) without either query
 fighting the other's retention needs.
 
-**No automatic pruning, anywhere, ever — manual only.** This is real historical data, not
+**No automatic pruning, anywhere, ever — manual only, and gated by a dedicated
+`Permission\HistoryPermission`** — a narrow capability check via the same `Actor::hasRole()`
+`SchemaPermission`/`FieldPermission` are already built on, kept as its own permission
+rather than folded into `SchemaPermission`: pruning destroys content history, it isn't a
+schema mutation, and conflating the two would make `SchemaPermission` mean two different
+things. This is real historical data, not
 disposable cache; deciding what to discard is a deliberate, human-triggered action (by
 age, by entity, by prototype, whatever an admin judges appropriate at the time), never a
 background policy. This is also what makes atomic multi-entity undo viable again: a
@@ -321,9 +375,24 @@ an admin manually prunes one touched entity's old history but not another's — 
 a rare, deliberate, admin-caused edge case (see the refusal behavior below), not a routine
 one to design around.
 
+**A `Revision` left with zero `EntityChangeRecord`s after pruning is left as an empty
+husk, never auto-deleted.** Deleting it automatically the moment its last child disappears
+would itself be a form of automatic pruning — a side effect of a different, unrelated
+decision — which is exactly what's ruled out above. The same manual pruning tool can also
+target a `Revision` row directly, empty or not, as its own explicit action; pruning stays a
+deliberate decision about whatever was actually selected, never an automatic consequence of
+pruning something else.
+
 - **Draft**: a persisted-but-unflushed changeset plus an in-memory apply/preview function
   — no duplicate-row scheme. Publishing is flushing the exact same changeset through the
-  exact same write path, producing a `Revision` exactly like any other flush.
+  exact same write path, producing a `Revision` exactly like any other flush. **Not
+  per-user the way undo now is**: one pending draft per entity, shared — a second editor
+  opening it takes over or hits a conflict warning (see "Explicitly out of scope" for the
+  collaboration boundary this implies), deliberately unlike the `Revision`-ownership check
+  undo gets below. A draft has no owner to check because there's no second party's own
+  operation it could be mistaken for; undo's check exists specifically to stop one user's
+  Ctrl+Z from reverting a *different* user's already-flushed `Revision`, a scenario a
+  shared, not-yet-flushed draft doesn't have.
 - **Ctrl+Z can undo a whole `Revision`, including one that touched multiple entities.**
   Undoing `Revision` R: gather every `EntityChangeRecord` under it; for *each* entity it
   touched, independently check that entity's own subsequent chain for anything touching
@@ -414,12 +483,42 @@ unpredictable per-row tax.
 Deliberately out of scope: filtering an outer list by something inside a collection
 sub-structure (`EXISTS`-style semantics) — meaningfully harder, rarer need.
 
+**`Query`'s hydrated results go through the same read-time `FieldPermission` filter as
+`Repository::find()`/`lazyFind()`** — one filtering step, not a separate one `Query` would
+need to reimplement, applied per field exactly as declared regardless of which path
+resolved the row.
+
+**`where()`/`orderBy()` on a field the actor can't read is rejected, the same as if that
+field didn't exist** — not just stripped from the hydrated result. Allowing it through
+would leak the field's values via a side channel (sort order, or which rows pass a filter)
+even though `FieldPermission` scrubs the field itself from what's returned; a cursor
+carries the sort field's own value, which would leak it just by existing. Same posture as
+every other read-time `FieldPermission` check, just applied to the query's inputs instead
+of only its output rows.
+
 ## Permissions
 
 `SchemaPermission` gates every schema mutation from the first commit that makes runtime
 mutation possible at all. `FieldPermission` enforced at three points: read-time filtering,
-a mandatory server-side write gate (before validation), and a client-side UX-only gate. A
-minimal `Actor` interface (`hasRole(string): bool`) backs both.
+a mandatory server-side write gate (before validation), and a client-side UX-only gate.
+`HistoryPermission` gates manual pruning (see "Content undo, draft, and revision history")
+— its own narrow permission, not folded into `SchemaPermission`, since pruning destroys
+content history rather than mutating schema. A minimal `Actor` interface
+(`hasRole(string): bool`) backs all three.
+
+**`FieldPermission` is a per-`FieldDescriptor` declaration, not a per-table or per-entity
+one** — every field, at whatever level of a shape's own tree, carries its own permission
+from the point it's declared, resolved the same way `fieldsOf()` already resolves any
+other per-field property (type, validators). This is what makes granularity a non-issue
+for an `#[Embed]` field specifically: a sub-field like `pricing.wholesaleCost` keeps its
+own independently-declared permission (distinct from `pricing.listPrice`'s) whether
+`PricingInfo` ends up flattened into the owner's row via Embed or given its own table as a
+standalone Entity — Embed only changes where the field's data physically lives, never a
+re-declaration of its permission at some coarser grain. An Owned or Shared reference's
+nested entity needs no special-casing either, for the same underlying reason plus one more
+layer: the relationship field itself (e.g. `Product.currentPricing`) carries its own
+permission like any field, and the referenced entity's own fields carry theirs
+independently — two already-ordinary checks composed, not a new mechanism.
 
 ## Media/file fields
 
@@ -434,6 +533,11 @@ human-triggered action.
 
 ## Deferred — not resolved in this document
 
+- **Flipping an existing relationship between Owned and Shared.** Still a real structural
+  migration (an Owned child's own row has no reference column to promote, a Shared row's
+  FK doesn't carry the owner/owner_field/position an Owned row needs) — unlike its sibling
+  problems (retype, collection item-kind change, queryable-flip), which are all resolved
+  above. Not designed here.
 - **Fine-grained revision-history reachability across a schema change.** Conservative
   default (blocked) is decided; the touched-field-bookkeeping refinement is not.
 - **Exact attribute/API surface** for `#[DefaultInstance]`, converter classes, rename/retype

@@ -69,10 +69,16 @@ table name fail registration with an actionable error. No data written yet.
 - `Entity\Repository`/`IdentityMap`: insert writes the root row into `entities` first
   (this is where `id` originates), then the class's own row; find/delete join through
   `entities`; identity map scoped per request.
+- A throwaway second `Schema\PrototypeRegistry` implementation (a fake, not the
+  editor-created one Phase 6 builds for real) — exercised through `Entity\Repository` in a
+  test here, not deferred to Phase 6, to catch a native-specific assumption leaking into
+  `Repository`/`SchemaBuilder` immediately instead of five phases later.
 
 **Done when**: a scalar-only native class actually round-trips create/read/update/delete
 through `Entity\Repository` — which calls only `PrototypeRegistry`, never reflects
-directly — rooted under `entities` via CTI, backed by a migration-generated table.
+directly — rooted under `entities` via CTI, backed by a migration-generated table; the same
+round-trip also works end to end through the throwaway second `PrototypeRegistry`
+implementation, proving `Repository` never assumed native reflection along the way.
 
 ### 1.3 — Validation, uniqueness, and backfill correctness
 
@@ -83,16 +89,15 @@ directly — rooted under `entities` via CTI, backed by a migration-generated ta
   backfilling a new field on an already-populated class is an ordinary event the moment
   real migrations exist.
 
-**Not yet** (whole of Phase 1): entity references/collections, value objects/embed,
+**Done when**: a hand-written native class with a mix of unique and plain scalar fields
+round-trips fully; the unique constraint is enforced; adding a new field to an
+already-populated class backfills every existing row via `#[DefaultInstance]` resolution.
+
+**Not yet** (end of Phase 1): entity references/collections, value objects/embed,
 native CTI extension (a native class extending another), the `Changeset` write path
 (direct `Repository` calls only — nothing needs multi-entity atomicity yet), undo/draft,
 permissions enforcement, editor-created prototypes actually existing (the registry's
 *shape* supports a second identifier kind; nothing produces one yet), `Query`, any UI.
-
-**Done when** (whole of Phase 1): a hand-written native class with a mix of unique and
-plain scalar fields round-trips fully; the unique constraint is enforced; adding a new
-field to an already-populated class backfills every existing row via `#[DefaultInstance]`
-resolution.
 
 ## Phase 2 — Value Object + Embed
 
@@ -141,7 +146,9 @@ proven in isolation before any relationship complexity is layered on top.
   ("References and collections").
 
 **Done when**: a native class can Shared-reference another (`RESTRICT`-protected), and a
-Shared collection round-trips through a real pivot table.
+Shared collection round-trips through a real pivot table; a `Reference` or `Collection`
+field declared on an `#[Embed]` target (now that both kinds exist) is rejected at
+registration time, not left to fail later.
 
 ### 3.3 — Owned references and collections
 
@@ -159,18 +166,21 @@ relationships (disambiguated by `owner_field`) round-trips correctly.
 
 ### 3.4 — Non-entity collections and `MediaAsset`
 
-- Non-entity collection (scalar or value-object items): a dedicated child table
-  (`ownerId`, `position`, value column(s)), `CASCADE`-deleted with the owner.
+- Non-entity collection (scalar, value-object, or `#[Embed]` items): a dedicated child
+  table (`ownerId`, `position`, value column(s)), `CASCADE`-deleted with the owner; an
+  `#[Embed]` item flattens its shape's fields into that child table's own columns, same
+  recursive flattening as an Embed field on an ordinary entity row.
 - `MediaAsset` as the worked example exercising both Owned (inline upload) and Shared
   (media library) at once ("Media/file fields") — ties 3.2 and 3.3 together.
 
-**Not yet** (whole of Phase 3): the `Changeset` write path (a create-and-attach-in-one-call
+**Done when**: a non-entity collection (scalars or value-object items) round-trips through
+its dedicated child table, ordered and cascade-deleted with the owner; a collection of
+`#[Embed]` items round-trips with each position's shape flattened into its own row;
+`MediaAsset` demonstrates both Owned and Shared usage at once.
+
+**Not yet** (end of Phase 3): the `Changeset` write path (a create-and-attach-in-one-call
 isn't atomic until Phase 4 — this phase's own tests create the referenced entity first, as
 two separate steps), undo/draft, permissions, editor-created prototypes, `Query`.
-
-**Done when** (whole of Phase 3): a native class can Shared-reference another and
-Owned-collection a shape at the same time; `MediaAsset` demonstrates both Owned and Shared
-usage.
 
 ## Phase 4 — Changeset write path
 
@@ -187,10 +197,13 @@ topological sort — no more manual two-step create-then-attach.
 **Not yet**: undo/draft, permissions, editor-created prototypes, `Query`.
 
 **Done when**: a changeset creating a new Tag and attaching it to a Product in the same
-flush commits atomically; two new entities referencing each other in one changeset are
-rejected with an error naming the cycle; a stale `expectedOperationId` is rejected; a
-changeset deleting a referencer and what it references in the wrong order is corrected by
-the sort, not left to rely on `RESTRICT` as a backstop.
+flush commits atomically; a changeset creating a new Owned child and its owner in the same
+flush commits atomically too — the higher-risk mechanism (Phase 3.3 calls Owned "the
+genuinely novel mechanism in this design"), not left covered only by the Shared case; two
+new entities referencing each other in one changeset are rejected with an error naming the
+cycle; a stale `expectedOperationId` is rejected; a changeset deleting a referencer and
+what it references in the wrong order is corrected by the sort, not left to rely on
+`RESTRICT` as a backstop.
 
 ## Phase 5 — Undo, draft, revision history (content-only)
 
@@ -234,14 +247,17 @@ as an ordinary flush.
   flushing a new changeset. The "blocked past any schema change" guard is written here but
   can't be meaningfully exercised until Phase 6 introduces schema mutation — noted, not a
   blocker.
-- A manual pruning tool: explicit, human-triggered, no automatic policy of any kind.
+- A manual pruning tool: explicit, human-triggered, no automatic policy of any kind, gated
+  by a new `Permission\HistoryPermission` ("Permissions").
 
-**Not yet** (whole of Phase 5): permissions enforcement beyond undo-authorization,
+**Done when**: manually pruning one touched entity's `EntityChangeRecord` and then
+attempting to undo the `Revision` it belonged to produces a clean, specific refusal, not a
+silent partial revert; pruning without `HistoryPermission` is rejected; pruning the last
+`EntityChangeRecord` under a `Revision` leaves it as an empty row, not auto-deleted, and
+that empty `Revision` can itself be pruned by a separate explicit call.
+
+**Not yet** (end of Phase 5): `FieldPermission` enforcement (Phase 7), `SchemaPermission`,
 editor-created prototypes, schema mutation, `Query`.
-
-**Done when** (whole of Phase 5): manually pruning one touched entity's
-`EntityChangeRecord` and then attempting to undo the `Revision` it belonged to produces a
-clean, specific refusal, not a silent partial revert.
 
 ## Phase 6 — Admin-authored schema
 
@@ -268,13 +284,17 @@ existed.
 ### 6.2 — Mutating an existing, populated prototype
 
 - `addColumn()`/`dropColumn()`, `rename()` (prototype and field, explicit old→new mapping
-  passed in, never inferred, never an attribute), `retype()` (field and
-  collection-item-kind, an explicit converter class required, refused otherwise) —
+  passed in, never inferred, never an attribute), `retype()` (field, collection-item-kind,
+  and `Reference` target type, an explicit converter class required, refused otherwise) —
   safe-DDL-only, scoped to the subclass's own table ("Migrations and schema mutation").
 
 **Done when**: an already-populated editor-created prototype can have a column
 added/dropped/renamed/retyped safely, each gated by `SchemaPermission`, each reflected
-immediately through the ordinary read/write path.
+immediately through the ordinary read/write path; renaming/retyping a field on a shape
+used as an `#[Embed]` target (introduced in Phase 2) propagates to every table embedding
+it, not just the shape's own declaration; retargeting a `Reference` field to a different
+target type converts every existing row through its required converter, refusing loudly
+if any row's existing target has no valid mapping.
 
 ### 6.3 — Reparenting and `EditorExtensible`
 
@@ -296,11 +316,11 @@ immediately through the ordinary read/write path.
   `SchemaEditor` save-time block plus a separate, standalone auditing tool scanning every
   editor-created schema for breakage.
 
-**Not yet** (whole of Phase 6): `FieldPermission`, `Query`.
+**Done when**: deleting a prototype referenced elsewhere dangles, caught at the documented
+point for whichever context (native registration, reviewed migration, or the editor
+auditing tool) applies.
 
-**Done when** (whole of Phase 6): deleting a prototype referenced elsewhere dangles,
-caught at the documented point for whichever context (native registration, reviewed
-migration, or the editor auditing tool) applies.
+**Not yet** (end of Phase 6): `FieldPermission`, `Query`.
 
 ## Phase 7 — Field-level permissions
 
@@ -336,7 +356,10 @@ inheritance level, cursor-paginated from the start.
 **Done when**: a list view for an identifier filters/sorts by a field declared at any
 level of its own chain, native or editor-created, returns a stable cursor-paginated page
 with a correct has-more signal, base-typed rows only; `count()` matches the same filter
-independent of pagination.
+independent of pagination; an actor without read permission on a field never sees it in a
+`Query` result row, same `FieldPermission` filter as `Repository::find()`; filtering or
+sorting by a field the actor can't read is rejected outright, not silently allowed to leak
+that field's values through sort order or which rows pass the filter.
 
 ### 8.2 — Opt-in polymorphic hydration
 
@@ -357,7 +380,6 @@ search, real-time concurrent multi-editor collaboration.
 - **`Editor\`** — the admin-facing authoring UI and the client-side `LocalCommand`/
   `RemoteCommand` stack. A separate, later track, once enough of the above exists to build
   and drive it against.
-- **Fine-grained revision-history reachability across a schema change** and **schema-level
-  delete referential integrity for the referencing-prototype case** — both still listed as
-  open in `ARCHITECTURE_V2.md`'s "Deferred" section; pick a phase for either once they're
-  actually resolved there.
+- **Fine-grained revision-history reachability across a schema change** — still listed as
+  open in `ARCHITECTURE_V2.md`'s "Deferred" section; pick a phase for it once it's actually
+  resolved there.

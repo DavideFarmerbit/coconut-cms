@@ -1,10 +1,11 @@
 # Storage / Editor v2 — Cleanup Before Building
 
-**Status: working punch list, not a spec.** Produced by auditing `ARCHITECTURE_V2.md` and
-`ROADMAP_V2.md` against each other for inconsistencies, missing pieces, and design flaws,
-before Phase 1 starts. Each item below needs a decision or a fix folded back into one or
-both documents; nothing here is resolved yet. Ordered by how much it changes what gets
-built, not alphabetically.
+**Status: resolved (2026-09-30).** Was a working punch list, not a spec — produced by
+auditing `ARCHITECTURE_V2.md` and `ROADMAP_V2.md` against each other for inconsistencies,
+missing pieces, and design flaws, before Phase 1 starts. All 20 items below have since
+been decided and folded back into `ARCHITECTURE_V2.md`/`ROADMAP_V2.md` directly — this
+file is kept only as a historical record of that audit pass, not as an open task list.
+Ordered by how much it changes what gets built, not alphabetically.
 
 ## Real inconsistencies
 
