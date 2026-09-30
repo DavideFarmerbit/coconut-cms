@@ -295,45 +295,79 @@ an explicit override to retry.
 
 ## Content undo, draft, and revision history
 
-Content-only now (schema mutations are excluded per above). Three still-distinct concerns:
+Content-only now (schema mutations are excluded per above).
+
+**Structure adopts Hibernate Envers's shape (the grouping), not its storage (full
+snapshots).** One lightweight `Revision` record per flush — whatever triggered it: an
+ordinary publish, a Ctrl+Z undo, or a revision-history restore — holding just metadata (a
+monotonic sequence position, actor, kind), no diff data of its own. Every entity that
+flush actually touched gets its own independent `EntityChangeRecord` (before/after per
+changed field, not a full snapshot — kept as a diff, unlike Envers's own full-row audit
+tables, for the storage-efficiency reasons already decided), FK'd back to that shared
+`Revision`. This answers both "what did this one database transaction cause, across
+everything it touched" (query by `Revision` id) and "what's this one entity's own
+history" (query that entity's own `EntityChangeRecord` chain) without either query
+fighting the other's retention needs.
+
+**No automatic pruning, anywhere, ever — manual only.** This is real historical data, not
+disposable cache; deciding what to discard is a deliberate, human-triggered action (by
+age, by entity, by prototype, whatever an admin judges appropriate at the time), never a
+background policy. This is also what makes atomic multi-entity undo viable again: a
+`Revision`'s `EntityChangeRecord`s only disappear when a human explicitly prunes them, not
+as a side effect of some other entity's unrelated edit frequency — the "independent
+per-entity retention clocks diverge and fragment a shared operation" problem earlier
+turns got stuck on doesn't arise from ordinary operation anymore. It can still happen if
+an admin manually prunes one touched entity's old history but not another's — accepted as
+a rare, deliberate, admin-caused edge case (see the refusal behavior below), not a routine
+one to design around.
 
 - **Draft**: a persisted-but-unflushed changeset plus an in-memory apply/preview function
   — no duplicate-row scheme. Publishing is flushing the exact same changeset through the
-  exact same write path.
-- **Undo-log**: every flushed `ChangesetOperation` logged as a diff (before/after per
-  changed field, not a full snapshot), count-based retention **per Shared entity** (an
-  Owned relationship has no independent entry — its changes fold into its owner's own
-  diff). Redo needs no new mechanism: undoing is itself a logged operation, redoing is
-  undoing the undo. **Retention scope for a multi-entity operation is an open problem —
-  see "Deferred" below.**
-- **Conflict detection on undo**: a later operation touching the same `(entity, field)`
-  pair blocks the undo via an explicit check; a later operation creating a new dependency
-  on an entity the undo would delete is already caught for free by `RESTRICT`.
-- **Undo authorization, reversing the v1 stance.** The old design concluded no dedicated
-  server-side check was needed beyond ordinary `FieldPermission` write-gating, reasoning
-  that a client only ever holds its own `operationId`s. **Decided differently here**: that
-  leaves a real loophole — nothing stops a client calling the undo endpoint directly with
-  an `operationId` it didn't itself produce, and if the caller happens to have ordinary
-  write permission on the affected field, the server would undo someone else's operation
-  passing as the caller's own Ctrl+Z. Undoing a specific `operationId` now requires a real
-  check, behind `Permission\`, that the operation actually belongs to the requesting
-  user/session, checked before the inverse changeset is even computed — in addition to,
-  not instead of, the ordinary write-gate. Revision-history restore (the separate,
-  deliberate surface) is explicitly exempt from this check — reaching into anyone's past
-  state there is the entire point of that surface.
+  exact same write path, producing a `Revision` exactly like any other flush.
+- **Ctrl+Z can undo a whole `Revision`, including one that touched multiple entities.**
+  Undoing `Revision` R: gather every `EntityChangeRecord` under it; for *each* entity it
+  touched, independently check that entity's own subsequent chain for anything touching
+  the same field since (the same per-entity conflict check as before, just run once per
+  touched entity instead of once total). If every touched entity's record still exists and
+  passes its own check, apply the whole inverse atomically (the same topological-sort
+  changeset machinery already built for ordinary writes), producing a **new** `Revision`
+  recording the undo — append-only, consistent with "redo is just undo-the-undo." **If any
+  touched entity's record is missing (manually pruned) or fails its own conflict check,
+  the whole undo is refused outright, naming exactly what's blocking it — never a silent
+  partial revert.**
+- **Redo** needs no new mechanism: undoing is itself a logged `Revision`, redoing is
+  undoing the undo.
+- **Undo authorization, reversing the v1 stance, attaches at the `Revision`.** The old
+  design concluded no dedicated server-side check was needed beyond ordinary
+  `FieldPermission` write-gating, reasoning that a client only ever holds its own
+  operation ids. **Decided differently here**: that leaves a real loophole — nothing
+  stops a client calling the undo endpoint directly with a `Revision` id it didn't itself
+  produce, and if the caller happens to have ordinary write permission on the affected
+  field(s), the server would undo someone else's `Revision` passing as the caller's own
+  Ctrl+Z. Undoing a specific `Revision` now requires a real check, behind `Permission\`,
+  that the `Revision` actually belongs to the requesting user/session, checked once,
+  before the inverse changeset is even computed — in addition to, not instead of, the
+  ordinary write-gate. Revision-history restore (the separate, deliberate surface below)
+  is explicitly exempt from this check — reaching into anyone's past state there is the
+  entire point of that surface.
 - **Client-side command stack**: `LocalCommand` (synchronous, in-memory, no server
-  round-trip) vs. `RemoteCommand` (references a specific `operationId`, needs a visible
+  round-trip) vs. `RemoteCommand` (references a specific `Revision` id, needs a visible
   pending state, never optimistically reverts before server confirmation) — one
-  independent stack per open editing tab, not per session.
+  independent stack per open editing tab, not per session. A single visible user action
+  that touched multiple entities in one flush still pushes exactly one `RemoteCommand`,
+  referencing that one `Revision` — Ctrl+Z reverts everything it grouped, per the
+  mechanism above.
 - **Revision-history restore** (the separate, deliberate "view/restore any past state" UI
-  surface, distinct from Ctrl+Z): **by default cannot reach back past any schema change to
-  that prototype** — after a schema change, prior operations on that prototype are assumed
-  invalid until proven otherwise. Worth refining later by bookkeeping exactly what a given
-  schema operation touched and only blocking restore for the touched part — reusing the
-  same never/conditional/always classification already used for schema-mutation kinds
-  (purely-additive changes never block; a single-field change like drop/rename/retype
-  blocks only that field; reparent/delete block more broadly) — but the conservative
-  default is what's decided now; the refinement is not.
+  surface, distinct from Ctrl+Z): reads one entity's own `EntityChangeRecord` chain and
+  restores it to a chosen past state by flushing a new changeset — itself producing a new
+  `Revision`, same as everything else. **By default cannot reach back past any schema
+  change to that prototype** — after a schema change, prior operations on that prototype
+  are assumed invalid until proven otherwise. Worth refining later by bookkeeping exactly
+  what a given schema operation touched and only blocking restore for the touched part —
+  reusing the same never/conditional/always classification already used for
+  schema-mutation kinds (purely-additive changes never block; a single-field change like
+  drop/rename/retype blocks only that field; reparent/delete block more broadly) — but the
+  conservative default is what's decided now; the refinement is not.
 
 ## Identity Map + Repository + lazy loading
 
@@ -391,29 +425,15 @@ minimal `Actor` interface (`hasRole(string): bool`) backs both.
 
 `MediaAsset` is the worked example exercising both Owned (inline upload, no life apart
 from its one field) and Shared (media library, referenced from wherever it's used, own
-independent retention window) at once. Removing a `MediaAsset` reference is immediate at
-the database level; reclaiming the physical file bytes is deferred, piggybacking on the
-same content-retention-window pruning sweep — a file's bytes stay on disk as long as
-anything still inside the retention window (an undo-log entry, a revision, current live
-state) could reference them.
+independent history) at once. Removing a `MediaAsset` reference is immediate at the
+database level; reclaiming the physical file bytes is deferred, piggybacking on the same
+manual pruning tool described above, not an automatic sweep — a file's bytes stay on disk
+as long as anything not yet manually pruned (an `EntityChangeRecord`, a live reference)
+could still reference them, and reclaiming them is itself part of that same deliberate,
+human-triggered action.
 
 ## Deferred — not resolved in this document
 
-- **Retention scope for a multi-entity `ChangesetOperation`, genuinely unresolved.**
-  Retention is "last N operations per Shared entity," but one `ChangesetOperation` can
-  span several entities atomically (create a Tag, attach it to a Product — one operation,
-  two entities' histories). If the entities it spans have different retention windows,
-  there's no clean answer for when that one record gets pruned. Two candidate fixes were
-  considered and both rejected, worth recording so they aren't re-derived and re-rejected
-  later: **(a) keep the whole record alive until every entity it touched has aged it out**
-  (the same pattern used for `MediaAsset` file-byte reclamation) — rejected because the
-  surrounding *single*-entity operations for the entity that no longer needs it still get
-  pruned on schedule, leaving this one multi-entity record stranded as a gap-surrounded
-  island rather than part of a coherent, replayable chain. **(b) extend retention for
-  everything back to the oldest cross-entity dependency** — rejected because one
-  long-lived cross-entity relationship would force retaining every unrelated operation
-  system-wide back to that point, unboundedly, defeating the entire point of a per-entity
-  cap. No third option has been proposed yet.
 - **Fine-grained revision-history reachability across a schema change.** Conservative
   default (blocked) is decided; the touched-field-bookkeeping refinement is not.
 - **Exact attribute/API surface** for `#[DefaultInstance]`, converter classes, rename/retype
