@@ -1,9 +1,10 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 2)
 
-**Status: open (2026-09-30).** A second audit pass over `ARCHITECTURE_V2.md`/
-`ROADMAP_V2.md`, done after `CLEANUP_FOR_V2.md`'s 20 items were folded back into both
-documents. This is a punch list, not a spec. Ordered by how much it changes what gets
-built, not alphabetically.
+**Status: in progress (2026-09-30) — items 1-4 resolved and folded into
+`ARCHITECTURE_V2.md`/`ROADMAP_V2.md`; items 5-6 partially decided, paused mid-discussion.**
+A second audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`, done after
+`CLEANUP_FOR_V2.md`'s 20 items were folded back into both documents. This is a punch list,
+not a spec. Ordered by how much it changes what gets built, not alphabetically.
 
 ## Real inconsistencies
 
@@ -128,10 +129,65 @@ Phase 6.2, Phase 6.4).
 
 ## Lower-severity / worth a note
 
-### 5. `#[EditorExtensible]` revocation's lazy-fixup trigger is undefined for the native-side case
+### 5. `#[EditorExtensible]` revocation's lazy-fixup trigger is undefined for the native-side case — **partially decided, in progress (2026-09-30)**
 
 Revocation "falls back to `entities` directly... applied lazily on the next schema
 save/fixer run." Well-defined for editor-created subclasses (they have `SchemaEditor` save
 events to hang the lazy fixer off of), but a native class losing `#[EditorExtensible]` has
 no analogous "schema save" event — native schema changes are reviewed migration files, not
-runtime saves. What actually triggers the fixer run in that case is never said.
+runtime saves. What actually triggers the fixer run in that case was never said.
+
+**Decided so far**: native-triggered and editor-created-triggered revocation are two
+separate passes, not one shared mechanism (an earlier draft proposed routing both through
+the dangling-reference auditing tool — superseded by this split, which maps onto a
+distinction the doc already relies on elsewhere: native changes are reviewed/deploy-gated,
+editor-created changes are live/unreviewed).
+
+- **Native-triggered** (a class loses `#[EditorExtensible]`, or is deleted): the mechanical
+  reparent-to-`entities` for every affected direct subclass is applied automatically as
+  part of the deploy step, since the triggering change was already human-reviewed there.
+  It also leaves a "missing parent, needs review" marker — the deploy fixes the plumbing so
+  the app keeps working, it doesn't make the final call on whether `entities`-direct is the
+  actually-correct long-term parent.
+- **Editor-created-triggered** (an admin deletes a prototype with live editor-created
+  subclasses): stays broken until manually fixed, deliberately, matching the "no automatic
+  fixing, ever" posture used everywhere else in this design. The stored `prototypes.parent`
+  value is kept exactly as-is, never silently rewritten — at runtime the chain resolves as
+  if rooted directly at `entities` (so the app doesn't hard-crash), meaning any fields that
+  lived only on the now-vanished parent level become inaccessible until fixed. The editor
+  UI shows the old parent's name, flagged invalid (e.g. rendered in red) rather than
+  blanked out, so the admin knows what broke. `SchemaEditor` blocks saving this subclass's
+  schema until a valid parent is explicitly set.
+
+**Still open**:
+- Does "saving is prevented" for the editor-created case mean only *schema* saves are
+  blocked (working assumption: ordinary content reads/writes on this subclass's
+  still-resolving fields keep working normally through `Changeset`, same as any other
+  entity), or does it also block ordinary content read/write until the parent is fixed?
+  Needs explicit confirmation either way.
+- What the native-triggered "missing parent, needs review" marker actually looks like and
+  where an admin acts on it (accept the `entities`-direct fallback as final vs. pick a
+  different parent) isn't designed yet.
+
+### 6. Dangling field-type targets: Value Objects were missing from the auditing scope, and the runtime behavior of a broken field is undecided — **open, in progress (2026-09-30)**
+
+Surfaced while resolving item 5. The existing "dangling reference/embed/collection
+target" auditing category (under "Prototype/class deletion") only lists
+reference/embed/collection targets — it misses a fourth, structurally identical case:
+`valueObject()`'s custom `Type` class can also be deleted (a developer removes a custom
+type like `IBAN` or `Money` that some editor-created field still declares), leaving that
+field's declared type dangling exactly the same way a missing `#[Reference]`/`#[Embed]`
+target does. Scalars (`int`, `string`, `bool`, ...) are *not* at risk — they're PHP
+built-ins, nothing user-defined to delete.
+
+**Decided so far**: fold Value Object custom-type-class deletion into the same auditing
+tool's scanned-breakage list, alongside reference/embed/collection target and
+parent-revoked/parent-deleted.
+
+**Still open, explicitly deferred for its own discussion**: what actually happens, at
+read/write time, to a field whose declared type is broken (Reference, Embed, Collection
+item kind, or now Value Object) before an admin fixes it — fail loudly (reject reads/writes
+of that specific field, matching the "fail loudly, never silently" posture used everywhere
+else in this design) versus degrade gracefully (expose the raw stored value in some
+reduced/unvalidated form so an admin isn't looking at a totally inaccessible record).
+Nothing is decided here yet.
