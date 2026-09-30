@@ -88,7 +88,10 @@ prototype family:
   autoincrementing PK, deliberately — avoids a single global sequence shared by every
   entity in the system regardless of prototype, and keeps id generation possible without a
   round-trip to the database first.
-- `owner` — nullable, self-referencing FK to `entities.id`, `ON DELETE CASCADE`.
+- `owner` — nullable, self-referencing FK to `entities.id`, `ON DELETE RESTRICT`. Not
+  `CASCADE` — see "References and collections" and "Content write path": deletion of an
+  Owned subtree is app-mediated, and this constraint is what makes skipping that a hard
+  failure instead of a silent one.
 - `owner_field` — nullable, disambiguates which Owned relationship put this row here when
   the same shape is owned by more than one relationship.
 - `position` — nullable, `-1` for a non-collection Owned relationship, an ordinal
@@ -184,7 +187,8 @@ registration, not at migration time.
 - **Shared, collection**: a real pivot/join table, many-to-many.
 - **Owned, singular** (`OwningReference`): no column on the owner's own table. Found via
   `SELECT * FROM entities WHERE owner = ? AND owner_field = ? AND position = -1`, hydrated
-  through the owned entity's own repository. `CASCADE` via `entities.owner`.
+  through the owned entity's own repository. Deletion is app-mediated via `entities.owner`
+  (see "FK `ON DELETE` policy" below), not a raw database cascade.
 - **Owned, collection**: same query without the `position = -1` filter, ordered by
   `position`. An owned collection item lives in its own ordinary table via its own CTI
   chain — fully polymorphic, no per-relationship child table needed, no dedicated
@@ -198,12 +202,19 @@ registration, not at migration time.
 **FK `ON DELETE` policy**: `RESTRICT` (strictest) is the default for Shared references —
 the app-level topological sort in the write path is the real safe-ordering mechanism; the
 constraint is a correctness backstop, not something the normal path expects to hit.
-`CASCADE` for every Owned relationship, uniformly via `entities.owner`. `SET NULL` only
-for a reference that's genuinely optional (no `RequiredValidator`) — that absence is what
-the FK column's own nullability derives from, not a separate choice: a `SET NULL`
-constraint mechanically requires the column to actually be nullable at the DB level, so
-"optional (no `RequiredValidator`)" is the one place that decision is made, feeding both
-the column's nullability and the FK policy together.
+`RESTRICT` for `entities.owner` too, uniformly across every Owned relationship — not
+`CASCADE`. Owned deletion is conceptually cascading (an Owned child dies with its owner)
+but mechanically app-mediated: deleting an entity that still has Owned descendants is
+rejected unless every descendant was already deleted first, each one through the ordinary
+write path where it gets its own `EntityChangeRecord` (see "Content write path"). The
+alternative, `CASCADE`, would let the database quietly clean up any descendant an app-level
+bug missed — silently skipping its log entry along with it, undermining "every touched
+entity gets a record" below; `RESTRICT` turns that same bug into a hard failure instead.
+`SET NULL` only for a reference that's genuinely optional (no `RequiredValidator`) — that
+absence is what the FK column's own nullability derives from, not a separate choice: a
+`SET NULL` constraint mechanically requires the column to actually be nullable at the DB
+level, so "optional (no `RequiredValidator`)" is the one place that decision is made,
+feeding both the column's nullability and the FK policy together.
 
 ## Defaulted instances: backfilling a new field or a new parent-level row
 
@@ -339,8 +350,34 @@ error naming the cycle — no deferred-edge escape hatch until an actual case de
 it's needed. This covers an ownership cycle (`A.owner = B`, `B.owner = A`) for free: it's
 the same reference-graph cycle check, not a mechanism needing its own carve-out.
 
+**Deleting an owner auto-expands to everything it transitively owns.** Before the
+topological sort runs, a delete targeting entity X gets every entity in X's owned subtree
+(any depth) appended as its own explicit delete operation in the same changeset — reusing
+the same `owner`/`owner_field` lookup `Repository` already needs for ordinary Owned
+hydration, not a new query. This is what makes `entities.owner`'s `RESTRICT` (see
+"References and collections") never actually fire in normal operation: by the time the
+changeset flushes, every descendant is already gone through the ordinary path, deleted and
+logged like any other changeset member. This expansion is `Persistence\Changeset\`'s job,
+not `Persistence\Entity\Repository::delete()`'s — `Repository::delete()` stays a
+single-entity, CTI-chain-aware primitive; only `Repository`'s existing owned-descendant
+read is reused, not duplicated.
+
 **Concurrent-write protection**: an `expectedOperationId` receipt, reject-by-default with
-an explicit override to retry.
+an explicit override to retry. For an entity with Owned descendants, the id it must match
+is the latest operation touching *it or anything it transitively owns* — recursive over
+the owned subtree, computed from the same lookup the expansion above uses — not just its
+own direct changes. Deliberately narrow: this applies to Owned only (an Owned child has no
+life apart from its owner, so a change anywhere underneath is a change to the owner as far
+as a concurrent caller is concerned) and never to Shared (a Shared entity has independent
+life by definition; its operation id never bubbles to whatever references it).
+**This redefinition is scoped to write-time concurrency protection only** — it does not
+change the undo conflict check (still per-entity, per-field, unbubbled; see "Content undo,
+draft, and revision history"), `EntityChangeRecord` logging (still one independent record
+per touched entity, Owned or Shared), or `FieldPermission` (still per-field, independent
+regardless of Owned/Shared). **Accepted tradeoff**: the whole owned subtree becomes one
+serialization unit — two unrelated concurrent edits to two different Owned relationships
+on the same root (e.g. a Product's `MediaAsset` gallery and its `Pricing` embed) can
+spuriously conflict with each other, even though neither touches what the other changed.
 
 ## Content undo, draft, and revision history
 
@@ -359,8 +396,9 @@ row lived in a per-relationship child table with no identity of its own, but an 
 entity now has a full `entities` row exactly like a Shared one, so nothing structurally
 distinguishes it in the undo/logging path anymore. One rule for every touched entity,
 Owned or Shared, is also what lets the per-touched-entity conflict check in undo (below)
-cover Owned for free, with no ownership-based special case. This answers both "what did
-this one database transaction cause, across
+cover Owned for free, with no ownership-based special case. (This is specific to
+undo/logging — write-time concurrency protection treats Owned differently, on purpose;
+see "Content write path".) This answers both "what did this one database transaction cause, across
 everything it touched" (query by `Revision` id) and "what's this one entity's own
 history" (query that entity's own `EntityChangeRecord` chain) without either query
 fighting the other's retention needs.
@@ -529,9 +567,11 @@ independently — two already-ordinary checks composed, not a new mechanism.
 
 ## Media/file fields
 
-`MediaAsset` is the worked example exercising both Owned (inline upload, no life apart
-from its one field) and Shared (media library, referenced from wherever it's used, own
-independent history) at once. Removing a `MediaAsset` reference is immediate at the
+`MediaAsset` is the worked example exercising both Owned (inline upload, tied to its
+owner for deletion and concurrency purposes — see "Content write path" — though still
+logged with its own independent `EntityChangeRecord` history like any entity) and Shared
+(media library, referenced from wherever it's used) at once. Removing a `MediaAsset`
+reference is immediate at the
 database level; reclaiming the physical file bytes is deferred, piggybacking on the same
 manual pruning tool described above, not an automatic sweep — a file's bytes stay on disk
 as long as anything not yet manually pruned (an `EntityChangeRecord`, a live reference)

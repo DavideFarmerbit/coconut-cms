@@ -156,13 +156,21 @@ registration time, not left to fail later.
   this way from day one, no per-relationship dedicated table detour (the old design's
   first attempt, superseded before this rewrite even started). The genuinely novel
   mechanism in this design, isolated here deliberately.
+- `entities.owner` is `ON DELETE RESTRICT`, not `CASCADE` — deletion of an owner's Owned
+  descendants is app-mediated. The auto-expanding, logged version of that lives in
+  `Changeset` (Phase 4); here, proven via direct, explicit `Repository` deletes in
+  dependency order.
 - The `#[DefaultInstance]` completeness walk extended to also cover every reachable
   `#[Reference]` target, not just `#[Embed]`.
 
-**Done when**: a native class can Owned-collection a shape (`CASCADE` via
-`entities.owner`); deleting an owner cascades correctly to every Owned child, at any
-depth, through one `entities`-scoped query; the same reusable shape Owned by two unrelated
-relationships (disambiguated by `owner_field`) round-trips correctly.
+**Done when**: a native class can Owned-collection a shape via
+`entities.owner`/`owner_field`/`position`; the same reusable shape Owned by two unrelated
+relationships (disambiguated by `owner_field`) round-trips correctly; deleting an owner
+while an Owned child still references it fails with a constraint violation, and only
+succeeds once every Owned descendant, at any depth, is deleted first — proven here via
+direct `Repository` calls, since `Changeset` doesn't exist until Phase 4 (the full
+auto-expanding, logged version of this delete is Phase 4's own done-when, not retested
+here).
 
 ### 3.4 — Non-entity collections and `MediaAsset`
 
@@ -190,9 +198,13 @@ topological sort — no more manual two-step create-then-attach.
 - `Persistence\Changeset\Changeset`/`EntityChange`/`TempId` ("Content write path").
 - `Persistence\Changeset\ChangesetSorter`: full topological sort resolving `TempId` dependency edges;
   cycles rejected outright with a clear, named error.
+- Delete expansion: adding a delete for entity X to a `Changeset` also adds a delete for
+  every entity in X's owned subtree, at any depth, before `ChangesetSorter` runs — reusing
+  `Repository`'s existing owned-descendant lookup, not a new query ("Content write path").
 - `Persistence\Changeset\ChangesetFlusher`: applies a changeset as one atomic database transaction.
 - Concurrent-write protection: an `expectedOperationId` receipt, reject-by-default with an
-  explicit override to retry.
+  explicit override to retry — for an entity with Owned descendants, the expected id
+  covers its whole owned subtree, not just its own direct changes ("Content write path").
 
 **Not yet**: undo/draft, permissions, editor-created prototypes, `Query`.
 
@@ -201,9 +213,13 @@ flush commits atomically; a changeset creating a new Owned child and its owner i
 flush commits atomically too — the higher-risk mechanism (Phase 3.3 calls Owned "the
 genuinely novel mechanism in this design"), not left covered only by the Shared case; two
 new entities referencing each other in one changeset are rejected with an error naming the
-cycle; a stale `expectedOperationId` is rejected; a changeset deleting a referencer and
+cycle; a stale `expectedOperationId` is rejected, including one that's only stale on an
+entity's owned subtree rather than the entity itself; a changeset deleting a referencer and
 what it references in the wrong order is corrected by the sort, not left to rely on
-`RESTRICT` as a backstop.
+`RESTRICT` as a backstop; deleting an owner with populated Owned descendants, at any depth,
+auto-expands into an explicit delete for each one, correctly ordered, each producing its
+own logged operation — not left to `entities.owner`'s `RESTRICT` constraint to reject the
+whole transaction.
 
 ## Phase 5 — Undo, draft, revision history (content-only)
 
