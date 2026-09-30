@@ -217,13 +217,40 @@ above. No approval gate beyond a warning shown in the editor UI when an admin tr
 against an already-populated prototype; a developer triggering it from code is assumed to
 already know what they're doing.
 
-**`#[EditorExtensible]` revocation**: removing this attribute from a native class
-invalidates the parent link of every *direct* editor-created subclass of it (a subclass
-further down the chain — a subclass of that subclass — is unaffected, since its own
-parent link was never about the revoked class's extensibility). Each invalidated direct
-subclass falls back to `entities` directly, via the same reparenting mechanism, applied
-lazily on the next schema save/fixer run — not immediately. Existing data in the old
-parent-chain's tables survives untouched until that fixer runs.
+**`#[EditorExtensible]` revocation, and deleting a prototype with live editor-created
+subclasses, are the same case.** Either condition — a native class stops being
+extensible, or a prototype (native or editor-created) is deleted outright while it still
+has editor-created subclasses — invalidates the parent link of every *direct*
+editor-created subclass of it (a subclass further down the chain is unaffected, since its
+own parent link was never about the parent above it). Each invalidated direct subclass
+falls back to `entities` directly, via the same reparenting mechanism, applied lazily on
+the next schema save/fixer run — not immediately. Existing data in the old parent-chain's
+tables survives untouched until that fixer runs.
+
+**Prototype/class deletion: allowed to dangle, deliberately, not blocked or cascaded —
+because the two contexts that can reference a deleted identifier each already have their
+own way of catching it, at the point that actually matters for that context:**
+
+- **A native class referencing a deleted native class** fails loudly at registration
+  time, for free — `EntityRegistrar::register()`'s existing full-field-tree walk (already
+  needed for defaulted-instance discovery) reflects on every `#[Reference]`/`#[Embed]`
+  target it finds; if that target class no longer exists, the reflection call itself
+  throws before the app ever serves a request. No new mechanism needed, this is a
+  pre-existing check catching a new case.
+- **Deleting a native class that other native code still references** goes through the
+  same reviewed-migration tool that already takes explicit rename/retype mappings — a
+  deletion is declared there too, and the tool surfaces every remaining reference to the
+  deleted identifier as part of that same reviewed diff, instead of only failing later at
+  registration.
+- **Anything referencing a deleted identifier from an editor-created schema** — reference,
+  embed, or collection target, native or editor-created, plus the same "parent no longer
+  valid" case above — can't rely on a PHP-level throw, since editor schemas are data, not
+  compiled code. Two enforcement points instead: `SchemaEditor` blocks *saving* a schema
+  with a broken field until it's fixed or removed, and a separate auditing tool
+  proactively scans every editor-created schema for exactly this class of breakage
+  (dangling reference/embed/collection target, parent revoked, parent deleted), so an
+  admin can find and fix these without first having to stumble into each broken schema
+  individually.
 
 **No schema-level undo/redo, deliberately.** Schema mutations are immediate and permanent
 from the write path's perspective — recoverable only through a full database
@@ -231,12 +258,6 @@ backup/restore, the same posture native migrations already have (a bad migration
 already "roll back the deploy," not "invert one DDL statement"). This retires the
 two-log (`SchemaUndoLog` + content `UndoLog`) bridging design the old system was building
 toward — there's only one undo log now, and it's content-only (see below).
-
-**Schema-level delete referential integrity — explicitly deferred.** Nothing yet stops
-deleting a prototype while another prototype's `FieldDescriptor` still declares a
-reference to it, independent of live row data. Rename is unblocked (it's just another
-identifier-fixup pass, same shape as the rename fixups above); delete needs its own
-dedicated design pass before this document can call it resolved.
 
 ## Content write path
 
@@ -348,7 +369,6 @@ state) could reference them.
 
 ## Deferred — not resolved in this document
 
-- **Schema-level delete referential integrity.** Needs its own dedicated design pass.
 - **Fine-grained revision-history reachability across a schema change.** Conservative
   default (blocked) is decided; the touched-field-bookkeeping refinement is not.
 - **Exact attribute/API surface** for `#[DefaultInstance]`, converter classes, rename/retype
