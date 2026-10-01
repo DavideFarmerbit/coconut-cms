@@ -116,7 +116,7 @@ revision history") and `ROADMAP_V2.md` (Phase 5.4 builds the sequence and the
 stamping/comparison; Phase 6's intro now notes every mutation introduced there bumps it,
 exercising the guard end to end for the first time).
 
-### 4. Collection item-kind retype crossing the entity/non-entity boundary isn't actually covered by "treated identically to a retype"
+### 4. Collection item-kind retype crossing the entity/non-entity boundary isn't actually covered by "treated identically to a retype" — **resolved (2026-10-01)**
 
 Surfaced while double-checking that the four non-Owned collection kinds (scalar,
 value-object, `#[Embed]`, Shared-`Reference`) genuinely share one retype story, per item 2's
@@ -127,13 +127,30 @@ that also changes the dedicated table's shape: an `#[Embed]`-item collection (N 
 columns) becoming a `Reference`-item collection (1 FK column) needs the converter to
 *manufacture real entities* for every existing item, not just convert a column's type; a
 scalar-item collection becoming an `#[Embed]`-item collection needs columns *added*, not one
-retyped in place. Neither direction is worked out anywhere, and Phase 6.4's "Done when" bar
-doesn't test either.
+retyped in place. Neither direction was worked out anywhere, and Phase 6.4's "Done when" bar
+didn't test either.
 
-**Open**: decide whether item-kind retype across this boundary is in scope for v2 at all, and
-if so, spell out the converter's actual job (produce/destroy entity rows, not just convert
-values) and the table-shape change (columns added/dropped alongside the data conversion, not
-a plain `ALTER`) separately from the same-shape case item 2 already covers.
+Turned out to need no new mechanism, just composing two things already decided elsewhere. A
+collection's dedicated table already carries whichever value column(s) its item kind needs —
+one for scalar/value-object, the embedded shape's own flattened columns for `#[Embed]`, one
+target-FK column for `Reference` — so a retype that changes item kind can drop the old value
+column(s) and add the new ones, same `ALTER`-plus-converter posture as any other retype, just
+not always a same-column swap. Crossing into/out of `Reference` specifically is the same
+umbrella as retargeting a singular `Reference` field's own type, generalized: the converter
+produces a found-or-created entity on the way in, or consumes the existing referenced entity
+on the way out — exactly what the original retype sentence's own example already implied
+("each value-object item becomes a newly-created entity row") without ever spelling out the
+mechanics.
+
+**Decided**: no new mechanism — state explicitly that item-kind retype can change the
+dedicated table's column count (not just one column's type), and that crossing into/out of
+`Reference` reuses the Reference-retargeting converter shape already described, generalized
+from entity-to-entity to any-value-to-entity. Scoped to Shared/non-entity collections; an
+Owned collection's own item-kind change stays out of scope, same as "Flipping Owned/Shared"
+in "Deferred" (an Owned item is a full entity, not a dedicated-table row, a different
+problem). Folded into `ARCHITECTURE_V2.md` ("Migrations and schema mutation") and
+`ROADMAP_V2.md` (Phase 6.2's "Done when" bar, as its own case alongside the same-shape
+item-kind retype).
 
 ### 5. Changing a field's cardinality (`Collection` ↔ singular) — **resolved (2026-10-01)**
 

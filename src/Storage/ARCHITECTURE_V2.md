@@ -372,7 +372,27 @@ posture as any other retype — there's no new failure mode here, only the gener
 
 **Changing a collection's item kind is treated identically to a retype** — a real
 conversion via an explicit converter run per existing item (e.g. each value-object item
-becomes a newly-created entity row), never a silent drop-and-empty.
+becomes a newly-created entity row), never a silent drop-and-empty. **This holds even when
+the new item kind's own value representation has a different shape than the old one's**: a
+collection's dedicated table already carries whichever value column(s) its item kind
+needs — one column for a scalar/value-object, the embedded shape's own flattened columns for
+`#[Embed]`, one target-FK column for a `Reference` ("No blobs", "References and
+collections") — so an item-kind retype drops whichever value column(s) the old kind needed
+and adds whichever the new kind needs, the converter populating them per existing item; same
+`ALTER`-plus-converter posture as any other retype, just not always a same-column swap.
+Crossing into or out of a `Reference` item kind specifically is the same umbrella as
+retargeting a singular `Reference` field's own type above, generalized: converting *into*
+`Reference` has the converter produce a target entity (found or freshly created) per
+existing item, its id landing in the new target-FK column — the "value-object item becomes a
+newly-created entity row" example just given, worked out in full; converting *out of*
+`Reference` has the converter consume the existing referenced entity (loaded through its FK
+id) and produce whatever raw or flattened value the new item kind needs. No mechanism beyond
+what's already decided elsewhere, just composed: "value column(s) is a function of kind" from
+"No blobs" plus the Reference-retargeting converter shape already described above. (Scoped to
+Shared and non-entity collections — an Owned collection's own item-kind change is a
+different, bigger question, since an Owned item is a full independently-addressable entity,
+not a dedicated-table row, and stays out of scope here, same as "Flipping an existing
+relationship between Owned and Shared" in "Deferred".)
 
 **Changing a field's cardinality (`Collection` ↔ singular) is a deliberate retype too, never
 a side effect of anything else.** This is distinct from the deletion-triggered `NoType` path

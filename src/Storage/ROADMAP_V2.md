@@ -344,7 +344,12 @@ target type converts every existing row through its required converter, refusing
 if any row's existing target has no valid mapping; retyping a `Collection` field into a
 singular one (or the reverse) through its own required converter drops the now-unused
 dedicated table (or creates a freshly-needed one), proven as its own case distinct from a
-deletion-triggered `NoType` conversion, which never changes cardinality; renaming a
+deletion-triggered `NoType` conversion, which never changes cardinality; retyping a
+`Collection`'s item kind across the entity/non-entity boundary (a collection of
+value-object items retyped into a collection of `Reference` items, and the reverse) runs its
+required converter per existing item, dropping the old value column(s) and adding whatever
+the new item kind needs, proven alongside the same-shape item-kind retype case rather than
+assuming every item-kind change is a same-column swap; renaming a
 Shared-collection or
 non-entity-collection field (introduced in Phase 3) renames its own dedicated table too,
 not just the field's metadata; removing such a field drops that dedicated table outright;
