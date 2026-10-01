@@ -103,7 +103,7 @@ re-adopting the no-column representation — is itself the same shape of problem
 doesn't add a new gap, the existing one just resurfaces here.) Folded into
 `ARCHITECTURE_V2.md` ("Migrations and schema mutation") and `ROADMAP_V2.md` (Phase 6.4).
 
-### 3. The concurrency-tradeoff example conflates an Embed field with an Owned relationship
+### 3. The concurrency-tradeoff example conflates an Embed field with an Owned relationship — **resolved (2026-10-01)**
 
 "Content write path" illustrates the owned-subtree-serialization tradeoff with "two
 unrelated concurrent edits to two different Owned relationships on the same root (e.g. a
@@ -114,11 +114,13 @@ conflicts with any other edit to that same row (ordinary single-row concurrency,
 independent of the Owned-subtree-bubbling rule) — it doesn't actually illustrate the
 tradeoff the sentence claims to illustrate.
 
-**Open**: fix the example to cite two genuinely distinct Owned relationships (e.g. a
-`MediaAsset` gallery and a separate Owned `Warranty` singular reference), confirming the
-tradeoff's reasoning still holds with a correct example.
+**Fixed**: example corrected to two genuinely distinct Owned relationships (a `MediaAsset`
+gallery and a separately-Owned `Warranty` singular reference), with a parenthetical noting
+why an `Embed` field wouldn't have illustrated the tradeoff in the first place (it
+conflicts under ordinary single-row concurrency regardless of the Owned-subtree rule).
+Folded into `ARCHITECTURE_V2.md` ("Content write path").
 
-### 4. `ARCHITECTURE_V2.md` points to a check it never describes
+### 4. `ARCHITECTURE_V2.md` points to a check it never describes — **resolved (2026-10-01)**
 
 The Embed-of-Embed cycle-detection paragraph says "Same posture as the existing
 table-name-collision ... checks below" — but the table-name-collision guard is only ever
@@ -127,9 +129,13 @@ collision guard), never in `ARCHITECTURE_V2.md` itself. This reverses the docume
 stated convention (roadmap references architecture section headings and builds against
 them, "not a re-explanation here" — not the other direction).
 
-**Fix**: either add a short description of the table-name-collision rule to
-`ARCHITECTURE_V2.md` (it's referenced as if already established there), or reword the
-cycle-detection paragraph to point at `ROADMAP_V2.md` instead of "below".
+**Fixed**: added a short paragraph to "Migrations and schema mutation" stating the
+collision rule itself (every table name — an entity's own, derived or `#[Table]`-pinned,
+and every field's own dedicated table — shares one namespace; a collision fails
+registration immediately), cross-referencing back to the `#[Embed]`-cycle-detection
+posture it already echoed. The original "checks below" forward-reference now resolves
+correctly, no reword needed. Folded into `ARCHITECTURE_V2.md` ("Migrations and schema
+mutation").
 
 ## Roadmap coverage gaps
 

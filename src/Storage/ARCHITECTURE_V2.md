@@ -284,6 +284,14 @@ everywhere else. Not needed for a `Reference` or `Embed` field rename, which are
 covered by the column/table renames above; this is specific to the no-column case an
 Owned relationship is.
 
+**Every table name is checked for collisions at registration time, not discovered later as
+a migration failure**: an entity's own table name (derived from the class's short name, or
+pinned via an explicit `#[Table]`) and every field's own dedicated table (the pivot table,
+or the "No blobs" child table, both named the same derived-or-pinned way) all land in one
+shared namespace; two unrelated identifiers landing on the same name fail registration
+immediately with an actionable error. Same fail-loudly-at-registration posture as the
+`#[Embed]`-cycle-detection and defaulted-instance-completeness checks above.
+
 **A Shared-collection or non-entity-collection field's own dedicated table (the pivot
 table, or the "No blobs" child table) is a derived name too, not a pinned one** — same as
 an entity's own table name falls back to a derivation from the class's short name absent
@@ -578,8 +586,12 @@ draft, and revision history"), `EntityChangeRecord` logging (still one independe
 per touched entity, Owned or Shared), or `FieldPermission` (still per-field, independent
 regardless of Owned/Shared). **Accepted tradeoff**: the whole owned subtree becomes one
 serialization unit — two unrelated concurrent edits to two different Owned relationships
-on the same root (e.g. a Product's `MediaAsset` gallery and its `Pricing` embed) can
-spuriously conflict with each other, even though neither touches what the other changed.
+on the same root (e.g. a Product's `MediaAsset` gallery and its separately-Owned
+`Warranty` singular reference) can spuriously conflict with each other, even though
+neither touches what the other changed. (An `Embed` field like `Pricing` doesn't need this
+tradeoff to conflict with a concurrent edit elsewhere on the same root — it's flattened
+into the owner's own row, so any two edits touching that same row already conflict under
+ordinary single-row concurrency, independent of the Owned-subtree-bubbling rule above.)
 
 ## Content undo, draft, and revision history
 
