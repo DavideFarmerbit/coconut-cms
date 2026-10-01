@@ -335,7 +335,11 @@ renaming/retyping a field on a shape
 used as an `#[Embed]` target (introduced in Phase 2) propagates to every table embedding
 it, not just the shape's own declaration; retargeting a `Reference` field to a different
 target type converts every existing row through its required converter, refusing loudly
-if any row's existing target has no valid mapping; renaming a Shared-collection or
+if any row's existing target has no valid mapping; retyping a `Collection` field into a
+singular one (or the reverse) through its own required converter drops the now-unused
+dedicated table (or creates a freshly-needed one), proven as its own case distinct from a
+deletion-triggered `NoType` conversion, which never changes cardinality; renaming a
+Shared-collection or
 non-entity-collection field (introduced in Phase 3) renames its own dedicated table too,
 not just the field's metadata; removing such a field drops that dedicated table outright;
 renaming a field that declares an `OwningReference` or an Owned `Collection` (introduced

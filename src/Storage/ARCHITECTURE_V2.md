@@ -195,11 +195,14 @@ registration, not at migration time.
   `RESTRICT`.
 - **Shared, collection**: a real pivot/join table, many-to-many, with its own `position`
   column — ordered from day one, same as Owned and non-entity collections. The pivot
-  carries `position` and nothing else, ever: a relationship that needs richer per-row
-  metadata (a note, a date, anything beyond order) isn't a bare many-to-many anymore and
-  should be modeled as a real join-entity (an Owned collection of small entities, each
-  holding a Shared singular reference to the actual target) instead of growing more
-  columns onto the pivot.
+  carries `position` and exactly one target-FK column, nothing else, ever: a relationship
+  that needs richer per-row metadata (a note, a date, anything beyond order) isn't a bare
+  many-to-many anymore and should be modeled as a real join-entity (an Owned collection of
+  small entities, each holding a Shared singular reference to the actual target) instead of
+  growing the pivot's own column count. That target-FK column's own type still changes like
+  any other field's when the collection's item kind is retyped (`NoType` included, see
+  "Migrations and schema mutation") — a swap of that one column, never an addition
+  alongside it, so retyping never actually grows what the pivot carries.
 - **Owned, singular** (`OwningReference`): no column on the owner's own table. Found via
   `SELECT * FROM entities WHERE owner = ? AND owner_field = ? AND position = -1`, hydrated
   through the owned entity's own repository. Deletion is app-mediated via `entities.owner`
@@ -370,6 +373,21 @@ posture as any other retype — there's no new failure mode here, only the gener
 **Changing a collection's item kind is treated identically to a retype** — a real
 conversion via an explicit converter run per existing item (e.g. each value-object item
 becomes a newly-created entity row), never a silent drop-and-empty.
+
+**Changing a field's cardinality (`Collection` ↔ singular) is a deliberate retype too, never
+a side effect of anything else.** This is distinct from the deletion-triggered `NoType` path
+below, which explicitly preserves cardinality (`NoType`'s storage shape is a function of
+cardinality, never the reverse) — that mechanism never collapses a collection into a
+singular value, and this one doesn't touch it. Collapsing an existing `Collection` field into
+a singular one needs an explicit converter that picks or combines the field's existing items
+into one value, same "no attempt to guess, refuse loudly" posture as any other retype; the
+collection's own dedicated table (the Shared pivot, or the "No blobs" child table) drops once
+the converter's consumed it, same as removing any other collection field. The reverse (a
+singular field becoming a `Collection`) needs an explicit converter that decides how to
+produce items from the one existing value, landing in a freshly created dedicated table the
+same shape any other collection field gets. No new mechanism either way — an `ALTER` plus an
+explicit converter, same as every other retype, just one where the physical shape changes
+from a column to a table or back instead of one column's type changing to another.
 
 **Reparenting** (add/change/remove a class's parent) is mechanically uniform for native
 and editor-created once every chain already has `entities` as its structural top:
