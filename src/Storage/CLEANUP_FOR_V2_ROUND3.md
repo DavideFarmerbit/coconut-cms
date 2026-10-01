@@ -31,7 +31,7 @@ column of its own), the same no-column case "References and collections" already
 describes. Folded into `ARCHITECTURE_V2.md` ("Migrations and schema mutation") and
 `ROADMAP_V2.md` (Phase 6.2).
 
-### 2. `NoType` names "Collection-item" as a kind it converts, but never works out that case
+### 2. `NoType` names "Collection-item" as a kind it converts, but never works out that case — **resolved (2026-10-01)**
 
 The sentence introducing `NoType` lists "a `Reference`, `Embed`, `Collection`-item, or
 Value-Object field" as the four kinds that convert — but the very next sentence's worked
@@ -45,11 +45,63 @@ pivot/child-table row get its own per-row preserved record, or does it just not 
 collections at all (in which case the opening sentence is wrong to list it)? Phase 6.4's
 "Done when" bar doesn't test this case either.
 
-**Open**: decide whether `NoType` actually applies to `Collection`-item fields and, if so,
-what it preserves and where it's stored; otherwise correct the opening sentence to drop
-"Collection-item" from the list and explain what happens to a dangling collection-item
-target instead (if anything different from the ordinary CASCADE/dangling-row handling
-already described elsewhere).
+Working through this surfaced a bigger reframe: `NoType`'s actual purpose is to leave a
+later `retype()` something concrete to convert from, not to serve as a historical record
+(undo/revision history already covers that independently, for any entity's own deletion).
+Read that way, `NoType`'s storage shape should be a pure function of cardinality — a
+column for singular, a dedicated table for a collection — never of which kind of field it
+used to be. This also surfaced that `OwningReference`/Owned-`Collection` were entirely
+unaddressed (see item 2b below, filed as its own item since it grew into a distinct
+question), and that an earlier candidate resolution (flip the deleted-prototype's own rows
+to a `NoType` identity *in place*, leaving every referencing site untouched) didn't hold up
+under scrutiny — it assumes `Reference` FKs always target `entities.id` rather than the
+specific concrete table (unstated, possibly false), it silently drops the existing
+cascade-delete/Owned-expansion machinery for the dying row's own descendants, it adds a
+permanent blob column to the universal `entities` table paid by every entity in the system
+forever, and it spreads `NoType`-awareness into the identity-resolution layer itself
+(`find()`/`lazyFind()`/`Query` materialization) rather than keeping it scoped to ordinary
+field hydration.
+
+**Decided**: `Reference` used as a `Collection`'s item kind converts the same way a
+singular `Reference` does, just per-item — the blob (old target type and id) lands on a
+new column added to the collection's own dedicated/pivot table, replacing the dropped
+target-FK column; the collection itself, its table, and its `position` ordering are
+untouched, only the item kind becomes `NoType`. `Embed`/Value-Object collection-items
+already worked this way (one blob column added to the collection's own dedicated table,
+same as the singular case lands on the owner's row) — no change needed there, just made
+explicit. Folded into `ARCHITECTURE_V2.md` ("Migrations and schema mutation") and
+`ROADMAP_V2.md` (Phase 6.4).
+
+### 2b. `OwningReference`/Owned-`Collection` had no `NoType` treatment at all — **resolved (2026-10-01)**
+
+Neither document said what happens to an `OwningReference` or an Owned `Collection`'s item
+kind when the owned type's own prototype is deleted. Unlike `Reference`/`Embed`/Value
+Object, an Owned relationship has no column (singular) or dedicated table (collection) to
+convert in the first place — "no column on the owner's own table" is the entire point of
+the Owned mechanism (see "References and collections"). A first pass considered leaving
+it unaddressed on the theory that the owned row's own deletion is already fully captured
+by its `EntityChangeRecord`, so nothing is actually lost — rejected once the purpose
+clarification above landed: `EntityChangeRecord` answers "what happened historically," not
+"what can a live `retype()` convert from right now," which is what `NoType` is actually
+for, and an Owned relationship has exactly the same retype-ability need `Reference` does.
+
+**Decided**: reuse the same primitives as everywhere else, applied to the one case that
+doesn't have a slot to put them in yet. An `OwningReference` converting to `NoType` gets a
+*new* column added to the owner's own row — the owned row's own full recursively-flattened
+field tree is captured into it (the same capture `Embed` already does), read off the owned
+row before it's deleted through the ordinary, unchanged Phase 4 cascade-delete path (full
+topological sort, Owned-subtree expansion for anything it in turn owned). An Owned
+`Collection`-item converting to `NoType` gets the same capture, landed in a newly-created
+dedicated child table scoped to that field, the same shape "No blobs" already uses for a
+non-entity collection. This makes `NoType`'s storage shape a pure function of cardinality,
+never of originating field kind: an `OwningReference`/Owned-`Collection` field stops being
+the no-column/no-table case the moment it degrades, and from then on reads/retypes through
+the exact same path every other `NoType` field already uses, no Owned-aware special-casing
+anywhere in `Repository`. (Retyping back into a live `OwningReference` specifically — i.e.
+re-adopting the no-column representation — is itself the same shape of problem as
+"Flipping an existing relationship between Owned and Shared," already in "Deferred"; this
+doesn't add a new gap, the existing one just resurfaces here.) Folded into
+`ARCHITECTURE_V2.md` ("Migrations and schema mutation") and `ROADMAP_V2.md` (Phase 6.4).
 
 ### 3. The concurrency-tradeoff example conflates an Embed field with an Owned relationship
 

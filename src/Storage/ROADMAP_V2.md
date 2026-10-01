@@ -362,15 +362,25 @@ grandparent and deleted parent) still resolves correctly down to `entities`.
   editor-created subclasses keep their own existing instances untouched (only their
   parent link is affected, per 6.3).
 - `NoType`: a reserved `FieldDescriptor` kind (structurally a Value Object) that a
-  `Reference`, `Embed`, `Collection`-item, or Value-Object field converts into when its
-  target becomes unresolvable or its value must be invalidated by an upstream deletion,
-  capturing what can be preserved in a blob — the one deliberate, narrow exception to "no
-  blobs." Converting a live `Reference` to `NoType` drops its FK column entirely (not a
-  null-out), which is what lets prototype deletion always succeed without weakening
-  `RESTRICT` for ordinary deletes or touching `RequiredValidator`. Converting every
-  embedding field to `NoType` when the embedded prototype disappears reclaims what would
-  otherwise be permanent dead columns, using the same recursive field-tree resolution
-  Phase 2 already built for flattening, not a shallow top-level-only walk.
+  `Reference`, `Embed`, `Collection`-item, Value-Object, `OwningReference`, or Owned
+  `Collection`-item field converts into when its target becomes unresolvable or its value
+  must be invalidated by an upstream deletion — to leave a later `retype()` something to
+  convert from, not as a historical record (undo/revision history already covers that
+  independently). Capturing what can be preserved in a blob is the one deliberate, narrow
+  exception to "no blobs"; where that blob lands is purely a function of cardinality, never
+  of which kind of field it used to be — a new column on the declaring row for a singular
+  field, a new column on the field's own dedicated/pivot table for a collection-item.
+  Converting a live `Reference` to `NoType` drops its FK column entirely (not a null-out),
+  which is what lets prototype deletion always succeed without weakening `RESTRICT` for
+  ordinary deletes or touching `RequiredValidator`. Converting every embedding field to
+  `NoType` when the embedded prototype disappears reclaims what would otherwise be
+  permanent dead columns, using the same recursive field-tree resolution Phase 2 already
+  built for flattening, not a shallow top-level-only walk. Converting an `OwningReference`
+  or Owned `Collection`-item to `NoType` doesn't change deletion itself at all — the owned
+  row(s) still go through the ordinary cascade-delete path built in Phase 4 — it only adds
+  a capture-before-delete step (same recursive flattening as the `Embed` case) and, for the
+  first time, a real column/dedicated table for what was previously the no-column/no-table
+  Owned representation.
 - Reverse-index discovery (Phase 2) generalizes past `#[Embed]` to also find `Reference`
   targets, `Collection` item kinds, and Value Object custom-type classes — one mechanism,
   four predicates, reused for backfill/rename/retype propagation, dangling-target
@@ -387,13 +397,20 @@ grandparent and deleted parent) still resolves correctly down to `entities`.
 
 **Done when**: deleting a prototype with existing rows still live-referenced elsewhere by
 a `RESTRICT`-protected `Reference` succeeds, converting that reference to `NoType` first
-rather than failing or silently orphaning the FK; deleting a prototype used as an `#[Embed]`
-target converts every embedding field (including one with a nested embed inside it) to
-`NoType`, capturing every flattened value before dropping the now-redundant columns;
-deleting a prototype cascade-deletes its own existing instances but leaves a live
-editor-created subclass's own instances fully intact, flagged only via 6.3's parent-link
-mechanism; the auditing tool finds a dangling Value Object target the same way it finds a
-dangling reference/embed/collection target.
+rather than failing or silently orphaning the FK; deleting a prototype that's a Shared
+`Collection`'s item kind converts every existing item, in place in that collection's own
+pivot table, to `NoType`, preserving `position` and the collection's own cardinality
+rather than silently losing membership to the pivot's `CASCADE`; deleting a prototype used
+as an `#[Embed]` target converts every embedding field (including one with a nested embed
+inside it) to `NoType`, capturing every flattened value before dropping the now-redundant
+columns; deleting a prototype that's owned via an `OwningReference` converts the owner's
+field to `NoType` on a newly-added column, capturing the owned row's own recursively-
+flattened values before it's deleted through the ordinary Phase 4 cascade-delete path, not
+before; the same for an Owned `Collection`-item, landing in a newly-created dedicated
+child table instead; deleting a prototype cascade-deletes its own existing instances but
+leaves a live editor-created subclass's own instances fully intact, flagged only via 6.3's
+parent-link mechanism; the auditing tool finds a dangling Value Object target the same way
+it finds a dangling reference/embed/collection target.
 
 **Not yet** (end of Phase 6): `FieldPermission`, `Query`.
 

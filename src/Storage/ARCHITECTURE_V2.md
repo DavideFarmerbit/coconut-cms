@@ -439,30 +439,65 @@ to make every `Reference` column nullable regardless of `RequiredValidator` — 
 retype the referencing field before the delete ever runs:
 
 - **`NoType`** is a reserved `FieldDescriptor` kind, structurally a Value Object, that any
-  `Reference`, `Embed`, `Collection`-item, or Value-Object field gets converted into when
-  its declared target becomes unresolvable or its current value must be invalidated by an
-  upstream deletion. It holds a blob capturing whatever can be preserved about the old
-  value — for a `Reference`, the old target type and id; for an `Embed`, every value from
-  the *full recursively-flattened field tree* (including nested embeds and nested
-  value-object members, not just the shape's own top-level fields — the same recursive
-  resolution `PrototypeRegistry::fieldsOf()` already uses for ordinary flattening); for a
-  Value Object, the old custom `Type` class name and raw value. This is a deliberate,
-  narrow exception to "No blobs" above, reserved for exactly this degraded state, never a
-  general storage tier for ordinary data.
-- Before a prototype's existing rows are deleted, every existing row found (via the
-  data-level query noted above) to hold a live value through a `Reference` targeting one
-  of them gets that field converted to `NoType` first — which drops the old FK column
-  entirely rather than nulling it, so by the time the row delete runs, nothing has a
-  structurally-enforced pointer at it anymore and `RESTRICT` never fires.
-  `RequiredValidator` needs no change either: a `NoType` value is a well-formed value, not
-  a `NULL` violating a `NOT NULL` column.
-- The same conversion resolves the `Embed` case independent of any delete even being
-  involved: deleting an *embedded* prototype can't leave its flattened columns sitting on
-  every embedding table forever (real, unreclaimable schema debris feeding the exact
-  column-count risk "No blobs" already flagged) and can't just drop them either (silent
-  data loss). Converting to `NoType` first captures every value, then the now-redundant
-  flattened columns (all of them, recursively) get dropped — consolidating what was many
-  dead columns into one recoverable blob, losing nothing.
+  `Reference`, `Embed`, `Collection`-item, Value-Object, `OwningReference`, or Owned
+  `Collection`-item field gets converted into when its declared target becomes
+  unresolvable or its current value must be invalidated by an upstream deletion. **Its
+  purpose is to leave a later `retype()` something concrete to convert from** — not to
+  serve as a historical record, which the undo/revision-history pipeline already provides,
+  independently, for any entity's own deletion (see "Content undo, draft, and revision
+  history"). That purpose is what fixes both what gets captured and where it's stored:
+  enough of the old value survives to feed a converter, landed whichever way an ordinary
+  field of that cardinality is already landed elsewhere in this design, never a new storage
+  shape invented just for this. This is a deliberate, narrow exception to "No blobs" above,
+  reserved for exactly this degraded state, never a general storage tier for ordinary data.
+- **Singular `Reference`**: the blob (old target type and id) lands on a new column added
+  to the referencing row itself, replacing the dropped FK column. **`Reference` used as a
+  `Collection`'s item kind**: the same blob, per existing item, lands on a new column added
+  to that collection's own dedicated table (the Shared pivot, carrying `position` already)
+  — the FK-to-target column on that table is what gets dropped, not the table itself; the
+  collection keeps its own existing table, ordering, and cardinality, only its item kind
+  becomes `NoType`.
+- **`Embed`, singular or `Collection`-item**: every value from the *full
+  recursively-flattened field tree* (including nested embeds and nested value-object
+  members, not just the shape's own top-level fields — the same recursive resolution
+  `PrototypeRegistry::fieldsOf()` already uses for ordinary flattening) is captured into one
+  blob, landed the same way as the `Reference` case above (a new column on the referencing
+  row for singular, a new column on the collection's own dedicated table for
+  collection-item), then the now-redundant flattened columns (all of them, recursively) get
+  dropped — consolidating what was many dead columns into one recoverable blob, losing
+  nothing. This resolves independent of any delete even being involved: deleting an
+  *embedded* prototype can't leave its flattened columns sitting on every embedding table
+  forever (real, unreclaimable schema debris feeding the exact column-count risk "No blobs"
+  already flagged) and can't just drop them either (silent data loss).
+- **Value Object, singular or `Collection`-item**: the old custom `Type` class name and raw
+  value, landed the same way as the two cases above.
+- **`OwningReference`**: there's no column to replace on the owner's own row — a live
+  `OwningReference` never has one (see "References and collections") — so a new column is
+  added to the owner's own row to hold the blob, the same shape every other singular
+  `NoType` field already lands in. What it captures mirrors `Embed`'s own capture: every
+  value from the owned row's *full recursively-flattened field tree*, read off it before
+  it's deleted. Deletion itself doesn't change at all — the owned row still goes through
+  the ordinary cascade-delete path (`Changeset`, the full topological sort, Owned-subtree
+  expansion for anything *it* in turn owned), exactly as any other delete; the capture is
+  just a read that happens first, the same sequencing `Embed`'s own conversion already
+  uses. **Owned `Collection`-item**: same capture, same ordinary deletion of every existing
+  item — but landed in a newly-created dedicated child table scoped to that field
+  (`ownerId`, `position`, blob), created on demand the moment the first item needs it, the
+  exact same shape "No blobs" already uses for a non-entity collection's own dedicated
+  table.
+- **`NoType`'s storage shape is therefore purely a function of cardinality — a column for
+  singular, a dedicated table for a collection — never of which kind of field it used to
+  be.** An `OwningReference`/Owned-`Collection` field stops being the no-column/no-table
+  case the moment it degrades to `NoType`: that representation only ever applied to a
+  *live*, functioning Owned relationship; once degraded it's an ordinary `NoType` field like
+  any other, read and later retyped through the exact same path every other `NoType` field
+  uses, no Owned-aware special-casing anywhere in `Repository`. (Retyping it back into a
+  live `OwningReference` specifically — re-adopting the no-column/no-table representation —
+  is itself the same shape of problem as "Flipping an existing relationship between Owned
+  and Shared," already listed in "Deferred"; this doesn't add a new gap, the existing one
+  just resurfaces here too.)
+- `RequiredValidator` needs no change for any of the above: a `NoType` value is a
+  well-formed value, not a `NULL` violating a `NOT NULL` column.
 - This is exactly where an admin-facing warning before a destructive delete earns its
   keep (`Editor\`, later) — *"this is referenced/embedded/owned by all of these, sure?"*
   — built on the same reverse index and the same data-level "is anything live" query, not
