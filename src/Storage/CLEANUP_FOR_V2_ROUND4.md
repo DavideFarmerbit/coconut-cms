@@ -81,25 +81,40 @@ architecture's own wording was ambiguous.
 
 ## Missing pieces
 
-### 3. Revision-restore's schema-change cutoff has nothing to check against
+### 3. Revision-restore's schema-change cutoff has nothing to check against — **resolved (2026-10-01)**
 
 "Content undo, draft, and revision history" says restore "by default cannot reach back past
 any schema change to that prototype." But "Migrations and schema mutation" retires
 schema-level logging entirely — "No schema-level undo/redo, deliberately," "recoverable only
 through a full database backup/restore," "there's only one undo log now, and it's
-content-only." Nothing in either document introduces a record of *when* a schema mutation
+content-only." Nothing in either document introduced a record of *when* a schema mutation
 happened per prototype, yet the restore guard needs exactly that to decide which
-`EntityChangeRecord`s predate a change. `ROADMAP_V2.md` Phase 5.4 notes the guard "can't be
-meaningfully exercised until Phase 6" but doesn't flag that the data it needs doesn't exist
+`EntityChangeRecord`s predate a change. `ROADMAP_V2.md` Phase 5.4 noted the guard "can't be
+meaningfully exercised until Phase 6" but didn't flag that the data it needs doesn't exist
 either.
 
-This is distinct from the already-deferred refinement (field-level reachability bookkeeping)
-— the *conservative default* itself is listed as decided, not deferred, but has no
-underlying mechanism to implement it with.
+A first candidate fix (a `schema_version` counter *per prototype*) ran into a bigger problem
+on review: schema mutations routinely affect more than the one prototype named in the call —
+an `#[Embed]` rename fans out to every embedding table's own columns, an `OwningReference`
+rename fixes up `entities.owner_field` on the owning side, prototype-level rename touches
+every other prototype's stored `reference()`/`embed()`/`collection()` pointers. Scoping the
+counter per prototype means correctly enumerating every propagation path a mutation might
+reach — exactly the bookkeeping the document already defers as a separate, later refinement
+("bookkeeping exactly what a given schema operation touched"), not something the conservative
+default should need to get right first.
 
-**Open**: decide what records a schema change's occurrence (a lightweight append-only
-timestamp/sequence per prototype, stamped onto `EntityChangeRecord` at write time?) without
-reintroducing the two-log bridging design this rewrite already retired.
+**Decided**: one single **global**, monotonically-incrementing `schema_version` (the same
+monotonic-sequence idiom `Revision` already uses) instead of one per prototype. Every schema
+mutation of any kind, native or editor-created, anywhere, bumps it. Every
+`EntityChangeRecord` is stamped with the current value at write time; restore refuses by
+default unless a chosen record's stamped version still matches the current one. Deliberately
+coarser than strictly necessary — it can't miss a propagation path because it doesn't need
+to know propagation paths exist — consistent with the document's own framing that the
+current default isn't yet scoped to "exactly what was touched" (that precision is the named,
+already-deferred refinement). Folded into `ARCHITECTURE_V2.md` ("Content undo, draft, and
+revision history") and `ROADMAP_V2.md` (Phase 5.4 builds the sequence and the
+stamping/comparison; Phase 6's intro now notes every mutation introduced there bumps it,
+exercising the guard end to end for the first time).
 
 ### 4. Collection item-kind retype crossing the entity/non-entity boundary isn't actually covered by "treated identically to a retype"
 

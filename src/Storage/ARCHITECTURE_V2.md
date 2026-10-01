@@ -726,13 +726,22 @@ pruning something else.
   surface, distinct from Ctrl+Z): reads one entity's own `EntityChangeRecord` chain and
   restores it to a chosen past state by flushing a new changeset — itself producing a new
   `Revision`, same as everything else. **By default cannot reach back past any schema
-  change to that prototype** — after a schema change, prior operations on that prototype
-  are assumed invalid until proven otherwise. Worth refining later by bookkeeping exactly
-  what a given schema operation touched and only blocking restore for the touched part —
-  reusing the same never/conditional/always classification already used for
-  schema-mutation kinds (purely-additive changes never block; a single-field change like
-  drop/rename/retype blocks only that field; reparent/delete block more broadly) — but the
-  conservative default is what's decided now; the refinement is not.
+  change anywhere** — a single global, monotonically-incrementing `schema_version` (the
+  same monotonic-sequence idiom `Revision` itself already uses), bumped by every schema
+  mutation of any kind, native or editor-created, including every propagating side effect
+  (an `#[Embed]` rename's fan-out to every embedding table, an `OwningReference` rename's
+  `owner_field` fixup, reparenting, prototype deletion's `NoType` conversions, ...). Every
+  `EntityChangeRecord` is stamped with the current `schema_version` at write time; restore
+  refuses by default unless a chosen record's stamped version still matches the current
+  one. Deliberately global rather than scoped per prototype: correctly enumerating every
+  propagation path a given mutation might touch is exactly the bookkeeping the refinement
+  below defers, not something the conservative default needs to get right first. Worth
+  narrowing later by bookkeeping exactly what a given schema operation actually touched and
+  only blocking restore for the touched part — reusing the same never/conditional/always
+  classification already used for schema-mutation kinds (purely-additive changes never
+  block; a single-field change like drop/rename/retype blocks only that field;
+  reparent/delete block more broadly) — but the conservative, global default is what's
+  decided now; the refinement is not.
 
 ## Identity Map + Repository + lazy loading
 

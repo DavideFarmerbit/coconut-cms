@@ -276,9 +276,12 @@ as an ordinary flush.
   and reused as-is by `SchemaPermission` (Phase 6.1) and `FieldPermission` (Phase 7), no
   changes needed later.
 - Revision-history restore: reads one entity's own `EntityChangeRecord` chain, restores by
-  flushing a new changeset. The "blocked past any schema change" guard is written here but
-  can't be meaningfully exercised until Phase 6 introduces schema mutation — noted, not a
-  blocker.
+  flushing a new changeset. Needs a single global, monotonically-incrementing
+  `schema_version` sequence, stamped onto every `EntityChangeRecord` at write time — the
+  "blocked past any schema change" guard compares a chosen record's stamped version against
+  the current one. The sequence and the stamping/comparison are built here; nothing bumps
+  the sequence yet until Phase 6 introduces schema mutation, so the guard can't be
+  meaningfully exercised end to end until then — noted, not a blocker.
 - A manual pruning tool: explicit, human-triggered, no automatic policy of any kind, gated
   by a new `Persistence\Permission\HistoryPermission` ("Permissions").
 
@@ -296,7 +299,10 @@ editor-created prototypes, schema mutation, `Query`.
 **Goal**: admins can create prototypes and safely mutate editor-created subclasses at
 runtime. `DynamicEntity` and the editor-created branch of `PrototypeRegistry` are
 exercised for the first time here — plugging into machinery every prior phase already
-built generically, no retrofit.
+built generically, no retrofit. Every mutation introduced across this phase —
+`createPrototype()`, `addField()`/`dropField()`/`rename()`/`retype()`, `reparent()` — also
+bumps the global `schema_version` sequence from Phase 5.4, exercising its restore-blocking
+guard end to end for the first time.
 
 ### 6.1 — Second identifier kind, minimal creation path
 
