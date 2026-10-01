@@ -261,10 +261,20 @@ the referenced type has neither an explicit default nor a defaulted instance.
 `Schema`/`Comparator` for diffing and DDL generation. A human reviews generated DDL before
 it touches production.
 
-**Editor-created subclasses**: safe runtime DDL only, scoped to that subclass's own table,
-never the parent's — add a nullable column, drop a column, rename a field, retype a field
-(see below). Nothing else, ever; this is enforced by `SchemaEditor` exposing no other
-mutation method, not just by policy.
+**Editor-created subclasses**: safe runtime DDL only, scoped to that subclass's own schema,
+never the parent's — add a field, drop a field, rename a field, retype a field (see below).
+**Adding a field**'s physical shape is a pure function of the field's own kind, not a fifth
+operation per kind: a column on the subclass's own table for
+scalar/value-object/singular-`Reference`/`Embed`-flattening, a dedicated pivot/child table
+for a `Collection`, no physical change at all beyond the registry record for an
+`OwningReference` or Owned `Collection` (see "References and collections", "No blobs").
+This has to be true: `SchemaEditor` is the live, unreviewed counterpart to a native class's
+own attribute-declared fields (see "Shape comes from a neutral descriptor"), and it has to
+support every `FieldDescriptor` kind a PHP class can declare, not a scalar-only subset, or
+admin-authored content types would permanently fall short of "content types can be
+assembled entirely in the editor" ("The goal"). Nothing else, ever, beyond these four
+field-level operations; this is enforced by `SchemaEditor` exposing no other mutation
+method, not just by policy.
 
 **Rename — no attributes, ever, for either kind.** Passed explicitly at the point the
 change is triggered instead of inferred by diffing two snapshots or tracked with
@@ -313,7 +323,7 @@ the Embed-target column propagation just above, not something the developer sepa
 re-declares per affected table. Removing the field drops the table outright: for native,
 whatever DDL `Comparator` produces once the field's declaration disappears from the class,
 reviewed like any other native DDL; for editor-created, a `SchemaEditor` operation with the
-same safe-DDL-only scoping `dropColumn()` already has, just at table granularity.
+same safe-DDL-only scoping `dropField()` already has, just at table granularity.
 
 **Retype is a real `ALTER`, never drop-and-recreate, and always needs an explicit
 converter — no attempt to guess how to convert existing data.** For native: the converter

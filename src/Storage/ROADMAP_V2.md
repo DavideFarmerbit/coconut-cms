@@ -304,7 +304,8 @@ built generically, no retrofit.
   `PrototypeRegistry::instantiate()`/`fieldsOf()` — the second identifier kind the
   registry interface has supported since Phase 1.
 - `Persistence\Schema\SchemaEditor::createPrototype()` — minimal, scalar fields only, no parent
-  complexity yet.
+  complexity yet. Non-scalar field addition is deliberately not stubbed here — it lands in
+  6.2's `addField()`, once an existing prototype can be safely mutated at all.
 - `Persistence\Permission\SchemaPermission` gating from the start, not bolted on after.
 
 **Done when**: an admin without `SchemaPermission` cannot create a prototype; one who does
@@ -315,14 +316,22 @@ existed.
 
 ### 6.2 — Mutating an existing, populated prototype
 
-- `addColumn()`/`dropColumn()`, `rename()` (prototype and field, explicit old→new mapping
+- `addField()`/`dropField()`, `rename()` (prototype and field, explicit old→new mapping
   passed in, never inferred, never an attribute), `retype()` (field, collection-item-kind,
   and `Reference` target type, an explicit converter class required, refused otherwise) —
-  safe-DDL-only, scoped to the subclass's own table ("Migrations and schema mutation").
+  safe-DDL-only, scoped to the subclass's own schema ("Migrations and schema mutation").
+  `addField()` accepts any `FieldDescriptor` kind, not just scalar: a column for
+  scalar/value-object/singular-`Reference`/`Embed`-flattening, a new dedicated pivot/child
+  table for a `Collection`, no physical change beyond the registry record for an
+  `OwningReference` or Owned `Collection` — this is what actually lets an editor-created
+  prototype gain a relationship field at all, deferred from 6.1's scalar-only creation path.
 
-**Done when**: an already-populated editor-created prototype can have a column
-added/dropped/renamed/retyped safely, each gated by `SchemaPermission`, each reflected
-immediately through the ordinary read/write path; renaming/retyping a field on a shape
+**Done when**: an already-populated editor-created prototype can have a field of any kind
+added, each landing in the physical shape its kind implies (a column, a new dedicated
+table, or nothing beyond the registry record for an Owned relationship) without disturbing
+existing rows; a column can be added/dropped/renamed/retyped safely, each gated by
+`SchemaPermission`, each reflected immediately through the ordinary read/write path;
+renaming/retyping a field on a shape
 used as an `#[Embed]` target (introduced in Phase 2) propagates to every table embedding
 it, not just the shape's own declaration; retargeting a `Reference` field to a different
 target type converts every existing row through its required converter, refusing loudly
