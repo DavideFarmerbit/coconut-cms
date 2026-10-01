@@ -294,18 +294,28 @@ posture as everywhere else in this design. **Retyping a field on an `#[Embed]` t
 propagates the same way rename does** — every embedding table runs the same `ALTER` +
 converter against its own flattened copy of the column.
 
-**Finding "every table that embeds shape X"** — needed by new-field backfill above and by
-both propagation rules just above — reuses discovery machinery this design already builds
-for other reasons, not a new scan. For native classes, `EntityRegistrar::register()`'s
-existing full-field-tree walk (already visiting every `#[Embed]` site, ordinary field or
-collection-of-embed, while looking for defaulted instances) also records the reverse edge
-— shape X to every site embedding it — as a byproduct of that same pass, no extra cost.
-For editor-created schemas, the same live-scan the dangling-reference auditing tool below
-already performs over every stored schema, checking a different predicate (a field's kind,
-or a collection's item kind, is `embed(X)`) instead of "does this target still exist." A
+**Finding "every site that points at shape X"** — needed by new-field backfill above, by
+both propagation rules just above, and by the dangling-target auditing and deletion
+machinery below — reuses discovery machinery this design already builds for other
+reasons, not a new scan, and generalizes past `#[Embed]` to every kind of "points at X": a
+`#[Reference]` target, a `#[Embed]` target, a `Collection`'s item kind, and a Value
+Object's custom `Type` class. For native classes, `EntityRegistrar::register()`'s existing
+full-field-tree walk (already visiting every field of every kind while looking for
+defaulted instances) also records the reverse edge for each one — shape X to every site
+pointing at it — as a byproduct of that same pass, no extra cost. For editor-created
+schemas, the same live-scan the dangling-reference auditing tool below already performs
+over every stored schema, checking a different predicate (a field's kind, or a
+collection's item kind, points at X) instead of "does this target still exist." A
 non-entity collection's dedicated child table is one of the sites this walk/scan finds,
-not a separate mechanism from an ordinary embedding field on the declaring prototype's own
-row — same abstract site, different landing table.
+not a separate mechanism from an ordinary field on the declaring prototype's own row — same
+abstract site, different landing table.
+
+**This reverse index only answers "what *declares* a pointer at X"** — a schema-level
+question. "What's actually *using* one right now" (does any existing row hold a live,
+non-null value through one of those fields) is a separate, data-level query, needed by the
+deletion machinery below and by any future admin-facing warning before a destructive
+action. Keeping these two distinct matters: a tool built on only the schema-level index
+would under- or over-count what a deletion actually touches.
 
 **Retargeting a `Reference` field's own type (it used to point at `Category`, now it
 should point at `Tag`) is a retype, not a separate mechanism.** Same umbrella as above,
@@ -328,19 +338,125 @@ above. No approval gate beyond a warning shown in the editor UI when an admin tr
 against an already-populated prototype; a developer triggering it from code is assumed to
 already know what they're doing.
 
-**`#[EditorExtensible]` revocation, and deleting a prototype with live editor-created
-subclasses, are the same case.** Either condition — a native class stops being
-extensible, or a prototype (native or editor-created) is deleted outright while it still
-has editor-created subclasses — invalidates the parent link of every *direct*
-editor-created subclass of it (a subclass further down the chain is unaffected, since its
-own parent link was never about the parent above it). Each invalidated direct subclass
-falls back to `entities` directly, via the same reparenting mechanism, applied lazily on
-the next schema save/fixer run — not immediately. Existing data in the old parent-chain's
-tables survives untouched until that fixer runs.
+**Reparenting onto a level the entity already had a row for (most commonly: fixing a
+broken parent, see below) needs no backfill at all** — the defaulted-instance mechanism
+exists for a level an entity never had a row for; a level it already had, that only
+became temporarily unreachable, already has a valid row sitting there, untouched.
+**Removing a level, for any reparent, deletes that level's now-stray data for the
+reparented entity and every one of its live subclasses, as an immediate, direct part of
+the same reparent operation** — not deferred to the manual pruning tool described under
+"Content undo, draft, and revision history": a stray CTI-level row isn't historical data
+worth preserving the way an `EntityChangeRecord` or a still-possibly-referenced file is,
+it's a duplicate of current state the new, shorter chain will never join again. This was
+already implicitly required the moment "removing one CTI level" was decided above, for
+any reparent, not just the broken-parent-fix case below — it was never stated until now.
 
-**Prototype/class deletion: allowed to dangle, deliberately, not blocked or cascaded —
-because the two contexts that can reference a deleted identifier each already have their
-own way of catching it, at the point that actually matters for that context:**
+**`PrototypeRegistry::chainOf()` doesn't throw when a stored parent identifier fails to
+resolve — it truncates the chain there**, treating the affected identifier as rooted at
+`entities` directly from that point on. This is the shared primitive every case below
+builds on. Nothing about any table or row changes to make this true: the tables on either
+side of the break were already correctly linked, resolution just stops walking past it.
+Because of that, it needs no defaulted-instance backfill (that mechanism is for a level
+that never had a row; here every remaining level already does). Two consequences fall out
+for free, not extra mechanism: a subclass of the affected identifier inherits the same
+truncated view the moment *its own* `chainOf()` walk reaches that same point further up
+(its own parent link was never touched, never needed to be); and a chain with more than
+one broken link in a row still resolves correctly, since this only ever needs to find the
+first unresolvable link walking up from the leaf, and never needs to know what's further
+up a chain it's already discarding.
+
+**`#[EditorExtensible]` revocation, and deleting a prototype with live editor-created
+subclasses, both invalidate the parent link of every *direct* editor-created subclass of
+the revoked/deleted identifier** (a subclass further down the chain is unaffected at the
+link level, since its own link was never about the identifier that disappeared — but it
+inherits the truncated view above regardless). What happens around that shared primitive
+differs by trigger, because one is reviewed/deploy-gated and the other is live/unreviewed
+— the same distinction this design already draws everywhere else between native and
+editor-created schema changes:
+
+- **Native-triggered**: the stored parent identifier is left exactly as-is on every
+  affected direct subclass, never silently rewritten, and the deploy step that reviewed
+  the triggering change also marks every affected direct subclass with a "missing parent,
+  needs review" flag. The `entities`-direct truncation above already makes the subclass
+  fully functional (minus whatever fields lived only on the now-unreachable parent level);
+  the flag exists purely so an admin can later make a deliberate call — accept the
+  fallback permanently, or reparent somewhere more meaningful — not because anything is
+  actually broken or blocked in the meantime.
+- **Editor-created-triggered**: stays broken until manually fixed, deliberately — no
+  deploy gate reviewed this change, so nothing auto-applies, consistent with the "no
+  automatic fixing, ever" posture used everywhere else in this design. The stored parent
+  identifier is kept, never blanked, specifically so an admin-facing surface can display
+  what it used to point at. Ordinary content reads/writes on the subclass's
+  still-resolving fields keep working normally through the ordinary write path (via the
+  same truncation); `SchemaEditor` blocks saving *this subclass's own schema* until a
+  valid parent is explicitly set.
+
+**Collecting every subclass in either state needs no new backend mechanism** — it's the
+same predicate the dangling-target auditing tool below already evaluates (does a stored
+identifier still resolve through `PrototypeRegistry`), applied to `prototypes.parent`
+instead of a field's own target. `Editor\` (a separate, later track) will eventually list
+these, flag them on a schema's own edit view, and offer a recap page jumping to each one —
+none of that changes what the backend needs to expose now, only that the predicate stays
+queryable, which keeping the stale identifier already guarantees.
+
+**Prototype/class deletion drops the prototype's own table** — there's no reason to keep
+a dead identifier's storage around once nothing can resolve it through `PrototypeRegistry`
+anymore. "Allowed to dangle" below is entirely about *other* things that reference the
+deleted identifier, never about the deleted identifier's own data.
+
+**Deleting a prototype also cascade-deletes every existing entity row of exactly that
+concrete type**, across its whole chain down to `entities` itself — a harder case than
+dangling, and a different one: such a row has no resolvable shape left at all, nothing
+like a stale pointer sitting harmlessly on some other row. Scoped to the *exact* concrete
+type: deleting a prototype that has live editor-created subclasses doesn't touch those
+subclasses' own existing instances (they're a different concrete type, and the subclass
+itself wasn't deleted) — it only triggers the parent-revocation fallback above for them.
+This cascade-delete runs through the ordinary entity-deletion path (`Changeset`, the
+topological sort, Owned-subtree expansion), not a bulk bypass — which is exactly why it
+needs the mechanism below to stay possible at all when some of those rows are still
+`RESTRICT`-protected by a live `Reference` elsewhere.
+
+**Deleting a prototype, or a native class other editor-created schemas still hold live
+references into, must always succeed** — the same way a native class disappearing from
+the codebase is already unstoppable from an editor-created schema's perspective. A
+`RESTRICT`-protected `Reference` would otherwise block exactly this: deleting a `Tag` row
+still pointed at by `Article.category` hits the same constraint that protects against an
+accidental single-row delete. The fix isn't to weaken `RESTRICT` for ordinary deletes, or
+to make every `Reference` column nullable regardless of `RequiredValidator` — it's to
+retype the referencing field before the delete ever runs:
+
+- **`NoType`** is a reserved `FieldDescriptor` kind, structurally a Value Object, that any
+  `Reference`, `Embed`, `Collection`-item, or Value-Object field gets converted into when
+  its declared target becomes unresolvable or its current value must be invalidated by an
+  upstream deletion. It holds a blob capturing whatever can be preserved about the old
+  value — for a `Reference`, the old target type and id; for an `Embed`, every value from
+  the *full recursively-flattened field tree* (including nested embeds and nested
+  value-object members, not just the shape's own top-level fields — the same recursive
+  resolution `PrototypeRegistry::fieldsOf()` already uses for ordinary flattening); for a
+  Value Object, the old custom `Type` class name and raw value. This is a deliberate,
+  narrow exception to "No blobs" above, reserved for exactly this degraded state, never a
+  general storage tier for ordinary data.
+- Before a prototype's existing rows are deleted, every existing row found (via the
+  data-level query noted above) to hold a live value through a `Reference` targeting one
+  of them gets that field converted to `NoType` first — which drops the old FK column
+  entirely rather than nulling it, so by the time the row delete runs, nothing has a
+  structurally-enforced pointer at it anymore and `RESTRICT` never fires.
+  `RequiredValidator` needs no change either: a `NoType` value is a well-formed value, not
+  a `NULL` violating a `NOT NULL` column.
+- The same conversion resolves the `Embed` case independent of any delete even being
+  involved: deleting an *embedded* prototype can't leave its flattened columns sitting on
+  every embedding table forever (real, unreclaimable schema debris feeding the exact
+  column-count risk "No blobs" already flagged) and can't just drop them either (silent
+  data loss). Converting to `NoType` first captures every value, then the now-redundant
+  flattened columns (all of them, recursively) get dropped — consolidating what was many
+  dead columns into one recoverable blob, losing nothing.
+- This is exactly where an admin-facing warning before a destructive delete earns its
+  keep (`Editor\`, later) — *"this is referenced/embedded/owned by all of these, sure?"*
+  — built on the same reverse index and the same data-level "is anything live" query, not
+  a new backend capability.
+
+**Everything else referencing a deleted identifier already has its own way of catching
+it, at the point that matters for that context:**
 
 - **A native class referencing a deleted native class** fails loudly at registration
   time, for free — `EntityRegistrar::register()`'s existing full-field-tree walk (already
@@ -354,14 +470,15 @@ own way of catching it, at the point that actually matters for that context:**
   deleted identifier as part of that same reviewed diff, instead of only failing later at
   registration.
 - **Anything referencing a deleted identifier from an editor-created schema** — reference,
-  embed, or collection target, native or editor-created, plus the same "parent no longer
-  valid" case above — can't rely on a PHP-level throw, since editor schemas are data, not
-  compiled code. Two enforcement points instead: `SchemaEditor` blocks *saving* a schema
-  with a broken field until it's fixed or removed, and a separate auditing tool
-  proactively scans every editor-created schema for exactly this class of breakage
-  (dangling reference/embed/collection target, parent revoked, parent deleted), so an
-  admin can find and fix these without first having to stumble into each broken schema
-  individually.
+  embed, collection-item, or Value-Object target, native or editor-created, plus the same
+  "parent no longer valid" case above — can't rely on a PHP-level throw, since editor
+  schemas are data, not compiled code. Two enforcement points instead: `SchemaEditor`
+  blocks *saving* a schema with a broken field until it's fixed or removed, and a separate
+  auditing tool proactively scans every editor-created schema for exactly this class of
+  breakage (dangling reference/embed/collection/Value-Object target, parent revoked,
+  parent deleted), so an admin can find and fix these without first having to stumble into
+  each broken schema individually. Existing data already went through the `NoType`
+  conversion above regardless, by the time any of this is found.
 
 **No schema-level undo/redo, deliberately.** Schema mutations are immediate and permanent
 from the write path's perspective — recoverable only through a full database

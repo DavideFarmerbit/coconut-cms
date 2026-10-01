@@ -1,10 +1,11 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 2)
 
-**Status: in progress (2026-09-30) — items 1-4 resolved and folded into
-`ARCHITECTURE_V2.md`/`ROADMAP_V2.md`; items 5-6 partially decided, paused mid-discussion.**
-A second audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`, done after
-`CLEANUP_FOR_V2.md`'s 20 items were folded back into both documents. This is a punch list,
-not a spec. Ordered by how much it changes what gets built, not alphabetically.
+**Status: resolved (2026-09-30).** A second audit pass over `ARCHITECTURE_V2.md`/
+`ROADMAP_V2.md`, done after `CLEANUP_FOR_V2.md`'s 20 items were folded back into both
+documents. All 6 items below have since been decided and folded back into
+`ARCHITECTURE_V2.md`/`ROADMAP_V2.md` directly — this file is kept only as a historical
+record of that audit pass, not as an open task list. Ordered by how much it changes what
+gets built, not alphabetically.
 
 ## Real inconsistencies
 
@@ -129,65 +130,95 @@ Phase 6.2, Phase 6.4).
 
 ## Lower-severity / worth a note
 
-### 5. `#[EditorExtensible]` revocation's lazy-fixup trigger is undefined for the native-side case — **partially decided, in progress (2026-09-30)**
+### 5. `#[EditorExtensible]` revocation's lazy-fixup trigger is undefined for the native-side case — **resolved (2026-09-30)**
 
 Revocation "falls back to `entities` directly... applied lazily on the next schema
 save/fixer run." Well-defined for editor-created subclasses (they have `SchemaEditor` save
-events to hang the lazy fixer off of), but a native class losing `#[EditorExtensible]` has
+events to hang the lazy fixer off of), but a native class losing `#[EditorExtensible]` had
 no analogous "schema save" event — native schema changes are reviewed migration files, not
 runtime saves. What actually triggers the fixer run in that case was never said.
 
-**Decided so far**: native-triggered and editor-created-triggered revocation are two
-separate passes, not one shared mechanism (an earlier draft proposed routing both through
-the dangling-reference auditing tool — superseded by this split, which maps onto a
-distinction the doc already relies on elsewhere: native changes are reviewed/deploy-gated,
-editor-created changes are live/unreviewed).
+**Decided**: `PrototypeRegistry::chainOf()` truncates (instead of throwing) at the first
+stored parent identifier that fails to resolve — a pure resolution-time behavior needing
+no backfill, since nothing physically changes and the tables on either side of the break
+were already correctly linked. Two things fall out of that for free: a subclass of the
+broken identifier inherits the same truncation automatically (its own link was never
+touched), and a chain with multiple broken links in a row still resolves correctly (the
+walk only ever needs the first unresolvable link nearest the leaf). Native-triggered and
+editor-created-triggered revocation are two separate passes built on that shared
+primitive, not one shared mechanism (an earlier draft proposed routing both through the
+dangling-reference auditing tool, superseded by this split, which maps onto the
+reviewed/deploy-gated vs. live/unreviewed distinction the doc already draws everywhere
+else):
 
-- **Native-triggered** (a class loses `#[EditorExtensible]`, or is deleted): the mechanical
-  reparent-to-`entities` for every affected direct subclass is applied automatically as
-  part of the deploy step, since the triggering change was already human-reviewed there.
-  It also leaves a "missing parent, needs review" marker — the deploy fixes the plumbing so
-  the app keeps working, it doesn't make the final call on whether `entities`-direct is the
-  actually-correct long-term parent.
-- **Editor-created-triggered** (an admin deletes a prototype with live editor-created
-  subclasses): stays broken until manually fixed, deliberately, matching the "no automatic
-  fixing, ever" posture used everywhere else in this design. The stored `prototypes.parent`
-  value is kept exactly as-is, never silently rewritten — at runtime the chain resolves as
-  if rooted directly at `entities` (so the app doesn't hard-crash), meaning any fields that
-  lived only on the now-vanished parent level become inaccessible until fixed. The editor
-  UI shows the old parent's name, flagged invalid (e.g. rendered in red) rather than
-  blanked out, so the admin knows what broke. `SchemaEditor` blocks saving this subclass's
-  schema until a valid parent is explicitly set.
+- **Native-triggered**: the deploy step that reviewed the triggering change auto-applies
+  the `entities`-direct fallback for every affected direct subclass and marks it "missing
+  parent, needs review" — fixes the plumbing immediately, doesn't make the final call on
+  whether the fallback is the actually-correct long-term parent.
+- **Editor-created-triggered**: stays broken until manually fixed, deliberately, matching
+  "no automatic fixing, ever." The stored `prototypes.parent` value is kept as-is, never
+  rewritten; ordinary content reads/writes on the subclass's still-resolving fields (every
+  level except the now-unreachable one) keep working normally through the ordinary write
+  path, via the same truncation; `SchemaEditor` blocks saving only *this subclass's own
+  schema* until a valid parent is set.
 
-**Still open**:
-- Does "saving is prevented" for the editor-created case mean only *schema* saves are
-  blocked (working assumption: ordinary content reads/writes on this subclass's
-  still-resolving fields keep working normally through `Changeset`, same as any other
-  entity), or does it also block ordinary content read/write until the parent is fixed?
-  Needs explicit confirmation either way.
-- What the native-triggered "missing parent, needs review" marker actually looks like and
-  where an admin acts on it (accept the `entities`-direct fallback as final vs. pick a
-  different parent) isn't designed yet.
+Collecting every subclass in either state needs no new backend mechanism — it's the same
+predicate the dangling-target auditing tool already evaluates (does a stored identifier
+still resolve), applied to `prototypes.parent`. `Editor\` listing/flagging/recap-page UI
+is explicitly deferred to that later track; the backend only needs to keep the predicate
+queryable, which it already does. Folded into `ARCHITECTURE_V2.md` ("Reparenting",
+"Migrations and schema mutation") and `ROADMAP_V2.md` (Phase 6.3).
 
-### 6. Dangling field-type targets: Value Objects were missing from the auditing scope, and the runtime behavior of a broken field is undecided — **open, in progress (2026-09-30)**
+### 6. Dangling field-type targets: Value Objects were missing from the auditing scope, prototype deletion needed to remain unblockable, and embedded data couldn't be left as dead columns — **resolved (2026-09-30)**
 
-Surfaced while resolving item 5. The existing "dangling reference/embed/collection
-target" auditing category (under "Prototype/class deletion") only lists
-reference/embed/collection targets — it misses a fourth, structurally identical case:
-`valueObject()`'s custom `Type` class can also be deleted (a developer removes a custom
-type like `IBAN` or `Money` that some editor-created field still declares), leaving that
-field's declared type dangling exactly the same way a missing `#[Reference]`/`#[Embed]`
-target does. Scalars (`int`, `string`, `bool`, ...) are *not* at risk — they're PHP
-built-ins, nothing user-defined to delete.
+Surfaced while resolving item 5, then grew substantially once the deletion case was
+actually worked through. The existing "dangling reference/embed/collection target"
+auditing category only listed reference/embed/collection targets — it missed a fourth,
+structurally identical case: `valueObject()`'s custom `Type` class can also be deleted,
+leaving a field's declared type dangling exactly the same way a missing
+`#[Reference]`/`#[Embed]` target does. Scalars aren't at risk (PHP built-ins, nothing
+user-defined to delete). Working through *how* a field actually gets into a broken state
+surfaced three bigger, connected problems:
 
-**Decided so far**: fold Value Object custom-type-class deletion into the same auditing
-tool's scanned-breakage list, alongside reference/embed/collection target and
-parent-revoked/parent-deleted.
+- **Deleting a prototype must always succeed**, the same way a native class disappearing
+  from the codebase is already unstoppable from an editor-created schema's perspective —
+  but it also has to cascade-delete every existing entity row of exactly that concrete
+  type (a harder case than "allowed to dangle," which only ever covered *other* things
+  referencing a deleted identifier, never an entity whose *own* type vanished). That
+  cascade runs through the ordinary `Changeset`/`RESTRICT` path, which means it would
+  otherwise be blockable by a live `Reference` elsewhere — unacceptable, since the
+  equivalent native-class case can't be blocked either.
+- **Embedded data can't just sit as dead columns forever once its shape is deleted** — a
+  real, unreclaimable, growing contributor to the exact column-count risk "No blobs"
+  already flagged, not a hypothetical. Dropping the columns instead would be silent data
+  loss, which is equally wrong.
+- An earlier wrong turn: proposing a `Reference`'s "fix later via retype-with-converter"
+  story the same way retargeting a live reference already works — doesn't hold, since a
+  converter needs an existing value to convert *from*, and a force-nulled reference has
+  nothing left to convert.
 
-**Still open, explicitly deferred for its own discussion**: what actually happens, at
-read/write time, to a field whose declared type is broken (Reference, Embed, Collection
-item kind, or now Value Object) before an admin fixes it — fail loudly (reject reads/writes
-of that specific field, matching the "fail loudly, never silently" posture used everywhere
-else in this design) versus degrade gracefully (expose the raw stored value in some
-reduced/unvalidated form so an admin isn't looking at a totally inaccessible record).
-Nothing is decided here yet.
+**Decided**: introduce **`NoType`**, a reserved `FieldDescriptor` kind (structurally a
+Value Object) that any `Reference`, `Embed`, `Collection`-item, or Value-Object field
+converts into when its target becomes unresolvable or its value must be invalidated by an
+upstream deletion. It holds a blob preserving what it can — old target type and id for a
+`Reference`; every value from the full *recursively*-flattened field tree (including
+nested embeds/value-objects, not just top-level fields) for an `Embed`; old custom-type
+class name and raw value for a Value Object. This is a deliberate, narrow exception to "no
+blobs," reserved only for this degraded state. Converting a live `Reference` to `NoType`
+drops its FK column entirely rather than nulling it — which is what makes prototype
+deletion always possible without weakening `RESTRICT` for ordinary deletes or needing
+every `Reference` column to tolerate `NULL` regardless of `RequiredValidator` (an earlier
+draft proposed exactly that reversal; `NoType` makes it unnecessary, since a `NoType`
+value is well-formed, not a `NULL` violating a `NOT NULL` column). The same conversion
+reclaims the embedded-data problem: capture every value into the blob, then drop the
+now-redundant flattened columns, collapsing what was many dead columns into one
+recoverable one, losing nothing.
+
+This also required generalizing item 4's reverse-index past `#[Embed]` to find every kind
+of "points at X" (`Reference`, `Embed`, `Collection`-item, Value Object), and drawing an
+explicit line between what that index answers (which schemas *declare* a pointer at X) and
+a separate, data-level query (which existing rows currently hold a *live* value) — the
+latter is what the `NoType`-conversion and any future admin-facing pre-deletion warning
+(`Editor\`, later — *"this is referenced/embedded/owned by all of these, sure?"*) actually
+need. Folded into `ARCHITECTURE_V2.md` ("Migrations and schema mutation") and
+`ROADMAP_V2.md` (Phase 6.4).

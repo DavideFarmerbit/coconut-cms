@@ -324,31 +324,72 @@ not just the field's metadata; removing such a field drops that dedicated table 
 ### 6.3 — Reparenting and `EditorExtensible`
 
 - `reparent()` — mechanically uniform insert/remove of one CTI level, backfilled via
-  `#[DefaultInstance]`.
-- `#[EditorExtensible]` attribute + revocation (falls back to `entities` directly, lazily,
-  on the next schema save) — the same mechanism as deleting a prototype with live
-  editor-created subclasses.
+  `#[DefaultInstance]` for a level the entity never had a row for; immediately deletes the
+  removed level's now-stray data for the reparented entity and every live subclass when
+  removing a level, with no backfill needed when reparenting onto a level the entity
+  already had a row for (the two sides of the same mechanism).
+- `PrototypeRegistry::chainOf()` truncates at the first stored parent identifier that
+  fails to resolve, instead of throwing — the shared primitive both halves of
+  `#[EditorExtensible]` revocation below build on.
+- `#[EditorExtensible]` attribute + revocation, split into two passes: native-triggered
+  (deploy step auto-applies the `entities`-direct fallback, marks every affected direct
+  subclass "missing parent, needs review") and editor-created-triggered (stays broken,
+  stored parent identifier kept as-is, `SchemaEditor` blocks saving that subclass's own
+  schema until a valid parent is set, ordinary content reads/writes keep working via the
+  same truncation) — the same split as deleting a prototype with live editor-created
+  subclasses, which triggers the editor-created-triggered half for them.
 
-**Done when**: reparenting an editor-created prototype backfills correctly; revoking
+**Done when**: reparenting an editor-created prototype onto a brand-new level backfills
+correctly; reparenting it back onto a level it already had a row for needs no backfill and
+the data round-trips as it was; reparenting away from a level deletes that level's data for
+the reparented entity and its subclasses immediately, not left stray; revoking
 `#[EditorExtensible]` on a native class with a live editor-created subclass falls back to
-`entities` on the next schema save, data intact until then.
+`entities` at deploy time with a "needs review" marker, content still readable/writable
+minus the vanished level's fields; the same revocation triggered by an admin deleting an
+editor-created prototype instead stays broken and blocks that subclass's own schema save
+until fixed, with no deploy-time auto-fix; a chain with two broken links in a row (deleted
+grandparent and deleted parent) still resolves correctly down to `entities`.
 
-### 6.4 — Deletion policy and auditing
+### 6.4 — Deletion policy, `NoType`, and auditing
 
-- Prototype/class deletion, dangling-allowed by design: native-referencing-native fails at
-  registration (already free, from Phase 1's field-tree walk); native deletion goes
-  through the reviewed-migration tool; anything on the editor-schema side gets a
-  `SchemaEditor` save-time block plus a separate, standalone auditing tool scanning every
-  editor-created schema for breakage.
-- The same auditing-tool scan also answers "every editor-created table that embeds shape
-  X" (checking whether a stored schema's field kind, or a collection's item kind, is
-  `embed(X)`) — the editor-created half of the discovery mechanism Phase 2 built for
-  native classes, reused here rather than a second mechanism.
+- Prototype/class deletion drops the prototype's own table and cascade-deletes every
+  existing entity row of exactly that concrete type, through the ordinary `Changeset`
+  path (not a bulk bypass) — scoped to the exact type, so a deleted prototype's live
+  editor-created subclasses keep their own existing instances untouched (only their
+  parent link is affected, per 6.3).
+- `NoType`: a reserved `FieldDescriptor` kind (structurally a Value Object) that a
+  `Reference`, `Embed`, `Collection`-item, or Value-Object field converts into when its
+  target becomes unresolvable or its value must be invalidated by an upstream deletion,
+  capturing what can be preserved in a blob — the one deliberate, narrow exception to "no
+  blobs." Converting a live `Reference` to `NoType` drops its FK column entirely (not a
+  null-out), which is what lets prototype deletion always succeed without weakening
+  `RESTRICT` for ordinary deletes or touching `RequiredValidator`. Converting every
+  embedding field to `NoType` when the embedded prototype disappears reclaims what would
+  otherwise be permanent dead columns, using the same recursive field-tree resolution
+  Phase 2 already built for flattening, not a shallow top-level-only walk.
+- Reverse-index discovery (Phase 2) generalizes past `#[Embed]` to also find `Reference`
+  targets, `Collection` item kinds, and Value Object custom-type classes — one mechanism,
+  four predicates, reused for backfill/rename/retype propagation, dangling-target
+  auditing, and now `NoType` conversion. A separate, data-level query (which existing rows
+  currently hold a live value, not just which schemas declare a possible one) feeds the
+  deletion/conversion machinery and any future admin-facing warning before a destructive
+  delete (`Editor\`, later).
+- Native-referencing-native fails at registration (already free, from Phase 1's
+  field-tree walk); native deletion goes through the reviewed-migration tool; anything on
+  the editor-schema side gets a `SchemaEditor` save-time block plus a separate, standalone
+  auditing tool scanning every editor-created schema for breakage, now including dangling
+  Value Object custom-type targets alongside reference/embed/collection targets and
+  parent revoked/deleted.
 
-**Done when**: deleting a prototype referenced elsewhere dangles, caught at the documented
-point for whichever context (native registration, reviewed migration, or the editor
-auditing tool) applies; the auditing tool also correctly finds every editor-created schema
-embedding a given shape, exercised by a rename/retype on that shape propagating to them.
+**Done when**: deleting a prototype with existing rows still live-referenced elsewhere by
+a `RESTRICT`-protected `Reference` succeeds, converting that reference to `NoType` first
+rather than failing or silently orphaning the FK; deleting a prototype used as an `#[Embed]`
+target converts every embedding field (including one with a nested embed inside it) to
+`NoType`, capturing every flattened value before dropping the now-redundant columns;
+deleting a prototype cascade-deletes its own existing instances but leaves a live
+editor-created subclass's own instances fully intact, flagged only via 6.3's parent-link
+mechanism; the auditing tool finds a dangling Value Object target the same way it finds a
+dangling reference/embed/collection target.
 
 **Not yet** (end of Phase 6): `FieldPermission`, `Query`.
 
