@@ -271,6 +271,19 @@ every embedding table has its own flattened copy of that column (`address.city` 
 `address_city`), so the rename must run against each one, not just the shape's own
 declaration.
 
+**Renaming a field that declares an `OwningReference` or an Owned `Collection` updates
+`entities.owner_field` for every existing row at that relationship** — the same rename
+trigger as above, just an `UPDATE entities SET owner_field = ? WHERE owner = ? AND
+owner_field = ?` scoped to that relationship's existing rows, run alongside the rename
+instead of a column `ALTER` (an Owned relationship has no column of its own to `ALTER`,
+per "References and collections"). Without this, every already-owned row silently stops
+resolving under the field's new name the moment the rename lands — `entities.owner` still
+gates cascade-delete correctly, but the relationship itself reads back empty, no error —
+the exact kind of silent failure the explicit-mapping rename mechanism exists to prevent
+everywhere else. Not needed for a `Reference` or `Embed` field rename, which are already
+covered by the column/table renames above; this is specific to the no-column case an
+Owned relationship is.
+
 **A Shared-collection or non-entity-collection field's own dedicated table (the pivot
 table, or the "No blobs" child table) is a derived name too, not a pinned one** — same as
 an entity's own table name falls back to a derivation from the class's short name absent

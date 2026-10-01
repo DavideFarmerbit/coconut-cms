@@ -319,7 +319,11 @@ it, not just the shape's own declaration; retargeting a `Reference` field to a d
 target type converts every existing row through its required converter, refusing loudly
 if any row's existing target has no valid mapping; renaming a Shared-collection or
 non-entity-collection field (introduced in Phase 3) renames its own dedicated table too,
-not just the field's metadata; removing such a field drops that dedicated table outright.
+not just the field's metadata; removing such a field drops that dedicated table outright;
+renaming a field that declares an `OwningReference` or an Owned `Collection` (introduced
+in Phase 3.3) updates `entities.owner_field` for every existing row at that relationship,
+proven by reading an already-owned row back correctly under the field's new name after the
+rename.
 
 ### 6.3 — Reparenting and `EditorExtensible`
 
