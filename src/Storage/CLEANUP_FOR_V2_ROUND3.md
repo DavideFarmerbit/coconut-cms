@@ -1,12 +1,12 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 3)
 
-**Status: open — working punch list, not a spec.** A third audit pass over
+**Status: resolved (2026-10-01).** A third audit pass over
 `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`, done after `CLEANUP_FOR_V2.md` and
-`CLEANUP_FOR_V2_ROUND2.md`'s items were folded back into both documents. Items below are
-not yet decided. Ordered by how much it changes what gets built, not alphabetically. As
-each item is resolved, its entry gets a **resolved (date)** tag and a summary of the
-decision, same as the two prior rounds, and the change gets folded back into
-`ARCHITECTURE_V2.md`/`ROADMAP_V2.md` directly.
+`CLEANUP_FOR_V2_ROUND2.md`'s items were folded back into both documents. All items below
+(8 found, plus item 2b split out from item 2 during resolution) have since been decided
+and folded back into `ARCHITECTURE_V2.md`/`ROADMAP_V2.md` directly — this file is kept
+only as a historical record of that audit pass, not as an open task list. Ordered by how
+much it changes what gets built, not alphabetically.
 
 ## Real inconsistencies
 
@@ -139,18 +139,31 @@ mutation").
 
 ## Roadmap coverage gaps
 
-### 5. `queryable`'s redefinition has zero roadmap coverage
+### 5. `queryable`'s redefinition has zero roadmap coverage — **resolved (2026-10-01)**
 
 "No blobs" redefines `queryable` as "purely an indexing decision" (does this real column
 get a database index). No phase in `ROADMAP_V2.md` ever adds or tests an index for a
 queryable field — unlike its sibling `unique`, which gets an explicit Phase 1.3 bullet and
 a concrete "Done when" test.
 
-**Fix**: add a `queryable` bullet (and done-when assertion) to whichever phase makes sense
-— likely Phase 1.3 alongside `unique`, or Phase 8 where indexed lookups actually start to
-matter.
+Re-examined whether the roadmap gap was the actual problem, or whether `queryable` should
+exist at all post-"no blobs": its entire v1 job was the storage-tier switch (blob vs.
+column), which is the one capability gap every field being a real column already closes
+completely. What's left — should this column get a DB index — is a pure performance
+concern with no correctness stake, fully expressible for native classes through an
+ordinary reviewed migration already (no `FieldDescriptor` flag needed), and currently
+unactionable for editor-created schemas anyway (`SchemaEditor`'s closed mutation set has
+no index-toggling operation).
 
-### 6. `SET NULL` FK policy is specified but never built or tested
+**Decided**: drop `queryable` from the vocabulary entirely rather than give it reduced
+roadmap coverage. If admin-driven index control becomes a real need later, that's a new
+`SchemaEditor` capability to design then — same "revisit only if demonstrated, not
+preemptively" posture already used for the Embed column-count risk right next to it.
+Folded into `ARCHITECTURE_V2.md` ("No blobs. Every field is a real column or a real
+table."). No `ROADMAP_V2.md` change needed — it never referenced `queryable` to begin
+with, which is what surfaced this in the first place.
+
+### 6. `SET NULL` FK policy is specified but never built or tested — **resolved (2026-10-01)**
 
 "FK `ON DELETE` policy" spells out `SET NULL` for an optional (no `RequiredValidator`)
 Shared reference, including the mechanical nullability precondition. Phase 3.2's "Done
@@ -158,22 +171,24 @@ when" bar only exercises the `RESTRICT` case (a required Shared reference) — t
 Shared-reference path, and its `SET NULL` behavior on deletion of the referenced row, is
 untested anywhere in the roadmap.
 
-**Fix**: add an optional-reference case to Phase 3.2's bullets/"Done when": declaring a
-Shared reference with no `RequiredValidator` makes the FK column nullable and
-`SET NULL`-on-delete, proven by deleting the referenced row and observing the column goes
-to `NULL` rather than being blocked.
+**Fixed**: Phase 3.2's bullets now name both FK policies explicitly (`RESTRICT` when
+required, `SET NULL` when optional), and its "Done when" bar adds the optional-reference
+case: nullable FK column, `NULL`-on-delete instead of blocked, proven alongside the
+`RESTRICT` case. Folded into `ROADMAP_V2.md` (Phase 3.2).
 
-### 7. `Actor` has no explicit build step
+### 7. `Actor` has no explicit build step — **resolved (2026-10-01)**
 
 `Persistence\Permission\Actor` (`hasRole(string): bool`) is relied on starting Phase 5.4
 (`HistoryPermission`), and again at 6.1 (`SchemaPermission`) and Phase 7
 (`FieldPermission`), but no phase ever lists building the interface itself.
 
-**Fix**: add a one-line bullet building `Actor` to Phase 5.4 (its first point of use).
+**Fixed**: added a bullet building `Actor` to Phase 5.4, its first point of use, noting
+it's reused as-is by `SchemaPermission` and `FieldPermission` later. Folded into
+`ROADMAP_V2.md` (Phase 5.4).
 
 ## Lower-severity / worth a note
 
-### 8. "Dotted-path disambiguation" is untraceable
+### 8. "Dotted-path disambiguation" is untraceable — **resolved (2026-10-01)**
 
 Phase 2's "Done when" requires "the same shape embedded twice under different field names
 on one entity works via dotted-path disambiguation" — but that term, and the mechanism it
@@ -182,6 +197,9 @@ there (`address.city` → `address_city`) suggests the field name (not the shape
 already the disambiguating column prefix, which would make this work "for free" without
 needing a named mechanism at all — but nothing in the architecture doc actually says so.
 
-**Open**: either add a sentence to "Entity vs. Value Object vs. Embed" confirming
-column-prefix-by-field-name is what disambiguates two embeds of the same shape, or correct
-the roadmap wording if something more involved was actually intended.
+**Fixed**: confirmed the "for free" reading. Added a sentence to "Entity vs. Value Object
+vs. Embed" stating explicitly that the column prefix is the field's own name, not the
+shape's, so two embeds of the same shape under different field names disambiguate via the
+existing flattening rule alone. Reworded `ROADMAP_V2.md`'s Phase 2 "Done when" to match
+(dropped the "dotted-path" term, named the actual mechanism instead). Folded into
+`ARCHITECTURE_V2.md` ("Entity vs. Value Object vs. Embed") and `ROADMAP_V2.md` (Phase 2).

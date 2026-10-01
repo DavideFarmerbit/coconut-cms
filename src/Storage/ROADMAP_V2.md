@@ -126,9 +126,10 @@ permissions, editor-created prototypes, `Query`.
 
 **Done when**: a value-object field round-trips as a single custom-typed column; an embed
 field flattens recursively, including a nested embed and a nested value-object member; the
-same shape embedded twice under different field names on one entity works via dotted-path
-disambiguation; a test embedding A-in-B-in-A is rejected at registration instead of
-recursing forever; backfilling a new field on an embedded shape finds every embedding
+same shape embedded twice under different field names on one entity disambiguates for
+free via the field's own name as column prefix (`billingAddress_city` vs.
+`shippingAddress_city`); a test embedding A-in-B-in-A is rejected at registration instead
+of recursing forever; backfilling a new field on an embedded shape finds every embedding
 table via the reverse edge, not a fresh scan.
 
 ## Phase 3 — References & collections, native CTI extension, `MediaAsset`
@@ -147,15 +148,19 @@ proven in isolation before any relationship complexity is layered on top.
 
 ### 3.2 — Shared references and collections
 
-- Shared singular (FK column, `RESTRICT`), Shared collection (real pivot table with its
-  own `position` column, both FKs `CASCADE`) ("References and collections").
+- Shared singular (FK column, `RESTRICT` when required, `SET NULL` when optional — the
+  column's own nullability derives from the same no-`RequiredValidator` check that picks
+  the FK policy), Shared collection (real pivot table with its own `position` column, both
+  FKs `CASCADE`) ("References and collections", "FK `ON DELETE` policy").
 
 **Done when**: a native class can Shared-reference another (`RESTRICT`-protected), and a
 Shared collection round-trips through a real pivot table, ordered by `position`; deleting
 either side of a Shared collection relationship removes its own join rows via `CASCADE`
 without affecting the other side; a `Reference` or `Collection` field declared on an
 `#[Embed]` target (now that both kinds exist) is rejected at registration time, not left
-to fail later.
+to fail later; an optional Shared reference (no `RequiredValidator`) gets a nullable FK
+column, and deleting its referenced row sets the column to `NULL` instead of being
+blocked, proven alongside the `RESTRICT` case rather than only the required one.
 
 ### 3.3 — Owned references and collections
 
@@ -266,6 +271,10 @@ as an ordinary flush.
 
 ### 5.4 — Revision-history restore and manual pruning
 
+- `Persistence\Permission\Actor` (`hasRole(string): bool`) — the minimal interface every
+  permission check in this design is built on, introduced here at its first point of use
+  and reused as-is by `SchemaPermission` (Phase 6.1) and `FieldPermission` (Phase 7), no
+  changes needed later.
 - Revision-history restore: reads one entity's own `EntityChangeRecord` chain, restores by
   flushing a new changeset. The "blocked past any schema change" guard is written here but
   can't be meaningfully exercised until Phase 6 introduces schema mutation — noted, not a

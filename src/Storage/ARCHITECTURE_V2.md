@@ -122,10 +122,15 @@ The single biggest change from the old design: there is no JSON-blob storage tie
 anywhere. Migrating data inside an opaque blob is the exact kind of problem this rewrite
 exists to avoid. Consequences:
 
-- `queryable` stops being a storage-tier switch (there's no second tier to switch into).
-  What's left of it is purely an indexing decision — does this already-real column get a
-  database index — independent of whether the field exists as a column at all (it
-  always does).
+- `queryable` is retired outright, not carried forward in any reduced form. Its only job
+  was the storage-tier switch — every field being filterable/sortable via SQL depended on
+  it being `true`. With no second tier to switch into, every field is already a real,
+  filterable/sortable column regardless, so there's no correctness gap left for a flag to
+  cover. What would be left is a pure indexing decision (does this column get a database
+  index) — a performance concern, not a capability one, with no mechanism to even act on
+  it yet (`SchemaEditor`'s closed set of safe mutations has no index-toggling operation).
+  Same posture as the Embed column-count risk below: not designed preemptively, revisit if
+  and when an actual schema demonstrates the need.
 - A **collection of scalars, value-object-primitives, or `#[Embed]` items** (non-entity
   items) can no longer live as a JSON array. It gets its own dedicated child table:
   `(ownerId, position, value column(s))`, `CASCADE`-deleted with the owner. This is a
@@ -160,7 +165,11 @@ into two different mechanisms instead of one:
   recursively through nested embeds and value-object members. The *same* registered
   shape can independently be a full standalone `Entity` (own table, referenced normally)
   somewhere else at the same time — the choice is per field-declaration, never a property
-  of the shape.
+  of the shape. The column prefix is the *field's* own name, not the shape's — so the same
+  shape embedded twice under different field names on one entity (`billingAddress`,
+  `shippingAddress`) disambiguates for free (`billingAddress_city`,
+  `shippingAddress_city`), with no separate mechanism needed beyond the ordinary
+  flattening rule already stated here.
 
 **An Embed target's field tree is restricted to scalar + value-object + nested-embed
 fields only — no `Reference`, no `Collection`, at any depth.** This mirrors Doctrine's
