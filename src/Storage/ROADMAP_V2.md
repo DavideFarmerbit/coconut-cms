@@ -435,9 +435,11 @@ grandparent and deleted parent) still resolves correctly down to `entities`.
   exception to "no blobs"; where that blob lands is purely a function of cardinality, never
   of which kind of field it used to be — a new column on the declaring row for a singular
   field, a new column on the field's own dedicated/pivot table for a collection-item.
-  Converting a live `Reference` to `NoType` drops its FK column entirely (not a null-out),
-  which is what lets prototype deletion always succeed without weakening `RESTRICT` for
-  ordinary deletes or touching `RequiredValidator`. Converting every embedding field to
+  Converting a live `Reference` to `NoType` drops its FK column entirely (not a null-out) —
+  prototype deletion was never blockable for a `Reference` in the first place (it can never
+  be `RESTRICT`ed), so this isn't about avoiding a failure; it's what preserves the old
+  target's identity instead of letting the ordinary `SET NULL` silently erase it, giving a
+  later `retype()` something concrete to convert from. Converting every embedding field to
   `NoType` when the embedded prototype disappears reclaims what would otherwise be
   permanent dead columns, using the same recursive field-tree resolution Phase 2 already
   built for flattening, not a shallow top-level-only walk. Converting an `OwningReference`
@@ -460,12 +462,13 @@ grandparent and deleted parent) still resolves correctly down to `entities`.
   Value Object custom-type targets alongside reference/embed/collection targets and
   parent revoked/deleted.
 
-**Done when**: deleting a prototype with existing rows still live-referenced elsewhere by
-a `RESTRICT`-protected `Reference` succeeds, converting that reference to `NoType` first
-rather than failing or silently orphaning the FK; deleting a prototype that's a Shared
-`Collection`'s item kind converts every existing item, in place in that collection's own
-pivot table, to `NoType`, preserving `position` and the collection's own cardinality
-rather than silently losing membership to the pivot's `CASCADE`; deleting a prototype used
+**Done when**: deleting a prototype with existing rows still live-referenced elsewhere by a
+`Reference` succeeds without ever being blocked (a `Reference` can never be `RESTRICT`ed),
+converting that reference to `NoType` instead of leaving a bare, uninformative `null` where
+it used to point; deleting a prototype that's a Shared `Collection`'s item kind converts
+every existing item, in place in that collection's own pivot table, to `NoType`, preserving
+`position` and the collection's own cardinality rather than leaving the slot a bare `null`
+FK; deleting a prototype used
 as an `#[Embed]` target converts every embedding field (including one with a nested embed
 inside it) to `NoType`, capturing every flattened value before dropping the now-redundant
 columns; deleting a prototype that's owned via an `OwningReference` converts the owner's

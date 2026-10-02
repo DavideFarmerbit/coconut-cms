@@ -585,13 +585,18 @@ needs the mechanism below to stay possible at all when some of those rows are st
 `RESTRICT`-protected by a live `Reference` elsewhere.
 
 **Deleting a prototype, or a native class other editor-created schemas still hold live
-references into, must always succeed** — the same way a native class disappearing from
+references into, must always succeed and must not silently discard what the deleted rows
+used to mean to whatever referenced them** — the same way a native class disappearing from
 the codebase is already unstoppable from an editor-created schema's perspective. A
-`RESTRICT`-protected `Reference` would otherwise block exactly this: deleting a `Tag` row
-still pointed at by `Article.category` hits the same constraint that protects against an
-accidental single-row delete. The fix isn't to weaken `RESTRICT` for ordinary deletes, or
-to make every `Reference` column nullable regardless of `RequiredValidator` — it's to
-retype the referencing field before the delete ever runs:
+`Reference` can never be required (see "FK `ON DELETE` policy"), so nothing ever blocks
+this delete the way `RESTRICT` would for a required value — deleting a `Tag` row still
+pointed at by `Article.category` just lets the FK `SET NULL`, the same as any other
+optional reference's target disappearing. Left at that, though, the fact that
+`Article.category` *used to* point at this specific `Tag` is lost the instant the delete
+runs, with nothing left to retype from and no trace beyond ordinary `EntityChangeRecord`
+history. The fix is to retype the referencing field to `NoType` as part of the same
+operation, before the delete runs, preserving that information instead of letting it
+degrade to a bare `null`:
 
 - **`NoType`** is a reserved `FieldDescriptor` kind, structurally a Value Object, that any
   `Reference`, `Embed`, `Collection`-item, Value-Object, `OwningReference`, or Owned
