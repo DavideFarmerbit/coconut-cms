@@ -300,19 +300,30 @@ position untouched, the slot survives, just empty) distinguishable operations in
 conflated operation. Folded into `ARCHITECTURE_V2.md` ("References and collections") and
 `ROADMAP_V2.md` (Phase 3.3, bullet and "Done when").
 
-### 9. Prototype deletion never explicitly drops that prototype's own collection fields' dedicated tables
+### 9. Prototype deletion never explicitly drops that prototype's own collection fields' dedicated tables — **resolved (2026-10-01)**
 
 "Prototype/class deletion drops the prototype's own table" — singular, referring to the
-prototype's own CTI-chain table. It never says what happens to dedicated tables belonging to
+prototype's own CTI-chain table. It never said what happens to dedicated tables belonging to
 *that prototype's own* Shared-collection or non-entity-collection fields (its own pivots/
 child tables), as distinct from "removing a field drops its dedicated table," which only
 covers removing a field while the prototype itself survives. Almost certainly these should
 drop too — a pivot/child table only makes sense scoped to rows that are themselves being
-cascade-deleted by the same operation — but it isn't written down, and an implementation
-that only drops "the prototype's own table" literally would leak orphaned tables.
+cascade-deleted by the same operation — but it wasn't written down, and an implementation
+that only dropped "the prototype's own table" literally would leak orphaned tables.
 
-**Open**: state explicitly that deleting a prototype also drops every dedicated table
-belonging to a field the prototype itself declares, alongside its own CTI-chain table.
+Double-checked the companion question while resolving this: does *renaming* a prototype
+already handle its own pivot/child tables? Yes — "renaming the declaring prototype... fans
+out to every dedicated table its own fields derive a name from" was already stated. That
+check surfaced one real gap it exposed in passing, though: the rename paragraph for an Owned
+relationship only mentioned updating `entities.owner_field`, never the field's own
+`<field>_count` column (item 8) — a real column on the owner's own table that needs an
+ordinary rename alongside it, which nothing said until now.
+
+**Decided**: deletion is the same fan-out rename already uses, dropping instead of renaming —
+a prototype's own table, plus every dedicated table a field it declares owns, all go
+together. Folded into `ARCHITECTURE_V2.md` ("Migrations and schema mutation," both the
+deletion paragraph and the Owned-relationship rename paragraph for the `<field>_count` fix)
+and `ROADMAP_V2.md` (Phase 6.2's and Phase 6.4's "Done when" bars).
 
 ## Lower-severity / worth a note
 

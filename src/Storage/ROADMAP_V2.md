@@ -373,7 +373,9 @@ dedicated table too, not just the field's metadata; removing such a field drops 
 dedicated table outright; renaming a field that declares an `OwningReference` or an Owned
 `Collection` (introduced in Phase 3.3) updates `entities.owner_field` for every existing
 row at that relationship, proven by reading an already-owned row back correctly under the
-field's new name after the rename.
+field's new name after the rename; renaming an Owned `Collection` field also renames its own
+`<field>_count` column (introduced in Phase 3.3) alongside the `owner_field` update, an
+ordinary column rename rather than a new mechanism.
 
 The same phase also proves the Owned-crossing cases that come with the general retype
 mechanism: retargeting an `OwningReference`/Owned-`Collection`'s own item type while staying
@@ -421,11 +423,13 @@ grandparent and deleted parent) still resolves correctly down to `entities`.
 
 ### 6.4 — Deletion policy, `NoType`, and auditing
 
-- Prototype/class deletion drops the prototype's own table and cascade-deletes every
-  existing entity row of exactly that concrete type, through the ordinary `Changeset`
-  path (not a bulk bypass) — scoped to the exact type, so a deleted prototype's live
-  editor-created subclasses keep their own existing instances untouched (only their
-  parent link is affected, per 6.3).
+- Prototype/class deletion drops the prototype's own table, every dedicated table a field
+  it declares owns (a Shared-collection pivot, a "No blobs" child table — the same set its
+  own rename already fans out across, per 6.2), and cascade-deletes every existing entity
+  row of exactly that concrete type, through the ordinary `Changeset` path (not a bulk
+  bypass) — scoped to the exact type, so a deleted prototype's live editor-created
+  subclasses keep their own existing instances untouched (only their parent link is
+  affected, per 6.3).
 - `NoType`: a reserved `FieldDescriptor` kind (structurally a Value Object) that a
   `Reference`, `Embed`, `Collection`-item, Value-Object, `OwningReference`, or Owned
   `Collection`-item field converts into when its target becomes unresolvable or its value
@@ -468,10 +472,13 @@ converting that reference to `NoType` instead of leaving a bare, uninformative `
 it used to point; deleting a prototype that's a Shared `Collection`'s item kind converts
 every existing item, in place in that collection's own pivot table, to `NoType`, preserving
 `position` and the collection's own cardinality rather than leaving the slot a bare `null`
-FK; deleting a prototype used
-as an `#[Embed]` target converts every embedding field (including one with a nested embed
-inside it) to `NoType`, capturing every flattened value before dropping the now-redundant
-columns; deleting a prototype that's owned via an `OwningReference` converts the owner's
+FK; deleting a prototype that declares a Shared-collection or non-entity-collection field of
+its own drops that field's own dedicated table too, not just its CTI-chain table, proven as
+its own case distinct from a field-level removal (which already drops the same table);
+deleting a prototype used as an `#[Embed]` target converts every embedding field (including
+one with a nested embed inside it) to `NoType`, capturing every flattened value before
+dropping the now-redundant columns; deleting a prototype that's owned via an
+`OwningReference` converts the owner's
 field to `NoType` on a newly-added column, capturing the owned row's own recursively-
 flattened values before it's deleted through the ordinary Phase 4 cascade-delete path, not
 before; the same for an Owned `Collection`-item, landing in a newly-created dedicated

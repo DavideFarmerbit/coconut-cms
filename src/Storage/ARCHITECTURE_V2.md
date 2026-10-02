@@ -349,7 +349,10 @@ gates cascade-delete correctly, but the relationship itself reads back empty, no
 the exact kind of silent failure the explicit-mapping rename mechanism exists to prevent
 everywhere else. Not needed for a `Reference` or `Embed` field rename, which are already
 covered by the column/table renames above; this is specific to the no-column case an
-Owned relationship is.
+Owned relationship is. **An Owned `Collection` field's own `<field>_count` column does
+need an ordinary rename alongside this** — unlike the relationship itself, the count column
+is a real column on the owner's own declaring table, renamed the same way any other column
+would be, run as part of the same rename operation.
 
 **Every table name is checked for collisions at registration time, not discovered later as
 a migration failure**: an entity's own table name (derived from the class's short name, or
@@ -567,10 +570,15 @@ these, flag them on a schema's own edit view, and offer a recap page jumping to 
 none of that changes what the backend needs to expose now, only that the predicate stays
 queryable, which keeping the stale identifier already guarantees.
 
-**Prototype/class deletion drops the prototype's own table** — there's no reason to keep
-a dead identifier's storage around once nothing can resolve it through `PrototypeRegistry`
-anymore. "Allowed to dangle" below is entirely about *other* things that reference the
-deleted identifier, never about the deleted identifier's own data.
+**Prototype/class deletion drops the prototype's own table and every dedicated table a
+field it declares owns** — its own CTI-chain table, plus any Shared-collection pivot or
+"No blobs" child table its own fields derive a name from, the same set "renaming the
+declaring prototype" above already fans out across for a rename; deletion is the same fan
+out, just dropping instead of renaming. There's no reason to keep any of that storage
+around once nothing can resolve the identifier through `PrototypeRegistry` anymore. This is
+about the deleted identifier's *own* dedicated tables only — "Allowed to dangle" below is
+entirely about *other* prototypes' fields that merely reference the deleted identifier,
+never about the deleted identifier's own data or its own fields' tables.
 
 **Deleting a prototype also cascade-deletes every existing entity row of exactly that
 concrete type**, across its whole chain down to `entities` itself — a harder case than
