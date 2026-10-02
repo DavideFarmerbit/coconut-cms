@@ -320,18 +320,17 @@ it touches production.
 
 **Editor-created subclasses**: safe runtime DDL only, scoped to that subclass's own schema,
 never the parent's — add a field, drop a field, rename a field, retype a field (see below).
-**Adding a field**'s physical shape is a pure function of the field's own kind, not a fifth
-operation per kind: a column on the subclass's own table for
-scalar/value-object/singular-`Reference`/`Embed`-flattening, a dedicated pivot/child table
-for a `Collection`, no physical change at all beyond the registry record for an
-`OwningReference` or Owned `Collection` (see "References and collections", "No blobs").
-This has to be true: `SchemaEditor` is the live, unreviewed counterpart to a native class's
-own attribute-declared fields (see "Shape comes from a neutral descriptor"), and it has to
-support every `FieldDescriptor` kind a PHP class can declare, not a scalar-only subset, or
-admin-authored content types would permanently fall short of "content types can be
-assembled entirely in the editor" ("The goal"). Nothing else, ever, beyond these four
-field-level operations; this is enforced by `SchemaEditor` exposing no other mutation
-method, not just by policy.
+Nothing else, ever, at the field level; this is enforced by `SchemaEditor` exposing no other
+field-level mutation method, not just by policy. **Adding a field**'s physical shape is a
+pure function of the field's own kind, not a fifth operation per kind: a column on the
+subclass's own table for scalar/value-object/singular-`Reference`/`Embed`-flattening, a
+dedicated pivot/child table for a `Collection`, no physical change at all beyond the registry
+record for an `OwningReference` or Owned `Collection` (see "References and collections", "No
+blobs"). This has to be true: `SchemaEditor` is the live, unreviewed counterpart to a native
+class's own attribute-declared fields (see "Shape comes from a neutral descriptor"), and it
+has to support every `FieldDescriptor` kind a PHP class can declare, not a scalar-only
+subset, or admin-authored content types would permanently fall short of "content types can
+be assembled entirely in the editor" ("The goal").
 
 **Rename — no attributes, ever, for either kind.** Passed explicitly at the point the
 change is triggered instead of inferred by diffing two snapshots or tracked with

@@ -6,7 +6,7 @@ yet. Ordered by how much it changes what gets built, not alphabetically.
 
 ## Real inconsistencies
 
-### 1. `SchemaEditor`'s "nothing else, ever" claim contradicts `createPrototype()`/`reparent()`
+### 1. `SchemaEditor`'s "nothing else, ever" claim contradicts `createPrototype()`/`reparent()` — **resolved (2026-10-02)**
 
 "Migrations and schema mutation" states, for editor-created subclasses: "Nothing else, ever,
 beyond these four field-level operations [add/drop/rename/retype a field]; this is enforced
@@ -26,11 +26,17 @@ just description; an implementation built around "exactly these 4 methods, nothi
 to be weakened the moment `createPrototype()`/`reparent()` land — the exact kind of late
 retrofit this rewrite exists to avoid.
 
-**Open**: decide whether to (a) rescope the sentence to "no other **field**-level mutation
-method" (create/reparent/delete are prototype-level, not field-level, so this reads as true
-once scoped), or (b) something else if there's a reason the four-field-op closure was meant
-to be a closure over *all* of `SchemaEditor`. Write whichever into `ARCHITECTURE_V2.md`
-explicitly, and spot-check Phase 6's roadmap text doesn't repeat the same unscoped claim.
+**Decided**: the wording was too strong — it was only ever meant to close the set of
+*field-level* operations, not all of `SchemaEditor`. Also turned out to be misplaced, not
+just unscoped: the sentence sat at the end of the "adding a field handles every
+`FieldDescriptor` kind" digression, reading as if it concluded that specific point rather
+than the opening list of four operations it actually refers to. Fixed both at once by moving
+it to directly follow "add a field, drop a field, rename a field, retype a field (see
+below)" and rewording in place ("Nothing else, ever, **at the field level**... no other
+**field-level** mutation method") rather than appending a new sentence to explain the scope —
+cheaper than explaining the exception, since the sentence no longer claims more than it
+means. Folded into `ARCHITECTURE_V2.md` ("Migrations and schema mutation"); no
+`ROADMAP_V2.md` change needed, since the roadmap never repeated the unscoped claim itself.
 
 ### 2. Retype converter stated as both mandatory and optional
 
