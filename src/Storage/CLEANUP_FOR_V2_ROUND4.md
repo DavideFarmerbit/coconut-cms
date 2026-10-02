@@ -327,19 +327,40 @@ and `ROADMAP_V2.md` (Phase 6.2's and Phase 6.4's "Done when" bars).
 
 ## Lower-severity / worth a note
 
-### 10. Reparenting's destructive path gets much less ceremony than everything else
+### 10. Reparenting's destructive path gets much less ceremony than everything else — **resolved (2026-10-01)**
 
 "Reparenting" lets an admin (no deploy review) immediately and permanently delete a CTI
-level's "now-stray data," gated only by "a warning shown in the editor UI." Compare that to
-native migrations ("a human reviews generated DDL before it touches production") or manual
-history pruning (its own dedicated `HistoryPermission`, framed as "real historical data, not
-disposable cache... a deliberate, human-triggered action"). Reparenting causes comparably
-permanent, unrecoverable (no schema-level undo) data loss but gets neither a named permission
-check nor anything beyond a UI warning.
+level's "now-stray data," gated only by "a warning shown in the editor UI." Compared against
+manual history pruning (its own dedicated `HistoryPermission`, "real historical data, not
+disposable cache"), this looked under-ceremonied. That turned out to be the wrong baseline —
+pruning destroys deliberately-preserved content history, which this stray data never was.
+The right comparison is prototype deletion, which is at least as destructive (loses a whole
+class's worth of data) and gets the identical treatment: ordinary `SchemaPermission`, no
+extra ceremony named anywhere. By that comparison reparenting was already consistent, not
+under-ceremonied.
 
-**Open**: confirm this is intentional (a UI warning is enough because stray-level data isn't
-"real" history the way content history is) or decide reparenting-with-data-loss should sit
-behind `SchemaPermission` plus something more than a warning.
+That comparison surfaced a real asymmetry anyway, just a different one: prototype
+deletion's cascade-delete explicitly runs through the ordinary `Changeset` path, so every
+row it destroys gets its own `EntityChangeRecord` and is recoverable via ordinary
+undo/revision-restore until manually pruned. Reparenting's stray-row removal was explicitly
+*not* treated that way — called out as happening immediately, "not deferred to the manual
+pruning tool," reasoned as "a duplicate of current state," which undersells it: those were
+live field values, genuinely destroyed, and structurally the operation is identical to any
+other entity deletion (removing rows from that CTI level's own table).
+
+**Decided**: route reparenting's stray-row deletion through the same ordinary `Changeset`
+path prototype deletion already uses, rather than a special unlogged schema-tier side
+effect — consistency, not new ceremony. This doesn't make the reparent itself undo-able
+(the schema mutation still has no undo, ever, and the chain no longer walks through the
+removed level regardless of whether its old rows exist) — ordinary Ctrl+Z undo has no
+schema-version gate of its own (only "Revision-history restore," a different surface, does),
+so it could technically restore the rows, but they'd come back orphaned from the chain, not
+a clean recovery of the reparent. The real value is narrower and still worthwhile: the data
+is recoverable from history by a human who notices the mistake, rather than gone the instant
+the operation runs with only a full database restore as recourse — consistent with "no
+automatic pruning, ever" already governing everything else this design is willing to
+destroy. Folded into `ARCHITECTURE_V2.md` ("Reparenting") and `ROADMAP_V2.md` (Phase 6.3's
+bullet and "Done when").
 
 ### 11. The Shared-collection pivot and the "No blobs" child table are never named as one shared mechanism
 

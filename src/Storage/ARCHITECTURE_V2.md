@@ -515,12 +515,18 @@ exists for a level an entity never had a row for; a level it already had, that o
 became temporarily unreachable, already has a valid row sitting there, untouched.
 **Removing a level, for any reparent, deletes that level's now-stray data for the
 reparented entity and every one of its live subclasses, as an immediate, direct part of
-the same reparent operation** — not deferred to the manual pruning tool described under
-"Content undo, draft, and revision history": a stray CTI-level row isn't historical data
-worth preserving the way an `EntityChangeRecord` or a still-possibly-referenced file is,
-it's a duplicate of current state the new, shorter chain will never join again. This was
-already implicitly required the moment "removing one CTI level" was decided above, for
-any reparent, not just the broken-parent-fix case below — it was never stated until now.
+the same reparent operation** — triggered by the schema mutation, but the deletion itself
+is ordinary content deletion, through the same `Changeset` path "Deleting a prototype also
+cascade-deletes every existing entity row" already uses, each stray row getting its own
+`EntityChangeRecord` like any other delete. This was already implicitly required the moment
+"removing one CTI level" was decided above, for any reparent, not just the broken-parent-fix
+case below — it was never stated until now. Unlike the reparent itself (a schema mutation,
+no undo, ever), this makes the lost data recoverable from ordinary history instead of only
+from a full database backup — not a clean undo of the reparent as a whole (the chain no
+longer walks through the removed level regardless of whether its old rows still exist), but
+enough that a human who notices the mistake can find the old values and act on them
+deliberately, consistent with "no automatic pruning, ever" already governing everything
+else this design is willing to destroy.
 
 **`PrototypeRegistry::chainOf()` doesn't throw when a stored parent identifier fails to
 resolve — it truncates the chain there**, treating the affected identifier as rooted at

@@ -397,7 +397,9 @@ which has no required case to fail at all.
 - `reparent()` — mechanically uniform insert/remove of one CTI level, backfilled via
   `#[DefaultInstance]` for a level the entity never had a row for; immediately deletes the
   removed level's now-stray data for the reparented entity and every live subclass when
-  removing a level, with no backfill needed when reparenting onto a level the entity
+  removing a level, through the ordinary `Changeset` path like any other delete (introduced
+  in Phase 4), not a special unlogged side effect — recoverable from history even though
+  the reparent itself isn't; no backfill needed when reparenting onto a level the entity
   already had a row for (the two sides of the same mechanism).
 - `PrototypeRegistry::chainOf()` truncates at the first stored parent identifier that
   fails to resolve, instead of throwing — the shared primitive both halves of
@@ -413,7 +415,9 @@ which has no required case to fail at all.
 **Done when**: reparenting an editor-created prototype onto a brand-new level backfills
 correctly; reparenting it back onto a level it already had a row for needs no backfill and
 the data round-trips as it was; reparenting away from a level deletes that level's data for
-the reparented entity and its subclasses immediately, not left stray; revoking
+the reparented entity and its subclasses immediately, not left stray, each deleted row
+producing its own `EntityChangeRecord` the same as any other delete rather than vanishing
+unlogged; revoking
 `#[EditorExtensible]` on a native class with a live editor-created subclass falls back to
 `entities` at deploy time with a "needs review" marker, content still readable/writable
 minus the vanished level's fields; the same revocation triggered by an admin deleting an
