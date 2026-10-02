@@ -2,7 +2,7 @@
 
 **Status: open.** A fourth audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`, done after
 `CLEANUP_FOR_V2.md`, `CLEANUP_FOR_V2_ROUND2.md`, and `CLEANUP_FOR_V2_ROUND3.md`'s items were
-folded back into both documents. 9 items found (4 surfaced mid-resolution while working
+folded back into both documents. 11 items found (7 surfaced mid-resolution while working
 through the original 4, same as Round 3's item 2b). Ordered by how much it changes what gets
 built, not alphabetically. Resolve one at a time; fold each decision back into
 `ARCHITECTURE_V2.md`/`ROADMAP_V2.md` directly as it closes, same as every prior round.
@@ -235,7 +235,72 @@ one where the physical shape changes from a column to a table or back. Folded in
 `ARCHITECTURE_V2.md` ("Migrations and schema mutation") and `ROADMAP_V2.md` (Phase 6.2's
 "Done when" bar, as its own case distinct from `NoType` conversion).
 
-### 7. Prototype deletion never explicitly drops that prototype's own collection fields' dedicated tables
+### 7. `Reference` was wrongly allowed to be "required," and retype converters were wrongly treated as mandatory and per-item — **resolved (2026-10-01)**
+
+Surfaced from a close read of item 6's own wording, working outward from the "C++ `MyClass`
+vs `MyClass*`" framing already used for required/optional. Five compounding corrections to
+material that predates this cleanup round (some of it predates this whole rewrite):
+
+- **A `Reference` (Shared) can never be required, full stop** — it's pointer semantics, not
+  value semantics, so there's no sense in which a "required but missing" state could even
+  exist. `RESTRICT` was never actually a reachable policy for a Shared target-FK; `SET NULL`
+  is the only one. This directly contradicted "FK `ON DELETE` policy," which stated
+  `RESTRICT` as the Shared default, "References and collections," which stated `RESTRICT`
+  for singular `SharedReference`, and `ROADMAP_V2.md` Phase 3.2, which tested a
+  `RESTRICT`-protected case that should never have existed. Also invalidated Phase 3.3's
+  claim that the defaulted-instance completeness walk covers "every reachable `#[Reference]`
+  target" — it should only ever have covered `#[Embed]` and `OwningReference`/
+  Owned-`Collection` targets, both locally manufacturable; a Shared target never needs one.
+- **A Shared collection's pivot table doesn't get one `CASCADE` rule for both FKs.** The
+  owner-side FK is `CASCADE` (unchanged, same semantic every table-based collection already
+  has). The target-side FK is `SET NULL`, not `CASCADE` — cascading would delete the pivot
+  row itself, losing the slot and silently shrinking the collection's true count, exactly
+  the problem a surviving null-FK row exists to prevent.
+- **Supplying a retype converter is always optional, never mandatory.** "Required" never
+  meant "a converter must be given" — it means "something valid must exist afterward," and
+  the automatic fallback when no converter is supplied is the field's own class default
+  (`#[DefaultInstance]` resolution), the same mechanism an ordinary new-field backfill
+  already uses. A converter only earns its keep when the new value should be derived from
+  the old one.
+- **A collection retype's converter takes the whole captured array as input and returns a
+  new array of any length** — never a forced one-call-per-item mapping. It may filter,
+  merge, or expand; "no converter" re-defaults the whole collection from scratch rather than
+  touching the existing items at all. This corrects "runs its required converter per
+  existing item" language in both item 4's and item 6's own resolutions above.
+- **`#[Embed]` retype always needs something to land** — the same "required" posture as any
+  shape that must already carry a `#[DefaultInstance]` to qualify as an Embed target at all;
+  there's no optional/absent case for `#[Embed]`, unlike `Reference` (never required) or
+  `OwningReference`/Owned-`Collection` (required or optional, field's own choice).
+
+**Decided**: all five, as stated. Folded into `ARCHITECTURE_V2.md` ("References and
+collections," "FK `ON DELETE` policy," "Defaulted instances," and the retype-generalization
+section) and `ROADMAP_V2.md` (Phase 3.2, Phase 3.3, Phase 6.2's bullet and both "Done when"
+paragraphs).
+
+### 8. Owned-collection item slots need an explicit, stored count — **resolved (2026-10-01)**
+
+Surfaced from the Unreal `TArray<Instanced> UObject*` pattern: an Owned collection whose
+item kind is *optional* can have a legitimately empty slot, and an empty slot leaves no row
+at all in `entities` (same rule as a singular optional `OwningReference` creating no row
+when absent, just applied per slot). That means `COUNT(*) FROM entities WHERE owner = ? AND
+owner_field = ?` undercounts the true slot count the moment any slot is empty — a 2-item
+dense array and a 3-slot array with one empty middle slot look identical from `entities`
+alone, since position values stop uniquely encoding structure once gaps are legitimate.
+Shared collections never have this problem (a pivot row survives with a null FK, see item 7,
+so `COUNT(*)` on the pivot is always accurate) and neither do non-entity collections (their
+dedicated-table row always exists regardless of whether its value is null) — it's unique to
+Owned, which has no table of its own to count rows from at all.
+
+**Decided**: every Owned-collection field gets a `<field>_count` column on the *owner's* own
+declaring table, uniformly for required and optional item kinds alike — no special-casing,
+since the column is free and a single uniform rule is simpler than conditioning it on the
+item kind's own required/optional status. This is what makes "remove this slot" (count
+shrinks, later positions shift down) and "clear this slot's content" (count and every
+position untouched, the slot survives, just empty) distinguishable operations instead of one
+conflated operation. Folded into `ARCHITECTURE_V2.md` ("References and collections") and
+`ROADMAP_V2.md` (Phase 3.3, bullet and "Done when").
+
+### 9. Prototype deletion never explicitly drops that prototype's own collection fields' dedicated tables
 
 "Prototype/class deletion drops the prototype's own table" — singular, referring to the
 prototype's own CTI-chain table. It never says what happens to dedicated tables belonging to
@@ -251,7 +316,7 @@ belonging to a field the prototype itself declares, alongside its own CTI-chain 
 
 ## Lower-severity / worth a note
 
-### 8. Reparenting's destructive path gets much less ceremony than everything else
+### 10. Reparenting's destructive path gets much less ceremony than everything else
 
 "Reparenting" lets an admin (no deploy review) immediately and permanently delete a CTI
 level's "now-stray data," gated only by "a warning shown in the editor UI." Compare that to
@@ -265,7 +330,7 @@ check nor anything beyond a UI warning.
 "real" history the way content history is) or decide reparenting-with-data-loss should sit
 behind `SchemaPermission` plus something more than a warning.
 
-### 9. The Shared-collection pivot and the "No blobs" child table are never named as one shared mechanism
+### 11. The Shared-collection pivot and the "No blobs" child table are never named as one shared mechanism
 
 Surfaced from a reader's question, not a direct audit find: a Shared-collection pivot and a
 non-entity-collection's dedicated child table are structurally the same

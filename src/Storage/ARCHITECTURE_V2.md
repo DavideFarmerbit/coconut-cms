@@ -192,7 +192,9 @@ registration, not at migration time.
 ## References and collections
 
 - **Shared, singular** (`SharedReference`): a real FK column on the referencing side,
-  `RESTRICT`.
+  always nullable. A `Reference` is pointer semantics, never value semantics — it can never
+  be required at the schema level, so the column is never anything but nullable and the
+  delete policy is always `SET NULL`, never `RESTRICT` (see "FK `ON DELETE` policy").
 - **Shared, collection**: a real pivot/join table, many-to-many, with its own `position`
   column — ordered from day one, same as Owned and non-entity collections. The pivot
   carries `position` and exactly one target-FK column, nothing else, ever: a relationship
@@ -202,61 +204,104 @@ registration, not at migration time.
   growing the pivot's own column count. That target-FK column's own type still changes like
   any other field's when the collection's item kind is retyped (`NoType` included, see
   "Migrations and schema mutation") — a swap of that one column, never an addition
-  alongside it, so retyping never actually grows what the pivot carries.
+  alongside it, so retyping never actually grows what the pivot carries. The target-FK
+  column is always nullable, same as the singular case, and a pivot row surviving with a
+  null FK (see "FK `ON DELETE` policy") is exactly what makes `COUNT(*)` on the pivot table
+  an always-accurate slot count, filled or not.
 - **Owned, singular** (`OwningReference`): no column on the owner's own table. Found via
   `SELECT * FROM entities WHERE owner = ? AND owner_field = ? AND position = -1`, hydrated
   through the owned entity's own repository. Deletion is app-mediated via `entities.owner`
-  (see "FK `ON DELETE` policy" below), not a raw database cascade.
+  (see "FK `ON DELETE` policy" below), not a raw database cascade. Unlike `Reference`, an
+  `OwningReference` *can* be required (Owned data is locally manufacturable, so a
+  defaulted instance is always available to satisfy it, see "Defaulted instances").
 - **Owned, collection**: same query without the `position = -1` filter, ordered by
   `position`. An owned collection item lives in its own ordinary table via its own CTI
   chain — fully polymorphic, no per-relationship child table needed, no dedicated
   Owned-child-table mechanism at all. This is the payoff of the shared `entities` table:
   the same reusable shape can be Owned by any number of unrelated relationships through
-  the exact same `owner`/`owner_field` columns, no dedicated table per relationship.
+  the exact same `owner`/`owner_field` columns, no dedicated table per relationship. Every
+  Owned-collection field also gets a `<field>_count` column on the *owner's* own declaring
+  table, uniformly, whether its item kind is required or optional — no special-casing. An
+  absent *optional* owned item leaves no row at all, the same rule as a singular optional
+  `OwningReference` creating no row when empty, just applied per slot (the Unreal
+  `TArray<Instanced> UObject*` pattern: a fixed number of slots, each optionally holding an
+  instanced sub-object). That means `COUNT(*) FROM entities WHERE owner = ? AND owner_field
+  = ?` undercounts the true slot count the moment any slot is empty — position values alone
+  stop uniquely encoding the array's length once gaps are legitimate. The stored count is
+  what keeps "remove this slot" (count shrinks, later positions shift down) and "clear this
+  slot's content" (count unchanged, the slot survives, just empty) distinguishable
+  operations. Shared and non-entity collections need no equivalent: each already has a real
+  dedicated table row per slot regardless of whether that slot's own value is null, so a
+  plain row count is already accurate.
 - **Non-entity collection** (scalar, value-object, or `#[Embed]` items): the dedicated
   child table described under "No blobs" above — not the `entities` mechanism, since the
   items aren't entities.
 
-**FK `ON DELETE` policy**: `RESTRICT` (strictest) is the default for Shared references —
-the app-level topological sort in the write path is the real safe-ordering mechanism; the
-constraint is a correctness backstop, not something the normal path expects to hit.
-`RESTRICT` for `entities.owner` too, uniformly across every Owned relationship — not
-`CASCADE`. Owned deletion is conceptually cascading (an Owned child dies with its owner)
-but mechanically app-mediated: deleting an entity that still has Owned descendants is
-rejected unless every descendant was already deleted first, each one through the ordinary
-write path where it gets its own `EntityChangeRecord` (see "Content write path"). The
-alternative, `CASCADE`, would let the database quietly clean up any descendant an app-level
-bug missed — silently skipping its log entry along with it, undermining "every touched
-entity gets a record" below; `RESTRICT` turns that same bug into a hard failure instead.
-`SET NULL` only for a reference that's genuinely optional (no `RequiredValidator`) — that
-absence is what the FK column's own nullability derives from, not a separate choice: a
-`SET NULL` constraint mechanically requires the column to actually be nullable at the DB
-level, so "optional (no `RequiredValidator`)" is the one place that decision is made,
-feeding both the column's nullability and the FK policy together. A Shared collection's
-pivot table is the one exception to all of the above: both its FK columns are `CASCADE`,
-on either side — a pivot row carries no independently-logged content of its own (not an
-entity, gets no `EntityChangeRecord`), so deleting either party removing its join rows
-along with it loses nothing worth protecting, unlike `entities.owner`.
+**FK `ON DELETE` policy**: `SET NULL` always for a Shared reference's target-FK, singular
+or collection item, never `RESTRICT`. A `Reference` is pointer semantics, not value
+semantics — it cannot be required at the schema level, full stop, so there's no "required"
+case for `RESTRICT` to ever protect; the app-level topological sort in the write path
+already handles safe ordering, and a Shared target simply going missing from a field is an
+ordinary, always-legal outcome. `RequiredValidator` may still gate a Shared field at write
+time as ordinary content validation ("you can't save without picking one") — a decision
+made at the point of writing, never a schema-level guarantee, and it never changes the
+column's own nullability or the FK's delete policy, both of which stay exactly as described
+here regardless of whether `RequiredValidator` is attached. (`NoType` conversion is a
+separate, rarer trigger — the whole target *prototype* disappearing, not an ordinary row
+delete — and is unaffected by this.)
+
+`RESTRICT` for `entities.owner`, uniformly across every Owned relationship — not `CASCADE`,
+and not the same mechanism as the Shared case above: this is a self-referencing structural
+column, not a reference with its own required/optional distinction, and an `OwningReference`
+*can* be required (unlike `Reference`). Owned deletion is conceptually cascading (an Owned
+child dies with its owner) but mechanically app-mediated: deleting an entity that still has
+Owned descendants is rejected unless every descendant was already deleted first, each one
+through the ordinary write path where it gets its own `EntityChangeRecord` (see "Content
+write path"). The alternative, `CASCADE`, would let the database quietly clean up any
+descendant an app-level bug missed — silently skipping its log entry along with it,
+undermining "every touched entity gets a record" below; `RESTRICT` turns that same bug into
+a hard failure instead.
+
+A Shared collection's pivot table splits rather than following one rule for both FKs. A
+pivot row carries no independently-logged content of its own (not an entity, gets no
+`EntityChangeRecord`), which is what makes `CASCADE` safe on the owner side: the owner-side
+FK is `CASCADE`, the same semantic every other table-based collection already has (a
+non-entity collection's own dedicated table is "`CASCADE`-deleted with the owner," "No
+blobs"). The target-side FK is `SET NULL` instead, same policy and same reason as the
+singular case above: cascading here would delete the pivot row itself, losing the slot and
+silently shrinking the collection's true count — exactly what a surviving `SET NULL`'d row
+(position intact, FK empty) exists to prevent.
 
 ## Defaulted instances: backfilling a new field or a new parent-level row
 
-Every native class, and every shape ever used as an `#[Embed]` target, must be able to
-produce a defaulted instance: a real zero-argument constructor, or a static factory
-carrying `#[DefaultInstance]` (needed because reflection has no other way to know which
-static method is *the* one). Editor-created fields carry their own explicit default
-instead, set through the field-authoring UI.
+Every native class, every shape ever used as an `#[Embed]` target, and every shape ever
+used as an `OwningReference`/Owned-`Collection` target must be able to produce a defaulted
+instance: a real zero-argument constructor, or a static factory carrying
+`#[DefaultInstance]` (needed because reflection has no other way to know which static
+method is *the* one). **A plain `SharedReference` target is deliberately excluded** — a
+`Reference` is pointer semantics, never value semantics (see "FK `ON DELETE` policy"), so
+there's no sense in which a "default target" could ever be manufactured; an unfillable
+Shared reference simply stays null until a human links something, same as any other
+optional reference. Editor-created fields carry their own explicit default instead, set
+through the field-authoring UI — this already composes into "the whole prototype has a
+default instance" with no separate mechanism needed, since every one of its own fields is
+already required to resolve one.
 
 **Resolution order**: field's own explicit default (editor-created only) → the field's
-type's own defaulted instance, resolved recursively → throw. One mechanism, three call
+type's own defaulted instance, resolved recursively → throw. One mechanism, several call
 sites: an ordinary new column's backfill, a newly-required parent-level row (reparenting),
-and an `#[Embed]`-propagated column (a shape gaining a field backfills every table that
-embeds it).
+an `#[Embed]`-propagated column (a shape gaining a field backfills every table that embeds
+it), and a retype with no converter supplied (see "Migrations and schema mutation") — a
+converter is never mandatory for a retype, only useful when the new value should be
+*derived* from the old one rather than simply reset to default.
 
 **Fail as early as possible.** For native classes: `EntityRegistrar::register()` walks
 every registered class's full field tree, recursively through every `#[Embed]`/
-`#[Reference]` target, and requires a defaulted instance for each distinct class found,
-before any schema work starts. For editor-created fields: rejected at field-save time if
-the referenced type has neither an explicit default nor a defaulted instance.
+`OwningReference`/Owned-`Collection` target (never a plain `SharedReference` target, which
+needs none), and requires a defaulted instance for each distinct class found, before any
+schema work starts. For editor-created fields: rejected at field-save time if the
+referenced type has neither an explicit default nor a defaulted instance — the same
+`SharedReference` exclusion applies, never rejected for lacking one.
 
 ## Migrations and schema mutation
 
@@ -364,73 +409,95 @@ would under- or over-count what a deletion actually touches.
 reconstruct-from-`NoType`, never a bespoke mechanism per pair of kinds.** The capture half
 is always the same fixed, built-in logic (`NoType`'s own section below) — not
 admin-authored, and identical whether triggered by a deliberate retype or by an upstream
-deletion. The reconstruct half is always an explicit, admin/developer-supplied converter
-whose job is "produce the new kind's value from this `NoType` blob," never a bespoke
-old-kind-to-new-kind mapping invented per pair. An ordinary scalar/value-object retype
-already looked like this (an `ALTER` plus a converter); every case below is the same
-two-step shape, not a separate mechanism:
+deletion. The reconstruct half resolves the new kind's value from that blob, and **supplying
+a converter is always optional, never mandatory**: given one, its job is "derive the new
+value from the old one"; given none, resolution falls back to the field's own class default
+(`#[DefaultInstance]` resolution, the same mechanism "Defaulted instances" already requires
+for an ordinary new-field backfill) — a converter only earns its keep when the new value
+should carry something forward from the old one, never because the framework needs one to
+proceed. An ordinary scalar/value-object retype already looked like this (an `ALTER` plus an
+optional converter); every case below is the same two-step shape, not a separate mechanism:
 
 - **Retargeting a singular `Reference`** (it used to point at `Category`, now it should
   point at `Tag`): capture the old FK (old type and id) — the old target itself is never
-  touched, it simply stops being referenced by this one field; the converter then produces
-  the new-target entity (found or freshly created, or nothing at all if the field is
-  optional, see below) and its id lands in a freshly (re)built FK column.
-- **A collection's item kind crossing into or out of `Reference`**: the same, run per
-  existing item, landing in whatever value column(s) the new item kind needs — one
-  target-FK column, or whatever columns a scalar/value-object/`#[Embed]` item needs
-  ("value column(s) is a function of kind" from "No blobs"), composed with the same
-  capture/reconstruct split; never assumes a same-column swap.
+  touched, it simply stops being referenced by this one field. A `Reference` is pointer
+  semantics, never value semantics (see "FK `ON DELETE` policy"), so there's no class
+  default to fall back to and no requirement that one exist: no converter leaves the new FK
+  column null, same as an ordinary optional reference; a supplied converter may produce a
+  new-target entity (found or freshly created) whose id lands in the rebuilt FK column, or
+  simply return nothing.
+- **A collection's item kind crossing into or out of `Reference`**: the same capture/
+  reconstruct split, landing in whatever value column(s) the new item kind needs — one
+  target-FK column, or whatever columns a scalar/value-object/`#[Embed]` item needs ("value
+  column(s) is a function of kind" from "No blobs"). A supplied converter takes the *whole*
+  captured array of old items as input and returns a new array of any length — never a
+  forced one-call-per-item mapping, since filtering, merging, or expanding are all
+  legitimate; no converter re-defaults the whole collection from scratch rather than
+  touching the old items at all.
 - **Retargeting an `OwningReference`/Owned-`Collection`'s own item type while staying
   Owned** (`Warranty` → `Guarantee`): capture reads the owned row's full
   recursively-flattened field tree before it's deleted through the ordinary cascade-delete
-  path (`NoType`'s existing `OwningReference`/Owned-`Collection`-item capture, unchanged);
-  the converter then produces a new owned entity of the new type (found or freshly created,
-  or nothing, see below), `owner`/`owner_field`/`position` set to match (`position` carried
-  over for a collection item).
-- **Crossing between Owned and Shared, or between Owned and `#[Embed]`, for the same
-  field**: capture the old side exactly as `NoType` already does for whichever kind it
-  was — drop the FK column for Shared, leaving the old target entity completely untouched
-  since other things may still reference it; or read-then-cascade-delete for Owned, same as
-  always. **The framework never supplies a default that copies data across or forks a
-  duplicate entity.** Owned data "only exists for this entity" in the same sense `#[Embed]`
-  does, so silently forking a Shared copy of what used to be owned, or silently
-  deleting-and-relabeling a Shared row that might have other referrers, are both exactly the
-  kind of silent magic "no attempt to guess" already rules out everywhere else. Whether the
-  new side ends up populated or empty is entirely the converter's own explicit choice (e.g.
-  "read the still-alive Shared target and copy its fields into a fresh owned entity" is a
-  converter an admin/developer can write, never something the framework does for them).
+  path (`NoType`'s existing `OwningReference`/Owned-`Collection`-item capture, unchanged). An
+  `OwningReference`/Owned-`Collection` *can* be required (Owned data is locally
+  manufacturable, unlike Shared) — a supplied converter may produce a new owned entity
+  (found or freshly created), `owner`/`owner_field`/`position` set to match; no converter
+  falls back to the field's own class default instead (which may itself be empty, if the
+  field is optional). For the collection case the converter again takes the whole captured
+  array and returns one of any length, same as the `Reference`-crossing case above — never
+  assumed to produce exactly one replacement per existing item.
+- **Retyping into or out of `#[Embed]`**: always needs *something* to land, singular or
+  collection-item — `#[Embed]` is value semantics only, the same posture as any shape
+  that must carry a `#[DefaultInstance]` to exist as an Embed target at all. A supplied
+  converter produces the new embedded value(s); no converter falls back to the target
+  shape's own class default, never left absent.
+- **Crossing between Owned and Shared, for the same field**: capture the old side exactly
+  as `NoType` already does for whichever kind it was — drop the FK column for Shared,
+  leaving the old target entity completely untouched since other things may still reference
+  it; or read-then-cascade-delete for Owned, same as always. **The framework never supplies
+  a default that copies data across or forks a duplicate entity.** Owned data "only exists
+  for this entity" in the same sense `#[Embed]` does, so silently forking a Shared copy of
+  what used to be owned, or silently deleting-and-relabeling a Shared row that might have
+  other referrers, are both exactly the kind of silent magic "no attempt to guess" already
+  rules out everywhere else. No converter leaves the new side at its own ordinary default —
+  null for Shared, since it can never be required; empty, or a defaulted instance if
+  required, for Owned — and whether the new side ends up populated with carried-over data
+  instead is entirely the converter's own explicit choice (e.g. "read the still-alive
+  Shared target and copy its fields into a fresh owned entity" is a converter an
+  admin/developer can write, never something the framework does unasked).
 
-**Required vs. optional governs whether the converter must return something, uniformly for
-`Reference` and `OwningReference`/Owned-`Collection` alike** — ordinary field nullability,
-not a special Owned rule. An optional target (no `RequiredValidator`) accepts a null
-converter result: Shared leaves the FK column null, Owned simply creates no row, nothing
-gets attached. A required target needs the converter to return something valid before the
-retype can succeed — a defaulted instance is a perfectly valid answer, reusing
-`#[DefaultInstance]` resolution same as any other required-field backfill — or the retype
-fails loudly, same "no attempt to guess, refuse loudly" posture as every other retype.
+**Required vs. optional governs whether *something* must end up present, for
+`OwningReference`/Owned-`Collection` only — never for `Reference`, which can never be
+required at all** (see "FK `ON DELETE` policy"). For Owned: an optional target accepts
+nothing, no row created; a required target needs a valid result — the class default if no
+converter was supplied, or whatever a supplied converter returns — before the retype can
+succeed, or it fails loudly, same "no attempt to guess, refuse loudly" posture as every
+other retype. For Shared: there is no required case, ever; a null FK is always an
+acceptable outcome, full stop.
 
 This closes "Flipping an existing relationship between Owned and Shared" entirely, not just
 narrows it: the thing that made it look hard was assuming it had to preserve the original
-row's identity through the swap. It never does — fork a new entity (or none, if optional)
-via the converter, exactly like any other retype crossing a relationship kind, and the old
-side is handled exactly as its own kind's capture already specifies (untouched if Shared,
-ordinarily cascade-deleted if Owned). No narrower version of this problem is left open.
+row's identity through the swap. It never does — fork a new entity (or none, or the class
+default) via the converter, exactly like any other retype crossing a relationship kind, and
+the old side is handled exactly as its own kind's capture already specifies (untouched if
+Shared, ordinarily cascade-deleted if Owned). No narrower version of this problem is left
+open.
 
 **Changing a field's cardinality (`Collection` ↔ singular) is the one orthogonal axis this
 doesn't fold into** — a deliberate retype in its own right, never a side effect of anything
 else, and distinct from the deletion-triggered `NoType` path, which explicitly preserves
 cardinality (`NoType`'s storage shape is a function of cardinality, never the reverse) —
 that mechanism never collapses a collection into a singular value, and this one doesn't
-touch it. Collapsing an existing `Collection` field into a singular one needs an explicit
-converter that picks or combines the field's existing items into one value, same "no
-attempt to guess, refuse loudly" posture as any other retype; the collection's own dedicated
-table (the Shared pivot, or the "No blobs" child table) drops once the converter's consumed
-it, same as removing any other collection field. The reverse (a singular field becoming a
-`Collection`) needs an explicit converter that decides how to produce items from the one
-existing value, landing in a freshly created dedicated table the same shape any other
-collection field gets. The two axes compose freely when a retype changes both at once —
-kind and cardinality are independent, each already reducible to "drop the old physical
-representation, build whatever the new one needs, explicit converter bridges them."
+touch it. Collapsing an existing `Collection` field into a singular one needs a converter
+that picks or combines the field's existing items into one value, or, if none is supplied,
+falls back to the singular field's own class default; the collection's own dedicated table
+(the Shared pivot, or the "No blobs" child table) drops once the conversion's done, same as
+removing any other collection field. The reverse (a singular field becoming a `Collection`)
+needs a converter that decides how to produce items from the one existing value, or falls
+back to the collection field's own class default, landing in a freshly created dedicated
+table the same shape any other collection field gets. The two axes compose freely when a
+retype changes both at once — kind and cardinality are independent, each already reducible
+to "drop the old physical representation, build whatever the new one needs, an optional
+converter bridges them, the class default fills in when none is supplied."
 
 **Reparenting** (add/change/remove a class's parent) is mechanically uniform for native
 and editor-created once every chain already has `entities` as its structural top:

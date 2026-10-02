@@ -148,19 +148,20 @@ proven in isolation before any relationship complexity is layered on top.
 
 ### 3.2 — Shared references and collections
 
-- Shared singular (FK column, `RESTRICT` when required, `SET NULL` when optional — the
-  column's own nullability derives from the same no-`RequiredValidator` check that picks
-  the FK policy), Shared collection (real pivot table with its own `position` column, both
-  FKs `CASCADE`) ("References and collections", "FK `ON DELETE` policy").
+- Shared singular (FK column, always nullable, `SET NULL` on the target's deletion — a
+  `Reference` can never be required at the schema level, so `RESTRICT` is never an option
+  here), Shared collection (real pivot table with its own `position` column, owner-side FK
+  `CASCADE`, target-side FK `SET NULL` same as the singular case) ("References and
+  collections", "FK `ON DELETE` policy").
 
-**Done when**: a native class can Shared-reference another (`RESTRICT`-protected), and a
-Shared collection round-trips through a real pivot table, ordered by `position`; deleting
-either side of a Shared collection relationship removes its own join rows via `CASCADE`
-without affecting the other side; a `Reference` or `Collection` field declared on an
-`#[Embed]` target (now that both kinds exist) is rejected at registration time, not left
-to fail later; an optional Shared reference (no `RequiredValidator`) gets a nullable FK
-column, and deleting its referenced row sets the column to `NULL` instead of being
-blocked, proven alongside the `RESTRICT` case rather than only the required one.
+**Done when**: a native class can Shared-reference another, the FK column always nullable;
+deleting the referenced row sets the column to `NULL`, never blocked; a Shared collection
+round-trips through a real pivot table, ordered by `position`; deleting the owner-side
+entity removes its own join rows via `CASCADE`; deleting a target referenced by a collection
+item sets that pivot row's own FK to `NULL` instead of removing the row, preserving the
+slot's `position` and the collection's true count rather than silently shrinking it; a
+`Reference` or `Collection` field declared on an `#[Embed]` target (now that both kinds
+exist) is rejected at registration time, not left to fail later.
 
 ### 3.3 — Owned references and collections
 
@@ -173,7 +174,13 @@ blocked, proven alongside the `RESTRICT` case rather than only the required one.
   `Changeset` (Phase 4); here, proven via direct, explicit `Repository` deletes in
   dependency order.
 - The `#[DefaultInstance]` completeness walk extended to also cover every reachable
-  `#[Reference]` target, not just `#[Embed]`.
+  `OwningReference`/Owned-`Collection` target, not just `#[Embed]` — never a plain
+  `#[Reference]` target, which needs no default at all (`Reference` can never be required,
+  see "FK `ON DELETE` policy").
+- Every Owned-collection field gets a `<field>_count` column on the owner's own declaring
+  table, uniformly for required and optional item kinds — needed because an absent
+  *optional* owned item leaves no row at all, so counting `entities` rows undercounts the
+  true slot count the moment any slot is empty ("References and collections").
 
 **Done when**: a native class can Owned-collection a shape via
 `entities.owner`/`owner_field`/`position`; the same reusable shape Owned by two unrelated
@@ -182,7 +189,11 @@ while an Owned child still references it fails with a constraint violation, and 
 succeeds once every Owned descendant, at any depth, is deleted first — proven here via
 direct `Repository` calls, since `Changeset` doesn't exist until Phase 4 (the full
 auto-expanding, logged version of this delete is Phase 4's own done-when, not retested
-here).
+here); an Owned collection with an optional item kind round-trips with an empty slot in the
+middle (not just at the end), the stored count correctly reflecting the true slot count
+rather than the number of live rows; removing a slot shrinks the stored count and shifts
+later positions down, while clearing a slot's content leaves the count and every position
+untouched.
 
 ### 3.4 — Non-entity collections and `MediaAsset`
 
@@ -333,8 +344,9 @@ existed.
   `retype()` covers every field kind, including collection-item-kind changes,
   `Reference`/`OwningReference`/Owned-`Collection` target-type changes, and crossing
   between Shared, Owned, and `#[Embed]` — one capture-to-`NoType` plus
-  reconstruct-from-`NoType` mechanism throughout, an explicit converter required, refused
-  for a required field with no valid result, accepted empty for an optional one.
+  reconstruct-from-`NoType` mechanism throughout. A converter is always optional: supplied,
+  it derives the new value from the old; omitted, the field falls back to its own class
+  default.
 
 **Done when**: an already-populated editor-created prototype can have a field of any kind
 added, each landing in the physical shape its kind implies (a column, a new dedicated
@@ -344,15 +356,18 @@ existing rows; a column can be added/dropped/renamed/retyped safely, each gated 
 renaming/retyping a field on a shape used as an `#[Embed]` target (introduced in Phase 2)
 propagates to every table embedding it, not just the shape's own declaration; retargeting a
 `Reference` field to a different target type converts every existing row through its
-required converter, refusing loudly if any row's existing target has no valid mapping;
-retyping a `Collection` field into a singular one (or the reverse) through its own required
-converter drops the now-unused dedicated table (or creates a freshly-needed one), proven as
-its own case distinct from a deletion-triggered `NoType` conversion, which never changes
-cardinality; retyping a `Collection`'s item kind across the entity/non-entity boundary (a
-collection of value-object items retyped into a collection of `Reference` items, and the
-reverse) runs its required converter per existing item, dropping the old value column(s)
-and adding whatever the new item kind needs, proven alongside the same-shape item-kind
-retype case rather than assuming every item-kind change is a same-column swap; renaming a
+converter if one is supplied, or leaves the FK null otherwise — never a failure, since a
+`Reference` can never be required; retyping a `Collection` field into a singular one (or the
+reverse) through its own converter, or its own class default if none is supplied, drops the
+now-unused dedicated table (or creates a freshly-needed one), proven as its own case
+distinct from a deletion-triggered `NoType` conversion, which never changes cardinality;
+retyping a `Collection`'s item kind across the entity/non-entity boundary (a collection of
+value-object items retyped into a collection of `Reference` items, and the reverse) passes
+the whole captured array to a single converter call that returns a new array of any
+length — not a forced one-call-per-item mapping — dropping the old value column(s) and
+adding whatever the new item kind needs, proven alongside the same-shape item-kind retype
+case rather than assuming every item-kind change is a same-column swap, and proven with a
+converter that deliberately returns fewer items than it received; renaming a
 Shared-collection or non-entity-collection field (introduced in Phase 3) renames its own
 dedicated table too, not just the field's metadata; removing such a field drops that
 dedicated table outright; renaming a field that declares an `OwningReference` or an Owned
@@ -362,16 +377,18 @@ field's new name after the rename.
 
 The same phase also proves the Owned-crossing cases that come with the general retype
 mechanism: retargeting an `OwningReference`/Owned-`Collection`'s own item type while staying
-Owned (e.g. `Warranty` to `Guarantee`) produces a new owned entity per existing row or item
-through its required converter, deletes the old one through the ordinary cascade-delete
-path, and carries `position` over for a collection item; retyping a field between Shared,
-Owned, and `#[Embed]` (e.g. a Shared reference becoming Owned, or an `#[Embed]` becoming
-Owned, and the reverse of each) never forks a duplicate entity or silently deletes a
-still-referenced row — the result is only ever what the supplied converter explicitly
-produces; a required relationship field's retype fails outright if the converter returns
-nothing valid (a defaulted instance counts as valid), while an optional one's retype accepts
-an empty result and leaves the new side absent, proven for both `Reference` and
-`OwningReference`/Owned-`Collection` alike.
+Owned (e.g. `Warranty` to `Guarantee`) produces new owned entities from a supplied
+converter's output (any length, not necessarily matching the original count) or from the
+field's own class default if no converter is supplied, deleting every old owned row through
+the ordinary cascade-delete path; retyping a field between Shared, Owned, and `#[Embed]`
+(e.g. a Shared reference becoming Owned, or an `#[Embed]` becoming Owned, and the reverse of
+each) never forks a duplicate entity or silently deletes a still-referenced row — the result
+is only ever what a supplied converter explicitly produces, or each kind's own ordinary
+default otherwise (null for Shared, always; empty or a defaulted instance for Owned); a
+required `OwningReference`/Owned-`Collection` field's retype fails outright only if neither
+a converter nor a class default produces something valid, while an optional one always
+accepts an empty result and leaves the new side absent — proven distinctly from `Reference`,
+which has no required case to fail at all.
 
 ### 6.3 — Reparenting and `EditorExtensible`
 
