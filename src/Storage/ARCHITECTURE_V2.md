@@ -384,14 +384,14 @@ whatever DDL `Comparator` produces once the field's declaration disappears from 
 reviewed like any other native DDL; for editor-created, a `SchemaEditor` operation with the
 same safe-DDL-only scoping `dropField()` already has, just at table granularity.
 
-**Retype is a real `ALTER`, never drop-and-recreate, and always needs an explicit
-converter — no attempt to guess how to convert existing data.** For native: the converter
-is passed alongside the rename mapping at migration-generation time. For editor-created:
-the admin supplies/selects a converter class through `SchemaEditor`. No converter
-supplied for a retype that needs one → refuse loudly, same "fail before, not during"
-posture as everywhere else in this design. **Retyping a field on an `#[Embed]` target
-propagates the same way rename does** — every embedding table runs the same `ALTER` +
-converter against its own flattened copy of the column.
+**Retype is a real `ALTER`, never drop-and-recreate. A converter is always optional, never
+mandatory** — see "Retype, fully generalized" below: given one, it derives the new value
+from the old; given none, resolution falls back to the field's own class default, never a
+guess at converting the existing value. For native: an optional converter is passed
+alongside the rename mapping at migration-generation time. For editor-created: the admin
+optionally supplies a converter class through `SchemaEditor`. **Retyping a field on an
+`#[Embed]` target propagates the same way rename does** — every embedding table runs the
+same `ALTER` + converter-or-class-default against its own flattened copy of the column.
 
 **Finding "every site that points at shape X"** — needed by new-field backfill above, by
 both propagation rules just above, and by the dangling-target auditing and deletion

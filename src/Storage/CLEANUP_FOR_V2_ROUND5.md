@@ -38,7 +38,7 @@ cheaper than explaining the exception, since the sentence no longer claims more 
 means. Folded into `ARCHITECTURE_V2.md` ("Migrations and schema mutation"); no
 `ROADMAP_V2.md` change needed, since the roadmap never repeated the unscoped claim itself.
 
-### 2. Retype converter stated as both mandatory and optional
+### 2. Retype converter stated as both mandatory and optional — **resolved (2026-10-02)**
 
 "Migrations and schema mutation" opens with: "Retype is a real `ALTER`, never
 drop-and-recreate, and **always needs an explicit converter** — no attempt to guess how to
@@ -56,12 +56,17 @@ retargeting with no class default to fall back to make sense at all). The first 
 reads like leftover phrasing from before the generalized mechanism existed, and directly
 misleads a reader who hits it before reaching the later section.
 
-**Open**: strike or rewrite the opening paragraph's "always needs an explicit converter" /
-"a retype that needs one" phrasing so it doesn't contradict "Retype, fully generalized."
-Likely just: converter is always optional, omission falls back to the field's own class
-default, and only a **required** `OwningReference`/Owned-`Collection` target with neither a
-converter nor a class default actually refuses loudly (per the narrower rule already stated
-under "Required vs. optional governs...").
+**Decided**: converter is always optional, never mandatory — the opening paragraph's
+"always needs an explicit converter" / "refuse loudly" framing was simply wrong, not a
+different rule needing reconciling. Rewrote it to state the optional-converter/
+class-default-fallback mechanism directly and point at "Retype, fully generalized" rather
+than repeating a contradicting claim ahead of it; dropped the blanket "refuse loudly" line
+entirely, since the actual refusal condition is narrower and already stated correctly
+elsewhere ("Required vs. optional governs..." — only a **required**
+`OwningReference`/Owned-`Collection` target with neither a converter nor a class default
+refuses loudly; `Reference` has no required case at all). Folded into `ARCHITECTURE_V2.md`
+("Migrations and schema mutation"); no `ROADMAP_V2.md` change needed, it already matched
+the optional-converter version.
 
 ## Missing pieces
 
