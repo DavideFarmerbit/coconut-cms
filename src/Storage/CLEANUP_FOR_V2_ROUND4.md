@@ -1,11 +1,13 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 4)
 
-**Status: open.** A fourth audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`, done after
-`CLEANUP_FOR_V2.md`, `CLEANUP_FOR_V2_ROUND2.md`, and `CLEANUP_FOR_V2_ROUND3.md`'s items were
-folded back into both documents. 11 items found (7 surfaced mid-resolution while working
-through the original 4, same as Round 3's item 2b). Ordered by how much it changes what gets
-built, not alphabetically. Resolve one at a time; fold each decision back into
-`ARCHITECTURE_V2.md`/`ROADMAP_V2.md` directly as it closes, same as every prior round.
+**Status: resolved (2026-10-01).** A fourth audit pass over
+`ARCHITECTURE_V2.md`/`ROADMAP_V2.md`, done after `CLEANUP_FOR_V2.md`,
+`CLEANUP_FOR_V2_ROUND2.md`, and `CLEANUP_FOR_V2_ROUND3.md`'s items were folded back into both
+documents. 11 items found (7 surfaced mid-resolution while working through the original 4,
+same as Round 3's item 2b) — all 11 have since been decided and folded back into
+`ARCHITECTURE_V2.md`/`ROADMAP_V2.md` directly. This file is kept only as a historical record
+of that audit pass and the discussion behind each decision, not as an open task list.
+Ordered by how much it changes what gets built, not alphabetically.
 
 ## Real inconsistencies
 
@@ -372,7 +374,7 @@ pre-mutation state through either undo mechanism, both of which are independentl
 off regardless. Folded into `ARCHITECTURE_V2.md` ("Reparenting") and `ROADMAP_V2.md`
 (Phase 6.3's bullet and "Done when").
 
-### 11. The Shared-collection pivot and the "No blobs" child table are never named as one shared mechanism
+### 11. The Shared-collection pivot and the "No blobs" child table are never named as one shared mechanism — **resolved (2026-10-01)**
 
 Surfaced from a reader's question, not a direct audit find: a Shared-collection pivot and a
 non-entity-collection's dedicated child table are structurally the same
@@ -384,7 +386,20 @@ separately, and nothing ever states the equivalence outright — later sections 
 than being told it, unlike nearly everything else in this document, which calls out shared
 mechanisms explicitly.
 
-**Open**: add one sentence, probably in "References and collections," naming the Shared
-pivot as the same `(position, value column(s))` shape "No blobs" already established, rather
-than introducing it as an unrelated mechanism that happens to end up treated the same way
-later.
+Before writing the fix, re-verified the equivalence actually still holds after everything
+else decided this round (the pivot's target-FK is now always nullable/`SET NULL` rather than
+`CASCADE`, the owner-side FK split, `NoType` conversion, count-tracking) — it does, across
+every dimension touched: both `CASCADE` the same way on the owner side, both derive/rename/
+drop their table name the same way, both convert their value column(s) to `NoType` the same
+way, and neither needs the Owned-only count column since a slot's row always exists in both,
+value-nullness aside.
+
+**Decided**: name the equivalence explicitly in both directions. Folded into
+`ARCHITECTURE_V2.md` — "No blobs" now states the Shared pivot is this exact same
+`(position, value column(s))` shape at the point the non-entity table is introduced, and
+"References and collections" now opens the Shared-collection bullet by naming it as that
+established shape (one target-FK column as its `value column(s)`) rather than introducing it
+as if it were unrelated, with a one-line reminder that every existing rule (naming, rename,
+drop, `NoType` conversion) already carries over unchanged. No `ROADMAP_V2.md` change
+needed — this was purely a documentation-clarity gap, nothing behavioral to test
+differently.

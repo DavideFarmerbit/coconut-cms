@@ -197,10 +197,13 @@ untouched.
 
 ### 3.4 — Non-entity collections and `MediaAsset`
 
-- Non-entity collection (scalar, value-object, or `#[Embed]` items): a dedicated child
-  table (`ownerId`, `position`, value column(s)), `CASCADE`-deleted with the owner; an
-  `#[Embed]` item flattens its shape's fields into that child table's own columns, same
-  recursive flattening as an Embed field on an ordinary entity row.
+- Non-entity collection (scalar, value-object, or `#[Embed]` items): the same
+  `(ownerId, position, value column(s))` dedicated-table shape 3.2's Shared-collection pivot
+  already built, reused here rather than a second mechanism — `value column(s)` holds a
+  scalar/value-object value or an `#[Embed]` shape's own flattened columns instead of a
+  target-FK, `CASCADE`-deleted with the owner the same way the pivot's own owner-side FK
+  already is; an `#[Embed]` item flattens its shape's fields into that child table's own
+  columns, same recursive flattening as an Embed field on an ordinary entity row.
 - `MediaAsset` as the worked example exercising both Owned (inline upload) and Shared
   (media library) at once ("Media/file fields") — ties 3.2 and 3.3 together.
 

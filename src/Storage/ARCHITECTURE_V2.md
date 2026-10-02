@@ -133,7 +133,10 @@ exists to avoid. Consequences:
   and when an actual schema demonstrates the need.
 - A **collection of scalars, value-object-primitives, or `#[Embed]` items** (non-entity
   items) can no longer live as a JSON array. It gets its own dedicated child table:
-  `(ownerId, position, value column(s))`, `CASCADE`-deleted with the owner. This is a
+  `(ownerId, position, value column(s))`, `CASCADE`-deleted with the owner. A Shared
+  collection's own pivot table ("References and collections", below) is this exact same
+  `(position, value column(s))` shape, just with `value column(s)` being one target-FK
+  column instead — not a second, independently-arrived-at mechanism. This is a
   different, simpler mechanism than an Owned-entity collection below — the items have no
   identity of their own, nothing to look up in `entities` at all. For a scalar or
   value-object item, `value column(s)` is exactly one column; for an Embed item, it's the
@@ -195,8 +198,14 @@ registration, not at migration time.
   always nullable. A `Reference` is pointer semantics, never value semantics — it can never
   be required at the schema level, so the column is never anything but nullable and the
   delete policy is always `SET NULL`, never `RESTRICT` (see "FK `ON DELETE` policy").
-- **Shared, collection**: a real pivot/join table, many-to-many, with its own `position`
-  column — ordered from day one, same as Owned and non-entity collections. The pivot
+- **Shared, collection**: the same `(position, value column(s))` dedicated-table shape "No
+  blobs" already established for non-entity collections, not a separate mechanism that
+  happens to converge later — a real pivot/join table, many-to-many, with its own `position`
+  column, ordered from day one, same as Owned and non-entity collections, where
+  `value column(s)` is exactly one target-FK column instead of a scalar/value-object column
+  or an `#[Embed]` shape's own flattened columns. Every rule that shape already carries over
+  unchanged: the table's own name is derived the same way, drops and renames the same way,
+  and converts its value column(s) to `NoType` the same way. The pivot
   carries `position` and exactly one target-FK column, nothing else, ever: a relationship
   that needs richer per-row metadata (a note, a date, anything beyond order) isn't a bare
   many-to-many anymore and should be modeled as a real join-entity (an Owned collection of
