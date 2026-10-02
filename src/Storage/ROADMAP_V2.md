@@ -398,9 +398,12 @@ which has no required case to fail at all.
   `#[DefaultInstance]` for a level the entity never had a row for; immediately deletes the
   removed level's now-stray data for the reparented entity and every live subclass when
   removing a level, through the ordinary `Changeset` path like any other delete (introduced
-  in Phase 4), not a special unlogged side effect — recoverable from history even though
-  the reparent itself isn't; no backfill needed when reparenting onto a level the entity
-  already had a row for (the two sides of the same mechanism).
+  in Phase 4) — reusing the topological sort/Owned-subtree-expansion machinery, a structural
+  choice, not an attempt to make the deletion undo-able (it isn't, same as the reparent
+  itself: `RemoteCommand` is never pushed for a `SchemaEditor` operation, and
+  Revision-history restore is independently cut off past it by `schema_version`, Phase 5.4);
+  no backfill needed when reparenting onto a level the entity already had a row for (the two
+  sides of the same mechanism).
 - `PrototypeRegistry::chainOf()` truncates at the first stored parent identifier that
   fails to resolve, instead of throwing — the shared primitive both halves of
   `#[EditorExtensible]` revocation below build on.
@@ -417,8 +420,8 @@ correctly; reparenting it back onto a level it already had a row for needs no ba
 the data round-trips as it was; reparenting away from a level deletes that level's data for
 the reparented entity and its subclasses immediately, not left stray, each deleted row
 producing its own `EntityChangeRecord` the same as any other delete rather than vanishing
-unlogged; revoking
-`#[EditorExtensible]` on a native class with a live editor-created subclass falls back to
+unlogged; revoking `#[EditorExtensible]` on a native class with a live editor-created
+subclass falls back to
 `entities` at deploy time with a "needs review" marker, content still readable/writable
 minus the vanished level's fields; the same revocation triggered by an admin deleting an
 editor-created prototype instead stays broken and blocks that subclass's own schema save

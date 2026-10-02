@@ -339,28 +339,38 @@ class's worth of data) and gets the identical treatment: ordinary `SchemaPermiss
 extra ceremony named anywhere. By that comparison reparenting was already consistent, not
 under-ceremonied.
 
-That comparison surfaced a real asymmetry anyway, just a different one: prototype
-deletion's cascade-delete explicitly runs through the ordinary `Changeset` path, so every
-row it destroys gets its own `EntityChangeRecord` and is recoverable via ordinary
-undo/revision-restore until manually pruned. Reparenting's stray-row removal was explicitly
-*not* treated that way — called out as happening immediately, "not deferred to the manual
-pruning tool," reasoned as "a duplicate of current state," which undersells it: those were
-live field values, genuinely destroyed, and structurally the operation is identical to any
-other entity deletion (removing rows from that CTI level's own table).
+That comparison surfaced a real asymmetry anyway, just a different one, and the reasoning
+needed correcting twice before landing right. First pass: prototype deletion's
+cascade-delete explicitly runs through the ordinary `Changeset` path, so every row it
+destroys gets its own `EntityChangeRecord`; reparenting's stray-row removal wasn't treated
+that way, called out as happening immediately, "not deferred to the manual pruning tool,"
+reasoned as "a duplicate of current state," which undersells it — those were live field
+values, genuinely destroyed, structurally identical to any other entity deletion. Second
+pass, after the first fix was challenged: the motivation for routing it through the
+ordinary path got framed as data-safety ("this makes the data recoverable"). It isn't, for
+either operation, and that was never the real reason to use that path. The actual reason,
+for both prototype deletion and reparenting alike, is structural: reuse the existing
+topological-sort/Owned-subtree-expansion machinery instead of building a second, separate
+bulk-delete mechanism that would have to re-solve the same dependency-ordering problem on
+its own.
 
-**Decided**: route reparenting's stray-row deletion through the same ordinary `Changeset`
-path prototype deletion already uses, rather than a special unlogged schema-tier side
-effect — consistency, not new ceremony. This doesn't make the reparent itself undo-able
-(the schema mutation still has no undo, ever, and the chain no longer walks through the
-removed level regardless of whether its old rows exist) — ordinary Ctrl+Z undo has no
-schema-version gate of its own (only "Revision-history restore," a different surface, does),
-so it could technically restore the rows, but they'd come back orphaned from the chain, not
-a clean recovery of the reparent. The real value is narrower and still worthwhile: the data
-is recoverable from history by a human who notices the mistake, rather than gone the instant
-the operation runs with only a full database restore as recourse — consistent with "no
-automatic pruning, ever" already governing everything else this design is willing to
-destroy. Folded into `ARCHITECTURE_V2.md` ("Reparenting") and `ROADMAP_V2.md` (Phase 6.3's
-bullet and "Done when").
+Whether the resulting `EntityChangeRecord`s are "recoverable" turned out to be moot besides:
+neither undo mechanism can ever reach them. Ctrl+Z only ever targets a `Revision` referenced
+by a `RemoteCommand` on the initiating client's own command stack, and a `RemoteCommand` is
+only ever pushed by an ordinary content-editing action, never by a `SchemaEditor` operation
+or a native migration — nothing ever puts these `Revision`s within Ctrl+Z's reach to begin
+with. "Revision-history restore" is independently blocked from reaching back past them
+anyway by the global `schema_version` cutoff (item 6), since both operations are schema
+mutations that bump it.
+
+**Decided**: route both prototype deletion's cascade-delete and reparenting's stray-row
+deletion through the ordinary `Changeset` path, for the structural/consistency reason
+alone — not framed as a safety net, because it only ever functions as one in the narrowest
+sense: the data stays inspectable as forensic `EntityChangeRecord` history (a human can
+read it and act on it manually) without that record ever being a path back to the
+pre-mutation state through either undo mechanism, both of which are independently closed
+off regardless. Folded into `ARCHITECTURE_V2.md` ("Reparenting") and `ROADMAP_V2.md`
+(Phase 6.3's bullet and "Done when").
 
 ### 11. The Shared-collection pivot and the "No blobs" child table are never named as one shared mechanism
 

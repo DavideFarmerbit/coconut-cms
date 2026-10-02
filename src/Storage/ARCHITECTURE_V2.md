@@ -516,17 +516,24 @@ became temporarily unreachable, already has a valid row sitting there, untouched
 **Removing a level, for any reparent, deletes that level's now-stray data for the
 reparented entity and every one of its live subclasses, as an immediate, direct part of
 the same reparent operation** — triggered by the schema mutation, but the deletion itself
-is ordinary content deletion, through the same `Changeset` path "Deleting a prototype also
-cascade-deletes every existing entity row" already uses, each stray row getting its own
-`EntityChangeRecord` like any other delete. This was already implicitly required the moment
-"removing one CTI level" was decided above, for any reparent, not just the broken-parent-fix
-case below — it was never stated until now. Unlike the reparent itself (a schema mutation,
-no undo, ever), this makes the lost data recoverable from ordinary history instead of only
-from a full database backup — not a clean undo of the reparent as a whole (the chain no
-longer walks through the removed level regardless of whether its old rows still exist), but
-enough that a human who notices the mistake can find the old values and act on them
-deliberately, consistent with "no automatic pruning, ever" already governing everything
-else this design is willing to destroy.
+runs through the same ordinary `Changeset` path "Deleting a prototype also cascade-deletes
+every existing entity row" already uses, for the same reason: reusing the existing
+topological-sort and Owned-subtree-expansion machinery instead of a second, separate
+bulk-delete mechanism that would have to re-solve the same dependency-ordering problem on
+its own. **This is a structural/consistency choice, not a data-safety one** — it is not
+meant to make this deletion undo-able, and it isn't, doubly so: ordinary Ctrl+Z can never
+reach it, since a `RemoteCommand` is only ever pushed by an ordinary content-editing action,
+never by a `SchemaEditor` operation like `reparent()`, so nothing on any client's command
+stack ever references the `Revision` these deletions land in; and "Revision-history
+restore" is independently blocked from reaching back past it anyway by the global
+`schema_version` cutoff (see "Content undo, draft, and revision history"), since
+reparenting bumps that sequence like every other schema mutation. Each stray row still gets
+its own ordinary `EntityChangeRecord`, the same as any other delete, which keeps the old
+values inspectable as forensic history — a human can still read what was lost and act on it
+manually — without that record ever being a path back to the pre-reparent state through
+either undo mechanism. This was already implicitly required the moment "removing one CTI
+level" was decided above, for any reparent, not just the broken-parent-fix case below — it
+was never stated until now.
 
 **`PrototypeRegistry::chainOf()` doesn't throw when a stored parent identifier fails to
 resolve — it truncates the chain there**, treating the affected identifier as rooted at
@@ -596,7 +603,11 @@ itself wasn't deleted) — it only triggers the parent-revocation fallback above
 This cascade-delete runs through the ordinary entity-deletion path (`Changeset`, the
 topological sort, Owned-subtree expansion), not a bulk bypass — which is exactly why it
 needs the mechanism below to stay possible at all when some of those rows are still
-`RESTRICT`-protected by a live `Reference` elsewhere.
+`RESTRICT`-protected by a live `Reference` elsewhere. Reusing that path is a structural
+choice (the topological sort and Owned-subtree expansion already solve the dependency-safe
+ordering problem, no reason to re-solve it in a second, separate bulk-delete mechanism), not
+a data-safety one: neither undo mechanism can act on the `EntityChangeRecord`s it produces
+regardless, for the same reasons "Reparenting" states explicitly.
 
 **Deleting a prototype, or a native class other editor-created schemas still hold live
 references into, must always succeed and must not silently discard what the deleted rows
