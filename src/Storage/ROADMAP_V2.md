@@ -322,56 +322,56 @@ existed.
 
 ### 6.2 — Mutating an existing, populated prototype
 
-- `addField()`/`dropField()`, `rename()` (prototype and field, explicit old→new mapping
-  passed in, never inferred, never an attribute), `retype()` (any field, including
-  collection-item-kind changes, `Reference`/`OwningReference`/Owned-`Collection`
-  target-type changes, and crossing between Shared, Owned, and `#[Embed]` — one
-  capture-to-`NoType` plus reconstruct-from-`NoType` mechanism throughout, an explicit
-  converter class required, refused outright for a required field with no valid result,
-  accepted empty for an optional one) — safe-DDL-only, scoped to the subclass's own schema
-  ("Migrations and schema mutation").
-  `addField()` accepts any `FieldDescriptor` kind, not just scalar: a column for
+- `addField()`/`dropField()`/`rename()`/`retype()` — safe-DDL-only, scoped to the
+  subclass's own schema ("Migrations and schema mutation"). `rename()` takes an explicit
+  old→new mapping, never inferred, never an attribute. `addField()` accepts any
+  `FieldDescriptor` kind, not just scalar: a column for
   scalar/value-object/singular-`Reference`/`Embed`-flattening, a new dedicated pivot/child
   table for a `Collection`, no physical change beyond the registry record for an
   `OwningReference` or Owned `Collection` — this is what actually lets an editor-created
   prototype gain a relationship field at all, deferred from 6.1's scalar-only creation path.
+  `retype()` covers every field kind, including collection-item-kind changes,
+  `Reference`/`OwningReference`/Owned-`Collection` target-type changes, and crossing
+  between Shared, Owned, and `#[Embed]` — one capture-to-`NoType` plus
+  reconstruct-from-`NoType` mechanism throughout, an explicit converter required, refused
+  for a required field with no valid result, accepted empty for an optional one.
 
 **Done when**: an already-populated editor-created prototype can have a field of any kind
 added, each landing in the physical shape its kind implies (a column, a new dedicated
 table, or nothing beyond the registry record for an Owned relationship) without disturbing
 existing rows; a column can be added/dropped/renamed/retyped safely, each gated by
 `SchemaPermission`, each reflected immediately through the ordinary read/write path;
-renaming/retyping a field on a shape
-used as an `#[Embed]` target (introduced in Phase 2) propagates to every table embedding
-it, not just the shape's own declaration; retargeting a `Reference` field to a different
-target type converts every existing row through its required converter, refusing loudly
-if any row's existing target has no valid mapping; retyping a `Collection` field into a
-singular one (or the reverse) through its own required converter drops the now-unused
-dedicated table (or creates a freshly-needed one), proven as its own case distinct from a
-deletion-triggered `NoType` conversion, which never changes cardinality; retyping a
-`Collection`'s item kind across the entity/non-entity boundary (a collection of
-value-object items retyped into a collection of `Reference` items, and the reverse) runs its
-required converter per existing item, dropping the old value column(s) and adding whatever
-the new item kind needs, proven alongside the same-shape item-kind retype case rather than
-assuming every item-kind change is a same-column swap; retargeting an
-`OwningReference`/Owned-`Collection`'s own item type while staying Owned (e.g. `Warranty` to
-`Guarantee`) produces a new owned entity per existing row or item through its required
-converter and deletes the old one through the ordinary cascade-delete path, `position`
-carried over for a collection item; retyping a field between Shared, Owned, and `#[Embed]`
-(e.g. a Shared reference becoming Owned, or an `#[Embed]` becoming Owned, and the reverse of
-each) never forks a duplicate entity or silently deletes a still-referenced row on its
-own — only ever doing what the supplied converter explicitly produces; a required
-relationship field's retype fails outright if the converter returns nothing valid (a
-defaulted instance counts as valid), while an optional one's retype accepts an empty result
-and leaves the new side absent, proven for both `Reference` and `OwningReference`/Owned-
-`Collection` alike; renaming a
-Shared-collection or
-non-entity-collection field (introduced in Phase 3) renames its own dedicated table too,
-not just the field's metadata; removing such a field drops that dedicated table outright;
-renaming a field that declares an `OwningReference` or an Owned `Collection` (introduced
-in Phase 3.3) updates `entities.owner_field` for every existing row at that relationship,
-proven by reading an already-owned row back correctly under the field's new name after the
-rename.
+renaming/retyping a field on a shape used as an `#[Embed]` target (introduced in Phase 2)
+propagates to every table embedding it, not just the shape's own declaration; retargeting a
+`Reference` field to a different target type converts every existing row through its
+required converter, refusing loudly if any row's existing target has no valid mapping;
+retyping a `Collection` field into a singular one (or the reverse) through its own required
+converter drops the now-unused dedicated table (or creates a freshly-needed one), proven as
+its own case distinct from a deletion-triggered `NoType` conversion, which never changes
+cardinality; retyping a `Collection`'s item kind across the entity/non-entity boundary (a
+collection of value-object items retyped into a collection of `Reference` items, and the
+reverse) runs its required converter per existing item, dropping the old value column(s)
+and adding whatever the new item kind needs, proven alongside the same-shape item-kind
+retype case rather than assuming every item-kind change is a same-column swap; renaming a
+Shared-collection or non-entity-collection field (introduced in Phase 3) renames its own
+dedicated table too, not just the field's metadata; removing such a field drops that
+dedicated table outright; renaming a field that declares an `OwningReference` or an Owned
+`Collection` (introduced in Phase 3.3) updates `entities.owner_field` for every existing
+row at that relationship, proven by reading an already-owned row back correctly under the
+field's new name after the rename.
+
+The same phase also proves the Owned-crossing cases that come with the general retype
+mechanism: retargeting an `OwningReference`/Owned-`Collection`'s own item type while staying
+Owned (e.g. `Warranty` to `Guarantee`) produces a new owned entity per existing row or item
+through its required converter, deletes the old one through the ordinary cascade-delete
+path, and carries `position` over for a collection item; retyping a field between Shared,
+Owned, and `#[Embed]` (e.g. a Shared reference becoming Owned, or an `#[Embed]` becoming
+Owned, and the reverse of each) never forks a duplicate entity or silently deletes a
+still-referenced row — the result is only ever what the supplied converter explicitly
+produces; a required relationship field's retype fails outright if the converter returns
+nothing valid (a defaulted instance counts as valid), while an optional one's retype accepts
+an empty result and leaves the new side absent, proven for both `Reference` and
+`OwningReference`/Owned-`Collection` alike.
 
 ### 6.3 — Reparenting and `EditorExtensible`
 
