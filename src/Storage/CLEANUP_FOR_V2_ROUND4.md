@@ -2,7 +2,7 @@
 
 **Status: open.** A fourth audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`, done after
 `CLEANUP_FOR_V2.md`, `CLEANUP_FOR_V2_ROUND2.md`, and `CLEANUP_FOR_V2_ROUND3.md`'s items were
-folded back into both documents. 8 items found (3 surfaced mid-resolution while working
+folded back into both documents. 9 items found (4 surfaced mid-resolution while working
 through the original 4, same as Round 3's item 2b). Ordered by how much it changes what gets
 built, not alphabetically. Resolve one at a time; fold each decision back into
 `ARCHITECTURE_V2.md`/`ROADMAP_V2.md` directly as it closes, same as every prior round.
@@ -145,12 +145,73 @@ mechanics.
 **Decided**: no new mechanism — state explicitly that item-kind retype can change the
 dedicated table's column count (not just one column's type), and that crossing into/out of
 `Reference` reuses the Reference-retargeting converter shape already described, generalized
-from entity-to-entity to any-value-to-entity. Scoped to Shared/non-entity collections; an
-Owned collection's own item-kind change stays out of scope, same as "Flipping Owned/Shared"
-in "Deferred" (an Owned item is a full entity, not a dedicated-table row, a different
-problem). Folded into `ARCHITECTURE_V2.md` ("Migrations and schema mutation") and
-`ROADMAP_V2.md` (Phase 6.2's "Done when" bar, as its own case alongside the same-shape
-item-kind retype).
+from entity-to-entity to any-value-to-entity. Folded into `ARCHITECTURE_V2.md` ("Migrations
+and schema mutation") and `ROADMAP_V2.md` (Phase 6.2's "Done when" bar, as its own case
+alongside the same-shape item-kind retype).
+
+**Correction (2026-10-01, superseded by item 6 below)**: this item originally scoped Owned
+collection item-kind change out as "the same shape of problem as Flipping Owned/Shared" —
+wrong, caught while working through item 6. An Owned item's own type changing is just the
+same capture/reconstruct retype applied to an Owned entity instead of a dedicated-table row;
+it was never actually coupled to Flipping Owned/Shared's real hard part (identity
+preservation). See item 6.
+
+### 6. Retype, fully generalized: one capture-to-`NoType`/reconstruct-from-`NoType` mechanism, closing "Flipping Owned/Shared" entirely — **resolved (2026-10-01)**
+
+Surfaced from three different threads converging: a reader question about whether
+`OwningReference` retype was really unsolved, a re-check of item 4's own Owned-collection
+carve-out, and a direct request to audit every retype scenario for remaining special cases.
+Three gaps turned out to be the same gap:
+
+- `OwningReference`/Owned-`Collection` retargeting its own live item type while staying
+  Owned (`Warranty` → `Guarantee`) was never written into either document.
+- `NoType` repairing back into a live `OwningReference`/Owned-`Collection` was explicitly
+  marked "the same shape of problem as Flipping Owned/Shared" — on inspection, wrong: that
+  framing assumed identity preservation was required, but re-adopting a live Owned
+  relationship from a `NoType` blob is *manufacturing a new entity from captured data*, the
+  same entity-manufacturing converter pattern item 4 already established for crossing into
+  `Reference`, not a re-routing of an already-live target's own identity.
+- "Flipping an existing relationship between Owned and Shared" itself, still listed in
+  "Deferred," turned out to only look hard under the same unstated assumption: that the
+  *same* row's identity had to survive the swap. Dropping that assumption (fork a new
+  entity, or none, via the converter; leave the old side exactly as its own kind's capture
+  already handles it — untouched if Shared since other things may still reference it,
+  ordinarily cascade-deleted if Owned since nothing else legitimately could) makes it fully
+  mechanical with no new machinery.
+
+**Decided**: every retype is now stated as one shape — capture the old kind to `NoType`
+(always the same fixed, already-specified logic, run identically whether triggered by a
+deliberate retype or an upstream deletion), then reconstruct the new kind from that `NoType`
+blob via an explicit, admin/developer-supplied converter. This subsumes Reference
+retargeting, collection item-kind crossing, Owned-to-Owned retargeting, and Owned↔Shared/
+`#[Embed]` crossing as the same two-step mechanism, not four separate ones. Two added rules
+make the Owned-crossing cases safe by construction rather than by convention:
+  - **The framework never supplies a default that copies data across or forks a duplicate
+    entity** for Owned↔Shared/`#[Embed]` crossing specifically — only the converter the
+    admin/developer writes can choose to do that. Prevents exactly the two failure modes
+    flagged mid-discussion: silently forking a Shared duplicate of owned data, or silently
+    deleting/relabeling a Shared row that might have other referrers.
+  - **Required vs. optional governs whether the converter must return something, uniformly
+    for `Reference` and `OwningReference`/Owned-`Collection` alike** — ordinary field
+    nullability, not a special Owned rule. Optional accepts a null result (no FK, no owned
+    row created); required needs a valid result (a defaulted instance counts) or the retype
+    fails loudly.
+
+Also fixed: `NoType` capture of an `OwningReference`/Owned-`Collection`-item now explicitly
+recurses into any further-nested `OwningReference`/Owned-`Collection` field found in the
+captured subtree, to any depth, reusing the same `owner`/`owner_field` lookup the
+Owned-subtree-expansion delete path already walks — without this, a nested owned row one
+level deeper than the field being retyped would be silently destroyed by the same
+cascade-delete with no trace, while the top-level row's own data survived in the blob, an
+inconsistency caught while working through the recursion depth. Confirmed this can never
+apply to `#[Embed]`'s own flattening, since an `#[Embed]` target's field tree already
+excludes `Reference`/`Collection` at any depth.
+
+**"Flipping an existing relationship between Owned and Shared" is removed from "Deferred"
+entirely**, not narrowed — nothing about it remains unsolved once identity preservation is
+off the table, and the converter is free to leave the new side empty or absent regardless.
+Folded into `ARCHITECTURE_V2.md` ("Migrations and schema mutation," the `NoType` section,
+and "Deferred") and `ROADMAP_V2.md` (Phase 6.2's `retype()` bullet and "Done when" bar).
 
 ### 5. Changing a field's cardinality (`Collection` ↔ singular) — **resolved (2026-10-01)**
 
@@ -174,7 +235,7 @@ one where the physical shape changes from a column to a table or back. Folded in
 `ARCHITECTURE_V2.md` ("Migrations and schema mutation") and `ROADMAP_V2.md` (Phase 6.2's
 "Done when" bar, as its own case distinct from `NoType` conversion).
 
-### 6. Prototype deletion never explicitly drops that prototype's own collection fields' dedicated tables
+### 7. Prototype deletion never explicitly drops that prototype's own collection fields' dedicated tables
 
 "Prototype/class deletion drops the prototype's own table" — singular, referring to the
 prototype's own CTI-chain table. It never says what happens to dedicated tables belonging to
@@ -190,7 +251,7 @@ belonging to a field the prototype itself declares, alongside its own CTI-chain 
 
 ## Lower-severity / worth a note
 
-### 7. Reparenting's destructive path gets much less ceremony than everything else
+### 8. Reparenting's destructive path gets much less ceremony than everything else
 
 "Reparenting" lets an admin (no deploy review) immediately and permanently delete a CTI
 level's "now-stray data," gated only by "a warning shown in the editor UI." Compare that to
@@ -204,7 +265,7 @@ check nor anything beyond a UI warning.
 "real" history the way content history is) or decide reparenting-with-data-loss should sit
 behind `SchemaPermission` plus something more than a warning.
 
-### 8. The Shared-collection pivot and the "No blobs" child table are never named as one shared mechanism
+### 9. The Shared-collection pivot and the "No blobs" child table are never named as one shared mechanism
 
 Surfaced from a reader's question, not a direct audit find: a Shared-collection pivot and a
 non-entity-collection's dedicated child table are structurally the same

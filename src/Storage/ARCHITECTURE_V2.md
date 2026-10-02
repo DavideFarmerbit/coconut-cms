@@ -360,54 +360,77 @@ deletion machinery below and by any future admin-facing warning before a destruc
 action. Keeping these two distinct matters: a tool built on only the schema-level index
 would under- or over-count what a deletion actually touches.
 
-**Retargeting a `Reference` field's own type (it used to point at `Category`, now it
-should point at `Tag`) is a retype, not a separate mechanism.** Same umbrella as above,
-just a converter whose input/output are entities instead of raw values: given the
-existing row's currently-referenced entity (loaded through the old FK id), the converter
-produces the new-target entity (found or freshly created) and its id is stored in its
-place; the FK constraint itself is dropped and recreated against the new target table as
-an ordinary part of the same `ALTER`. A converter that can't produce a valid target for
-some existing row fails the migration outright, same "no attempt to guess, refuse loudly"
-posture as any other retype — there's no new failure mode here, only the general one.
+**Retype, fully generalized: every retype is capture-to-`NoType` followed by
+reconstruct-from-`NoType`, never a bespoke mechanism per pair of kinds.** The capture half
+is always the same fixed, built-in logic (`NoType`'s own section below) — not
+admin-authored, and identical whether triggered by a deliberate retype or by an upstream
+deletion. The reconstruct half is always an explicit, admin/developer-supplied converter
+whose job is "produce the new kind's value from this `NoType` blob," never a bespoke
+old-kind-to-new-kind mapping invented per pair. An ordinary scalar/value-object retype
+already looked like this (an `ALTER` plus a converter); every case below is the same
+two-step shape, not a separate mechanism:
 
-**Changing a collection's item kind is treated identically to a retype** — a real
-conversion via an explicit converter run per existing item (e.g. each value-object item
-becomes a newly-created entity row), never a silent drop-and-empty. **This holds even when
-the new item kind's own value representation has a different shape than the old one's**: a
-collection's dedicated table already carries whichever value column(s) its item kind
-needs — one column for a scalar/value-object, the embedded shape's own flattened columns for
-`#[Embed]`, one target-FK column for a `Reference` ("No blobs", "References and
-collections") — so an item-kind retype drops whichever value column(s) the old kind needed
-and adds whichever the new kind needs, the converter populating them per existing item; same
-`ALTER`-plus-converter posture as any other retype, just not always a same-column swap.
-Crossing into or out of a `Reference` item kind specifically is the same umbrella as
-retargeting a singular `Reference` field's own type above, generalized: converting *into*
-`Reference` has the converter produce a target entity (found or freshly created) per
-existing item, its id landing in the new target-FK column — the "value-object item becomes a
-newly-created entity row" example just given, worked out in full; converting *out of*
-`Reference` has the converter consume the existing referenced entity (loaded through its FK
-id) and produce whatever raw or flattened value the new item kind needs. No mechanism beyond
-what's already decided elsewhere, just composed: "value column(s) is a function of kind" from
-"No blobs" plus the Reference-retargeting converter shape already described above. (Scoped to
-Shared and non-entity collections — an Owned collection's own item-kind change is a
-different, bigger question, since an Owned item is a full independently-addressable entity,
-not a dedicated-table row, and stays out of scope here, same as "Flipping an existing
-relationship between Owned and Shared" in "Deferred".)
+- **Retargeting a singular `Reference`** (it used to point at `Category`, now it should
+  point at `Tag`): capture the old FK (old type and id) — the old target itself is never
+  touched, it simply stops being referenced by this one field; the converter then produces
+  the new-target entity (found or freshly created, or nothing at all if the field is
+  optional, see below) and its id lands in a freshly (re)built FK column.
+- **A collection's item kind crossing into or out of `Reference`**: the same, run per
+  existing item, landing in whatever value column(s) the new item kind needs — one
+  target-FK column, or whatever columns a scalar/value-object/`#[Embed]` item needs
+  ("value column(s) is a function of kind" from "No blobs"), composed with the same
+  capture/reconstruct split; never assumes a same-column swap.
+- **Retargeting an `OwningReference`/Owned-`Collection`'s own item type while staying
+  Owned** (`Warranty` → `Guarantee`): capture reads the owned row's full
+  recursively-flattened field tree before it's deleted through the ordinary cascade-delete
+  path (`NoType`'s existing `OwningReference`/Owned-`Collection`-item capture, unchanged);
+  the converter then produces a new owned entity of the new type (found or freshly created,
+  or nothing, see below), `owner`/`owner_field`/`position` set to match (`position` carried
+  over for a collection item).
+- **Crossing between Owned and Shared, or between Owned and `#[Embed]`, for the same
+  field**: capture the old side exactly as `NoType` already does for whichever kind it
+  was — drop the FK column for Shared, leaving the old target entity completely untouched
+  since other things may still reference it; or read-then-cascade-delete for Owned, same as
+  always. **The framework never supplies a default that copies data across or forks a
+  duplicate entity.** Owned data "only exists for this entity" in the same sense `#[Embed]`
+  does, so silently forking a Shared copy of what used to be owned, or silently
+  deleting-and-relabeling a Shared row that might have other referrers, are both exactly the
+  kind of silent magic "no attempt to guess" already rules out everywhere else. Whether the
+  new side ends up populated or empty is entirely the converter's own explicit choice (e.g.
+  "read the still-alive Shared target and copy its fields into a fresh owned entity" is a
+  converter an admin/developer can write, never something the framework does for them).
 
-**Changing a field's cardinality (`Collection` ↔ singular) is a deliberate retype too, never
-a side effect of anything else.** This is distinct from the deletion-triggered `NoType` path
-below, which explicitly preserves cardinality (`NoType`'s storage shape is a function of
-cardinality, never the reverse) — that mechanism never collapses a collection into a
-singular value, and this one doesn't touch it. Collapsing an existing `Collection` field into
-a singular one needs an explicit converter that picks or combines the field's existing items
-into one value, same "no attempt to guess, refuse loudly" posture as any other retype; the
-collection's own dedicated table (the Shared pivot, or the "No blobs" child table) drops once
-the converter's consumed it, same as removing any other collection field. The reverse (a
-singular field becoming a `Collection`) needs an explicit converter that decides how to
-produce items from the one existing value, landing in a freshly created dedicated table the
-same shape any other collection field gets. No new mechanism either way — an `ALTER` plus an
-explicit converter, same as every other retype, just one where the physical shape changes
-from a column to a table or back instead of one column's type changing to another.
+**Required vs. optional governs whether the converter must return something, uniformly for
+`Reference` and `OwningReference`/Owned-`Collection` alike** — ordinary field nullability,
+not a special Owned rule. An optional target (no `RequiredValidator`) accepts a null
+converter result: Shared leaves the FK column null, Owned simply creates no row, nothing
+gets attached. A required target needs the converter to return something valid before the
+retype can succeed — a defaulted instance is a perfectly valid answer, reusing
+`#[DefaultInstance]` resolution same as any other required-field backfill — or the retype
+fails loudly, same "no attempt to guess, refuse loudly" posture as every other retype.
+
+This closes "Flipping an existing relationship between Owned and Shared" entirely, not just
+narrows it: the thing that made it look hard was assuming it had to preserve the original
+row's identity through the swap. It never does — fork a new entity (or none, if optional)
+via the converter, exactly like any other retype crossing a relationship kind, and the old
+side is handled exactly as its own kind's capture already specifies (untouched if Shared,
+ordinarily cascade-deleted if Owned). No narrower version of this problem is left open.
+
+**Changing a field's cardinality (`Collection` ↔ singular) is the one orthogonal axis this
+doesn't fold into** — a deliberate retype in its own right, never a side effect of anything
+else, and distinct from the deletion-triggered `NoType` path, which explicitly preserves
+cardinality (`NoType`'s storage shape is a function of cardinality, never the reverse) —
+that mechanism never collapses a collection into a singular value, and this one doesn't
+touch it. Collapsing an existing `Collection` field into a singular one needs an explicit
+converter that picks or combines the field's existing items into one value, same "no
+attempt to guess, refuse loudly" posture as any other retype; the collection's own dedicated
+table (the Shared pivot, or the "No blobs" child table) drops once the converter's consumed
+it, same as removing any other collection field. The reverse (a singular field becoming a
+`Collection`) needs an explicit converter that decides how to produce items from the one
+existing value, landing in a freshly created dedicated table the same shape any other
+collection field gets. The two axes compose freely when a retype changes both at once —
+kind and cardinality are independent, each already reducible to "drop the old physical
+representation, build whatever the new one needs, explicit converter bridges them."
 
 **Reparenting** (add/change/remove a class's parent) is mechanically uniform for native
 and editor-created once every chain already has `entities` as its structural top:
@@ -515,6 +538,10 @@ retype the referencing field before the delete ever runs:
   field of that cardinality is already landed elsewhere in this design, never a new storage
   shape invented just for this. This is a deliberate, narrow exception to "No blobs" above,
   reserved for exactly this degraded state, never a general storage tier for ordinary data.
+  The same capture logic also runs as the first half of any *deliberate* retype (see
+  "Migrations and schema mutation" above), not only a forced one — `NoType` is simply
+  whatever sits between the old kind's capture and the new kind's reconstruction, whether or
+  not an upstream deletion was involved.
 - **Singular `Reference`**: the blob (old target type and id) lands on a new column added
   to the referencing row itself, replacing the dropped FK column. **`Reference` used as a
   `Collection`'s item kind**: the same blob, per existing item, lands on a new column added
@@ -541,7 +568,17 @@ retype the referencing field before the delete ever runs:
   added to the owner's own row to hold the blob, the same shape every other singular
   `NoType` field already lands in. What it captures mirrors `Embed`'s own capture: every
   value from the owned row's *full recursively-flattened field tree*, read off it before
-  it's deleted. Deletion itself doesn't change at all — the owned row still goes through
+  it's deleted — **including, recursively, the full captured subtree of any
+  `OwningReference`/Owned-`Collection` field found inside that tree, to any depth**, reusing
+  the same `owner`/`owner_field` lookup the Owned-subtree-expansion delete path already
+  walks ("Content write path"), not a new traversal. Without this, a nested owned row one
+  level deeper than the field actually being retyped would be silently destroyed by that
+  same cascade-delete with no trace anywhere, while the top-level row's own data survives in
+  the blob — an inconsistency, not an accepted tradeoff. (An `#[Embed]` target's own field
+  tree can never hit this case: it's already restricted to scalar/value-object/nested-embed
+  fields only, no `Reference`/`Collection` at any depth, so this recursion only ever applies
+  to an entity being captured, never to `#[Embed]`'s own flattening.) Deletion itself
+  doesn't change at all — the owned row still goes through
   the ordinary cascade-delete path (`Changeset`, the full topological sort, Owned-subtree
   expansion for anything *it* in turn owned), exactly as any other delete; the capture is
   just a read that happens first, the same sequencing `Embed`'s own conversion already
@@ -556,11 +593,11 @@ retype the referencing field before the delete ever runs:
   case the moment it degrades to `NoType`: that representation only ever applied to a
   *live*, functioning Owned relationship; once degraded it's an ordinary `NoType` field like
   any other, read and later retyped through the exact same path every other `NoType` field
-  uses, no Owned-aware special-casing anywhere in `Repository`. (Retyping it back into a
-  live `OwningReference` specifically — re-adopting the no-column/no-table representation —
-  is itself the same shape of problem as "Flipping an existing relationship between Owned
-  and Shared," already listed in "Deferred"; this doesn't add a new gap, the existing one
-  just resurfaces here too.)
+  uses, no Owned-aware special-casing anywhere in `Repository`. Retyping it back into a live
+  `OwningReference`/Owned-`Collection` — or into a live `Reference`, or anything else — is
+  the same capture/reconstruct retype mechanism above, not a separate problem: the converter
+  produces a new owned entity (found or freshly created, or none if the field is optional)
+  from the blob, same as any other `NoType` reconstruction.
 - `RequiredValidator` needs no change for any of the above: a `NoType` value is a
   well-formed value, not a `NULL` violating a `NOT NULL` column.
 - This is exactly where an admin-facing warning before a destructive delete earns its
@@ -860,11 +897,6 @@ human-triggered action.
 
 ## Deferred — not resolved in this document
 
-- **Flipping an existing relationship between Owned and Shared.** Still a real structural
-  migration (an Owned child's own row has no reference column to promote, a Shared row's
-  FK doesn't carry the owner/owner_field/position an Owned row needs) — unlike its sibling
-  problems (retype, collection item-kind change, queryable-flip), which are all resolved
-  above. Not designed here.
 - **Fine-grained revision-history reachability across a schema change.** Conservative
   default (blocked) is decided; the touched-field-bookkeeping refinement is not.
 - **Exact attribute/API surface** for `#[DefaultInstance]`, converter classes, rename/retype
