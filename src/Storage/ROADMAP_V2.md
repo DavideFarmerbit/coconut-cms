@@ -247,7 +247,7 @@ auto-expands into an explicit delete for each one, correctly ordered, each produ
 own logged operation — not left to `entities.owner`'s `RESTRICT` constraint to reject the
 whole transaction.
 
-## Phase 5 — Undo, draft, revision history (content-only)
+## Phase 5 — Undo, revision history (content-only)
 
 **Goal**: every flush is loggable and recoverable, per the Envers-style `Revision` +
 per-entity `EntityChangeRecord` design; nothing is ever pruned automatically.
@@ -274,16 +274,7 @@ undo capability exists yet.
 **Done when**: a multi-entity `Revision` undoes atomically with a per-entity conflict
 check; redo restores it exactly; undoing with someone else's `Revision` id is rejected.
 
-### 5.3 — Draft
-
-- `Persistence\Changeset\Draft\DraftStore`/`DraftPreview`: a persisted-but-unflushed changeset plus an
-  in-memory apply/preview function; publishing flushes the exact same changeset through
-  the exact same path, producing a `Revision` like any other flush.
-
-**Done when**: a draft builds, previews, and publishes through the exact same write path
-as an ordinary flush.
-
-### 5.4 — Revision-history restore and manual pruning
+### 5.3 — Revision-history restore and manual pruning
 
 - `Persistence\Permission\Actor` (`hasRole(string): bool`) — the minimal interface every
   permission check in this design is built on, introduced here at its first point of use
@@ -315,7 +306,7 @@ runtime. `DynamicEntity` and the editor-created branch of `PrototypeRegistry` ar
 exercised for the first time here — plugging into machinery every prior phase already
 built generically, no retrofit. Every mutation introduced across this phase —
 `createPrototype()`, `addField()`/`dropField()`/`rename()`/`retype()`, `reparent()` — also
-bumps the global `schema_version` sequence from Phase 5.4, exercising its restore-blocking
+bumps the global `schema_version` sequence from Phase 5.3, exercising its restore-blocking
 guard end to end for the first time.
 
 ### 6.1 — Second identifier kind, minimal creation path
@@ -404,7 +395,7 @@ which has no required case to fail at all.
   in Phase 4) — reusing the topological sort/Owned-subtree-expansion machinery, a structural
   choice, not an attempt to make the deletion undo-able (it isn't, same as the reparent
   itself: `RemoteCommand` is never pushed for a `SchemaEditor` operation, and
-  Revision-history restore is independently cut off past it by `schema_version`, Phase 5.4);
+  Revision-history restore is independently cut off past it by `schema_version`, Phase 5.3);
   no backfill needed when reparenting onto a level the entity already had a row for (the two
   sides of the same mechanism).
 - `PrototypeRegistry::chainOf()` truncates at the first stored parent identifier that
@@ -554,9 +545,12 @@ search, real-time concurrent multi-editor collaboration.
 
 ## Not covered by this roadmap
 
-- **`Editor\`** — the admin-facing authoring UI and the client-side `LocalCommand`/
-  `RemoteCommand` stack. A separate, later track, once enough of the above exists to build
-  and drive it against.
+- **`Editor\`** — the admin-facing authoring UI, the client-side `LocalCommand`/
+  `RemoteCommand` stack, and **Draft** (`DraftStore`/`DraftPreview`) — none of which have a
+  meaning for a write path that isn't a human composing an edit through this UI, so none of
+  it is a persistence-layer concern. A separate, later track, once enough of the above
+  exists to build and drive it against; Draft's own lifecycle and shape are undecided, see
+  `ARCHITECTURE_V2.md`'s "Content undo, draft, and revision history."
 - **Fine-grained revision-history reachability across a schema change** — still listed as
   open in `ARCHITECTURE_V2.md`'s "Deferred" section; pick a phase for it once it's actually
   resolved there.

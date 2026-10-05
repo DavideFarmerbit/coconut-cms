@@ -29,11 +29,13 @@ changes:
   `#[DefaultInstance]`, ...). `EntityRegistrar` lives here too — despite its name, its job
   is registering a native class's *schema*, not runtime entity state.
 - **`Persistence\Changeset\`** — the write path, promoted to its own namespace rather than
-  a subfolder of `Persistence\Entity\`, since undo and draft are really just two different things done
-  with the same object rather than separate subsystems: `Changeset`/`EntityChange`/
-  `TempId`/`ChangesetSorter`/`ChangesetFlusher` at the top, **`Persistence\Changeset\Undo\`**
-  (`Revision`, `EntityChangeRecord`, conflict detection) and
-  **`Persistence\Changeset\Draft\`** (`DraftStore`, `DraftPreview`) nested underneath.
+  a subfolder of `Persistence\Entity\`, since undo is really just a different thing done with
+  the same object rather than a separate subsystem: `Changeset`/`EntityChange`/`TempId`/
+  `ChangesetSorter`/`ChangesetFlusher` at the top, **`Persistence\Changeset\Undo\`**
+  (`Revision`, `EntityChangeRecord`, conflict detection) nested underneath. Draft (`DraftStore`/
+  `DraftPreview`) lives in `Editor\` instead, not here — it has no meaning outside an
+  authoring UI, unlike undo, which benefits any flush regardless of who's writing; see
+  "Content undo, draft, and revision history" below.
 - **`Persistence\Permission\`** — shared by all of the above rather than split across
   them: `Actor`, `SchemaPermission`, `FieldPermission`, `HistoryPermission`,
   `RolePermission`, and any other auth-level class.
@@ -841,16 +843,14 @@ target a `Revision` row directly, empty or not, as its own explicit action; prun
 deliberate decision about whatever was actually selected, never an automatic consequence of
 pruning something else.
 
-- **Draft**: a persisted-but-unflushed changeset plus an in-memory apply/preview function
-  — no duplicate-row scheme. Publishing is flushing the exact same changeset through the
-  exact same write path, producing a `Revision` exactly like any other flush. **Not
-  per-user the way undo now is**: one pending draft per entity, shared — a second editor
-  opening it takes over or hits a conflict warning (see "Explicitly out of scope" for the
-  collaboration boundary this implies), deliberately unlike the `Revision`-ownership check
-  undo gets below. A draft has no owner to check because there's no second party's own
-  operation it could be mistaken for; undo's check exists specifically to stop one user's
-  Ctrl+Z from reverting a *different* user's already-flushed `Revision`, a scenario a
-  shared, not-yet-flushed draft doesn't have.
+- **Draft belongs to `Editor\`, not this document.** Unlike undo, it has no meaning for a
+  write path that isn't a human composing an edit through the admin UI, so it isn't a
+  persistence-layer concern (see "Namespaces and migration path"). Whatever it ends up
+  being is built from `Persistence\Changeset\Changeset` plus `ChangesetFlusher` to publish
+  — the same way `RemoteCommand` below is built from `Revision` — but its actual shape
+  (what triggers one, how a read is supposed to differ from the ordinary live state while
+  one is pending, how it's scoped across a multi-entity changeset, whether it's shared or
+  per-user) isn't decided here and is left to `Editor\`'s own design pass.
 - **Ctrl+Z can undo a whole `Revision`, including one that touched multiple entities.**
   Undoing `Revision` R: gather every `EntityChangeRecord` under it; for *each* entity it
   touched, independently check that entity's own subsequent chain for anything touching
@@ -1012,10 +1012,11 @@ human-triggered action.
   `FieldDescriptor`, ...) is still carried over from the old design unchanged and remains
   a candidate for renaming later.
 
-## Explicitly out of scope (unchanged from the old design)
+## Explicitly out of scope
 
 Full-text/cross-content-type search (a flagged shelf item, build only once a real need
-shows up). Real-time concurrent multi-editor collaboration on the same entity (one pending
-draft per entity; a second opener takes over or hits a conflict warning). EAV — actively
-rejected after confirming it's what ACF/WordPress actually do under the hood, and
-specifically the problem this whole design exists to avoid.
+shows up). Real-time concurrent multi-editor collaboration on the same entity — whatever
+authoring-workflow mechanism `Editor\` eventually settles on is expected to stay
+single-writer-at-a-time, never true concurrent editing. EAV — actively rejected after
+confirming it's what ACF/WordPress actually do under the hood, and specifically the problem
+this whole design exists to avoid.

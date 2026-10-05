@@ -70,26 +70,34 @@ the optional-converter version.
 
 ## Missing pieces
 
-### 3. Draft granularity doesn't define how a multi-entity changeset's "one pending draft per entity" lock composes
+### 3. Draft granularity doesn't define how a multi-entity changeset's "one pending draft per entity" lock composes — **resolved (2026-10-02), by removing Draft from this design's scope**
 
-"Content undo, draft, and revision history" defines Draft as "a persisted-but-unflushed
+"Content undo, draft, and revision history" defined Draft as "a persisted-but-unflushed
 changeset plus an in-memory apply/preview function" — the same `Changeset` type Phase 4 makes
-inherently multi-entity — but states the sharing/locking rule as "one pending draft **per
-entity**... a second editor opening it takes over or hits a conflict warning."
+inherently multi-entity — but stated the sharing/locking rule as "one pending draft **per
+entity**... a second editor opening it takes over or hits a conflict warning." If a single
+draft's changeset touches more than one entity, it was never written down whether the
+"pending draft" slot is occupied on every touched entity or just one.
 
-If a single draft's changeset touches more than one entity (e.g. a Product and its Owned
-`MediaAsset` gallery edited together), it's not written down whether the "pending draft" slot
-is considered occupied on every entity the changeset touches (so opening *any* of them
-surfaces the same draft and triggers the take-over/conflict check), or only on one primary
-entity (in which case opening one of the *other* touched entities wouldn't know a draft
-already covers it, and a second editor could start a conflicting one). The per-entity lock
-and the multi-entity changeset it wraps don't obviously compose as currently stated.
+Digging into *why* raised a bigger question than the locking detail: Draft had never actually
+been justified anywhere in either document — no discussion of what triggers one, what a read
+is supposed to look like against a pending draft, or its lifecycle — unlike every other
+mechanism here, which gets a reasoned "why" before the "how." Comparing it to Undo exposed the
+actual problem: Undo is needed by the persistence layer's own correctness story regardless of
+who's writing (a migration script's flush benefits from being loggable/revertible exactly like
+a human's). Draft has no meaning for anything other than a human composing an edit through an
+authoring UI and not yet committing to it — the same bucket as `LocalCommand`/`RemoteCommand`,
+which this document already keeps under `Editor\`, not `Persistence\`.
 
-**Open**: decide which, and state it. Likely answer given how everything else in this design
-treats "touched by the same changeset" as the unit of conflict (concurrent-write protection,
-undo's per-`Revision` grouping): the draft slot is occupied on every entity the underlying
-changeset touches, not just one. Needs folding into `ARCHITECTURE_V2.md` ("Content undo,
-draft, and revision history") and Phase 5.3's "Done when" bar in `ROADMAP_V2.md`.
+**Decided**: Draft doesn't belong in this design at all — pulled `Persistence\Changeset\Draft\`
+out of "Namespaces and migration path," reframed the "Draft" bullet in "Content undo, draft,
+and revision history" as a pointer to `Editor\` rather than settled mechanics, and softened
+the "Explicitly out of scope" real-time-collaboration note to not assert draft mechanics that
+are no longer decided here. Removed Phase 5.3 from `ROADMAP_V2.md` entirely (renumbering 5.4 →
+5.3, fixing the two downstream `Phase 5.4` cross-references in Phase 6), and added Draft to
+the `Editor\` entry under "Not covered by this roadmap." This closes the original locking
+question by making it moot for this document — it's `Editor\`'s own design pass to work out
+whenever that track starts, same as everything else about that UI.
 
 ### 4. Owned-subtree cascade-delete can silently null an unrelated Shared reference, with no acknowledgment
 
