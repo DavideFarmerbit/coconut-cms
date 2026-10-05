@@ -505,7 +505,9 @@ dropping the now-redundant columns; deleting a prototype that's owned via an
 field to `NoType` on a newly-added column, capturing the owned row's own recursively-
 flattened values before it's deleted through the ordinary Phase 4 cascade-delete path, not
 before; the same for an Owned `Collection`-item, landing in a newly-created dedicated
-child table instead; deleting a prototype cascade-deletes its own existing instances but
+child table instead and dropping the field's now-redundant `<field>_count` column, since the
+dedicated table's own row-per-slot already makes `COUNT(*)` accurate without one; deleting a
+prototype cascade-deletes its own existing instances but
 leaves a live editor-created subclass's own instances fully intact, flagged only via 6.3's
 parent-link mechanism; the auditing tool finds a dangling Value Object target the same way
 it finds a dangling reference/embed/collection target.

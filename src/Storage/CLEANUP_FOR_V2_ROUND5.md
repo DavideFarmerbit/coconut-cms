@@ -1,7 +1,7 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 5)
 
 **Status: resolved (2026-10-02).** A fifth audit pass over `ARCHITECTURE_V2.md`/
-`ROADMAP_V2.md`, done after Round 4's items were folded back into both documents. All 4
+`ROADMAP_V2.md`, done after Round 4's items were folded back into both documents. All 5
 items found have since been decided and folded back into `ARCHITECTURE_V2.md`/
 `ROADMAP_V2.md` directly — this file is kept only as a historical record of that audit pass
 and the discussion behind each decision, not as an open task list. Ordered by how much it
@@ -151,3 +151,34 @@ said out loud, the same gap in explicitness this document otherwise avoids (cf. 
 11). Named it directly in that same `NoType` passage rather than leaving a reader to deduce
 it, and added a matching clause to Phase 6.2's "Done when" so the composition is actually
 tested, not just implied by two separately-true statements.
+
+### 5. `NoType` conversion of an Owned `Collection`-item never addresses the field's own `<field>_count` column — **resolved (2026-10-02)**
+
+Spotted directly while re-reading the `NoType` section's `OwningReference` bullet after item
+4's fix. Its opening sentence — "there's no column to replace on the owner's own row — a
+live `OwningReference` never has one" — is true for the *singular* case, but the same bullet
+folds the **Collection**-item case into itself right after ("same capture, same ordinary
+deletion of every existing item — but landed in a newly-created dedicated child table")
+without ever mentioning `<field>_count`. That column does exist for a live Owned
+`Collection` ("every Owned-collection field also gets a `<field>_count` column on the
+owner's own declaring table," "References and collections") — the bullet's own closing
+sentence compounded the imprecision, generalizing both cases as "the no-column/no-table
+case," which is only true of the singular one.
+
+Left unaddressed, this is a real gap, not just loose wording: nothing said whether
+`<field>_count` survives, gets repurposed, or gets dropped once the collection's items
+convert to `NoType`.
+
+**Decided**: dropped, not preserved. The dedicated child table `NoType` lands a `Collection`
+in (`ownerId`, `position`, blob) is the exact same shape every other collection's own
+dedicated table already uses, and that shape never needs a count column — "References and
+collections" already gives the reason (a real row exists per slot regardless of the row's
+own value, so `COUNT(*)` is always accurate). `<field>_count` only ever existed to cover the
+live-Owned-`Collection` case's sparse rows (an absent optional item leaves no row in
+`entities` at all); that case stops applying the moment the field is `NoType`, so the column
+has nothing left to do. Retyping a `NoType` field back into a live Owned `Collection` gets a
+fresh `<field>_count` the same way adding any other field does — not a special case, no
+need to track that one column across the round trip. Folded into `ARCHITECTURE_V2.md`
+("`NoType`" — both the `OwningReference` bullet and the "purely a function of cardinality"
+bullet right after it, which had the same imprecision) and `ROADMAP_V2.md` (Phase 6.4's
+"Done when").

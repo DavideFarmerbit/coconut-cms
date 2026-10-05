@@ -695,18 +695,28 @@ degrade to a bare `null`:
   item — but landed in a newly-created dedicated child table scoped to that field
   (`ownerId`, `position`, blob), created on demand the moment the first item needs it, the
   exact same shape "No blobs" already uses for a non-entity collection's own dedicated
-  table.
+  table. **The field's own `<field>_count` column, present on the owner's declaring table
+  while the relationship was live ("References and collections"), is dropped as part of
+  this same conversion** — not preserved, not repurposed. The dedicated child table gives
+  every slot a real row regardless of its blob's own content, the same reason every other
+  collection's dedicated table already needs no count column of its own; `<field>_count`
+  only ever existed to cover the live-Owned-Collection case's sparse rows, and that case no
+  longer applies once the field is `NoType`.
 - **`NoType`'s storage shape is therefore purely a function of cardinality — a column for
   singular, a dedicated table for a collection — never of which kind of field it used to
-  be.** An `OwningReference`/Owned-`Collection` field stops being the no-column/no-table
-  case the moment it degrades to `NoType`: that representation only ever applied to a
-  *live*, functioning Owned relationship; once degraded it's an ordinary `NoType` field like
-  any other, read and later retyped through the exact same path every other `NoType` field
-  uses, no Owned-aware special-casing anywhere in `Repository`. Retyping it back into a live
+  be.** A live singular `OwningReference` has no column at all, and a live Owned
+  `Collection` has only its own `<field>_count`, never a per-item value column — both lose
+  that minimal structure the moment they degrade to `NoType`: a new column appears for the
+  singular case, dropping `<field>_count` in favor of the dedicated child table for the
+  collection case. Once degraded it's an ordinary `NoType` field like any other, read and
+  later retyped through the exact same path every other `NoType` field uses, no Owned-aware
+  special-casing anywhere in `Repository`. Retyping it back into a live
   `OwningReference`/Owned-`Collection` — or into a live `Reference`, or anything else — is
   the same capture/reconstruct retype mechanism above, not a separate problem: the converter
   produces a new owned entity (found or freshly created, or none if the field is optional)
-  from the blob, same as any other `NoType` reconstruction.
+  from the blob, same as any other `NoType` reconstruction — a live Owned `Collection`
+  reconstructed this way gets a fresh `<field>_count` the same way adding any other field
+  does, not a special case.
 - `RequiredValidator` needs no change for any of the above: a `NoType` value is a
   well-formed value, not a `NULL` violating a `NOT NULL` column.
 - This is exactly where an admin-facing warning before a destructive delete earns its
