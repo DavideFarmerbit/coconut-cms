@@ -156,17 +156,22 @@ membership is always safe, no check needed. Retype remains the only field-level 
 ever produces a new value at all.
 
 **Retype's existing converter needs no new mechanism, only a check appended after it runs.**
-The converter was already specified correctly: one object, invoked once per existing row,
-taking that row's own captured `NoType` value (itself a scalar or an array, depending on the
-old cardinality) and producing that row's own new value (an instance or an array of instances,
-depending on the new cardinality) — never a whole-table batch call. What's new: once it's run
-across every affected row, if the target field participates in a `Unique` group the framework
-collects every row's produced value and checks the whole set for pairwise distinctness (and
-against any existing live values) before committing anything, refusing the entire retype,
-naming the collision, if it isn't distinct. The converter itself stays exactly as already
-specified; producing genuinely distinct values (e.g. deriving from the row's own
-already-unique id) is the person writing the converter's responsibility, not something the
-framework orchestrates. Plain new-field backfill — today a single `#[DefaultInstance]` value
+The converter was already specified correctly: one object, invoked once per existing *entity
+row of the table being retyped* — never once per item inside a single row's own collection.
+For a singular field, that one call's argument is the one row's own captured `NoType` value;
+for a `Collection`-cardinality field, it's still a single argument, the whole assembled array
+of that one row's own items (a dense entry per position, an empty placeholder standing in for
+any gap a sparse Owned collection left behind). This distinction matters here specifically,
+and almost got lost in an earlier pass at writing this up: "per row" must mean per row of the
+table, never per item of one row's own collection, or the distinctness check below would be
+checking the wrong thing entirely. What's new: once the converter's run across every affected
+row, if the target field participates in a `Unique` group the framework collects every *row's*
+produced value — one per row, across the table, never per item inside any one row's own
+collection — and checks that set for pairwise distinctness (and against any existing live
+values) before committing anything, refusing the entire retype, naming the collision, if it
+isn't distinct. The converter itself stays exactly as already specified; producing genuinely
+distinct values (e.g. deriving from the row's own already-unique id) is the person writing the
+converter's responsibility, not something the framework orchestrates. Plain new-field backfill — today a single `#[DefaultInstance]` value
 reused identically for every row, no converter option at all — gains the same optional
 per-row converter retype already has, required whenever the field being backfilled
 participates in a `Unique` group and more than one row needs a value, since the reused-default
