@@ -1,8 +1,11 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 5)
 
-**Status: open (2026-10-02).** A fifth audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`,
-done after Round 4's items were folded back into both documents. 4 items found, none decided
-yet. Ordered by how much it changes what gets built, not alphabetically.
+**Status: resolved (2026-10-02).** A fifth audit pass over `ARCHITECTURE_V2.md`/
+`ROADMAP_V2.md`, done after Round 4's items were folded back into both documents. All 4
+items found have since been decided and folded back into `ARCHITECTURE_V2.md`/
+`ROADMAP_V2.md` directly — this file is kept only as a historical record of that audit pass
+and the discussion behind each decision, not as an open task list. Ordered by how much it
+changes what gets built, not alphabetically.
 
 ## Real inconsistencies
 
@@ -99,25 +102,41 @@ the `Editor\` entry under "Not covered by this roadmap." This closes the origina
 question by making it moot for this document — it's `Editor\`'s own design pass to work out
 whenever that track starts, same as everything else about that UI.
 
-### 4. Owned-subtree cascade-delete can silently null an unrelated Shared reference, with no acknowledgment
+### 4. Owned-subtree cascade-delete can silently null an unrelated Shared reference, with no acknowledgment — **resolved (2026-10-02), generalized into a real fix, not a tradeoff**
 
 Nothing stops an entity from being simultaneously Owned by one relationship and independently
 Shared-referenced by a completely unrelated field elsewhere (e.g. a `MediaAsset` inline-owned
 by a product's gallery that's also directly linked from an unrelated banner field via
 `SharedReference`). When the owner's subtree cascade-deletes ("Deleting an owner auto-expands
 to everything it transitively owns"), the unrelated Shared reference's FK just goes
-`SET NULL` per the ordinary FK policy ("FK `ON DELETE` policy" — "a Shared target simply going
-missing from a field is an ordinary, always-legal outcome").
+`SET NULL` per the ordinary FK policy.
 
-This is architecturally legal and doesn't need new mechanism — a Shared reference can always
-go null, full stop. But unlike every other edge case in this design (the Owned-subtree
-concurrency over-conflict tradeoff, the Shared-collection pivot split, ...), this interaction
-is never named as a deliberate, accepted tradeoff anywhere. As written it reads like an
-oversight rather than a decision an implementer can point to.
+First pass at resolving this tried to wave it away as an "accepted tradeoff" by reasoning that
+"a Shared target simply going missing from a field is an ordinary, always-legal outcome"
+already covers it — wrong, caught on challenge. That sentence is about *schema-level
+legality* (no `RESTRICT`, the FK is allowed to go null); it says nothing about whether the
+side effect is supposed to be *tracked*. Once that conflation is removed, the real problem
+shows up: the referencing entity genuinely was touched by this flush (its data changed), so
+leaving it unlogged directly violates this document's own stated undo rule ("every entity
+that flush actually touched gets its own independent `EntityChangeRecord`"). That's not a
+tradeoff, it's a hole — and it isn't specific to the Owned-cascade case at all: an ordinary
+single-entity delete of *any* Shared-referenced target has the exact same hole today (a
+silent DB-level `SET NULL`, no `EntityChangeRecord` for the referrer, no way for undo to
+restore the reference).
 
-**Open**: decide whether this needs anything beyond a documentation callout (most likely: no
-new mechanism, just an explicit "accepted tradeoff" note next to "Deleting an owner
-auto-expands to everything it transitively owns" in "Content write path," parallel to the
-concurrency tradeoff already called out there), or whether it's worth a narrower
-admin-facing warning later (`Editor\`, same bucket as the destructive-delete warning already
-deferred there).
+**Decided**: generalize the existing delete-expansion mechanism with a sideways counterpart
+to the downward one already there. "Deleting an owner auto-expands to everything it
+transitively owns" expands *downward* into owned descendants; a new, parallel rule expands
+*sideways*: deleting any entity also finds every entity whose declared field currently holds
+a live Shared reference to it (singular or collection item, reusing the same data-level
+"what's actually using one right now" query prototype deletion's `NoType` machinery already
+needed) and adds that field's own change to the *same* changeset, rather than letting the
+database fire an untracked `SET NULL`. For a collection item the change is logged against the
+collection's own declaring entity, never the pivot row (which "carries no
+independently-logged content of its own," already decided elsewhere) — one rule, no
+singular-vs-collection special case. This composes with the downward expansion for free: each
+owned descendant's own deletion independently triggers the same sideways check, so the
+original Owned-cascade scenario is just one instance of the general rule, not a case needing
+its own handling. Folded into `ARCHITECTURE_V2.md` ("Content write path") and
+`ROADMAP_V2.md` (Phase 4's bullet list and "Done when," plus Phase 5.2's "Done when" for the
+undo-side payoff).

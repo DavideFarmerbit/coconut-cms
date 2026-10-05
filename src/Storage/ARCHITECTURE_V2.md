@@ -773,6 +773,31 @@ not `Persistence\Entity\Repository::delete()`'s — `Repository::delete()` stays
 single-entity, CTI-chain-aware primitive; only `Repository`'s existing owned-descendant
 read is reused, not duplicated.
 
+**Deleting any entity also finds and nulls every live Shared reference pointing at it,
+logged as part of the same changeset** — a sideways expansion, parallel to the downward one
+above. Before the topological sort runs, a delete targeting entity Z also finds every
+entity whose declared field currently holds a live Shared reference to Z (singular field or
+collection item — the same data-level "what's actually using one right now" query already
+needed by prototype deletion's `NoType` machinery, reused rather than a second scan) and
+adds that field's own change to the same changeset, rather than letting the database's own
+`ON DELETE SET NULL` constraint fire as an untracked side effect. For a singular field this
+is the referencing entity itself; for a collection field it's the collection's own declaring
+entity, the change being "one item nulled" — never the pivot row, which carries no
+independently-logged content of its own (see "FK `ON DELETE` policy"). This is what makes
+"every entity that flush actually touched gets its own independent `EntityChangeRecord`"
+(see "Content undo, draft, and revision history") actually true for an entity whose only
+connection to the delete is "it referenced the thing that disappeared" — without this, the
+reference goes null with no record of the change, and undoing the deletion restores Z but
+not the reference to it.
+
+Composes with the downward expansion above for free, no special-casing: deleting owner X
+expands downward into everything X transitively owns; each of those deletions, including
+the nested ones, independently expands sideways via this same rule, finding and nulling
+whatever else happened to reference that specific owned entity. One rule, run uniformly
+over every delete the changeset ends up containing, whether the entity being deleted is
+Owned, Shared, or neither — not two different mechanisms depending on how the delete was
+reached.
+
 **Concurrent-write protection**: an `expectedOperationId` receipt, reject-by-default with
 an explicit override to retry. For an entity with Owned descendants, the id it must match
 is the latest operation touching *it or anything it transitively owns* — recursive over

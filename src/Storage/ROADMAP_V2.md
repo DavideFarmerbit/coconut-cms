@@ -224,9 +224,17 @@ topological sort — no more manual two-step create-then-attach.
 - `Persistence\Changeset\Changeset`/`EntityChange`/`TempId` ("Content write path").
 - `Persistence\Changeset\ChangesetSorter`: full topological sort resolving `TempId` dependency edges;
   cycles rejected outright with a clear, named error.
-- Delete expansion: adding a delete for entity X to a `Changeset` also adds a delete for
-  every entity in X's owned subtree, at any depth, before `ChangesetSorter` runs — reusing
-  `Repository`'s existing owned-descendant lookup, not a new query ("Content write path").
+- Delete expansion, downward: adding a delete for entity X to a `Changeset` also adds a
+  delete for every entity in X's owned subtree, at any depth, before `ChangesetSorter` runs
+  — reusing `Repository`'s existing owned-descendant lookup, not a new query ("Content write
+  path").
+- Delete expansion, sideways: deleting any entity X also finds every entity whose declared
+  field currently holds a live Shared reference to X (singular or collection item) and adds
+  that field's own `SET NULL` change to the same changeset, instead of letting the
+  database's `ON DELETE SET NULL` constraint fire untracked — logged against the
+  collection's own declaring entity for a collection-item case, never the pivot row
+  ("Content write path"). Composes with the downward expansion above automatically: each
+  owned descendant's own deletion independently triggers this same sideways check.
 - `Persistence\Changeset\ChangesetFlusher`: applies a changeset as one atomic database transaction.
 - Concurrent-write protection: an `expectedOperationId` receipt, reject-by-default with an
   explicit override to retry — for an entity with Owned descendants, the expected id
@@ -245,7 +253,14 @@ what it references in the wrong order is corrected by the sort, not left to rely
 `RESTRICT` as a backstop; deleting an owner with populated Owned descendants, at any depth,
 auto-expands into an explicit delete for each one, correctly ordered, each producing its
 own logged operation — not left to `entities.owner`'s `RESTRICT` constraint to reject the
-whole transaction.
+whole transaction; deleting an entity that's Shared-referenced elsewhere produces a logged
+field-change on the referencing entity (null-ing the FK) in the same flush, not just a raw
+database-level side effect, proven for both a singular reference and a collection item (the
+latter logged against the collection's own declaring entity); deleting an owner whose
+transitively-owned subtree includes an entity that's *also* Shared-referenced from outside
+that subtree produces both expansions in the same flush — the owned entity's own deletion,
+and the outside referrer's logged field-change — with no special-casing for how the delete
+was reached.
 
 ## Phase 5 — Undo, revision history (content-only)
 
@@ -272,7 +287,11 @@ undo capability exists yet.
   user/session, checked once, before the inverse changeset is even computed.
 
 **Done when**: a multi-entity `Revision` undoes atomically with a per-entity conflict
-check; redo restores it exactly; undoing with someone else's `Revision` id is rejected.
+check; redo restores it exactly; undoing with someone else's `Revision` id is rejected;
+undoing a `Revision` that deleted a Shared-referenced entity restores both the deleted
+entity and the referrer's nulled FK, from the one `EntityChangeRecord` Phase 4's sideways
+expansion already produced for the referrer — not left to only restore the deleted entity
+itself.
 
 ### 5.3 — Revision-history restore and manual pruning
 
