@@ -306,6 +306,19 @@ it), and a retype with no converter supplied (see "Migrations and schema mutatio
 converter is never mandatory for a retype, only useful when the new value should be
 *derived* from the old one rather than simply reset to default.
 
+**A backfill only ever touches the one field being added — never the rest of an already-populated
+row.** Resolving a default means constructing the declaring class's own defaulted instance
+and reading off whatever value it assigned to *that* field alone; every other already-existing
+field on the row is left exactly as it is, never reset or reconstructed from that same
+instance. This needs no special case for a `Collection`-cardinality field either: whatever
+value the resolution step produces for it — an array from an explicit multi-item default, or
+whatever the constructor itself assigned (`[1, 2, 3]` for a scalar collection, three built
+`Address` instances for an `#[Embed]` collection, three built entities for an Owned
+`Collection`) — gets persisted through that field's own already-established per-kind
+physical mapping, the same mapping any ordinary entity creation already uses for that kind.
+Backfill is never a separate "how many items" algorithm; it's "resolve one value for one
+field, then persist it exactly like a create would."
+
 **Fail as early as possible.** For native classes: `EntityRegistrar::register()` walks
 every registered class's full field tree, recursively through every `#[Embed]`/
 `OwningReference`/Owned-`Collection` target (never a plain `SharedReference` target, which
@@ -333,6 +346,27 @@ class's own attribute-declared fields (see "Shape comes from a neutral descripto
 has to support every `FieldDescriptor` kind a PHP class can declare, not a scalar-only
 subset, or admin-authored content types would permanently fall short of "content types can
 be assembled entirely in the editor" ("The goal").
+
+**Removing a field** runs the same per-kind mapping as adding, just undone: drop the
+column for scalar/value-object/singular-`Reference`/`Embed`-flattening; drop the dedicated
+pivot/child table outright for a `Collection` ("A Shared-collection or non-entity-collection
+field's own dedicated table..." further below). An `OwningReference` or Owned `Collection`
+needs one more step beyond that mapping: whatever owned content already exists at that
+relationship has to be cleaned up too, since nothing else ever will — spelled out next.
+
+**Removing an `OwningReference` or Owned `Collection` field cascade-deletes every existing
+owned entity at that relationship.** Scoped to every entity that currently declares or
+inherits the field, not just one row. Each deletion runs through the ordinary `Changeset`
+path, which already expands a delete in two directions ("Content write path"): downward
+into anything each owned entity in turn owns, and sideways into any outside Shared
+reference pointing at one of them. This reuses the same machinery prototype deletion and
+reparenting's level-removal already reuse, not a third, separate bulk-delete mechanism.
+Skipping it would orphan every owned row at that relationship permanently — findable only
+by `owner`/`owner_field`, with no declaring field left to resolve it through. Applies the
+same way whether the field disappears via `dropField()` or a native class dropping the
+property through the reviewed-migration tool. The `Collection` case also drops the field's
+own `<field>_count` column, same reasoning as its `NoType`-conversion drop ("`NoType`"); a
+singular `OwningReference` has no column to drop, as always.
 
 **Rename — no attributes, ever, for either kind.** Passed explicitly at the point the
 change is triggered instead of inferred by diffing two snapshots or tracked with

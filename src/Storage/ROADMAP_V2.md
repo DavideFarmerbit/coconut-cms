@@ -359,13 +359,22 @@ existed.
   between Shared, Owned, and `#[Embed]` — one capture-to-`NoType` plus
   reconstruct-from-`NoType` mechanism throughout. A converter is always optional: supplied,
   it derives the new value from the old; omitted, the field falls back to its own class
-  default.
+  default. `dropField()` on an `OwningReference` or Owned `Collection` cascade-deletes every
+  existing owned entity at that relationship, across every entity with the field, through
+  the same ordinary `Changeset` path Phase 4's delete expansion already built (downward into
+  anything each owned entity in turn owns, sideways into any outside Shared reference
+  pointing at one) — not left as a pure registry-record change the way adding the field was.
 
 **Done when**: an already-populated editor-created prototype can have a field of any kind
 added, each landing in the physical shape its kind implies (a column, a new dedicated
 table, or nothing beyond the registry record for an Owned relationship) without disturbing
 existing rows; a column can be added/dropped/renamed/retyped safely, each gated by
 `SchemaPermission`, each reflected immediately through the ordinary read/write path;
+dropping an `OwningReference` or Owned `Collection` field that has existing owned entities
+cascade-deletes every one of them, at any depth, each producing its own logged operation
+through the same Phase 4 machinery — not left orphaned, findable only by
+`owner`/`owner_field` with no declaring field left to resolve them, and also dropping the
+field's own `<field>_count` column for the `Collection` case;
 renaming/retyping a field on a shape used as an `#[Embed]` target (introduced in Phase 2)
 propagates to every table embedding it, not just the shape's own declaration; retargeting a
 `Reference` field to a different target type converts every existing row through its

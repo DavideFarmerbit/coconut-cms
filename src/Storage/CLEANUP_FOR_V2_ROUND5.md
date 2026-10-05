@@ -1,7 +1,7 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 5)
 
 **Status: resolved (2026-10-02).** A fifth audit pass over `ARCHITECTURE_V2.md`/
-`ROADMAP_V2.md`, done after Round 4's items were folded back into both documents. All 5
+`ROADMAP_V2.md`, done after Round 4's items were folded back into both documents. All 7
 items found have since been decided and folded back into `ARCHITECTURE_V2.md`/
 `ROADMAP_V2.md` directly — this file is kept only as a historical record of that audit pass
 and the discussion behind each decision, not as an open task list. Ordered by how much it
@@ -182,3 +182,67 @@ need to track that one column across the round trip. Folded into `ARCHITECTURE_V
 ("`NoType`" — both the `OwningReference` bullet and the "purely a function of cardinality"
 bullet right after it, which had the same imprecision) and `ROADMAP_V2.md` (Phase 6.4's
 "Done when").
+
+### 6. `dropField()` on an `OwningReference`/Owned-`Collection` field never says what happens to the existing owned entities — **resolved (2026-10-02)**
+
+Surfaced from a direct question, after item 5: "Adding a field"'s physical shape is spelled
+out per kind ("no physical change at all beyond the registry record for an
+`OwningReference` or Owned `Collection`"), but nothing in either document said what
+*removing* such a field does. "Removing the field drops the table outright" exists, but only
+for a Shared-collection/non-entity-collection field's own dedicated table — buried in the
+table-naming paragraph, scoped to the kinds that have a table to drop. An `OwningReference`/
+Owned `Collection` field has no dedicated table while live (its items are ordinary `entities`
+rows found by `owner`/`owner_field`), so that sentence doesn't reach it, and nothing else
+ever addressed it.
+
+Left unaddressed, this is a real gap, not just an asymmetry in emphasis: "no physical change
+beyond the registry record" is exactly the phrase a reader would wrongly carry over from
+adding to removing, and that would be wrong — every existing owned entity at that
+relationship would be orphaned permanently the moment the field disappears, since nothing
+else ever cleans up a row found only by `owner`/`owner_field` once no declaring field is
+left to resolve it through.
+
+**Decided**: removing an `OwningReference`/Owned-`Collection` field cascade-deletes every
+existing owned entity at that relationship, across every entity that currently declares or
+inherits the field, through the ordinary `Changeset` path — reusing Phase 4's delete
+expansion in both directions at once (downward into anything each owned entity in turn
+owns, sideways into any outside Shared reference pointing at one of them, per item 4), the
+same machinery prototype deletion and reparenting's level-removal already reuse rather than
+a third, separate bulk-delete mechanism. Applies identically whether the field disappears
+via `dropField()` or a native class dropping the property through the reviewed-migration
+tool. The `Collection` case also drops the field's own `<field>_count` column, same
+reasoning as item 5's `NoType`-conversion drop; a singular `OwningReference` has no column
+to drop, as always. Folded into `ARCHITECTURE_V2.md` ("Migrations and schema mutation," a
+new "Removing a field" paragraph symmetric to "Adding a field") and `ROADMAP_V2.md` (Phase
+6.2's bullet list and "Done when").
+
+### 7. `Defaulted instances` never addressed what backfill means for a `Collection`-cardinality field — **resolved (2026-10-02), turned out to need no new mechanism**
+
+Surfaced while fixing item 6's draft: a stray claim that "removing destroys something adding
+never created" turned out to be flatly wrong — `Defaulted instances` + Phase 3.3 already
+mean adding a *required* `OwningReference`/Owned-`Collection` field to an already-populated
+prototype backfills a real owned row for every existing entity. That raised the actual
+question: "Resolution order" (field's own explicit default → the field's type's own
+defaulted instance, resolved recursively → throw) is written entirely in singular terms —
+every listed call site backfills *one* value. Nothing said what resolving a default means
+for a field whose own cardinality is a `Collection`: how many items, or how "the field's
+type's own defaulted instance" (one instance) is supposed to produce a collection's worth of
+them.
+
+Turned out this isn't a design question at all, just an unstated composition of two things
+already decided. A defaulted instance is a *real constructed object* — "a real zero-argument
+constructor, or a static factory carrying `#[DefaultInstance]`" — ordinary code, free to
+assign any value to any field, including an array of five ints, three built `Address`
+value-objects, or three built owned entities, exactly as freely as it can assign `42` to a
+scalar. Whatever value lands in a field then gets persisted through that field's own
+already-established per-kind physical mapping, the same mapping any ordinary entity
+creation already uses for that kind. There's no "how many items" algorithm to design,
+because the constructor already decided that, the same way it decides a scalar's value.
+Also clarified in passing: a backfill only ever reads the *one* new field off that defaulted
+instance — it's never a license to reset or reconstruct the rest of an already-populated
+row, which "Resolution order" implied but never stated outright.
+
+**Decided**: no new mechanism — named the composition explicitly instead of leaving a
+reader (this round's own author, on a first pass) to wrongly suspect it needed one. Folded
+into `ARCHITECTURE_V2.md` ("Defaulted instances," a new paragraph right after "Resolution
+order").
