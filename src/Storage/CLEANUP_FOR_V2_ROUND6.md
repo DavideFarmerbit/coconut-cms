@@ -32,6 +32,17 @@ items are resolved, this is the one glaring exception that needs an explicit ans
 silent carry-over.
 
 **Open:**
+- **How does `PrototypeRegistry` actually hold/route between the two identifier kinds in
+  the first place?** Phase 1.1 says "one implementation for native classes via reflection,
+  written so a second, editor-created implementation can be added in Phase 6 with zero
+  change to any caller," and Phase 6.1 calls editor-created "the second identifier kind the
+  registry interface has supported since Phase 1" — both say a caller never needs to know
+  which kind it's holding, but neither says *how* a single call resolves that: is a native
+  identifier always self-describing as native (e.g. always a `::class` string) so one object
+  can branch on the identifier's own shape and consult reflection or the DB accordingly, or
+  is there some other dispatch nobody's designed? This has to be answered before "does it
+  cache" is even a well-posed question about *one* component rather than an unknown number
+  of them.
 - Does `PrototypeRegistry` resolve per-call against live, DB-backed state for the
   editor-created identifier kind (making this a non-issue by construction, since there's
   nothing to go stale), or does something still cache a resolved shape/table-map per
