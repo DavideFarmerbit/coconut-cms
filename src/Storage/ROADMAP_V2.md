@@ -88,14 +88,23 @@ the way.
 
 ### 1.3 — Validation, uniqueness, and backfill correctness
 
-- `Persistence\Schema\FieldValidator` strategy interface, a couple of default validators.
-- `Unique`: a validator kind naming one or more of a class's own fields, materialized as a
-  real composite (or single-column) `UNIQUE` index at registration time, with a friendly
-  pre-check ahead of the real constraint ("Uniqueness"). Single-field and multi-field groups
-  both land here — composite grouping among plain scalar fields on one standalone class
-  needs nothing beyond what this phase already has; the scoping/exclusion rules that depend
-  on `#[Embed]`, references, collections, or CTI extension are proven later, in the phase
-  that introduces each.
+- `Persistence\Schema\FieldValidator` strategy interface, a couple of default validators,
+  each exposing `describe(): array` — proven here by checking the shape it returns for a
+  couple of built-ins (e.g. a length check, a format check), not yet consumed by anything;
+  the client-side mapping of that output to an HTML5 attribute, a shared JS algorithm
+  registry, or a server-only fallback is `Editor\`'s own concern (see "Not covered by this
+  roadmap"), nothing to build here.
+- `Persistence\Schema\PrototypeValidator` strategy interface, proven with one hand-written,
+  arbitrary-logic example (end date after start date) on a native class with two plain
+  scalar fields — needs nothing beyond what this phase already has, same as `Unique` below.
+  `describe()` proven the same way as `FieldValidator`'s.
+- `Unique`: one of `PrototypeValidator`'s built-in kinds, naming one or more of a class's
+  own fields, materialized as a real composite (or single-column) `UNIQUE` index at
+  registration time, with a friendly pre-check ahead of the real constraint ("Uniqueness").
+  Single-field and multi-field groups both land here — composite grouping among plain scalar
+  fields on one standalone class needs nothing beyond what this phase already has; the
+  scoping/exclusion rules that depend on `#[Embed]`, references, collections, or CTI
+  extension are proven later, in the phase that introduces each.
 - `#[DefaultInstance]` + resolution order + the eager-failure registration walk
   ("Defaulted instances") — brought in now, not deferred to a late phase, since
   backfilling a new field on an already-populated class is an ordinary event the moment
@@ -103,8 +112,11 @@ the way.
 
 **Done when**: a hand-written native class with a mix of `Unique` and plain scalar fields
 round-trips fully; a single-field `Unique` group and a multi-field one are both enforced,
-each independently of the other; adding a new field to an already-populated class backfills
-every existing row via `#[DefaultInstance]` resolution.
+each independently of the other; an arbitrary-logic `PrototypeValidator` rejects a candidate
+state that violates it and accepts one that doesn't; `describe()` on a couple of
+`FieldValidator` built-ins and on the arbitrary-logic `PrototypeValidator` each return the
+expected shape; adding a new field to an already-populated class backfills every existing
+row via `#[DefaultInstance]` resolution.
 
 **Not yet** (end of Phase 1): entity references/collections, value objects/embed,
 native CTI extension (a native class extending another), the `Changeset` write path
@@ -365,13 +377,20 @@ guard end to end for the first time.
 - `Persistence\Schema\SchemaEditor::createPrototype()` — minimal, scalar fields only, no parent
   complexity yet. Non-scalar field addition is deliberately not stubbed here — it lands in
   6.2's `addField()`, once an existing prototype can be safely mutated at all.
+- An editor-created prototype can attach a `PrototypeValidator` rule at creation time,
+  picked from the closed menu Phase 1.3's native-side mechanism already supports built-in
+  kinds for — `Unique` is the first one exercised here, since it's the only kind this phase
+  needs to prove end to end; arbitrary native-only logic was already proven native-side in
+  Phase 1.3 and has no editor-created equivalent, by design ("Validation").
 - `Persistence\Permission\SchemaPermission` gating from the start, not bolted on after.
 
 **Done when**: an admin without `SchemaPermission` cannot create a prototype; one who does
 can create a fresh editor-created prototype with scalar fields, immediately
 readable/writable through the exact same `Persistence\Entity\Repository`/`Persistence\Changeset\ChangesetFlusher`
 every native class already uses — no separate wiring step, since the wiring already
-existed.
+existed; a fresh editor-created prototype created with a `Unique` group attached enforces it
+immediately, the same real-constraint mechanism Phase 1.3 already proved for native classes,
+reused rather than rebuilt for the second identifier kind.
 
 ### 6.2 — Mutating an existing, populated prototype
 
@@ -399,6 +418,10 @@ existed.
   capture/reconstruct machinery since no value ever changes. Bundled with a kind change in
   the same admin action, it goes through `retype()` instead, which already needs to know
   about `Unique` membership regardless (see the distinctness check below).
+- Attaching or removing a `PrototypeValidator` rule on an already-populated editor-created
+  prototype, picked from the same closed menu 6.1's creation path already draws from —
+  mutating which rules are attached is governed by `SchemaPermission` the same as any other
+  schema mutation, no separate permission needed.
 
 **Done when**: an already-populated editor-created prototype can have a field of any kind
 added, each landing in the physical shape its kind implies (a column, a new dedicated
@@ -456,7 +479,9 @@ default otherwise (null for Shared, always; empty or a defaulted instance for Ow
 required `OwningReference`/Owned-`Collection` field's retype fails outright only if neither
 a converter nor a class default produces something valid, while an optional one always
 accepts an empty result and leaves the new side absent — proven distinctly from `Reference`,
-which has no required case to fail at all.
+which has no required case to fail at all; attaching a `Unique` group to an already-populated
+editor-created prototype through this path, not just at creation, enforces it immediately on
+the next write, and removing it stops enforcing without touching existing data.
 
 ### 6.3 — Reparenting and `EditorExtensible`
 
@@ -620,11 +645,13 @@ search, real-time concurrent multi-editor collaboration.
 ## Not covered by this roadmap
 
 - **`Editor\`** — the admin-facing authoring UI, the client-side `LocalCommand`/
-  `RemoteCommand` stack, and **Draft** (`DraftStore`/`DraftPreview`) — none of which have a
-  meaning for a write path that isn't a human composing an edit through this UI, so none of
-  it is a persistence-layer concern. A separate, later track, once enough of the above
-  exists to build and drive it against; Draft's own lifecycle and shape are undecided, see
-  `ARCHITECTURE_V2.md`'s "Content undo, draft, and revision history."
+  `RemoteCommand` stack, **Draft** (`DraftStore`/`DraftPreview`), and consuming every
+  `describe()` output `FieldValidator` exposes (mapping it to a native HTML5 constraint
+  attribute, a shared registry of named JS algorithms, or a server-only fallback) — none of
+  which have a meaning for a write path that isn't a human composing an edit through this
+  UI, so none of it is a persistence-layer concern. A separate, later track, once enough of
+  the above exists to build and drive it against; Draft's own lifecycle and shape are
+  undecided, see `ARCHITECTURE_V2.md`'s "Content undo, draft, and revision history."
 - **Fine-grained revision-history reachability across a schema change** — still listed as
   open in `ARCHITECTURE_V2.md`'s "Deferred" section; pick a phase for it once it's actually
   resolved there.

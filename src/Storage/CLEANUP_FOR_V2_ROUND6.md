@@ -200,28 +200,49 @@ exclusion, Phase 3.3/3.4 for collection owner-scoping, Phase 6.2 for the retype-
 check). Described in each document in the resolved design's own terms, per the standalone
 requirement (see [[feedback_v2_docs_standalone]]).
 
-### 3. `PrototypeValidator` and the client-side `describe()` validation tiers are described but never scheduled
+### 3. `PrototypeValidator` and the client-side `describe()` validation tiers are described but never scheduled — **resolved (2026-10-05)**
 
 "Validation" introduces `PrototypeValidator` (a separate entity-level interface for
 cross-field rules) and a three-tier client-side pre-validation scheme behind one `describe()`
-method, alongside `FieldValidator`. `ROADMAP_V2.md` schedules only `FieldValidator` (Phase
-1.3). Neither `PrototypeValidator` nor the `describe()`/client-tier work appears in any phase,
-and neither gets the explicit "deferred to `Editor\`" treatment Draft got in Round 5 item 3.
-Right now a reader can't tell whether these were meant to land in Phase 1.3 alongside
-`FieldValidator` and simply got left off the bullet list, or whether they're intentionally
-later/out-of-scope and just missing the pointer saying so.
+method, alongside `FieldValidator`. `ROADMAP_V2.md` scheduled only `FieldValidator` (Phase
+1.3). Neither `PrototypeValidator` nor the `describe()`/client-tier work appeared in any
+phase, and neither got the explicit "deferred to `Editor\`" treatment Draft has (Round 5 item
+3). Item 2's resolution forced part of this open anyway — `Unique` needed a phase to land in,
+and it's described as living in the same family as `PrototypeValidator` — so this item mostly
+just had to make that already-forced answer complete and explicit rather than leave it as an
+accident of `Unique`'s own scheduling.
 
-**Open:**
-- `PrototypeValidator`: which phase? It doesn't depend on anything past Phase 1 (it's a
-  cross-field check against "the whole candidate state," no relationship/embed machinery
-  needed for the simplest case) — candidate for folding into Phase 1.3, or does it want to
-  wait until native CTI extension / relationships exist so cross-field rules spanning those
-  have something to test against?
-- `describe()`/client-side tiers: is this `Persistence\Schema\`'s concern at all (a method on
-  `FieldValidator` that `Editor\` later consumes), making it a backend roadmap item, or is it
-  entirely `Editor\`'s own design pass like Draft and `LocalCommand`/`RemoteCommand`? The doc
-  currently reads like the former (it's inside "Validation," not inside the `Editor\`-deferred
-  bullet list) but the roadmap treats it like the latter (silence).
+**`PrototypeValidator`'s native-logic half lands in Phase 1.3, not later.** The "wait until
+relationships exist" alternative floated in the original open question doesn't hold up on
+inspection: the canonical example ("end date after start date") needs nothing beyond two
+plain scalar fields on one class — exactly Phase 1's own scope, the same level of complexity
+`Unique` itself needs. Phase 1.3 proves it with one hand-written arbitrary-logic validator
+example, `Unique` as its first built-in kind alongside that.
+
+**The editor-created half (closed menu only) waits for Phase 6**, since editor-created
+prototypes don't exist before then — not a new decision, just the same native-vs-editor-
+created split every other mechanism in this design already draws. Attaching a closed-menu
+rule (`Unique` being the one this phase actually needs to exercise end to end) lands in 6.1
+alongside prototype creation; mutating which rules are attached on an already-populated
+prototype lands in 6.2 alongside the rest of that phase's mutation surface, gated by the same
+`SchemaPermission` as everything else there — no separate permission invented for it.
+
+**`describe()` splits the same way it already implicitly did.** The backend method itself —
+every `FieldValidator`/`PrototypeValidator` exposing `{type, ...params}` about itself — is
+`Persistence\Schema\`'s concern, proven in Phase 1.3 alongside the interfaces it's a method
+of: checking the shape it returns for a couple of built-ins, nothing consuming it yet. The
+actual *consumption* — mapping that output to an HTML5 attribute, the shared registry of
+named JS algorithms, or a server-only fallback — is entirely `Editor\`'s own UI-layer design
+pass, now explicitly listed alongside Draft and `LocalCommand`/`RemoteCommand` under "Not
+covered by this roadmap" rather than left to be inferred from silence.
+
+Folded into `ROADMAP_V2.md` only — `ARCHITECTURE_V2.md` already described what
+`PrototypeValidator`/`FieldValidator`/`describe()` are; this item was purely a scheduling gap,
+not a design one. Phase 1.3 gained `PrototypeValidator` and `describe()` bullets plus matching
+"Done when" clauses; Phase 6.1 gained a closed-menu-attachment-at-creation bullet and "Done
+when" clause; Phase 6.2 gained a mutate-attached-rules bullet and "Done when" clause; "Not
+covered by this roadmap" now names the client-side `describe()` consumption explicitly under
+`Editor\`.
 
 ### 4. Owned-collection "remove slot" vs. "clear slot" mechanics have no named owner
 
