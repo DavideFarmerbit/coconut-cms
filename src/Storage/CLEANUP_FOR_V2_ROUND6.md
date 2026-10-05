@@ -1,11 +1,13 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 6)
 
-**Status: open.** A sixth audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`, done after
-Round 5's items were folded back into both documents, this time cross-referencing
-`AUDIT.md` directly against the claim in `ARCHITECTURE_V2.md`'s own opening paragraph that
-"most of its open items are resolved here." Ordered by how much it changes what gets
-built, not alphabetically. Each item below is still open — gets a **Decided** note and
-folded into both documents as we close it, one at a time, the same way Rounds 1-5 did.
+**Status: resolved (2026-10-05).** A sixth audit pass over `ARCHITECTURE_V2.md`/
+`ROADMAP_V2.md`, done after Round 5's items were folded back into both documents, this time
+cross-referencing `AUDIT.md` directly against the claim in `ARCHITECTURE_V2.md`'s own
+opening paragraph that "most of its open items are resolved here." All 4 items found have
+since been decided and folded back into `ARCHITECTURE_V2.md`/`ROADMAP_V2.md` directly — this
+file is kept only as a historical record of that audit pass and the discussion behind each
+decision, not as an open task list. Ordered by how much it changes what gets built, not
+alphabetically.
 
 ## Missing pieces
 
@@ -244,19 +246,55 @@ when" clause; Phase 6.2 gained a mutate-attached-rules bullet and "Done when" cl
 covered by this roadmap" now names the client-side `describe()` consumption explicitly under
 `Editor\`.
 
-### 4. Owned-collection "remove slot" vs. "clear slot" mechanics have no named owner
+### 4. Owned-collection "remove slot" vs. "clear slot" mechanics have no named owner — **resolved (2026-10-05)**
 
 "References and collections" establishes that `<field>_count` must distinguish "remove this
 slot" (count shrinks, later positions shift down) from "clear this slot's content" (count
 unchanged, slot survives empty) — and Phase 3.3's "Done when" tests both behaviors
-explicitly. Neither document ever states which component performs the position-shift/
+explicitly. Neither document ever stated which component performs the position-shift/
 count-decrement arithmetic on an ordinary content edit — contrast with how precisely the
 schema-mutation-time cascade (`dropField()` on the relationship) is specified elsewhere.
 
-**Open:**
-- Is this `Persistence\Entity\Repository`'s job (an "edit this Owned collection" primitive
-  that knows how to shift positions and adjust the count), or does it belong to
-  `Persistence\Changeset\` alongside the other collection-shape bookkeeping?
-- Does inserting into the middle of an Owned (or Shared, or non-entity) collection need the
-  same explicit treatment (shift everything after the insertion point), or is that already
-  obviously symmetric enough not to need its own paragraph?
+**Lives in `Persistence\Changeset\`, not `Repository` — the same line "Content write path"
+already draws for the downward/sideways delete expansions.** The deciding factor is how many
+rows the operation touches: removing a slot needs the item's own row deleted, every later
+sibling's `position` shifted down, and the owner's own `<field>_count` decremented — three
+different rows, not one, which is exactly why `Repository::delete()`/`create()` stay
+single-entity primitives and multi-row bookkeeping belongs to `Changeset` instead, the same
+reasoning already used for the other two expansion flavors.
+
+**The remove/clear split actually resolves into four operations, once looked at
+symmetrically with the optional-item case "References and collections" already describes:**
+- **Clear** (an optional item's content removed, slot survives empty) and **Fill** (an
+  optional item created at an already-counted, previously-empty slot) are both already fully
+  covered by an ordinary create/delete through the existing path — no sibling shift, no
+  count change, nothing new needed at all.
+- **Remove** (the slot itself goes away) is the same delete as Clear, plus the expansion:
+  every later sibling's `position` decremented, the owner's own `<field>_count` decremented.
+  **Insert** (the collection grows a slot, anywhere including the end) is the mirror: the
+  same create as Fill, plus every later sibling's `position` incremented and the count
+  incremented. "Append" is Insert with nothing after the insertion point to shift, not a
+  separate case.
+
+A required item kind only ever has Insert/Remove available — Clear has no valid empty state
+to leave a required slot in, refused outright, same required-vs-optional boundary already
+drawn elsewhere in this design. Which of the four is meant can never be inferred from the
+create/delete alone — explicit at the point the change is added to the changeset, same
+never-inferred posture rename already uses.
+
+**Composes for free with everything already decided, no new undo or concurrency
+mechanism.** Every shifted sibling gets its own ordinary `EntityChangeRecord` — undo already
+restores a whole `Revision` atomically, so reversing a shift needs nothing new. Concurrency
+is already covered too: any edit to an Owned collection already bubbles to the owner's own
+`expectedOperationId`, so two concurrent inserts/removes on the same collection already
+serialize for an unrelated reason (the same mechanism that already closed the uniqueness
+race in item 2). And Remove is still fundamentally "delete this owned entity," so if that
+item itself owns descendants or is Shared-referenced from elsewhere, the downward/sideways
+expansions already in this design still run exactly as described — no special-casing for the
+slot-shift case.
+
+Folded into `ARCHITECTURE_V2.md` ("Content write path," a new expansion-flavor paragraph
+alongside the downward/sideways ones) and `ROADMAP_V2.md` (Phase 3.3's existing done-when
+clarified as proving the physical mechanics via direct manipulation only, the same "proven
+here, full version is Phase 4's own done-when" pattern already used for the downward-
+expansion case; Phase 4 gained the actual expansion bullet and matching "Done when" clauses).

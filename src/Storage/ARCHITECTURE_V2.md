@@ -973,6 +973,39 @@ over every delete the changeset ends up containing, whether the entity being del
 Owned, Shared, or neither — not two different mechanisms depending on how the delete was
 reached.
 
+**A third expansion flavor, specific to an Owned collection: inserting or removing a slot
+shifts every later sibling's `position` and adjusts the owner's own `<field>_count`, both
+logged as part of the same changeset.** Four operations fall out of combining "does the
+slot's content change" with "does the slot itself survive" (see "References and
+collections" for the `<field>_count` distinction this builds on):
+
+- **Clear** (an optional item's content removed, the slot survives empty) and **Fill** (an
+  optional item created at an already-counted, previously-empty slot) are both already fully
+  covered by an ordinary create or delete through the existing path — no sibling shift, no
+  count change, nothing new needed.
+- **Remove** (the slot itself goes away) is the same delete as Clear, plus the expansion:
+  every later sibling's `position` decremented, the owner's own `<field>_count` decremented.
+  **Insert** (the collection grows a slot, anywhere including the end) is the mirror: the
+  same create as Fill, plus every later sibling's `position` incremented and the count
+  incremented. "Append" is Insert with nothing after the insertion point to shift, not a
+  separate case.
+
+A required item kind only ever has Insert/Remove available — Clear has no valid empty state
+to leave a required slot in, refused outright, the same required-vs-optional boundary
+already drawn elsewhere in this design. Which of the four is meant can never be inferred
+from the create/delete alone — it's an explicit choice at the point the change is added to
+the changeset, the same never-inferred posture rename already uses.
+
+This expansion is `Persistence\Changeset\`'s job, the same reasoning as the downward/sideways
+expansions above: it touches more than one entity (the item itself, every later sibling, the
+owner's own row), so it can't live on `Repository`'s single-entity create/delete primitives.
+Every shifted sibling gets its own ordinary `EntityChangeRecord`, same as any other touched
+entity — undo already restores a whole `Revision` atomically, so reversing a shift needs no
+new mechanism. Composes for free with the downward/sideways expansions above too: Remove is
+still fundamentally "delete this owned entity," so if that item itself owns descendants or is
+Shared-referenced from elsewhere, both of those expansions still run exactly as already
+described, no special-casing for the slot-shift case.
+
 **Concurrent-write protection**: an `expectedOperationId` receipt, reject-by-default with
 an explicit override to retry. For an entity with Owned descendants, the id it must match
 is the latest operation touching *it or anything it transitively owns* — recursive over

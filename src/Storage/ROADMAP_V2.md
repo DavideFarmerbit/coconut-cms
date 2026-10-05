@@ -227,7 +227,10 @@ here); an Owned collection with an optional item kind round-trips with an empty 
 middle (not just at the end), the stored count correctly reflecting the true slot count
 rather than the number of live rows; removing a slot shrinks the stored count and shifts
 later positions down, while clearing a slot's content leaves the count and every position
-untouched; a `Unique` group declared on the Owned-collection item's own fields allows the
+untouched — proven here via direct `Repository`/manual-update calls computing the shift and
+count change by hand, since `Changeset` doesn't exist until Phase 4 (the auto-expanding,
+explicit-intent, logged version of this is Phase 4's own done-when, not retested here); a
+`Unique` group declared on the Owned-collection item's own fields allows the
 same combination to appear once under two different owners while rejecting a second
 occurrence under the same owner, proving the owner-scoping column was folded into the real
 constraint rather than left as a group spanning every owner's items at once.
@@ -276,6 +279,14 @@ topological sort — no more manual two-step create-then-attach.
   collection's own declaring entity for a collection-item case, never the pivot row
   ("Content write path"). Composes with the downward expansion above automatically: each
   owned descendant's own deletion independently triggers this same sideways check.
+- Owned-collection slot expansion: an explicit Remove or Insert adds the sibling-`position`
+  shift and the owner's own `<field>_count` adjustment to the same changeset automatically,
+  as its own logged operations — never left for the caller to compute by hand the way Phase
+  3.3 proved the physical mechanics. Clear and Fill need no expansion at all, both already
+  an ordinary create/delete ("Content write path"). Composes with the downward/sideways
+  expansions above for free: Remove is still an ordinary delete underneath, so an owned item
+  that itself owns descendants or is Shared-referenced from elsewhere triggers both of those
+  the same as any other deletion.
 - `Persistence\Changeset\ChangesetFlusher`: applies a changeset as one atomic database transaction.
 - Concurrent-write protection: an `expectedOperationId` receipt, reject-by-default with an
   explicit override to retry — for an entity with Owned descendants, the expected id
@@ -301,7 +312,16 @@ latter logged against the collection's own declaring entity); deleting an owner 
 transitively-owned subtree includes an entity that's *also* Shared-referenced from outside
 that subtree produces both expansions in the same flush — the owned entity's own deletion,
 and the outside referrer's logged field-change — with no special-casing for how the delete
-was reached.
+was reached; an explicit Remove of a middle slot in an Owned collection shifts every later
+sibling's `position` down and decrements the owner's own `<field>_count`, each shifted
+sibling producing its own logged operation, all in the same flush as the item's own deletion;
+an explicit Insert at a middle position does the mirror-image shift upward and increments the
+count; a Clear or a Fill produces no sibling shift and no count change, proven alongside
+Remove/Insert rather than assumed identical from Phase 3.3's own test of the physical
+mechanics; removing a slot whose own item owns further descendants or is Shared-referenced
+from outside the collection triggers the downward/sideways expansions in the same flush,
+proving the composition rather than assuming it from the two mechanisms being independently
+correct.
 
 ## Phase 5 — Undo, revision history (content-only)
 
