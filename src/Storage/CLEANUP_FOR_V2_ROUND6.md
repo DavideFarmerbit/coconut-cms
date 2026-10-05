@@ -59,26 +59,141 @@ not just `fieldsOf()`/`instantiate()`) — described there in the resolved desig
 with no back-reference to the old class or to this audit item, per the standalone
 requirement both documents are held to now (see [[feedback_v2_docs_standalone]]).
 
-### 2. Flipping `unique` on an already-existing field is still unaddressed
+### 2. Flipping `unique` on an already-existing field is still unaddressed — **resolved (2026-10-05)**
 
 `AUDIT.md` §6 named three un-migratable toggles on an existing field: `queryable`, `unique`,
 `Ownership`. V2 explicitly closes two of them — `queryable` is retired outright ("No blobs"),
 `Ownership` flipping is covered by the Shared↔Owned retype case ("Migrations and schema
-mutation"). `unique` is never mentioned again anywhere after Phase 1.3 introduces it
+mutation"). `unique` was never mentioned again anywhere after Phase 1.3 introduced it
 ("Uniqueness: `unique` flag, real `UNIQUE` constraint, friendly pre-check"). `SchemaEditor`'s
 mutation set for editor-created fields is explicitly closed to `addField()`/`dropField()`/
-`rename()`/`retype()` ("Nothing else, ever, at the field level") — none of those four is "add
+`rename()`/`retype()` ("Nothing else, ever, at the field level") — none of those four was "add
 or remove a uniqueness constraint on a field that already has data," and retype is about
 changing a field's *kind*, not a constraint on top of the same kind.
 
-**Open:**
-- Does an editor-created field ever need to gain/lose uniqueness after creation, or is this
-  deliberately out of scope (same posture as "no index-toggling operation yet" for the
-  `queryable`-retirement discussion)?
-- If in scope: adding `unique` to a populated column needs the same "friendly pre-check" Phase
-  1.3 already has for creation, just run against existing rows instead of an empty table — is
-  that the whole mechanism, or does it need its own capture/duplicate-resolution path the way
-  retype does?
+This turned into the single longest discussion of this round, because the first proposed fix
+(a narrow `setUnique()` operation, parallel to add/drop/rename/retype) kept surfacing bigger
+problems the moment it was pushed on: how a flag-only change should be allowed to interact
+with a simultaneous kind change; how backfilling a newly-required field could ever stay
+consistent with a uniqueness guarantee once more than one row needs a value; whether the same
+flag means the same thing when a shape is reused as a standalone entity versus an `#[Embed]`
+target versus an Owned relationship; and a direct objection to having two different places
+(`FieldDescriptor::$unique` and `PrototypeValidator`) that could each independently claim to
+express "this must be unique." Working through each one in turn converged on a single,
+coherent model, below. Order follows the actual discussion, since later decisions depend on
+earlier ones.
+
+**`unique` stops being a `FieldDescriptor` flag and becomes a validator kind.** Single-field
+uniqueness is just the one-field case of "these named fields of this shape, together, must be
+unique" — no different in kind from a multi-field group. This lives in the same family as
+`FieldValidator`/`PrototypeValidator`, not as a separate attribute system, specifically so it
+doesn't become a second, independently-maintained place a reader has to check alongside
+`PrototypeValidator` to know everything a shape requires — the exact objection that started
+this half of the discussion. A shape may declare more than one independent `Unique` group at
+once (e.g. `[sku]` and, separately, `[street, city, zip]`) — nothing restricts it to one.
+
+**Enforcement is a real database constraint, never an application-level check, because the
+latter is a race two concurrent writers can both slip through.** Because the framework
+recognizes `Unique` as a specific, structurally-understood kind rather than opaque validator
+logic it can't see inside, it treats a declared group as schema work: at
+registration/schema-sync time it adds a real composite (or single-column) `UNIQUE` index to
+whatever table the named fields physically land on; at write time it relies on that index for
+atomic enforcement and translates any violation into a friendly, named refusal, rather than
+running its own "check for a duplicate, then write" pass first. This is always achievable for
+a `Unique` group specifically, because by construction it only ever names fields of the one
+shape declaring it — never a different entity's own columns (see the explicit exclusion
+below, which is what keeps this guarantee true).
+
+**Where the constraint physically lands, by how the declaring shape is used:**
+- **Standalone / Shared-referenced / Owned** (singular or collection): every such row of a
+  concrete type lives in the one shared physical table every chain is rooted through, so the
+  constraint is global — every standalone row and every Owned row under every relationship,
+  compared together. Deliberate, not a compromise: there is no narrower storage to scope it
+  to, since the whole point of the shared `entities` table is exactly to avoid a dedicated
+  table per relationship.
+- **`#[Embed]` target**: each embedding site gets its own, independently-flattened copy of
+  the columns (`House.homeAddress_street` and `Order.deliveryAddress_street` are unrelated
+  columns, possibly on unrelated tables). A declared group materializes as an *independent*
+  composite index *at each site*, never spanning sites — propagated to every embedding table
+  the same way rename/retype already fan out, but each site's resulting constraint stands
+  alone.
+- **Collection cardinality** (Owned collection, Shared pivot, or a non-entity/`#[Embed]`
+  collection's own dedicated child table): every owner's items share one physical table, so
+  the table's own scoping column (`owner`/`owner_field`, or the dedicated table's `ownerId`)
+  is folded into the materialized index automatically, alongside whatever fields were named —
+  otherwise the constraint would wrongly span every different owner's collection system-wide
+  instead of staying scoped to one owner's own items.
+
+**Two structural exclusions, both rejected at registration time — same posture as every other
+structural violation already in this design** (Embed-of-Embed cycles, a `Reference`/
+`Collection` field inside an `#[Embed]` target):
+- **A `Unique` group can never name a field reached through a `Reference`.** The compared
+  columns would live on the *referenced* row's own table, not on any table the constraint
+  could be declared against — and a `Reference` is pointer semantics to something with its own
+  independent life (see "FK `ON DELETE` policy"), so constraining it from the referrer's side
+  is the wrong model regardless. A rule that genuinely needs to compare what a collection
+  *references* is not a gap left open by this exclusion: it's an ordinary `PrototypeValidator`
+  rule instead, and it turns out to need nothing new to be safe — candidate-state assembly
+  already hydrates reference values into real objects before validation runs, so the rule can
+  read the referenced objects' own fields directly without any new database-access mechanism;
+  and the race a database constraint would otherwise prevent is already closed by the existing
+  concurrent-write protection, since any write touching a collection's own membership already
+  requires the owning entity's current `expectedOperationId`, serializing concurrent edits to
+  the same collection for an unrelated reason. Nothing left unresolved here, once connected.
+- **A `Unique` group can never span fields declared at different levels of a chain.** A native
+  CTI parent's own fields and a descendant's own newly-declared fields live on two different
+  physical tables joined through `entities`, the same structural reason a `Reference`-reached
+  field can't be named — one `UNIQUE` index is always exactly one table. A descendant is free
+  to declare its own group purely over its own fields; the two never combine into one
+  constraint.
+
+**Non-retype field operations never produce a new value, only accept-or-refuse against what's
+already there.** Renaming a field is a pure metadata change, unaffected regardless. Adding or
+removing `Unique` membership with no kind change underneath never touches existing data: it
+runs a friendly pre-check over the current live values (refusing, naming the collision, if
+any duplicate already exists) and then issues the real `ALTER ... ADD UNIQUE`; removing
+membership is always safe, no check needed. Retype remains the only field-level operation that
+ever produces a new value at all.
+
+**Retype's existing converter needs no new mechanism, only a check appended after it runs.**
+The converter was already specified correctly: one object, invoked once per existing row,
+taking that row's own captured `NoType` value (itself a scalar or an array, depending on the
+old cardinality) and producing that row's own new value (an instance or an array of instances,
+depending on the new cardinality) — never a whole-table batch call. What's new: once it's run
+across every affected row, if the target field participates in a `Unique` group the framework
+collects every row's produced value and checks the whole set for pairwise distinctness (and
+against any existing live values) before committing anything, refusing the entire retype,
+naming the collision, if it isn't distinct. The converter itself stays exactly as already
+specified; producing genuinely distinct values (e.g. deriving from the row's own
+already-unique id) is the person writing the converter's responsibility, not something the
+framework orchestrates. Plain new-field backfill — today a single `#[DefaultInstance]` value
+reused identically for every row, no converter option at all — gains the same optional
+per-row converter retype already has, required whenever the field being backfilled
+participates in a `Unique` group and more than one row needs a value, since the reused-default
+path can never be distinct past the first row. An optional, unique field skips all of this
+regardless of row count: backfilling to `NULL` is always safe, since standard SQL `UNIQUE`
+semantics never treat two `NULL`s as colliding.
+
+**Cleanup on rename or removal is mostly already free, with one genuinely new case.** Dropping
+the whole table (prototype/class deletion) or the sole field of a single-field group drops the
+index with it, no extra mechanism. Renaming a field or the declaring class needs the index's
+own column/name reference renamed as part of the same already-decided rename-propagation, not
+a new mechanism, just one more artifact that fan-out needs to reach. The one new case: dropping
+one field out of a *multi*-field group while the rest remain is refused outright unless the
+group itself is explicitly narrowed or removed in the same operation — silently shrinking a
+three-field guarantee down to two as a side effect of an unrelated field removal is exactly the
+kind of silent consequence this design refuses everywhere else.
+
+Folded into `ARCHITECTURE_V2.md` (a new "Uniqueness" section between "References and
+collections" and "Defaulted instances," plus the backfill-converter extension inside
+"Defaulted instances" and the batch-distinctness check inside "Migrations and schema
+mutation"'s retype/`NoType` material) and `ROADMAP_V2.md` (Phase 1.3's uniqueness bullet
+reworded for the new mechanism, with scoping/exclusion cases added to the "Done when" of the
+later phases that introduce the features they depend on — Phase 2 for `#[Embed]` per-site
+scoping, Phase 3.1 for the cross-chain-level exclusion, Phase 3.2 for the `Reference`
+exclusion, Phase 3.3/3.4 for collection owner-scoping, Phase 6.2 for the retype-distinctness
+check). Described in each document in the resolved design's own terms, per the standalone
+requirement (see [[feedback_v2_docs_standalone]]).
 
 ### 3. `PrototypeValidator` and the client-side `describe()` validation tiers are described but never scheduled
 

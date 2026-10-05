@@ -300,6 +300,88 @@ singular case above: cascading here would delete the pivot row itself, losing th
 silently shrinking the collection's true count — exactly what a surviving `SET NULL`'d row
 (position intact, FK empty) exists to prevent.
 
+## Uniqueness
+
+A shape declares that some of its own fields, together, must be unique — never a flag
+living on one `FieldDescriptor`, always a named group of one or more field names, the same
+mechanism whether the group has one member or several. Lives alongside `FieldValidator`/
+`PrototypeValidator` as one more recognized kind of validation declaration, not a separate
+attribute system: deliberately, so a reader checking what a shape requires never has two
+independent places to look. A shape may carry more than one such group at once, each
+independent of the others (a single-field group and a three-field group coexist freely,
+each its own constraint).
+
+**Enforcement is always a real database constraint, never an application-level check run
+before the write.** A proactive "look for a duplicate, then write" pass is a race two
+concurrent writers can both pass before either commits; a real constraint can't be raced.
+Because a declared group is a recognized kind, not opaque validator logic, the framework
+treats it as schema work: at registration/schema-sync time it adds a real composite (or
+single-column) `UNIQUE` index to whatever table the named fields physically land on; at
+write time it relies on that index for atomic enforcement and turns any violation into a
+friendly, named refusal rather than a raw constraint error. This is always achievable for a
+group specifically because, by the exclusion below, it only ever names fields of the one
+shape declaring it.
+
+**Where the constraint physically lands, by how the declaring shape is used:**
+
+- **Standalone, Shared-referenced, or Owned** (singular or collection): every such row of a
+  concrete type lives in the one shared physical table its whole chain is rooted through, so
+  the constraint is global — every standalone row and every Owned row under every
+  relationship, compared together. Deliberate: there is no narrower storage to scope it to,
+  since the shared `entities` table exists specifically to avoid a dedicated table per
+  relationship.
+- **`#[Embed]` target**: each embedding site gets its own, independently-flattened copy of
+  the columns (`House.homeAddress_street` and `Order.deliveryAddress_street` are unrelated
+  columns, possibly on unrelated tables, per "Entity vs. Value Object vs. Embed"). A declared
+  group materializes as an *independent* composite index *at each site*, never spanning
+  sites — propagated to every embedding table the same way a rename/retype already fans out,
+  but each site's resulting constraint stands alone.
+- **Collection cardinality** (Owned collection, Shared pivot, or a non-entity/`#[Embed]`
+  collection's own dedicated child table): every owner's items share one physical table, so
+  the table's own scoping column (`owner`/`owner_field`, or the dedicated table's `ownerId`)
+  is folded into the materialized index automatically, alongside whatever fields were named —
+  otherwise the constraint would wrongly span every different owner's collection system-wide
+  instead of staying scoped to one owner's own items.
+
+**Two structural exclusions, both rejected at registration time — same posture as every
+other structural violation in this design** (Embed-of-Embed cycles, a `Reference`/
+`Collection` field inside an `#[Embed]` target):
+
+- **A group can never name a field reached through a `Reference`.** The compared columns
+  would live on the *referenced* row's own table, not on any table the constraint could be
+  declared against — and a `Reference` is pointer semantics to something with its own
+  independent life (see "FK `ON DELETE` policy"), so constraining it from the referrer's side
+  is the wrong model regardless. A rule that genuinely needs to compare what a collection
+  *references* is not left unsolved by this exclusion: it's an ordinary `PrototypeValidator`
+  rule instead, and needs nothing new to be safe — candidate-state assembly already hydrates
+  reference values into real objects before validation runs, so the rule reads the referenced
+  objects' own fields directly, no new database access needed; and the race a database
+  constraint would otherwise prevent is already closed by the existing concurrent-write
+  protection, since any write touching a collection's own membership already requires the
+  owning entity's current `expectedOperationId` (see "Content write path"), serializing
+  concurrent edits to the same collection for an unrelated reason.
+- **A group can never span fields declared at different levels of a chain.** A parent's own
+  fields and a descendant's own newly-declared fields live on two different physical tables
+  joined through `entities` — the same structural reason a `Reference`-reached field can't be
+  named, one `UNIQUE` index is always exactly one table. A descendant is free to declare its
+  own group purely over its own fields; the two never combine into one constraint.
+
+**Adding or removing membership, with no kind change underneath, never touches existing
+data** — same posture as every other non-retype field operation (see "Migrations and schema
+mutation"): it runs a friendly pre-check over the current live values, refusing and naming
+the collision if any duplicate already exists, then issues the real `ALTER ... ADD UNIQUE`.
+Removing membership is always safe, no check needed. A kind change bundled together with a
+membership change goes through the full retype mechanism instead, described below.
+
+**Cleanup on rename or removal is mostly already free, with one new case.** Dropping the
+whole table, or the sole field of a single-field group, drops the index with it. Renaming a
+field or the declaring class needs the index's own column/name reference renamed as part of
+the same rename-propagation already described below — one more artifact that fan-out
+reaches, not a new mechanism. Dropping one field out of a *multi*-field group while the rest
+remain is refused outright unless the group itself is explicitly narrowed or removed in the
+same operation — silently shrinking a guarantee as a side effect of an unrelated field
+removal is exactly the kind of silent consequence this design refuses everywhere else.
+
 ## Defaulted instances: backfilling a new field or a new parent-level row
 
 Every native class, every shape ever used as an `#[Embed]` target, and every shape ever
@@ -335,6 +417,18 @@ whatever the constructor itself assigned (`[1, 2, 3]` for a scalar collection, t
 physical mapping, the same mapping any ordinary entity creation already uses for that kind.
 Backfill is never a separate "how many items" algorithm; it's "resolve one value for one
 field, then persist it exactly like a create would."
+
+**A field participating in a `Unique` group (see "Uniqueness") is the one case the plain
+defaulted-instance path can never satisfy once more than one existing row needs a value** — a
+single constructed default, reused identically for every row, is guaranteed to collide the
+moment a second row needs one. Backfilling such a field gains the same optional converter
+retype already has (see "Migrations and schema mutation" for exactly how it's invoked — once
+per existing row needing a value, never once per item inside a single row's own collection),
+and the same row-level pairwise-distinctness check runs on its output before committing
+anything; not supplied, the backfill is refused outright rather than falling back to the
+reused-default path, since that path can never be distinct past the first row. An optional,
+unique field needs none of this regardless of row count: backfilling to `NULL` is always
+safe, since standard `UNIQUE` semantics never treat two `NULL`s as colliding.
 
 **Fail as early as possible.** For native classes: `EntityRegistrar::register()` walks
 every registered class's full field tree, recursively through every `#[Embed]`/
@@ -480,7 +574,25 @@ value from the old one"; given none, resolution falls back to the field's own cl
 for an ordinary new-field backfill) — a converter only earns its keep when the new value
 should carry something forward from the old one, never because the framework needs one to
 proceed. An ordinary scalar/value-object retype already looked like this (an `ALTER` plus an
-optional converter); every case below is the same two-step shape, not a separate mechanism:
+optional converter); every case below is the same two-step shape, not a separate mechanism.
+
+**The converter itself is always invoked once per existing entity row of the table being
+retyped — one object, never a whole-table batch call, and never invoked once per item inside
+a single row's own collection.** For a singular field, that one call's only argument is the
+one row's own captured `NoType` value. For a `Collection`-cardinality field, that one call's
+argument is still a single value — the whole assembled array of that one row's own items, one
+dense entry per position (an empty placeholder standing in for any gap a sparse Owned
+collection left behind, so position is never lost), never a separate call per item. The
+output mirrors this: one new value for a singular field, one new array for a collection, both
+from that same single per-row call. If the target field participates in a `Unique` group (see
+"Uniqueness"), the framework collects every *row's* produced value — one value or one array
+per row, across the whole table, never per item inside any one row's own collection — once the
+converter has run across every row needing one, and checks that row-level set for pairwise
+distinctness, and against any existing live values, before committing anything — refusing the
+entire retype, naming the collision, if it isn't distinct. The converter stays exactly as
+already specified; producing genuinely distinct values is whoever writes the converter's own
+responsibility, never
+something the framework orchestrates on their behalf.
 
 - **Retargeting a singular `Reference`** (it used to point at `Category`, now it should
   point at `Tag`): capture the old FK (old type and id) — the old target itself is never
@@ -1010,8 +1122,11 @@ on actual access.
 growing pile of `FieldDescriptor` flags. `PrototypeValidator` — a separate entity-level
 interface for cross-field rules (end date after start date), evaluated against the whole
 candidate state; native classes get arbitrary logic, editor-created prototypes pick from a
-closed menu only. Server-side validation is mandatory regardless of what the client
-already checked.
+closed menu only. `Unique` (see "Uniqueness") lives in this same family as one more
+recognized kind, naming one or more of a shape's own fields that together must be unique —
+the one kind the framework also materializes as a real database constraint rather than
+evaluating purely against candidate state. Server-side validation is mandatory regardless of
+what the client already checked.
 
 Client-side pre-validation splits into three tiers behind one clean interface
 (`describe()` emits `{type, ...params}`, never needs to know which tier applies): native

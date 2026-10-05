@@ -89,15 +89,22 @@ the way.
 ### 1.3 — Validation, uniqueness, and backfill correctness
 
 - `Persistence\Schema\FieldValidator` strategy interface, a couple of default validators.
-- Uniqueness: `unique` flag, real `UNIQUE` constraint, friendly pre-check.
+- `Unique`: a validator kind naming one or more of a class's own fields, materialized as a
+  real composite (or single-column) `UNIQUE` index at registration time, with a friendly
+  pre-check ahead of the real constraint ("Uniqueness"). Single-field and multi-field groups
+  both land here — composite grouping among plain scalar fields on one standalone class
+  needs nothing beyond what this phase already has; the scoping/exclusion rules that depend
+  on `#[Embed]`, references, collections, or CTI extension are proven later, in the phase
+  that introduces each.
 - `#[DefaultInstance]` + resolution order + the eager-failure registration walk
   ("Defaulted instances") — brought in now, not deferred to a late phase, since
   backfilling a new field on an already-populated class is an ordinary event the moment
   real migrations exist.
 
-**Done when**: a hand-written native class with a mix of unique and plain scalar fields
-round-trips fully; the unique constraint is enforced; adding a new field to an
-already-populated class backfills every existing row via `#[DefaultInstance]` resolution.
+**Done when**: a hand-written native class with a mix of `Unique` and plain scalar fields
+round-trips fully; a single-field `Unique` group and a multi-field one are both enforced,
+each independently of the other; adding a new field to an already-populated class backfills
+every existing row via `#[DefaultInstance]` resolution.
 
 **Not yet** (end of Phase 1): entity references/collections, value objects/embed,
 native CTI extension (a native class extending another), the `Changeset` write path
@@ -136,7 +143,10 @@ same shape embedded twice under different field names on one entity disambiguate
 free via the field's own name as column prefix (`billingAddress_city` vs.
 `shippingAddress_city`); a test embedding A-in-B-in-A is rejected at registration instead
 of recursing forever; backfilling a new field on an embedded shape finds every embedding
-table via the reverse edge, not a fresh scan.
+table via the reverse edge, not a fresh scan; a `Unique` group declared on the embedded
+shape's own fields materializes as an independent composite index at each of the two
+embedding sites, proven by the same shape embedded twice disambiguating here too — a
+collision at one site never blocks an otherwise-identical value at the other.
 
 ## Phase 3 — References & collections, native CTI extension, `MediaAsset`
 
@@ -150,7 +160,10 @@ table via the reverse edge, not a fresh scan.
   root.
 
 **Done when**: a base/derived native inheritance pair round-trips through the CTI join,
-proven in isolation before any relationship complexity is layered on top.
+proven in isolation before any relationship complexity is layered on top; a `Unique` group
+naming one field declared on the base class and one declared on the derived class is
+rejected at registration time, not left to fail as a migration-time surprise once two
+physical tables are involved.
 
 ### 3.2 — Shared references and collections
 
@@ -167,7 +180,10 @@ entity removes its own join rows via `CASCADE`; deleting a target referenced by 
 item sets that pivot row's own FK to `NULL` instead of removing the row, preserving the
 slot's `position` and the collection's true count rather than silently shrinking it; a
 `Reference` or `Collection` field declared on an `#[Embed]` target (now that both kinds
-exist) is rejected at registration time, not left to fail later.
+exist) is rejected at registration time, not left to fail later; a `Unique` group naming a
+field reached through a `Reference` (now that one exists) is rejected at registration time
+too, for the same reason — the compared column lives on the referenced row's own table, not
+on any table the constraint could be declared against.
 
 ### 3.3 — Owned references and collections
 
@@ -199,7 +215,10 @@ here); an Owned collection with an optional item kind round-trips with an empty 
 middle (not just at the end), the stored count correctly reflecting the true slot count
 rather than the number of live rows; removing a slot shrinks the stored count and shifts
 later positions down, while clearing a slot's content leaves the count and every position
-untouched.
+untouched; a `Unique` group declared on the Owned-collection item's own fields allows the
+same combination to appear once under two different owners while rejecting a second
+occurrence under the same owner, proving the owner-scoping column was folded into the real
+constraint rather than left as a group spanning every owner's items at once.
 
 ### 3.4 — Non-entity collections and `MediaAsset`
 
@@ -216,7 +235,11 @@ untouched.
 **Done when**: a non-entity collection (scalars or value-object items) round-trips through
 its dedicated child table, ordered and cascade-deleted with the owner; a collection of
 `#[Embed]` items round-trips with each position's shape flattened into its own row;
-`MediaAsset` demonstrates both Owned and Shared usage at once.
+`MediaAsset` demonstrates both Owned and Shared usage at once; a `Unique` group declared on
+an `#[Embed]`-collection item's own fields allows the same combination to appear once under
+two different owners while rejecting a second occurrence under the same owner, the same
+owner-scoping proof as 3.3's Owned-collection case, now for a dedicated child table instead
+of `entities`.
 
 **Not yet** (end of Phase 3): the `Changeset` write path (a create-and-attach-in-one-call
 isn't atomic until Phase 4 — this phase's own tests create the referenced entity first, as
@@ -370,6 +393,12 @@ existed.
   the same ordinary `Changeset` path Phase 4's delete expansion already built (downward into
   anything each owned entity in turn owns, sideways into any outside Shared reference
   pointing at one) — not left as a pure registry-record change the way adding the field was.
+- Adding or removing a field's membership in a `Unique` group, with no kind change bundled
+  alongside it, takes the narrow path described in "Uniqueness": a friendly pre-check against
+  current live values, then the real index `ALTER`, never routed through `retype()`'s
+  capture/reconstruct machinery since no value ever changes. Bundled with a kind change in
+  the same admin action, it goes through `retype()` instead, which already needs to know
+  about `Unique` membership regardless (see the distinctness check below).
 
 **Done when**: an already-populated editor-created prototype can have a field of any kind
 added, each landing in the physical shape its kind implies (a column, a new dedicated
@@ -403,7 +432,13 @@ dedicated table outright; renaming a field that declares an `OwningReference` or
 row at that relationship, proven by reading an already-owned row back correctly under the
 field's new name after the rename; renaming an Owned `Collection` field also renames its own
 `<field>_count` column (introduced in Phase 3.3) alongside the `owner_field` update, an
-ordinary column rename rather than a new mechanism.
+ordinary column rename rather than a new mechanism; adding a field to a `Unique` group with
+no existing duplicates among its current values succeeds, and is refused, naming the
+collision, when a duplicate already exists; retyping a field that participates in a `Unique`
+group, across a prototype with more than one existing row, is refused outright when no
+converter is supplied, and succeeds when a supplied converter's output is checked and found
+pairwise-distinct across every row, proven alongside a case where the converter's output
+collides and the whole retype is refused rather than partially applied.
 
 The same phase also proves the Owned-crossing cases that come with the general retype
 mechanism: retargeting an `OwningReference`/Owned-`Collection`'s own item type while staying
