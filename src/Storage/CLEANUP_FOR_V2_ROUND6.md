@@ -9,7 +9,7 @@ folded into both documents as we close it, one at a time, the same way Rounds 1-
 
 ## Missing pieces
 
-### 1. `AUDIT.md` item 13 — `EntityManager`/`SchemaEditor` table-map desync — has no resolution anywhere in either document
+### 1. `AUDIT.md` item 13 — `EntityManager`/`SchemaEditor` table-map desync — had no resolution anywhere in either document — **resolved (2026-10-05)**
 
 `AUDIT.md` §13 is, by its own text, the biggest single bug the old system had: `EntityManager::$tables`
 is frozen at construction while `SchemaEditor::$tables` is a separate, mutable map, so a
@@ -19,39 +19,45 @@ already in hand, and rebuilding `EntityManager` to pick up the change silently d
 halves back to back doesn't work at all' without a manual rebuild step nobody has designed
 yet."
 
-`ARCHITECTURE_V2.md` describes `PrototypeRegistry` as the one generic interface
+`ARCHITECTURE_V2.md` described `PrototypeRegistry` as the one generic interface
 (`fieldsOf()`/`instantiate()`/`chainOf()`) that `Repository`, `ChangesetFlusher`, `Query`,
-and `SchemaEditor` all consult — but never states whether that registry resolves live,
-per-call (so a `SchemaEditor` write is immediately visible to everything else in the same
-request) or is snapshotted once and handed around (reproducing the exact bug). It also never
-revisits whether rebuilding/refreshing a registry is expected to preserve or discard the
-`IdentityMap`. I grepped both documents and all `CLEANUP_FOR_V2*.md` rounds for "table map,"
-"cache," "snapshot," "stale," and "refresh" in this context — nothing addresses it. Given
-the severity AUDIT.md assigns this item, and the opening paragraph's claim that "most" audit
-items are resolved, this is the one glaring exception that needs an explicit answer, not a
-silent carry-over.
+and `SchemaEditor` all consult — but never stated whether that registry resolves live,
+per-call, or is snapshotted once and handed around (reproducing the exact bug). It also
+never revisited whether rebuilding/refreshing a registry is expected to preserve or discard
+the `IdentityMap`.
 
-**Open:**
-- **How does `PrototypeRegistry` actually hold/route between the two identifier kinds in
-  the first place?** Phase 1.1 says "one implementation for native classes via reflection,
-  written so a second, editor-created implementation can be added in Phase 6 with zero
-  change to any caller," and Phase 6.1 calls editor-created "the second identifier kind the
-  registry interface has supported since Phase 1" — both say a caller never needs to know
-  which kind it's holding, but neither says *how* a single call resolves that: is a native
-  identifier always self-describing as native (e.g. always a `::class` string) so one object
-  can branch on the identifier's own shape and consult reflection or the DB accordingly, or
-  is there some other dispatch nobody's designed? This has to be answered before "does it
-  cache" is even a well-posed question about *one* component rather than an unknown number
-  of them.
-- Does `PrototypeRegistry` resolve per-call against live, DB-backed state for the
-  editor-created identifier kind (making this a non-issue by construction, since there's
-  nothing to go stale), or does something still cache a resolved shape/table-map per
-  request or per process?
-- If per-call/live, does `IdentityMap` need any awareness of a `SchemaEditor` mutation that
-  changes the shape of an identifier it's already holding instances of (e.g. a field just got
-  dropped out from under an already-loaded entity)?
-- Where does this get written down — a new subsection of "Namespaces and migration path" or
-  "Shape comes from a neutral descriptor," or a new short section of its own?
+Reading the actual old `Storage\Schema\PrototypeRegistry` resolved both open sub-questions
+at once, and the answer turned out to already exist, half-built:
+
+- **Dispatch**: `Storage\Schema\PrototypeRegistry::isEditorCreated()` already does this,
+  correctly, with no stored flag: `return !class_exists($identifier)`. A native identifier
+  is a real PHP class-string, so that one test is free and authoritative. Every other
+  method (`ownFieldsOf()`, `parentOf()`, `instantiate()`, ...) branches on it inline.
+- **Caching**: `EntityManager.php`'s own docblock on its `PrototypeRegistry` property says
+  it outright — "safe since `PrototypeRegistry` is stateless, every method reads the
+  database directly." There is no cache in that class at all: `fieldsOf()`/`instantiate()`/
+  `chainOf()` were already immune to this bug, for both identifier kinds, before this round
+  started.
+
+So the AUDIT finding doesn't live in `PrototypeRegistry` at all — it lives in a narrower,
+separate thing `EntityManager` keeps on the side: `private readonly array $tables`,
+`identifier => table name`, injected once at construction from `EntityRegistrar::register()`'s
+output, with `tableOf()` just throwing if an identifier isn't in it. That map is genuinely
+correct to freeze *for native classes* (table names can't change without a redeploy) — the
+bug is that nothing ever taught it to fall back to a live lookup for an editor-created
+identifier the way `fieldsOf()` already does.
+
+**Decided**: no new mechanism, just the same split `PrototypeRegistry` already proved out
+for shape, generalized to table-name resolution too — a native identifier's table name stays
+decided once at registration time and frozen for the process's life; an editor-created
+identifier's table name resolves live, off the same stored row already queried for its
+parent, through the same `class_exists()` test. Folded into `ARCHITECTURE_V2.md` ("Shape
+comes from a neutral descriptor," two new paragraphs) and `ROADMAP_V2.md` (Phase 1.1's
+`PrototypeRegistry`/`EntityRegistrar::register()` bullets, and Phase 1.2's throwaway-second-
+identifier-kind bullet and "Done when," extended to cover table-name resolution explicitly,
+not just `fieldsOf()`/`instantiate()`) — described there in the resolved design's own terms,
+with no back-reference to the old class or to this audit item, per the standalone
+requirement both documents are held to now (see [[feedback_v2_docs_standalone]]).
 
 ### 2. Flipping `unique` on an already-existing field is still unaddressed
 

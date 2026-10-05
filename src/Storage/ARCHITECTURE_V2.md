@@ -79,6 +79,23 @@ a referenced shape set, a collection with no item kind) unrepresentable rather t
 unlikely. Same pattern already used for `Route::structured()`/`Route::simple()` in this
 codebase.
 
+**Which of the two sources an identifier resolves through is decided by one test, with no
+stored flag or lookup of its own**: a native identifier is a real PHP class-string, so
+`class_exists($identifier)` tells the two kinds apart for free. `PrototypeRegistry` is
+stateless either way — every method resolves directly, reading the database for an
+editor-created identifier, reading the already-loaded class via reflection for a native
+one — so `fieldsOf()`/`chainOf()`/`instantiate()` can never go stale: there is no snapshot
+of any of them sitting anywhere to go stale in the first place.
+
+A native identifier's table name is a different case, and correctly so: decided once, when
+registration runs, and frozen for the life of the process, since native schema can't change
+without a redeploy and nothing needs to ever revisit it. An editor-created identifier's
+table name is never frozen anywhere; it resolves live, off the same stored row
+`PrototypeRegistry` already consults for that identifier's parent, every call, the same way
+its fields already do. One table-name lookup, branching on the same `class_exists()` test
+used everywhere else an identifier's kind matters — not a second, independently-built map
+that can end up knowing about a different set of identifiers than the first.
+
 ## Global entity identity: one shared `entities` table
 
 Every entity, native or editor-created, gets a row in one shared `entities` table sitting

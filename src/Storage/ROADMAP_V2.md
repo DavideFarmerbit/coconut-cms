@@ -43,15 +43,18 @@ with scalar fields round-trips through real storage, but every access path goes 
   early.
 - The fixed `entities` table (`id` uuid, `owner`, `owner_field`, `position`,
   `concrete_identifier`) ("Global entity identity").
-- `Persistence\Schema\PrototypeRegistry` interface (`fieldsOf(identifier)`, `instantiate(identifier,
-  values)`, `chainOf(identifier)`) — one implementation for native classes via reflection,
-  written so a second, editor-created implementation can be added in Phase 6 with zero
-  change to any caller.
+- `Persistence\Schema\PrototypeRegistry` (`fieldsOf(identifier)`, `instantiate(identifier,
+  values)`, `chainOf(identifier)`) — resolves a native identifier via reflection;
+  `class_exists($identifier)` is the test that distinguishes it from the second,
+  editor-created identifier kind Phase 6 gives a real resolution path. Stateless from day
+  one: nothing caches a resolved shape, so there's nothing to go stale once Phase 6 starts
+  writing to the second kind's own storage.
 - `#[Table(string $name)]` attribute + derived-short-name fallback + collision guard, and
   **one registration entry point** (`EntityRegistrar::register($classes)`) resolving every
-  level's table name once and constructing everything from that single source of truth —
-  folding in what the old roadmap needed a dedicated later phase (6.2) to fix, built right
-  the first time here.
+  native level's table name once, at registration time, and constructing everything from
+  that single source of truth. Scoped to native only: an editor-created identifier's table
+  name is never frozen into this same map — it resolves live through `PrototypeRegistry`
+  instead, the moment Phase 6 gives it something to resolve.
 
 **Done when**: the registry resolves a native class's `FieldDescriptor[]` and can
 instantiate it from raw values; two unrelated classes that happen to derive the same short
@@ -69,16 +72,19 @@ table name fail registration with an actionable error. No data written yet.
 - `Persistence\Entity\Repository`/`IdentityMap`: insert writes the root row into `entities` first
   (this is where `id` originates), then the class's own row; find/delete join through
   `entities`; identity map scoped per request.
-- A throwaway second `Persistence\Schema\PrototypeRegistry` implementation (a fake, not the
-  editor-created one Phase 6 builds for real) — exercised through `Persistence\Entity\Repository` in a
-  test here, not deferred to Phase 6, to catch a native-specific assumption leaking into
-  `Repository`/`SchemaBuilder` immediately instead of five phases later.
+- A throwaway second identifier kind for `Persistence\Schema\PrototypeRegistry` (a fake, not
+  the editor-created one Phase 6 builds for real), including a fake table-name resolution,
+  not just `fieldsOf()`/`instantiate()` — exercised through `Persistence\Entity\Repository`
+  in a test here, not deferred to Phase 6, to catch a native-specific assumption leaking
+  into `Repository`/`SchemaBuilder` immediately instead of five phases later.
 
 **Done when**: a scalar-only native class actually round-trips create/read/update/delete
 through `Persistence\Entity\Repository` — which calls only `PrototypeRegistry`, never reflects
 directly — rooted under `entities` via CTI, backed by a migration-generated table; the same
-round-trip also works end to end through the throwaway second `PrototypeRegistry`
-implementation, proving `Repository` never assumed native reflection along the way.
+round-trip also works end to end through the throwaway second identifier kind, table name
+included, resolved without ever appearing in the native case's own registration-time map,
+proving `Repository` never assumed native reflection or a pre-registered table name along
+the way.
 
 ### 1.3 — Validation, uniqueness, and backfill correctness
 
