@@ -395,7 +395,10 @@ mechanism: retargeting an `OwningReference`/Owned-`Collection`'s own item type w
 Owned (e.g. `Warranty` to `Guarantee`) produces new owned entities from a supplied
 converter's output (any length, not necessarily matching the original count) or from the
 field's own class default if no converter is supplied, deleting every old owned row through
-the ordinary cascade-delete path; retyping a field between Shared, Owned, and `#[Embed]`
+the ordinary cascade-delete path — proven to also run that path's sideways expansion
+(Phase 4): an old `Warranty` row that happens to be Shared-referenced from an unrelated
+field gets that referrer's FK nulled and logged in the same flush, not left to a raw
+database-level side effect; retyping a field between Shared, Owned, and `#[Embed]`
 (e.g. a Shared reference becoming Owned, or an `#[Embed]` becoming Owned, and the reverse of
 each) never forks a duplicate entity or silently deletes a still-referenced row — the result
 is only ever what a supplied converter explicitly produces, or each kind's own ordinary

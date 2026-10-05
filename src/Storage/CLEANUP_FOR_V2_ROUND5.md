@@ -140,3 +140,14 @@ original Owned-cascade scenario is just one instance of the general rule, not a 
 its own handling. Folded into `ARCHITECTURE_V2.md` ("Content write path") and
 `ROADMAP_V2.md` (Phase 4's bullet list and "Done when," plus Phase 5.2's "Done when" for the
 undo-side payoff).
+
+**Also verified, prompted by a follow-up question**: retyping an `OwningReference`/Owned-
+`Collection`'s own item type (`Warranty` → `Guarantee`) deletes the old owned row(s) through
+"the ordinary cascade-delete path (`Changeset`, the full topological sort, Owned-subtree
+expansion...)" — already stated in the `NoType` section before this round, and unchanged by
+it. Since that's the same generic delete path the sideways rule above now always runs
+through, this composition already held for free, with no extra mechanism — but it was never
+said out loud, the same gap in explicitness this document otherwise avoids (cf. Round 4 item
+11). Named it directly in that same `NoType` passage rather than leaving a reader to deduce
+it, and added a matching clause to Phase 6.2's "Done when" so the composition is actually
+tested, not just implied by two separately-true statements.

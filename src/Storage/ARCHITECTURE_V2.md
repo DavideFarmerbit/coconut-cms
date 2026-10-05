@@ -686,10 +686,12 @@ degrade to a bare `null`:
   fields only, no `Reference`/`Collection` at any depth, so this recursion only ever applies
   to an entity being captured, never to `#[Embed]`'s own flattening.) Deletion itself
   doesn't change at all — the owned row still goes through
-  the ordinary cascade-delete path (`Changeset`, the full topological sort, Owned-subtree
-  expansion for anything *it* in turn owned), exactly as any other delete; the capture is
-  just a read that happens first, the same sequencing `Embed`'s own conversion already
-  uses. **Owned `Collection`-item**: same capture, same ordinary deletion of every existing
+  the ordinary cascade-delete path (`Changeset`, the full topological sort, the downward
+  Owned-subtree expansion for anything *it* in turn owned, and the sideways expansion that
+  finds and logs a `SET NULL` for any outside Shared reference pointing at it — "Content
+  write path"), exactly as any other delete; the capture is just a read that happens first,
+  the same sequencing `Embed`'s own conversion already uses. **Owned `Collection`-item**:
+  same capture, same ordinary deletion of every existing
   item — but landed in a newly-created dedicated child table scoped to that field
   (`ownerId`, `position`, blob), created on demand the moment the first item needs it, the
   exact same shape "No blobs" already uses for a non-entity collection's own dedicated
