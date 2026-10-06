@@ -55,7 +55,7 @@ and `ROADMAP_V2.md` (Phase 6.3 gained a "Cycle rejection" bullet and a matching 
 clause, including the subclass-reached case). Described in each document in the resolved
 design's own terms, per the standalone requirement (see [[feedback_v2_docs_standalone]]).
 
-### 2. Entity-type substitution (Round 7 item 8) never checks `Unique` collisions in converter output
+### 2. Entity-type substitution (Round 7 item 8) never checks `Unique` collisions in converter output — **resolved (2026-10-06)**
 
 The field-level retype mechanism ("Migrations and schema mutation") is explicit: if the
 target field participates in a `Unique` group, the framework collects every row's produced
@@ -71,6 +71,29 @@ against a `Unique` group declared on the replacement type (or on a level common 
 chains). A supplied `EntityRetypeConverter` could silently produce colliding values for a
 field under a `Unique` constraint, for rows being substituted in bulk, with nothing to catch
 it — the opposite of how the symmetric field-level mechanism already treats this exact risk.
+
+**Decided: reuse the exact same pairwise-distinctness check, not a weaker or
+substitution-specific one.** Nothing about a `Unique` group distinguishes a value arriving
+through `EntityRetypeConverter` from one arriving through `FieldRetypeConverter` — both are
+just "a value landing on a field, at commit time, from a converter." Before committing
+anything, the framework collects every migrated row's produced value for each `Unique`
+group declared at a level the reconciliation touches (a level kept with updated values, or
+a level freshly inserted — never a level being dropped, since that data is going away
+regardless) and checks that set for pairwise distinctness among the migrated rows
+themselves, and separately against the replacement type's own already-existing live values
+at that same level — refusing the whole substitution, naming the collision, if either check
+fails. This composes for free with the existing per-level reconciliation rule rather than
+needing its own traversal: a `Unique` group can never span fields declared at different
+levels of a chain ("Uniqueness"), so it's already scoped to exactly one level, the same
+granularity the reconciliation already walks.
+
+Folded into `ARCHITECTURE_V2.md` ("Migrations and schema mutation" — a new paragraph right
+after the four-mechanisms bullet list for prototype-deletion substitution, before
+`EntityRetypeConverter`'s own `from()`/`to()` declaration) and `ROADMAP_V2.md` (Phase 6.4
+gained a bullet alongside the `EntityRetypeConverter` one, and its "Done when" gained a
+clause covering both a migrated-rows-collide and a collides-with-existing-row case).
+Described in each document in the resolved design's own terms, per the standalone
+requirement (see [[feedback_v2_docs_standalone]]).
 
 ### 3. Logging/undo status of substitution's bulk row mutations, and reparent's backfill insertions, is unspecified
 

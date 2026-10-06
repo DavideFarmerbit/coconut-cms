@@ -657,6 +657,14 @@ entity-row-side deletion's own subclass reach rather than stopping one level sho
   declaration then drives the tool's own DDL generation and per-row migrations against the
   result; for editor-created, every step above is immediate and automatic once triggered
   through `SchemaEditor`, the converter picked from a closed, pre-registered menu.
+- Any `Unique` group declared at a level the above reconciliation touches gets the same
+  pairwise-distinctness check 6.2's own field-level `retype()` already enforces, not a
+  weaker one — every migrated row's produced value for that group is collected and checked
+  for distinctness among themselves and against the replacement type's own already-existing
+  live values before anything commits, refusing the whole substitution and naming the
+  collision on failure. Reuses that exact mechanism rather than a second one, since this
+  reconciliation is already level-by-level, the same granularity a `Unique` group is
+  already scoped to.
 - `NoType`: a reserved `FieldDescriptor` kind — its own distinct `FieldKind`, structurally
   shaped like a Value Object but never a special-cased `valueObject()` reusing a reserved
   `Type` class, and with no public factory; only the framework's own capture/retype
@@ -734,7 +742,11 @@ through that same converter rather than leaving it `NoType`; an existing plain `
 pointing at the deleted type or a live subclass resolves to the replacement type afterward
 with no converter involvement at all; a supplied `EntityRetypeConverter` whose declared
 `from()`/`to()` don't match the deletion's actual old and new identifiers is rejected before
-anything is touched.
+anything is touched; a substitution whose converter produces a colliding value for a field
+under a `Unique` group at a reconciled level is refused outright before anything commits,
+naming the collision, proven once for a collision among the migrated rows themselves and
+once for a collision against an already-existing live row of the replacement type that was
+never part of the migration.
 
 **Not yet** (end of Phase 6): `FieldPermission`, `Query`.
 

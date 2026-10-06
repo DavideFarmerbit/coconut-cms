@@ -919,6 +919,22 @@ fifth one invented for this:
   fixing, ever" — the same exemption rename propagation already has, for the same reason:
   nothing here can silently lose data, since nothing here touches data at all.
 
+**Any `Unique` group declared at a level this reconciliation touches needs the same
+pairwise-distinctness guarantee field-level retype already has, not a weaker one just
+because the values arrived via a bulk per-row converter instead of a single-field one.**
+Before committing anything, the framework collects every migrated row's produced value for
+each such group — whether that group lives on a level present in both chains (keeping its
+row, values updated) or one present only in the new chain (freshly inserted) — and checks
+that set for pairwise distinctness among the migrated rows themselves, and against any of
+the replacement type's own already-existing live values at that same level, refusing the
+entire substitution and naming the collision if either check fails. This is not a fifth
+mechanism: it's the exact same check `retype()`'s own converter output already requires
+(see "Migrations and schema mutation" above), reused here because this reconciliation is
+itself already level-by-level, the same granularity a `Unique` group is already scoped to
+("a group can never span fields declared at different levels of a chain," see
+"Uniqueness") — nothing about a `Unique` group distinguishes a value arriving through
+`EntityRetypeConverter` from one arriving through `FieldRetypeConverter`.
+
 `EntityRetypeConverter` declares its own applicability via `from(): string`/`to(): string`
 (plain prototype identifiers, not wildcarded — unlike `FieldRetypeConverter`'s signature,
 this operation is already a one-off, explicitly-named pair each time it's triggered, so the
