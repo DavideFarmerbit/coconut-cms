@@ -1,18 +1,16 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 7)
 
-**Status: mostly resolved, item 8 has a known open follow-up (2026-10-06).** A seventh audit
-pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`, done after Round 6's items were folded back
-into both documents, plus three open design questions the user added afterward (items 6-8),
-plus a ninth item (reparenting/`#[Embed]` interaction) surfaced while working through 7-8.
-8 of 9 items are fully decided and folded back into `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`
-directly. **Item 8 is folded in but known too narrow** — working through its own mechanics
-(see item 9's note, and the live discussion around collapsing "swapping a prototype" into
-already-defined operations) surfaced that it needs to reach descendant prototypes' existing
-rows too, not just exact-type rows; expect a follow-up revision. This file is kept as a
-historical record of the discussion behind each decision, not as an open task list, item 8's
-asterisk aside. Worked one item at a time per
-[[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes what gets
-built, not alphabetically.
+**Status: resolved (2026-10-06).** A seventh audit pass over `ARCHITECTURE_V2.md`/
+`ROADMAP_V2.md`, done after Round 6's items were folded back into both documents, plus three
+open design questions the user added afterward (items 6-8), plus a ninth item
+(reparenting/`#[Embed]` interaction) surfaced while working through 7-8, which in turn fed
+back into a deeper revision of item 8 itself once its own mechanics were traced through
+concrete examples (a swapped type with a child class, embedded in two different places, in
+both the native and editor-created variants). All 9 items are decided and folded back into
+`ARCHITECTURE_V2.md`/`ROADMAP_V2.md` directly — this file is kept only as a historical record
+of that audit pass and the discussion behind each decision, not as an open task list. Worked
+one item at a time per [[feedback_coconut_cms_development_workflow]]. Ordered by how much it
+changes what gets built, not alphabetically.
 
 ## Real inconsistencies
 
@@ -359,51 +357,90 @@ declaration is purely a self-consistency check) is an optional pair of arguments
 
 - **Without them**: nothing changes — ordinary cascade-delete, ordinary `NoType` capture for
   anything pointing at the deleted type, exactly as already specified.
-- **With them**: every row of exactly the deleted type — root, or an
-  `OwningReference`/Owned-`Collection`-item, already "a full `entities` row exactly like a
-  Shared one" per existing text — migrates in place instead of being cascade-deleted, `id`
-  preserved, via the *same* insert/remove-a-CTI-level machinery "Reparenting" already
-  specifies (drop rows from the old type's own level down to whatever's shared with the
-  replacement's chain, if any; insert rows from there down to the replacement's own level) —
-  the only new thing is that the converter's output replaces `#[DefaultInstance]` backfill as
-  the value source. Every `#[Embed]` occurrence of the deleted type migrates in place through
-  the *same* converter instead of degrading to `NoType` — possible because an owned row's own
-  `NoType` capture already "mirrors `Embed`'s own capture," so root, Owned, and Embed all
-  capture the identical full-field-tree shape elsewhere in this design; one converter serves
-  all three, no separate embed-specific converter ever needed. Every plain
-  `Reference`/`Collection`-of-reference occurrence gets its declared target type updated
-  automatically, no converter involved at all, because none is needed: the id never changes,
-  so retargeting a pointer's declared type is pure metadata, exactly as mechanical and
-  lossless as prototype-rename propagation already is — not an exception to "no automatic
-  fixing, ever," the same exemption rename propagation already earns, for the same reason.
+- **With them**: every row with a physical row at the old type's own level — exact-type rows
+  *and every live subclass's rows* — is reconciled against the replacement's own chain, level
+  by level, rather than scoping to "exactly the deleted type" the way ordinary deletion does.
+  Worked through with a concrete trace (`Category` swapped for `Tag`, `Category` has a child
+  `SpecialCategory`, `Category` is embedded at one site and `SpecialCategory` independently at
+  another, checked in both native and editor-created variants) before converging on the final
+  rule below.
 
-This directly answers two of the three open sub-questions from the original proposal:
-Owned-descendant cascade composes for free (an Owned descendant of the migrated row is
-untouched by any of this — it's still owned by the same, unchanged `entities.id`); and the
-per-row contract does need its own shape distinct from `FieldRetypeConverter`'s, exactly as
-guessed, which is why it's a separately-named interface. The third (native vs. editor-created
-availability) resolved to **both, uniformly** — native declares the replacement + converter
-in the same reviewed migration, with the migration tool auto-discovering every
-referencing/embedding site via the reverse-index machinery "Migrations and schema mutation"
-already generalizes for exactly this kind of fan-out, instead of the developer hand-editing
-each site; editor-created triggers it through `SchemaEditor`, the converter picked from a
-closed, pre-registered menu, the same posture `PrototypeValidator` already uses.
+**The reconciliation itself turned out simpler than "drop down to a shared prefix, insert the
+rest" — compare each level against both chains directly:** a level present in *both* the old
+and new chain keeps its existing row, never deleted, but gets its *values* updated from the
+converter's output for that level — the converter legitimately produces a full instance of
+the replacement type, inherited fields included, and discarding that for a level that happens
+to survive would be an arbitrary restriction; a level present only in the old chain is
+deleted; a level present only in the new chain is inserted, filled from the converter's
+output. This subsumes the simple case for free: two unrelated chains share no level besides
+`entities` itself (which the converter never touches — `id`/`owner`/`owner_field` stay as
+they are, `concrete_identifier` is set directly by the operation, not derived from the
+converter), so every level is "old only" or "new only" there, nothing in "both."
+
+**Reaching descendants turned out to need no new mechanism either — it's an ordinary
+`reparent()` call per direct child, which already cascades the rest.** Every prototype whose
+declared parent was exactly the old type gets reparented onto the replacement, using the same
+reconciliation above. `reparent()` already cascades its own level-removal "for the reparented
+entity and every one of its live subclasses" (so `SpecialCategory`'s own further descendants
+need no separate handling), and item 9's `#[Embed]`-propagation — once extended to reach a
+reparented shape's own live subclasses, not just the shape literally named in the call — means
+`SpecialCategory` being independently embedded somewhere gets found and fixed too, purely as
+a consequence of `SpecialCategory` itself being reparented, not a special case added for
+substitution specifically.
+
+**`#[Embed]` occurrences reuse the exact same converter, invoked once per embedding-table row
+instead of once per entity-table row** — possible because a standalone/root row, an
+`OwningReference`/Owned-`Collection`-item row (already "a full `entities` row exactly like a
+Shared one"), and an `#[Embed]` site all capture the identical full-field-tree shape elsewhere
+in this design. No separate embed-specific converter, confirmed directly: a trace through
+`Order.primaryCategory` (embedding `Category` directly) and `Promotion.appliesToCategory`
+(embedding `SpecialCategory`) both resolved through the one supplied converter, with no
+adapter needed between contexts.
+
+**Plain `Reference`/`Collection`-of-reference fields need no converter at all, for a reason
+worth spelling out concretely rather than just asserting "it's metadata": the physical FK
+column's *value* (the id) never changes — only which table that id is expected to resolve
+against changes.** `Article.category_id = 'abc-123'` stays exactly that string; the same id
+now resolves to a `Tag` row instead of a `Category` row because `entities.concrete_identifier`
+changed, not because any `UPDATE` touched `articles`. This reuses prototype-rename's own
+reference-fixup list in full (`prototypes.parent`, `entities.concrete_identifier`,
+`reference()`/`embed()`/`collection()` pointers, `owner_field` values) rather than a second,
+substitution-specific fixup mechanism — a substitution and a rename touch the same stored
+pointers, substitution just additionally has real data to migrate at the levels that actually
+change shape.
+
+**Native and editor-created turned out to genuinely differ here, not just in degree.** For
+editor-created, every step above is immediate and automatic — schemas are data, so nothing
+stands in the way. For native, tracing the example surfaced a real constraint the original
+"the migration tool auto-discovers every site" framing glossed over: a native class's own
+property type-hint, attribute `target` parameter, or `extends` clause naming the old type is
+PHP source referencing a class about to stop existing — no migration tool can rewrite that on
+the developer's behalf, the same way "a native class referencing a deleted native class fails
+loudly at registration" already governs ordinary deletion. The developer edits that source
+themselves, as an ordinary reviewed code change (same posture as rename's own explicit,
+never-inferred-by-diffing mapping); the explicit replacement+converter declaration then drives
+the tool's own DDL generation and per-row migrations against the result. This directly answers
+the original proposal's native-vs-editor-created sub-question: **both**, but by genuinely
+different mechanisms, not the same automatic path with a different trigger.
+
+This also answers the original proposal's remaining sub-question: Owned-descendant cascade
+composes for free (an Owned descendant of a migrated row is untouched by any of this — it's
+still owned by the same, unchanged `entities.id`); and the per-row contract needed its own
+shape distinct from `FieldRetypeConverter`'s, exactly as guessed, which is why it's a
+separately-named interface.
 
 Folded into `ARCHITECTURE_V2.md` ("Migrations and schema mutation" — a new paragraph naming
 `FieldRetypeConverter`/`FieldRetypeSignature` right after the general retype-converter
-contract; a new block on optional-replacement prototype deletion, `EntityRetypeConverter`,
-and the three migration/retargeting rules, placed right after cascade-delete's own
-paragraph) and `ROADMAP_V2.md` (Phase 6.2 gained the `FieldRetypeConverter` bullet and
-matching "Done when" clauses; Phase 6.4 gained the `EntityRetypeConverter` bullet and
-matching "Done when" clauses). Described in each document in the resolved design's own
-terms, per the standalone requirement (see [[feedback_v2_docs_standalone]]).
-
-**Note:** working through item 8's own mechanics further (below, item 9, and ongoing)
-surfaced that "every row of exactly the deleted type" above is too narrow a scope for a
-*substitution* specifically — a descendant prototype's existing rows also have a physical
-row at the substituted level that needs migrating, which ordinary prototype *deletion*
-correctly does not reach but a level *swap* must. Left as-is here since it's still being
-worked through; expect a follow-up revision once that's settled.
+contract; a full block on optional-replacement prototype deletion, `EntityRetypeConverter`,
+the per-level reconciliation rule, and the native/editor-created split, placed right after
+cascade-delete's own paragraph; "Reparenting"'s own `#[Embed]`-interaction paragraph extended
+to reach a reparented shape's live subclasses) and `ROADMAP_V2.md` (Phase 6.2 gained the
+`FieldRetypeConverter` bullet and matching "Done when" clauses; Phase 6.3's `#[Embed]`
+bullet and "Done when" extended for the subclass case; Phase 6.4 gained the full
+`EntityRetypeConverter` bullet and matching "Done when" clauses, covering the per-level
+reconciliation, descendant reach, and the native/editor-created split). Described in each
+document in the resolved design's own terms, per the standalone requirement (see
+[[feedback_v2_docs_standalone]]).
 
 ### 9. Reparenting never specified its own interaction with `#[Embed]` targets — **resolved (2026-10-06)**
 
@@ -432,8 +469,18 @@ entity-table side's row deletions (which already go through the ordinary `Change
 and produce their own `EntityChangeRecord`s), this column add/drop is ordinary schema-level
 DDL — no content-level undo trace, consistent with schema mutations generally.
 
+**Revised once more while tracing item 8's own worked example: this needs to reach a
+reparented shape's live subclasses too, not just the shape literally named in the
+`reparent()` call.** `fieldsOf()` resolves a shape's whole chain, so a subclass independently
+used as its own `#[Embed]` target elsewhere (`SpecialCategory` embedded in `Promotion`,
+while `Category` is reparented) needs that site found and fixed too — the same cascading
+reach the entity-row-side deletion already has ("for the reparented entity and every one of
+its live subclasses"), just not originally extended to the `#[Embed]`-propagation side when
+this item was first written.
+
 Folded into `ARCHITECTURE_V2.md` ("Migrations and schema mutation," a new paragraph right
-after "Reparenting"'s own entity-side row-deletion paragraph) and `ROADMAP_V2.md` (Phase
+after "Reparenting"'s own entity-side row-deletion paragraph, plus a follow-up paragraph
+extending it to live subclasses) and `ROADMAP_V2.md` (Phase
 6.3 gained a bullet and matching "Done when" clauses, including a clause proving the
 drop-direction isn't reparent-specific). Described in each document in the resolved design's
 own terms, per the standalone requirement (see [[feedback_v2_docs_standalone]]).

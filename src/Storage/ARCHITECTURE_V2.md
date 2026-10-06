@@ -764,6 +764,15 @@ column add/drop is ordinary schema-level DDL, the same as any other `addField()`
 `dropField()` — no `EntityChangeRecord` of its own, consistent with schema mutations
 generally carrying no content-level undo trace.
 
+**This reaches every live subclass of the reparented shape too, not just the shape named in
+the `reparent()` call — the same cascading reach the entity-row-side deletion already has
+("for the reparented entity and every one of its live subclasses"), extended here to
+`#[Embed]` sites.** `fieldsOf()` resolves a shape's whole chain, so a subclass's own
+resolved field tree already includes whatever its reparented ancestor contributes; a
+subclass independently used as its own `#[Embed]` target somewhere else needs that site
+found and updated too, via the same reverse-index, not just sites embedding the shape
+`reparent()` was literally called on.
+
 **`PrototypeRegistry::chainOf()` doesn't throw when a stored parent identifier fails to
 resolve — it truncates the chain there**, treating the affected identifier as rooted at
 `entities` directly from that point on. This is the shared primitive every case below
@@ -842,33 +851,54 @@ regardless, for the same reasons "Reparenting" states explicitly.
 — not a separate operation, the same `deletePrototype()` call, just with two more optional
 arguments.** Without them, nothing above changes: ordinary cascade-delete, ordinary `NoType`
 capture for anything pointing at the deleted type, exactly as already described. Supplying
-them changes what happens to exactly that content, in three ways:
+them turns the deletion into a substitution, reusing four already-defined mechanisms, no
+fifth one invented for this:
 
-- **Every row of exactly the deleted concrete type — root, or an `OwningReference`/Owned-`Collection`-item
-  (already "a full `entities` row exactly like a Shared one," see "Content undo, draft, and
-  revision history") — migrates in place instead of being cascade-deleted.** `entities.id`
-  is preserved; only `concrete_identifier` and whichever CTI levels actually differ change,
-  via the same insert/remove-a-level machinery "Reparenting" already specifies (drop every
-  row from the old type's own level down to whatever level it shares in common with the
-  replacement's own chain, if any; insert every row from that point down to the replacement's
-  own level) — the only thing that's new is where the new levels' values come from: Reparenting
-  backfills via `#[DefaultInstance]`, this uses the converter's output instead. Not a fourth
-  mechanism.
-- **Every `#[Embed]` occurrence of the deleted type, singular or collection-item, migrates in
-  place too, through the exact same converter, instead of degrading to `NoType`.** This
-  reuses the converter at all is possible because an owned row's own `NoType` capture already
-  "mirrors `Embed`'s own capture" — root, Owned, and Embed all capture the identical "full
-  recursively-flattened field tree" shape elsewhere in this design, so one converter, one
-  `convert(array $capturedFieldTree): object` call per occurrence, serves all three
-  uniformly. No separate embed-specific converter.
-- **Every plain `Reference`/`Collection`-of-reference field pointing at the deleted type has
-  its declared target type updated to the replacement automatically — no converter involved,
-  because none is needed.** The id never changes, so retargeting a pointer's declared type is
-  pure metadata, exactly as mechanical and lossless as prototype-rename propagation already is
-  (which is likewise fully automatic, no converter, today). This is not an exception to "no
-  automatic fixing, ever" — it's the same exemption rename propagation already has, for the
-  same reason: nothing about it can silently lose data, since nothing about it touches data at
-  all.
+- **Every CTI level, for every row that has one at the old type's own position in its chain
+  — the old type's own exact-type rows, and every live subclass's rows too — is reconciled
+  against the replacement's own chain by simple comparison, not by singling out a "shared
+  prefix" as a special case: a level present in *both* chains keeps its existing row
+  (never deleted) but gets its values updated from the converter's output for that level —
+  the converter legitimately produces a full instance of the replacement type, inherited
+  fields included, and there's no reason to discard that for a level that happens to
+  survive; a level present only in the *old* chain has its row deleted; a level present
+  only in the *new* chain has a row inserted, filled from the converter's output for it.**
+  `entities.id` is preserved throughout — only `concrete_identifier` and whichever levels
+  actually differ change. This is the exact same insert/remove-a-level primitive
+  "Reparenting" already specifies, just reused per-row across the old type's whole live
+  population instead of once for a single entity's own `reparent()` call, and sourced from
+  the converter's output instead of `#[DefaultInstance]` backfill wherever a level is newly
+  inserted.
+- **Every prototype whose declared parent was exactly the old type gets reparented onto the
+  replacement** — an ordinary `reparent()` call per direct child, using the same per-level
+  reconciliation above. This already reaches every further descendant for free: `reparent()`
+  already cascades its own level-removal "for the reparented entity and every one of its
+  live subclasses," and its `#[Embed]`-propagation (see "Reparenting," `#[Embed]`
+  interaction) already reaches every site embedding *the shape being reparented* — extended
+  to also reach every one of *that shape's own* live subclasses' embedding sites too, the
+  same cascading reach the entity-row side already has, not a narrower one.
+- **Every `#[Embed]` occurrence of the old type, or of any of its live subclasses, singular
+  or collection-item, gets the same per-level reconciliation above applied to its own
+  flattened columns, through the exact same converter, instead of degrading to `NoType`.**
+  Possible because an owned row's own `NoType` capture already "mirrors `Embed`'s own
+  capture" — a standalone/root row, an `OwningReference`/Owned-`Collection`-item row
+  (already "a full `entities` row exactly like a Shared one"), and an `#[Embed]` site all
+  capture the identical full-field-tree shape elsewhere in this design, so the *same*
+  converter instance, the same `convert(array $capturedFieldTree): object` call, serves all
+  three physical contexts uniformly — once per entity-table row for the first two, once per
+  embedding-table row for the third. No separate embed-specific converter, no adapter
+  between contexts.
+- **Every plain `Reference`/`Collection`-of-reference field pointing at the old type or any
+  of its live subclasses has its declared target type updated to the replacement
+  automatically — no converter involved, because no value needs deriving.** The id never
+  changes, so retargeting a pointer's *declared* type is pure metadata — reusing the exact
+  reference-fixup list prototype-rename already performs (`prototypes.parent`,
+  `entities.concrete_identifier`, every `reference()`/`embed()`/`collection()` pointer,
+  `owner_field` values), which already handles this correctly since a substitution and a
+  rename touch the same stored pointers, substitution just additionally has real data to
+  migrate at the levels that actually change shape. Not an exception to "no automatic
+  fixing, ever" — the same exemption rename propagation already has, for the same reason:
+  nothing here can silently lose data, since nothing here touches data at all.
 
 `EntityRetypeConverter` declares its own applicability via `from(): string`/`to(): string`
 (plain prototype identifiers, not wildcarded — unlike `FieldRetypeConverter`'s signature,
@@ -876,12 +906,22 @@ this operation is already a one-off, explicitly-named pair each time it's trigge
 declaration is purely a self-consistency check, rejecting a mismatched converter outright).
 Finding every site to migrate or retarget reuses the same reverse-index discovery
 machinery "Migrations and schema mutation" already generalizes for rename/retype
-propagation and dangling-target auditing — not a new scan. Available uniformly to native
-(declared alongside the deletion in the same reviewed migration; the migration-generation
-tool discovers every site itself instead of the developer hand-editing each one, still
-human-reviewed DDL) and editor-created (triggered through `SchemaEditor`, the converter
+propagation and dangling-target auditing — not a new scan.
+
+**Native and editor-created genuinely differ here, unlike most of this design's other
+native/editor-created splits.** For editor-created, every bullet above is immediate and
+automatic once the admin triggers the substitution through `SchemaEditor`, the converter
 picked from a closed, pre-registered menu — the same posture `PrototypeValidator` already
-uses for editor-created prototypes).
+uses — because editor-created schemas are data, with nothing analogous to a compiled
+language's own type-safety requirements standing in the way. For native, the *values and
+DDL* are equally tool-driven from the explicit "old type replaced by new type, with this
+converter" declaration (never inferred by diffing, same posture rename already holds to) —
+but a native class whose own property type-hint or attribute `target` parameter names the
+old type, or whose own `extends` clause names it, is PHP source referencing a class that's
+about to stop existing, which no migration tool can rewrite on the developer's behalf; the
+developer edits that source themselves, as an ordinary reviewed code change, and the
+explicit declaration is what then drives the tool's own DDL generation and per-row
+migrations against the result.
 
 **Deleting a prototype, or a native class other editor-created schemas still hold live
 references into, must always succeed and must not silently discard what the deleted rows

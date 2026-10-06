@@ -569,7 +569,10 @@ the next write, and removing it stops enforcing without touching existing data.
   previously-missing mirror-image direction, true for an ordinary `dropField()` on an embedded
   shape too, not just a reparent. Ordinary schema-level DDL, no `EntityChangeRecord` of its
   own, found via the same reverse-index discovery Phase 6.2's rename/retype propagation
-  already uses.
+  already uses. Reaches every live subclass of the reparented shape too, not just the shape
+  `reparent()` was called on — the same cascading reach the entity-row-side deletion already
+  has, extended to `#[Embed]` sites, since a subclass's own resolved field tree already
+  includes whatever its reparented ancestor contributes.
 - `PrototypeRegistry::chainOf()` truncates at the first stored parent identifier that
   fails to resolve, instead of throwing — the shared primitive both halves of
   `editorExtensible` revocation below build on.
@@ -600,7 +603,11 @@ somehow infer; reparenting away from a level drops the now-stray columns at ever
 site, proven as a schema-only change with no `EntityChangeRecord` produced, distinct from
 the entity-table-side row deletion's own logged version above; dropping a field directly
 (not via reparenting) from a shape used as an `#[Embed]` target drops the corresponding
-column at every embedding site the same way, proving the propagation isn't reparent-specific.
+column at every embedding site the same way, proving the propagation isn't reparent-specific;
+reparenting a shape with a live subclass that's independently used as its own `#[Embed]`
+target elsewhere updates that subclass's own embedding site too, not just sites embedding the
+shape `reparent()` was directly called on, proving the cascading reach matches the
+entity-row-side deletion's own subclass reach rather than stopping one level short.
 
 ### 6.4 — Deletion policy, `NoType`, and auditing
 
@@ -615,14 +622,32 @@ column at every embedding site the same way, proving the propagation isn't repar
   `Persistence\Schema\EntityRetypeConverter` (`convert(array $capturedFieldTree): object`,
   declaring its own `from()`/`to()` prototype identifiers as a self-consistency check) —
   the same call, not a separate operation ("Migrations and schema mutation"). Without them,
-  nothing changes from the bullet above. Supplied, every row of exactly the deleted type
-  (root, or an `OwningReference`/Owned-`Collection`-item) migrates in place via the same
-  insert/remove-a-CTI-level machinery 6.3's `reparent()` already built, id preserved,
-  converter output replacing `#[DefaultInstance]` backfill as the value source; every
-  `#[Embed]` occurrence migrates in place through the same converter instead of degrading to
-  `NoType`, reusing the reverse-index discovery below; every plain `Reference`/`Collection`-
-  of-reference occurrence has its declared target type updated automatically, no converter
-  needed, the same mechanical safety already granted to prototype-rename propagation.
+  nothing changes from the bullet above. Supplied, every row with a physical row at the old
+  type's own level — exact-type rows and every live subclass's rows — is reconciled against
+  the replacement's own chain level by level: a level present in both chains keeps its
+  existing row, values updated from the converter's output; a level present only in the old
+  chain is deleted; a level present only in the new chain is inserted, filled from the
+  converter's output — the same insert/remove-a-CTI-level primitive 6.3's `reparent()` already
+  built, reused per-row across the old type's whole live population instead of once per
+  entity, converter output replacing `#[DefaultInstance]` backfill wherever a level is newly
+  inserted. Every direct child prototype of the old type is reparented onto the replacement
+  via an ordinary `reparent()` call using this same reconciliation, which already cascades to
+  every further descendant and to every descendant's own `#[Embed]` sites for free (6.3's own
+  cascading reach). Every `#[Embed]` occurrence of the old type or any live subclass migrates
+  in place through the *same* converter instead of degrading to `NoType` — one converter,
+  invoked once per entity-table row for the chain-level case above and once per
+  embedding-table row here, since both capture the identical full-field-tree shape elsewhere
+  in this design. Every plain `Reference`/`Collection`-of-reference occurrence has its
+  declared target type updated automatically, no converter needed, reusing prototype-rename's
+  own reference-fixup list (`prototypes.parent`, `entities.concrete_identifier`,
+  `reference()`/`embed()`/`collection()` pointers, `owner_field` values) rather than a second,
+  substitution-specific fixup mechanism. For native, the developer edits every affected
+  class's own source (type-hints, attribute `target` parameters, `extends` clauses) as an
+  ordinary reviewed code change first — PHP referencing a class about to stop existing isn't
+  something a migration tool can rewrite on its behalf — and the explicit replacement+converter
+  declaration then drives the tool's own DDL generation and per-row migrations against the
+  result; for editor-created, every step above is immediate and automatic once triggered
+  through `SchemaEditor`, the converter picked from a closed, pre-registered menu.
 - `NoType`: a reserved `FieldDescriptor` kind — its own distinct `FieldKind`, structurally
   shaped like a Value Object but never a special-cased `valueObject()` reusing a reserved
   `Type` class, and with no public factory; only the framework's own capture/retype
@@ -687,12 +712,20 @@ parent-link mechanism; the auditing tool finds a dangling Value Object target th
 it finds a dangling reference/embed/collection target; deleting a prototype with a supplied
 replacement and `EntityRetypeConverter` preserves every existing row's `entities.id` across
 the type swap, readable immediately as the replacement type, not left as a freshly-deleted-
-and-recreated row with a new id; the same operation migrates an existing `#[Embed]`
-occurrence of the deleted type in place through that same converter rather than leaving it
-`NoType`; an existing plain `Reference` pointing at the deleted type resolves to the
-replacement type afterward with no converter involvement at all; a supplied
-`EntityRetypeConverter` whose declared `from()`/`to()` don't match the deletion's actual old
-and new identifiers is rejected before anything is touched.
+and-recreated row with a new id; the same operation also reaches a live subclass's own
+existing rows — not just the exact-type rows the unconditional cascade-delete bullet above is
+scoped to — reparenting the subclass's prototype onto the replacement and swapping its own
+physical row at the old type's level, while its own lower-level row is left completely
+untouched; when the old and new types share a common ancestor level, that level's existing
+row is updated in place from the converter's output rather than deleted-and-reinserted,
+proven by a converter that deliberately changes an inherited field's value and seeing it
+actually persist; the same operation migrates an existing `#[Embed]` occurrence of the
+deleted type, or of a live subclass independently used as its own `#[Embed]` target, in place
+through that same converter rather than leaving it `NoType`; an existing plain `Reference`
+pointing at the deleted type or a live subclass resolves to the replacement type afterward
+with no converter involvement at all; a supplied `EntityRetypeConverter` whose declared
+`from()`/`to()` don't match the deletion's actual old and new identifiers is rejected before
+anything is touched.
 
 **Not yet** (end of Phase 6): `FieldPermission`, `Query`.
 
