@@ -288,19 +288,18 @@ topological sort — no more manual two-step create-then-attach.
   that itself owns descendants or is Shared-referenced from elsewhere triggers both of those
   the same as any other deletion.
 - `Persistence\Changeset\ChangesetFlusher`: applies a changeset as one atomic database transaction.
-- Concurrent-write protection: an `expectedOperationId` receipt, reject-by-default with an
-  explicit override to retry — for an entity with Owned descendants, the expected id
-  covers its whole owned subtree, not just its own direct changes ("Content write path").
 
-**Not yet**: undo/draft, permissions, editor-created prototypes, `Query`.
+**Not yet**: undo/draft, permissions, editor-created prototypes, `Query`, concurrent-write
+protection (`expectedOperationId` is sourced from the undo log's own monotonic sequence —
+see "Content write path" — so it can't exist before `EntityChangeRecord` does; lands in
+Phase 5.1 instead).
 
 **Done when**: a changeset creating a new Tag and attaching it to a Product in the same
 flush commits atomically; a changeset creating a new Owned child and its owner in the same
 flush commits atomically too — the higher-risk mechanism (Phase 3.3 calls Owned "the
 genuinely novel mechanism in this design"), not left covered only by the Shared case; two
 new entities referencing each other in one changeset are rejected with an error naming the
-cycle; a stale `expectedOperationId` is rejected, including one that's only stale on an
-entity's owned subtree rather than the entity itself; a changeset deleting a referencer and
+cycle; a changeset deleting a referencer and
 what it references in the wrong order is corrected by the sort, not left to rely on
 `RESTRICT` as a backstop; deleting an owner with populated Owned descendants, at any depth,
 auto-expands into an explicit delete for each one, correctly ordered, each producing its
@@ -328,16 +327,28 @@ correct.
 **Goal**: every flush is loggable and recoverable, per the Envers-style `Revision` +
 per-entity `EntityChangeRecord` design; nothing is ever pruned automatically.
 
-### 5.1 — Logging only, no undo yet
+### 5.1 — Logging and concurrent-write protection, no undo yet
 
 - `Persistence\Changeset\Undo\Revision` (metadata-only, one per flush) + `Persistence\Changeset\Undo\EntityChangeRecord`
   (per-entity diff, FK'd to the `Revision`) ("Content undo, draft, and revision history").
   `Revision.actor` is a plain opaque identifier, not a `Persistence\Permission\Actor`
-  instance — available here already, needing nothing from 5.3.
+  instance — available here already, needing nothing from 5.3. Each `EntityChangeRecord`
+  also captures the entity's own `owner`/`owner_field` as of that write.
+- Concurrent-write protection: an `expectedOperationId` receipt, reject-by-default with an
+  explicit override to retry ("Content write path") — buildable for the first time here,
+  since it's sourced from `EntityChangeRecord`'s own monotonic sequence position, not a
+  separate counter. For an entity with Owned descendants, the expected id covers its whole
+  owned subtree: found by walking what's still live, plus, for anything removed, that
+  entity's own captured `owner`/`owner_field` to keep resolving upward through whatever of
+  the chain remains.
 
 **Done when**: every flush produces a correct `Revision` and correct per-entity
 `EntityChangeRecord`s, including for a multi-entity flush — verified by inspection, no
-undo capability exists yet.
+undo capability exists yet; a stale `expectedOperationId` is rejected, including one that's
+only stale on an entity's owned subtree rather than the entity itself, and including one
+that's stale only because a deeply-nested Owned descendant was removed entirely, resolved
+via that descendant's own captured `owner`/`owner_field` rather than a live
+`entities.owner` walk.
 
 ### 5.2 — Undo, redo, authorization
 

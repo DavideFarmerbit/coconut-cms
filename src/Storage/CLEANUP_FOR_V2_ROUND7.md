@@ -100,7 +100,7 @@ document in the resolved design's own terms, per the standalone requirement (see
 
 ## Missing pieces
 
-### 3. `expectedOperationId`'s storage/generation mechanism is never specified anywhere
+### 3. `expectedOperationId`'s storage/generation mechanism is never specified anywhere — **resolved (2026-10-06)**
 
 `entities`' columns are fully enumerated in "Global entity identity": `id`, `owner`,
 `owner_field`, `position`, `concrete_identifier`. No version/operation-id column appears
@@ -114,6 +114,45 @@ already tests `expectedOperationId` staleness detection in its "Done when" — b
 tracking "an operation," doesn't exist until Phase 5. Either a separate, undocumented
 optimistic-lock mechanism is needed, or Phase 4's "Done when" depends on machinery that
 isn't built until the following phase.
+
+**Decided: no new column, no second counter.** `expectedOperationId` is sourced directly
+from the undo log — the monotonic sequence position of the most recent `Revision` whose
+`EntityChangeRecord` touched the entity. A dedicated `entities`-level counter was considered
+and rejected: it would be a second, independently-maintained mechanism tracking the same
+fact `EntityChangeRecord` already tracks, the same objection that already ruled out a
+parallel `unique`-flag mechanism in Round 6 item 2. Reusing the undo log also closes a
+correctness gap a counter-column design would have had: `Clear` (and the deletion half of
+`Remove`) makes an owned row vanish entirely with no surviving row to carry a version bump —
+but it still produces its own `EntityChangeRecord`, so the signal survives the row's own
+deletion for free.
+
+**Consequence: the mechanism cannot exist before `EntityChangeRecord` does, so it moves out
+of Phase 4 entirely and into Phase 5.1.** Phase 4's own "Done when" previously claimed to
+prove `expectedOperationId` staleness-rejection, which it never actually could — nothing in
+Phase 4 sources a real value for it. Phase 5.1 ("Logging only, no undo yet," renamed
+"Logging and concurrent-write protection, no undo yet") is the first point `EntityChangeRecord`
+exists, so it's the first point this can be genuinely built and tested, not just described.
+
+**One more real gap surfaced along the way: a since-deleted Owned descendant can't be found
+by walking `entities.owner`, because its own `owner` link is gone with the row.** For nested
+ownership (`X` owns `Y` owns `Z`, `Z` removed), checking `X`'s whole subtree needs to notice
+`Z`'s disappearance without a live link from `Z` back up to `X`. Fixed by having
+`EntityChangeRecord` also capture the entity's own `owner`/`owner_field` as of that write
+(for both an update and a delete) — cheap, since it's already read during the write
+regardless. Checking a subtree then means: walk what's still live via `entities.owner`
+normally, and for anything missing, consult its own deletion record's captured owner to keep
+resolving upward through whatever of the chain still exists (only the actual leaf that
+changed is ever "new" in a race; an ancestor that was also deleted is a different rejection
+case, not a stale-id mismatch).
+
+Folded into `ARCHITECTURE_V2.md` ("Content write path" — the "Concurrent-write protection"
+paragraph now names its actual source and the owner/owner_field-capture mechanism for
+deleted descendants; "Content undo, draft, and revision history" — `EntityChangeRecord`'s
+own description gained the `owner`/`owner_field` capture) and `ROADMAP_V2.md` (the
+`expectedOperationId` bullet and its "Done when" clause moved from Phase 4 to a renamed
+Phase 5.1, with Phase 4's own "Not yet" list noting where it went and why). Described in
+each document in the resolved design's own terms, per the standalone requirement (see
+[[feedback_v2_docs_standalone]]).
 
 ### 4. `MediaAsset`'s physical-file-byte reclaim is asserted in `ARCHITECTURE_V2.md` but never scheduled in `ROADMAP_V2.md`
 

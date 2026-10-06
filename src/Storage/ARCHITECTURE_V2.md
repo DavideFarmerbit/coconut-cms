@@ -1016,9 +1016,17 @@ Shared-referenced from elsewhere, both of those expansions still run exactly as 
 described, no special-casing for the slot-shift case.
 
 **Concurrent-write protection**: an `expectedOperationId` receipt, reject-by-default with
-an explicit override to retry. For an entity with Owned descendants, the id it must match
-is the latest operation touching *it or anything it transitively owns* — recursive over
-the owned subtree, computed from the same lookup the expansion above uses — not just its
+an explicit override to retry. The id itself is sourced from the undo log, not a second,
+parallel counter: the monotonic sequence position of the most recent `Revision` whose
+`EntityChangeRecord` touched the entity (see "Content undo, draft, and revision history") —
+reusing the same monotonic-sequence idiom `Revision` already carries. This is also why the
+mechanism can't exist before the undo log does; `ROADMAP_V2.md` sequences it accordingly.
+For an entity with Owned descendants, the id it must match
+is the latest such position touching *it or anything it transitively owns* — recursive over
+the owned subtree, found by walking what's still live via the same lookup the expansion
+above uses, plus, for anything no longer live to walk to directly, that entity's own
+`EntityChangeRecord`-captured `owner`/`owner_field` to keep resolving upward through
+whatever of the chain still exists — not just its
 own direct changes. Deliberately narrow: this applies to Owned only (an Owned child has no
 life apart from its owner, so a change anywhere underneath is a change to the owner as far
 as a concurrent caller is concerned) and never to Shared (a Shared entity has independent
@@ -1052,7 +1060,12 @@ scope"). Every entity that
 flush actually touched gets its own independent `EntityChangeRecord` (before/after per
 changed field, not a full snapshot — kept as a diff, unlike Envers's own full-row audit
 tables, for the storage-efficiency reasons already decided), FK'd back to that shared
-`Revision` — **no carve-out for Owned entities.** The old design's "Owned folds into the
+`Revision` — **no carve-out for Owned entities.** Each `EntityChangeRecord` also captures
+the entity's own `owner`/`owner_field` as of that write, for both an update and a delete —
+cheap, since it's already read during the write regardless. This is what lets concurrent-
+write protection (see "Content write path") trace a since-deleted Owned descendant's place
+in its former owner's subtree without needing a live `entities.owner` link to walk to it
+directly. The old design's "Owned folds into the
 owner's own diff, no independent record" rule is retracted: it made sense when an Owned
 row lived in a per-relationship child table with no identity of its own, but an Owned
 entity now has a full `entities` row exactly like a Shared one, so nothing structurally
