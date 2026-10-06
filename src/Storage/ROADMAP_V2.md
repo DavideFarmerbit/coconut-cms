@@ -561,6 +561,12 @@ the next write, and removing it stops enforcing without touching existing data.
   Revision-history restore is independently cut off past it by `schema_version`, Phase 5.3);
   no backfill needed when reparenting onto a level the entity already had a row for (the two
   sides of the same mechanism).
+- **Cycle rejection**: before any mutation runs, `reparent()` walks the candidate new
+  parent's own chain and rejects outright, naming the cycle, if the entity being reparented
+  appears in it anywhere — covers a direct self-reparent and reparenting onto any current
+  descendant with one check, native and editor-created alike, and transitively protects
+  every live subclass of the reparented entity too, since a subclass's own chain already
+  runs through it.
 - Reparenting a shape used as an `#[Embed]` target propagates to every embedding site as a
   column change, never a row change (unlike the entity-table side above, which never changes
   columns) — a level inserted adds that level's own fields as new columns at each site,
@@ -585,7 +591,10 @@ the next write, and removing it stops enforcing without touching existing data.
   same truncation) — the same split as deleting a prototype with live editor-created
   subclasses, which triggers the editor-created-triggered half for them.
 
-**Done when**: reparenting an editor-created prototype onto a brand-new level backfills
+**Done when**: reparenting a prototype directly onto itself, or onto one of its own current
+descendants, is rejected outright before any mutation runs, naming the cycle, proven for
+both a direct descendant and a case reached only through a live subclass's own chain;
+reparenting an editor-created prototype onto a brand-new level backfills
 correctly; reparenting it back onto a level it already had a row for needs no backfill and
 the data round-trips as it was; reparenting away from a level deletes that level's data for
 the reparented entity and its subclasses immediately, not left stray, each deleted row

@@ -15,7 +15,7 @@ built, not alphabetically.
 
 ## Missing pieces
 
-### 1. `reparent()` has no cycle-detection guard
+### 1. `reparent()` has no cycle-detection guard — **resolved (2026-10-06)**
 
 Every other structural hazard in this design gets an explicit fail-loudly check at the
 point the hazard could be introduced: Embed-of-Embed cycles at registration time
@@ -33,12 +33,27 @@ every link still resolves, so this truncation rule doesn't catch it, and nothing
 stated to. Worst case, `chainOf()` (and anything built on it — `fieldsOf()`,
 `SchemaBuilder::tablesForChain()`) loops forever the moment such a cycle exists.
 
-Needs its own design pass: where the check runs (at the point `reparent()` is called, same
-"fail loudly, not at migration/runtime" posture as everything else), what it walks (the
-candidate new parent's own chain upward, checking whether the entity being reparented
-already appears in it), and whether native and editor-created need the same enforcement or
-split the way other mutations do (a native reparent is a reviewed migration; an
-editor-created one is live and unreviewed).
+**Decided: a hard rejection, orthogonal to the existing "no approval gate beyond a
+warning" posture, not a replacement for it.** That existing posture is a data-safety
+judgment call (an admin might genuinely want a destructive-but-valid reparent); a cycle
+isn't destructive-but-valid, it's structurally unresolvable, the same category as
+Embed-of-Embed cycles and table-name collisions, which already fail outright with no
+override anywhere else in this design. Triggered at the point `reparent()` is invoked
+rather than at registration time, since the parent link being checked doesn't exist to
+check until then.
+
+**The check collapses to one case, native and editor-created alike**: reject
+`reparent(X, newParent: Z)` if `X` appears anywhere in `Z`'s own chain — covering a direct
+self-reparent (`Z === X`) and reparenting onto any current descendant with no separate
+case for either. This transitively protects every live subclass of `X` too, with no extra
+mechanism: a subclass's own chain already runs through `X`, so if `X`'s new parent chain
+doesn't loop back through `X`, it can't loop back through `X` for the subclass either.
+
+Folded into `ARCHITECTURE_V2.md` ("Reparenting" — a new paragraph right after the "no
+approval gate beyond a warning" sentence, drawing the line between the two kinds of check)
+and `ROADMAP_V2.md` (Phase 6.3 gained a "Cycle rejection" bullet and a matching "Done when"
+clause, including the subclass-reached case). Described in each document in the resolved
+design's own terms, per the standalone requirement (see [[feedback_v2_docs_standalone]]).
 
 ### 2. Entity-type substitution (Round 7 item 8) never checks `Unique` collisions in converter output
 

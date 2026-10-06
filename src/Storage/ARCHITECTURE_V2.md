@@ -720,6 +720,25 @@ above. No approval gate beyond a warning shown in the editor UI when an admin tr
 against an already-populated prototype; a developer triggering it from code is assumed to
 already know what they're doing.
 
+**That "no approval gate" posture is a data-safety judgment call, not a structural-validity
+one, and the two are checked differently.** Reparenting is rejected outright, before any
+mutation runs, if the candidate new parent is, or descends from, the entity being
+reparented — the same fail-loudly posture as every other structural violation in this
+design (Embed-of-Embed cycles, table-name collisions, defaulted-instance completeness),
+just triggered at the point `reparent()` is invoked rather than at registration time, since
+the parent link being checked doesn't exist to check until then. One check, native and
+editor-created alike: walk the candidate new parent's own chain and reject, naming the
+cycle, if the entity being reparented appears in it anywhere — this covers a direct
+self-reparent (the entity is its own candidate parent) and reparenting onto any current
+descendant with no separate case for either, and transitively protects every live subclass
+of the reparented entity too, since a subclass's own chain already runs through the entity
+being reparented, so the same single check keeps it from looping for them as well. This is
+the one thing "no approval gate beyond a warning" above never meant to cover: a warning is
+for a destructive-but-valid operation an admin might still want to confirm; a cycle isn't a
+destructive operation at all, it's a structurally unresolvable one, and `chainOf()`'s own
+truncation rule doesn't catch it either — truncation only ever triggers on an *unresolvable*
+link, and every link in a cycle still resolves, just forever.
+
 **Reparenting onto a level the entity already had a row for (most commonly: fixing a
 broken parent, see below) needs no backfill at all** — the defaulted-instance mechanism
 exists for a level an entity never had a row for; a level it already had, that only
