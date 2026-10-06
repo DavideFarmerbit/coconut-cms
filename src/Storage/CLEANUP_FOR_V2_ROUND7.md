@@ -1,10 +1,12 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 7)
 
-**Status: open (2026-10-05).** A seventh audit pass over `ARCHITECTURE_V2.md`/
-`ROADMAP_V2.md`, done after Round 6's items were folded back into both documents. Unlike
-prior rounds' files, this one is still an open task list — items below are findings from
-the audit, not yet decided or folded back into either document. Worked one item at a time
-per [[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes what gets
+**Status: resolved (2026-10-06).** A seventh audit pass over `ARCHITECTURE_V2.md`/
+`ROADMAP_V2.md`, done after Round 6's items were folded back into both documents, plus three
+open design questions the user added afterward (items 6-8). All 8 items found have since
+been decided and folded back into `ARCHITECTURE_V2.md`/`ROADMAP_V2.md` directly — this file
+is kept only as a historical record of that audit pass and the discussion behind each
+decision, not as an open task list. Worked one item at a time per
+[[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes what gets
 built, not alphabetically.
 
 ## Real inconsistencies
@@ -283,7 +285,7 @@ exists unused from Phase 1.1 until 6.3 gives it meaning — decided once, not in
 two pieces five phases apart). Described in each document in the resolved design's own
 terms, per the standalone requirement (see [[feedback_v2_docs_standalone]]).
 
-### 7. Name and design the optional migrator class used in retype
+### 7. Name and design the optional migrator class used in retype — **resolved (2026-10-06)**
 
 Every retype operation throughout "Migrations and schema mutation" refers to "a supplied
 converter" / "a converter class" without ever naming a concrete interface or class — also
@@ -295,7 +297,31 @@ item inside a single row's own collection; input is the row's own captured `NoTy
 or for a collection field the whole assembled array; output is one new value or one new
 array per call).
 
-### 8. Entity-type deletion should optionally take a replacement class + a data-migration class, mirroring a field retype's converter
+**Named `FieldRetypeConverter`** (not just `RetypeConverter` — item 8 needed its own,
+differently-shaped converter, so the field-scoped one needed a name that says so):
+`convert(mixed $captured): mixed`, exactly the contract already settled. **Also needed: a
+way to reject an incompatible retype outright, and to let an admin-facing surface list only
+the retypes a given field could actually use**, since nothing previously let the framework
+check a supplied converter's assumptions against reality before running it. Resolved by
+having `FieldRetypeConverter` declare itself statically — `from(): FieldRetypeSignature` /
+`to(): FieldRetypeSignature`, checked by reflection alone, no instantiation needed.
+`FieldRetypeSignature` is its own small value object (private constructor, named factories
+mirroring `FieldDescriptor`'s own five kinds — deliberately not `FieldDescriptor` itself,
+which describes a real field and shouldn't grow a partial/wildcard mode): a kind, plus an
+optional, wildcardable target (`null` means "any target of this kind," recursively for a
+`Collection`'s own item signature). Wildcards were deliberately included from the start
+rather than added later if needed, on the premise that a converter handling a whole class of
+retypes (not one fixed pair) is a real, anticipated use case, not a hypothetical one. A
+retype naming a converter whose declared `from()`/`to()` don't match the field's actual
+current shape and the candidate target shape is rejected outright, naming the mismatch — the
+same fail-loudly posture as every other structural violation in this design.
+
+A static method was chosen over a reflection attribute for the declaration specifically
+because of what item 6 (one-attribute-per-declaration-site) already surfaced: attribute
+arguments must be compile-time constant expressions, and "kind plus a possibly-wildcarded
+target" doesn't comfortably fit that constraint the way a plain method return value does.
+
+### 8. Entity-type deletion should optionally take a replacement class + a data-migration class, mirroring a field retype's converter — **resolved (2026-10-06)**
 
 Today, "Prototype/class deletion... cascade-deletes every existing entity row of exactly that
 concrete type" unconditionally — the only content-preserving path a prototype deletion has is
@@ -309,3 +335,60 @@ subtree, or does that still cascade regardless), whether it's available to `Sche
 editor-created prototypes or native-migration-only, and whether the migration class's
 per-row contract should match retype's exactly or needs its own shape given it's migrating a
 whole row rather than one field.
+
+**The first real fork: does the replacement preserve the original row's `entities.id`, or is
+it a brand-new, unrelated entity (the old one still cascade-deleted, the replacement just a
+salvage of its data)?** Decided: **id preservation.** The weaker, salvage-only version was
+considered first and rejected — it would leave every existing `Reference` pointing at the old
+row nulled out exactly as an ordinary deletion already does, which undercuts the entire point
+of calling this a "migration" rather than "deletion plus best-effort data recovery
+somewhere else."
+
+**That decision is what let the whole feature collapse into an optional enhancement on the
+existing deletion operation, rather than a new one.** `Persistence\Schema\EntityRetypeConverter`
+(`convert(array $capturedFieldTree): object`, declaring plain `from()`/`to()` prototype
+identifiers — not wildcarded, unlike `FieldRetypeConverter`'s signature, since "replace X
+with Y" is already a one-off, explicitly-named pair each time it's triggered, so the
+declaration is purely a self-consistency check) is an optional pair of arguments on the same
+`deletePrototype()` call:
+
+- **Without them**: nothing changes — ordinary cascade-delete, ordinary `NoType` capture for
+  anything pointing at the deleted type, exactly as already specified.
+- **With them**: every row of exactly the deleted type — root, or an
+  `OwningReference`/Owned-`Collection`-item, already "a full `entities` row exactly like a
+  Shared one" per existing text — migrates in place instead of being cascade-deleted, `id`
+  preserved, via the *same* insert/remove-a-CTI-level machinery "Reparenting" already
+  specifies (drop rows from the old type's own level down to whatever's shared with the
+  replacement's chain, if any; insert rows from there down to the replacement's own level) —
+  the only new thing is that the converter's output replaces `#[DefaultInstance]` backfill as
+  the value source. Every `#[Embed]` occurrence of the deleted type migrates in place through
+  the *same* converter instead of degrading to `NoType` — possible because an owned row's own
+  `NoType` capture already "mirrors `Embed`'s own capture," so root, Owned, and Embed all
+  capture the identical full-field-tree shape elsewhere in this design; one converter serves
+  all three, no separate embed-specific converter ever needed. Every plain
+  `Reference`/`Collection`-of-reference occurrence gets its declared target type updated
+  automatically, no converter involved at all, because none is needed: the id never changes,
+  so retargeting a pointer's declared type is pure metadata, exactly as mechanical and
+  lossless as prototype-rename propagation already is — not an exception to "no automatic
+  fixing, ever," the same exemption rename propagation already earns, for the same reason.
+
+This directly answers two of the three open sub-questions from the original proposal:
+Owned-descendant cascade composes for free (an Owned descendant of the migrated row is
+untouched by any of this — it's still owned by the same, unchanged `entities.id`); and the
+per-row contract does need its own shape distinct from `FieldRetypeConverter`'s, exactly as
+guessed, which is why it's a separately-named interface. The third (native vs. editor-created
+availability) resolved to **both, uniformly** — native declares the replacement + converter
+in the same reviewed migration, with the migration tool auto-discovering every
+referencing/embedding site via the reverse-index machinery "Migrations and schema mutation"
+already generalizes for exactly this kind of fan-out, instead of the developer hand-editing
+each site; editor-created triggers it through `SchemaEditor`, the converter picked from a
+closed, pre-registered menu, the same posture `PrototypeValidator` already uses.
+
+Folded into `ARCHITECTURE_V2.md` ("Migrations and schema mutation" — a new paragraph naming
+`FieldRetypeConverter`/`FieldRetypeSignature` right after the general retype-converter
+contract; a new block on optional-replacement prototype deletion, `EntityRetypeConverter`,
+and the three migration/retargeting rules, placed right after cascade-delete's own
+paragraph) and `ROADMAP_V2.md` (Phase 6.2 gained the `FieldRetypeConverter` bullet and
+matching "Done when" clauses; Phase 6.4 gained the `EntityRetypeConverter` bullet and
+matching "Done when" clauses). Described in each document in the resolved design's own
+terms, per the standalone requirement (see [[feedback_v2_docs_standalone]]).

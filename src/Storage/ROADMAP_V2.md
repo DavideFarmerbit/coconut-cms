@@ -464,7 +464,11 @@ reused rather than rebuilt for the second identifier kind.
   between Shared, Owned, and `#[Embed]` — one capture-to-`NoType` plus
   reconstruct-from-`NoType` mechanism throughout. A converter is always optional: supplied,
   it derives the new value from the old; omitted, the field falls back to its own class
-  default. `dropField()` on an `OwningReference` or Owned `Collection` cascade-deletes every
+  default. A supplied converter is a `Persistence\Schema\FieldRetypeConverter`, declaring its
+  own `from()`/`to()` as a `FieldRetypeSignature` (kind + optional, wildcardable target) that
+  `retype()` checks by reflection against the field's actual current shape and the candidate
+  target shape before running anything, rejecting a mismatched converter outright, naming the
+  mismatch ("Migrations and schema mutation"). `dropField()` on an `OwningReference` or Owned `Collection` cascade-deletes every
   existing owned entity at that relationship, across every entity with the field, through
   the same ordinary `Changeset` path Phase 4's delete expansion already built (downward into
   anything each owned entity in turn owns, sideways into any outside Shared reference
@@ -504,7 +508,12 @@ the whole captured array to a single converter call that returns a new array of 
 length — not a forced one-call-per-item mapping — dropping the old value column(s) and
 adding whatever the new item kind needs, proven alongside the same-shape item-kind retype
 case rather than assuming every item-kind change is a same-column swap, and proven with a
-converter that deliberately returns fewer items than it received; renaming a
+converter that deliberately returns fewer items than it received; a supplied
+`FieldRetypeConverter` whose declared `from()` doesn't match the field's actual current
+shape, or whose `to()` doesn't match the candidate target shape, is rejected before any row
+is touched, proven for a kind mismatch and for a wildcarded-vs-concrete-target mismatch; a
+field's current shape resolves to a `FieldRetypeSignature` that matches every converter
+registered with a wildcarded `from()` for that kind, not just an exact-target one; renaming a
 Shared-collection or non-entity-collection field (introduced in Phase 3) renames its own
 dedicated table too, not just the field's metadata; removing such a field drops that
 dedicated table outright; renaming a field that declares an `OwningReference` or an Owned
@@ -586,6 +595,18 @@ grandparent and deleted parent) still resolves correctly down to `entities`.
   bypass) — scoped to the exact type, so a deleted prototype's live editor-created
   subclasses keep their own existing instances untouched (only their parent link is
   affected, per 6.3).
+- Prototype/class deletion optionally takes a replacement identifier and an
+  `Persistence\Schema\EntityRetypeConverter` (`convert(array $capturedFieldTree): object`,
+  declaring its own `from()`/`to()` prototype identifiers as a self-consistency check) —
+  the same call, not a separate operation ("Migrations and schema mutation"). Without them,
+  nothing changes from the bullet above. Supplied, every row of exactly the deleted type
+  (root, or an `OwningReference`/Owned-`Collection`-item) migrates in place via the same
+  insert/remove-a-CTI-level machinery 6.3's `reparent()` already built, id preserved,
+  converter output replacing `#[DefaultInstance]` backfill as the value source; every
+  `#[Embed]` occurrence migrates in place through the same converter instead of degrading to
+  `NoType`, reusing the reverse-index discovery below; every plain `Reference`/`Collection`-
+  of-reference occurrence has its declared target type updated automatically, no converter
+  needed, the same mechanical safety already granted to prototype-rename propagation.
 - `NoType`: a reserved `FieldDescriptor` kind — its own distinct `FieldKind`, structurally
   shaped like a Value Object but never a special-cased `valueObject()` reusing a reserved
   `Type` class, and with no public factory; only the framework's own capture/retype
@@ -647,7 +668,15 @@ dedicated table's own row-per-slot already makes `COUNT(*)` accurate without one
 prototype cascade-deletes its own existing instances but
 leaves a live editor-created subclass's own instances fully intact, flagged only via 6.3's
 parent-link mechanism; the auditing tool finds a dangling Value Object target the same way
-it finds a dangling reference/embed/collection target.
+it finds a dangling reference/embed/collection target; deleting a prototype with a supplied
+replacement and `EntityRetypeConverter` preserves every existing row's `entities.id` across
+the type swap, readable immediately as the replacement type, not left as a freshly-deleted-
+and-recreated row with a new id; the same operation migrates an existing `#[Embed]`
+occurrence of the deleted type in place through that same converter rather than leaving it
+`NoType`; an existing plain `Reference` pointing at the deleted type resolves to the
+replacement type afterward with no converter involvement at all; a supplied
+`EntityRetypeConverter` whose declared `from()`/`to()` don't match the deletion's actual old
+and new identifiers is rejected before anything is touched.
 
 **Not yet** (end of Phase 6): `FieldPermission`, `Query`.
 

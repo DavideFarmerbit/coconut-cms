@@ -616,6 +616,22 @@ already specified; producing genuinely distinct values is whoever writes the con
 responsibility, never
 something the framework orchestrates on their behalf.
 
+**The converter is a named interface, `FieldRetypeConverter`** (`convert(mixed $captured):
+mixed`, matching the contract just described) **that also declares, statically, which
+retypes it's valid for** — `from(): FieldRetypeSignature` and `to(): FieldRetypeSignature`,
+checked by reflection alone, no instantiation needed. `FieldRetypeSignature` is its own
+small value object (private constructor, named factories mirroring `FieldDescriptor`'s own
+five kinds, deliberately not `FieldDescriptor` itself, which describes a real field and
+shouldn't grow a partial/wildcard mode): a kind, plus an optional target/item-kind that's
+`null` to mean "any target of this kind" — recursively, for a `Collection`'s own item
+signature. A retype naming a supplied converter whose `from()`/`to()` don't match the
+field's actual current shape and the candidate target shape is rejected outright, naming the
+mismatch, the same fail-loudly posture as every other structural violation in this design.
+The same declared signature is what lets an admin-facing surface (`Editor\`, later) list
+only the converters compatible with a given field's current shape, rather than every
+registered converter regardless of fit — built on reflection over `from()` alone, no new
+backend capability.
+
 - **Retargeting a singular `Reference`** (it used to point at `Category`, now it should
   point at `Tag`): capture the old FK (old type and id) — the old target itself is never
   touched, it simply stops being referenced by this one field. A `Reference` is pointer
@@ -803,6 +819,51 @@ choice (the topological sort and Owned-subtree expansion already solve the depen
 ordering problem, no reason to re-solve it in a second, separate bulk-delete mechanism), not
 a data-safety one: neither undo mechanism can act on the `EntityChangeRecord`s it produces
 regardless, for the same reasons "Reparenting" states explicitly.
+
+**Prototype deletion optionally takes a replacement identifier and an `EntityRetypeConverter`
+— not a separate operation, the same `deletePrototype()` call, just with two more optional
+arguments.** Without them, nothing above changes: ordinary cascade-delete, ordinary `NoType`
+capture for anything pointing at the deleted type, exactly as already described. Supplying
+them changes what happens to exactly that content, in three ways:
+
+- **Every row of exactly the deleted concrete type — root, or an `OwningReference`/Owned-`Collection`-item
+  (already "a full `entities` row exactly like a Shared one," see "Content undo, draft, and
+  revision history") — migrates in place instead of being cascade-deleted.** `entities.id`
+  is preserved; only `concrete_identifier` and whichever CTI levels actually differ change,
+  via the same insert/remove-a-level machinery "Reparenting" already specifies (drop every
+  row from the old type's own level down to whatever level it shares in common with the
+  replacement's own chain, if any; insert every row from that point down to the replacement's
+  own level) — the only thing that's new is where the new levels' values come from: Reparenting
+  backfills via `#[DefaultInstance]`, this uses the converter's output instead. Not a fourth
+  mechanism.
+- **Every `#[Embed]` occurrence of the deleted type, singular or collection-item, migrates in
+  place too, through the exact same converter, instead of degrading to `NoType`.** This
+  reuses the converter at all is possible because an owned row's own `NoType` capture already
+  "mirrors `Embed`'s own capture" — root, Owned, and Embed all capture the identical "full
+  recursively-flattened field tree" shape elsewhere in this design, so one converter, one
+  `convert(array $capturedFieldTree): object` call per occurrence, serves all three
+  uniformly. No separate embed-specific converter.
+- **Every plain `Reference`/`Collection`-of-reference field pointing at the deleted type has
+  its declared target type updated to the replacement automatically — no converter involved,
+  because none is needed.** The id never changes, so retargeting a pointer's declared type is
+  pure metadata, exactly as mechanical and lossless as prototype-rename propagation already is
+  (which is likewise fully automatic, no converter, today). This is not an exception to "no
+  automatic fixing, ever" — it's the same exemption rename propagation already has, for the
+  same reason: nothing about it can silently lose data, since nothing about it touches data at
+  all.
+
+`EntityRetypeConverter` declares its own applicability via `from(): string`/`to(): string`
+(plain prototype identifiers, not wildcarded — unlike `FieldRetypeConverter`'s signature,
+this operation is already a one-off, explicitly-named pair each time it's triggered, so the
+declaration is purely a self-consistency check, rejecting a mismatched converter outright).
+Finding every site to migrate or retarget reuses the same reverse-index discovery
+machinery "Migrations and schema mutation" already generalizes for rename/retype
+propagation and dangling-target auditing — not a new scan. Available uniformly to native
+(declared alongside the deletion in the same reviewed migration; the migration-generation
+tool discovers every site itself instead of the developer hand-editing each one, still
+human-reviewed DDL) and editor-created (triggered through `SchemaEditor`, the converter
+picked from a closed, pre-registered menu — the same posture `PrototypeValidator` already
+uses for editor-created prototypes).
 
 **Deleting a prototype, or a native class other editor-created schemas still hold live
 references into, must always succeed and must not silently discard what the deleted rows
