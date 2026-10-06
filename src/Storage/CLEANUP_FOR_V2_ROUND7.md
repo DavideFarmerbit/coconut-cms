@@ -63,7 +63,7 @@ bullet, Phase 5.2's undo-authorization bullet, and Phase 5.3's `Actor` bullet, a
 to match). Described in each document in the resolved design's own terms, per the
 standalone requirement (see [[feedback_v2_docs_standalone]]).
 
-### 2. `NoType` was never reconciled against the original `FieldDescriptor` factory enumeration
+### 2. `NoType` was never reconciled against the original `FieldDescriptor` factory enumeration — **resolved (2026-10-06)**
 
 "Shape comes from a neutral descriptor" states the complete set of named static factories —
 `scalar()`, `valueObject()`, `embed()`, `reference()`, `collection()` — framed as making
@@ -73,6 +73,30 @@ original enumeration is never revisited to account for it. Unclear whether it ha
 factory, reuses `valueObject()`, or is constructed only by internal framework code (plausible,
 since it's never developer-declared the way the other five kinds are — but never stated
 either way).
+
+**Decided: `NoType` is its own distinct `FieldKind`, not a special-cased `valueObject()`
+reusing a reserved `Type` class.** The alternative (treat `NoType` as plain `valueObject()`
+pointed at a framework-reserved `Type` class, no new kind needed at all) was considered and
+rejected: nothing would then stop an admin from manually creating an ordinary field that
+happens to target that same reserved `Type` class, making "genuinely degraded" and
+"coincidentally same type" indistinguishable from the `FieldKind` alone. A real sixth kind
+closes this off, and also makes the dangling-target auditing tool's job a direct kind check
+rather than an identity check against a reserved class. The text's own wording already
+pointed this way — "a reserved `FieldDescriptor` **kind**," not "a special case of the Value
+Object kind."
+
+**`NoType` has no public factory, unlike the other five.** It is never developer-declared —
+no native class or `SchemaEditor` field is ever authored directly as `NoType` — so it's
+constructed only by the framework's own capture/retype machinery, the same "private
+constructor, named static factories" pattern already governing `FieldDescriptor`, just with
+this one factory being internal rather than part of the public API the other five make up.
+
+Folded into `ARCHITECTURE_V2.md` ("Shape comes from a neutral descriptor" — a new sentence
+naming `NoType` as the sixth, factory-less kind; the "`NoType`" bullet under "Migrations and
+schema mutation" — clarified as its own `FieldKind`, not a special-cased `valueObject()`)
+and `ROADMAP_V2.md` (Phase 6.4's `NoType` bullet reworded to match). Described in each
+document in the resolved design's own terms, per the standalone requirement (see
+[[feedback_v2_docs_standalone]]).
 
 ## Missing pieces
 

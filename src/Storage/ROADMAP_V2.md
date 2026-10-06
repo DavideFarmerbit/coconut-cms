@@ -554,10 +554,14 @@ grandparent and deleted parent) still resolves correctly down to `entities`.
   bypass) — scoped to the exact type, so a deleted prototype's live editor-created
   subclasses keep their own existing instances untouched (only their parent link is
   affected, per 6.3).
-- `NoType`: a reserved `FieldDescriptor` kind (structurally a Value Object) that a
-  `Reference`, `Embed`, `Collection`-item, Value-Object, `OwningReference`, or Owned
-  `Collection`-item field converts into when its target becomes unresolvable or its value
-  must be invalidated by an upstream deletion — to leave a later `retype()` something to
+- `NoType`: a reserved `FieldDescriptor` kind — its own distinct `FieldKind`, structurally
+  shaped like a Value Object but never a special-cased `valueObject()` reusing a reserved
+  `Type` class, and with no public factory; only the framework's own capture/retype
+  machinery ever constructs one, unlike the five developer-facing kinds from Phase 1.1
+  onward ("Shape comes from a neutral descriptor") — that a `Reference`, `Embed`,
+  `Collection`-item, Value-Object, `OwningReference`, or Owned `Collection`-item field
+  converts into when its target becomes unresolvable or its value must be invalidated by an
+  upstream deletion — to leave a later `retype()` something to
   convert from, not as a historical record (undo/revision history already covers that
   independently). Capturing what can be preserved in a blob is the one deliberate, narrow
   exception to "no blobs"; where that blob lands is purely a function of cardinality, never

@@ -77,7 +77,10 @@ a shape came from.
 `embed()`, `reference()`, `collection()`) — makes invalid combinations (a scalar kind with
 a referenced shape set, a collection with no item kind) unrepresentable rather than just
 unlikely. Same pattern already used for `Route::structured()`/`Route::simple()` in this
-codebase.
+codebase. A sixth kind, `NoType` (see "Migrations and schema mutation"), exists too, but has
+no public factory among these five — it's never developer-declared, only produced by the
+framework's own capture/retype machinery, so the five above remain the complete
+developer-facing surface a native class or `SchemaEditor` field is ever declared through.
 
 **Which of the two sources an identifier resolves through is decided by one test, with no
 stored flag or lookup of its own**: a native identifier is a real PHP class-string, so
@@ -796,10 +799,16 @@ history. The fix is to retype the referencing field to `NoType` as part of the s
 operation, before the delete runs, preserving that information instead of letting it
 degrade to a bare `null`:
 
-- **`NoType`** is a reserved `FieldDescriptor` kind, structurally a Value Object, that any
-  `Reference`, `Embed`, `Collection`-item, Value-Object, `OwningReference`, or Owned
+- **`NoType`** is a reserved `FieldDescriptor` kind — its own distinct `FieldKind`, not a
+  special-cased `valueObject()` reusing a reserved `Type` class, so a genuinely degraded
+  field can never be confused with an ordinary Value Object field that happens to target the
+  same internal type — structurally shaped like a Value Object regardless (one column for a
+  singular field, one column on a collection's own dedicated table for a collection-item),
+  that any `Reference`, `Embed`, `Collection`-item, Value-Object, `OwningReference`, or Owned
   `Collection`-item field gets converted into when its declared target becomes
-  unresolvable or its current value must be invalidated by an upstream deletion. **Its
+  unresolvable or its current value must be invalidated by an upstream deletion. No public
+  factory constructs it (see "Shape comes from a neutral descriptor") — only the framework's
+  own capture/retype machinery ever does. **Its
   purpose is to leave a later `retype()` something concrete to convert from** — not to
   serve as a historical record, which the undo/revision-history pipeline already provides,
   independently, for any entity's own deletion (see "Content undo, draft, and revision
