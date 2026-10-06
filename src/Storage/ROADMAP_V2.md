@@ -49,12 +49,15 @@ with scalar fields round-trips through real storage, but every access path goes 
   editor-created identifier kind Phase 6 gives a real resolution path. Stateless from day
   one: nothing caches a resolved shape, so there's nothing to go stale once Phase 6 starts
   writing to the second kind's own storage.
-- `#[Table(string $name)]` attribute + derived-short-name fallback + collision guard, and
-  **one registration entry point** (`EntityRegistrar::register($classes)`) resolving every
-  native level's table name once, at registration time, and constructing everything from
-  that single source of truth. Scoped to native only: an editor-created identifier's table
-  name is never frozen into this same map — it resolves live through `PrototypeRegistry`
-  instead, the moment Phase 6 gives it something to resolve.
+- `#[Entity(table: ...)]` (see "Shape comes from a neutral descriptor") + derived-short-name
+  fallback + collision guard, and **one registration entry point**
+  (`EntityRegistrar::register($classes)`) resolving every native level's table name once, at
+  registration time, and constructing everything from that single source of truth. Scoped to
+  native only: an editor-created identifier's table name is never frozen into this same map —
+  it resolves live through `PrototypeRegistry` instead, the moment Phase 6 gives it something
+  to resolve. `#[Entity]`'s own `editorExtensible` parameter exists from here on too, unused
+  until Phase 6.3 gives it meaning — one attribute, decided once, not two introduced five
+  phases apart.
 
 **Done when**: the registry resolves a native class's `FieldDescriptor[]` and can
 instantiate it from raw values; two unrelated classes that happen to derive the same short
@@ -537,7 +540,7 @@ which has no required case to fail at all; attaching a `Unique` group to an alre
 editor-created prototype through this path, not just at creation, enforces it immediately on
 the next write, and removing it stops enforcing without touching existing data.
 
-### 6.3 — Reparenting and `EditorExtensible`
+### 6.3 — Reparenting and `#[Entity]`'s `editorExtensible` flag
 
 - `reparent()` — mechanically uniform insert/remove of one CTI level, backfilled via
   `#[DefaultInstance]` for a level the entity never had a row for; immediately deletes the
@@ -551,8 +554,9 @@ the next write, and removing it stops enforcing without touching existing data.
   sides of the same mechanism).
 - `PrototypeRegistry::chainOf()` truncates at the first stored parent identifier that
   fails to resolve, instead of throwing — the shared primitive both halves of
-  `#[EditorExtensible]` revocation below build on.
-- `#[EditorExtensible]` attribute + revocation, split into two passes: native-triggered
+  `editorExtensible` revocation below build on.
+- `#[Entity]`'s `editorExtensible` flag (introduced unused back in Phase 1.1) + revocation,
+  split into two passes: native-triggered
   (deploy step auto-applies the `entities`-direct fallback, marks every affected direct
   subclass "missing parent, needs review") and editor-created-triggered (stays broken,
   stored parent identifier kept as-is, `SchemaEditor` blocks saving that subclass's own
@@ -565,7 +569,7 @@ correctly; reparenting it back onto a level it already had a row for needs no ba
 the data round-trips as it was; reparenting away from a level deletes that level's data for
 the reparented entity and its subclasses immediately, not left stray, each deleted row
 producing its own `EntityChangeRecord` the same as any other delete rather than vanishing
-unlogged; revoking `#[EditorExtensible]` on a native class with a live editor-created
+unlogged; revoking `#[Entity]`'s `editorExtensible` flag on a native class with a live editor-created
 subclass falls back to
 `entities` at deploy time with a "needs review" marker, content still readable/writable
 minus the vanished level's fields; the same revocation triggered by an admin deleting an

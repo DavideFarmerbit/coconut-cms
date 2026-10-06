@@ -25,8 +25,8 @@ changes:
   repositories, row mapping, query builder.
 - **`Persistence\Schema\`** — the shape/mutation half: `FieldDescriptor`, prototype
   registry, `SchemaBuilder`/`SchemaSynchronizer`/`SchemaEditor`, migrations,
-  rename/retype/reparent, attributes (`#[Table]`, `#[EditorExtensible]`,
-  `#[DefaultInstance]`, ...). `EntityRegistrar` lives here too — despite its name, its job
+  rename/retype/reparent, attributes (`#[Entity]`, `#[DefaultInstance]`, the five field-kind
+  markers, ...). `EntityRegistrar` lives here too — despite its name, its job
   is registering a native class's *schema*, not runtime entity state.
 - **`Persistence\Changeset\`** — the write path, promoted to its own namespace rather than
   a subfolder of `Persistence\Entity\`, since undo is really just a different thing done with
@@ -81,6 +81,25 @@ codebase. A sixth kind, `NoType` (see "Migrations and schema mutation"), exists 
 no public factory among these five — it's never developer-declared, only produced by the
 framework's own capture/retype machinery, so the five above remain the complete
 developer-facing surface a native class or `SchemaEditor` field is ever declared through.
+
+**For a native class, each of the five factories above has exactly one matching PHP
+attribute** (`#[Scalar]`, `#[ValueObject]`, `#[Embed]`, `#[Reference]`, `#[Collection]`) that
+`EntityRegistrar` reflects on to build the matching `FieldDescriptor` — one attribute per
+field, never two stacked for one declaration. `FieldPermission`, the `FieldValidator` list,
+`Unique` (a class-level group, never per-field — see "Uniqueness"), and `PrototypeValidator`
+each stay their own independent attribute rather than folding into a kind marker's own
+parameters: unlike kind, which is mutually exclusive by construction, these are orthogonal
+and freely combine regardless of kind, so bundling them in would buy nothing while coupling
+unrelated concerns to one attribute class. At the class level,
+`#[Entity(table: ..., editorExtensible: ...)]` is the one attribute carrying both the
+table-name override and the editor-extensibility flag — both singular,
+always-at-most-one-per-class facts, unlike `Unique`'s or `PrototypeValidator`'s own
+repeatable declarations, which stay separate for the same reason those stay separate from
+each other. `#[DefaultInstance]` stays on the static factory method
+itself, never referenced by name from `#[Entity(...)]` — attribute arguments must be
+compile-time constant expressions, and a callable reference to a method isn't one in any form
+that would actually resolve the method PHP-side (PHP's own first-class callable syntax
+produces a `Closure`, which attributes can't hold either).
 
 **Which of the two sources an identifier resolves through is decided by one test, with no
 stored flag or lookup of its own**: a native identifier is a real PHP class-string, so
@@ -514,7 +533,7 @@ would be, run as part of the same rename operation.
 
 **Every table name is checked for collisions at registration time, not discovered later as
 a migration failure**: an entity's own table name (derived from the class's short name, or
-pinned via an explicit `#[Table]`) and every field's own dedicated table (the pivot table,
+pinned via `#[Entity(table: ...)]`) and every field's own dedicated table (the pivot table,
 or the "No blobs" child table, both named the same derived-or-pinned way) all land in one
 shared namespace; two unrelated identifiers landing on the same name fail registration
 immediately with an actionable error. Same fail-loudly-at-registration posture as the
@@ -523,10 +542,10 @@ immediately with an actionable error. Same fail-loudly-at-registration posture a
 **A Shared-collection or non-entity-collection field's own dedicated table (the pivot
 table, or the "No blobs" child table) is a derived name too, not a pinned one** — same as
 an entity's own table name falls back to a derivation from the class's short name absent
-an explicit `#[Table]`. Renaming the field renames this dedicated table too, through the
+an explicit `#[Entity(table: ...)]`. Renaming the field renames this dedicated table too, through the
 same explicit mapping above, never inferred by diffing; renaming the declaring
 prototype, when that prototype's own table name is itself derived rather than
-`#[Table]`-pinned, automatically fans out to every dedicated table its own fields derive a
+`#[Entity(table: ...)]`-pinned, automatically fans out to every dedicated table its own fields derive a
 name from — one explicit trigger, mechanically computed consequences, the same pattern as
 the Embed-target column propagation just above, not something the developer separately
 re-declares per affected table. Removing the field drops the table outright: for native,
@@ -725,7 +744,7 @@ one broken link in a row still resolves correctly, since this only ever needs to
 first unresolvable link walking up from the leaf, and never needs to know what's further
 up a chain it's already discarding.
 
-**`#[EditorExtensible]` revocation, and deleting a prototype with live editor-created
+**Revoking `#[Entity]`'s `editorExtensible` flag, and deleting a prototype with live editor-created
 subclasses, both invalidate the parent link of every *direct* editor-created subclass of
 the revoked/deleted identifier** (a subclass further down the chain is unaffected at the
 link level, since its own link was never about the identifier that disappeared — but it
@@ -1285,7 +1304,10 @@ rewrite.
 - **Fine-grained revision-history reachability across a schema change.** Conservative
   default (blocked) is decided; the touched-field-bookkeeping refinement is not.
 - **Exact attribute/API surface** for `#[DefaultInstance]`, converter classes, rename/retype
-  invocation parameters — this document is architecture, not the implementation API.
+  invocation parameters — this document is architecture, not the implementation API. One
+  structural piece of this is decided, though (see "Shape comes from a neutral descriptor"):
+  which concerns get their own attribute versus consolidate into one, not every parameter
+  name and type.
 - **Naming conventions pass.** Namespace-level naming is decided (`Persistence\Entity\`/
   `Persistence\Schema\`/`Editor\`, see above), but class/method-level terminology
   (`Owned`/`Shared`, `Embed`,

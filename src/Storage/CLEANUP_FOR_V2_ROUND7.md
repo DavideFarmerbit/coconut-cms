@@ -229,7 +229,7 @@ what's newly provable at that point.
 
 ## Open design questions
 
-### 6. One class-level attribute and one field-level attribute, instead of a bunch of attributes
+### 6. One class-level attribute and one field-level attribute, instead of a bunch of attributes — **resolved (2026-10-06)**
 
 "Shape comes from a neutral descriptor" implies a scattered attribute surface without ever
 enumerating it: class-level `#[Table]`, `#[EditorExtensible]`, `#[DefaultInstance]` are each
@@ -247,6 +247,41 @@ still keep the closed-set-of-mutually-exclusive-kinds property the separate name
 exist to guarantee ("makes invalid combinations unrepresentable"), and whether an
 editor-created field (which has no PHP attribute at all, being pure data) needs its own
 equivalent single-shape representation for consistency.
+
+**Landed on a narrower consolidation than originally proposed, once worked through with
+concrete examples.** The actual complaint was about *singular, always-at-most-one-per-class*
+facts being needlessly split (`#[Table]`, `#[EditorExtensible]`), not about every per-field
+concern needing to live in one call. Field-kind markers stay one-per-kind
+(`#[Scalar]`/`#[ValueObject]`/`#[Embed]`/`#[Reference]`/`#[Collection]`, mirroring
+`FieldDescriptor`'s own five factories 1:1) — this already fully preserves the
+"invalid combinations unrepresentable" guarantee, since each attribute class's own
+constructor still only accepts its own kind's parameters; there was never a need to
+collapse these into a single kind-discriminated attribute and risk that guarantee at all.
+`FieldPermission`, `FieldValidator`, `Unique`, and `PrototypeValidator` all stay their own
+independent attributes too — `Unique`/`PrototypeValidator` because they're inherently
+repeatable (a class can declare more than one of each), and permission/validators because
+they're orthogonal to kind and apply identically regardless of it, so bundling them into a
+kind marker would couple unrelated concerns without buying anything.
+
+What *does* consolidate: `#[Table]` and `#[EditorExtensible]` — both singular, both
+always-at-most-one-per-class — into one `#[Entity(table: ..., editorExtensible: ...)]`.
+`#[DefaultInstance]` was considered for the same treatment and rejected: attribute arguments
+must be compile-time constant expressions, and PHP has no form of "reference to this
+method" that qualifies — not an array-callable (defeats the purpose of removing
+indirection) and not first-class callable syntax (`Product::blank(...)` produces a
+`Closure`, which isn't a constant expression either). `#[DefaultInstance]` stays on the
+static factory method itself, exactly as Architecture's own prose already implied
+("a static factory carrying `#[DefaultInstance]`") — never referenced by name from
+`#[Entity(...)]`.
+
+Folded into `ARCHITECTURE_V2.md` ("Shape comes from a neutral descriptor" — a new paragraph
+naming the attribute-to-factory mapping and the `#[Entity]` consolidation; every other
+`#[Table]`/`#[EditorExtensible]` reference in the document updated to match; "Deferred"
+gained a one-line pointer) and `ROADMAP_V2.md` (Phase 1.1's `#[Table]` bullet and Phase 6.3's
+heading/bullets/"Done when," all reworded to `#[Entity(...)]`, noting `editorExtensible`
+exists unused from Phase 1.1 until 6.3 gives it meaning — decided once, not introduced in
+two pieces five phases apart). Described in each document in the resolved design's own
+terms, per the standalone requirement (see [[feedback_v2_docs_standalone]]).
 
 ### 7. Name and design the optional migrator class used in retype
 
