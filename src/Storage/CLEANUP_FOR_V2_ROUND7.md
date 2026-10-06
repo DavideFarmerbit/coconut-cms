@@ -9,7 +9,7 @@ built, not alphabetically.
 
 ## Real inconsistencies
 
-### 1. `Actor`'s introduction in Phase 5.3 comes after Phase 5.2 already needs an identity check, and `ROADMAP_V2.md`'s claim about its scope is broader than `ARCHITECTURE_V2.md`'s own
+### 1. `Actor`'s introduction in Phase 5.3 comes after Phase 5.2 already needs an identity check, and `ROADMAP_V2.md`'s claim about its scope is broader than `ARCHITECTURE_V2.md`'s own — **resolved (2026-10-06)**
 
 Roadmap Phase 5.2 ("Undo, redo, authorization") requires checking that "the Revision
 belongs to the requesting user/session" before computing the inverse changeset — this is
@@ -25,6 +25,43 @@ undo-Revision-ownership check, which is an identity/ownership comparison ("does 
 Revision belong to this requester"), not a role check. Neither document ever states what
 the 5.2 check is actually built on, given `Actor` doesn't exist yet at that point and may
 not even be the right kind of interface for an ownership comparison anyway.
+
+**`Revision.actor` was never meant to be an `Actor` instance in the first place — a clue
+hiding in plain sight, since `Revision` (introducing the `actor` field) lands in 5.1, a
+full sub-phase before `Actor` itself exists in 5.3.** Both sub-problems dissolve once that's
+made explicit: `Revision.actor` is a plain, opaque identifier (presumably a UUID) naming
+whoever triggered the flush, nothing more. The 5.2 ownership check is then a plain value
+comparison against that field, available from 5.1 onward, needing nothing from 5.3 at all —
+the sequencing problem disappears. And `Actor` stays exactly as narrow as Architecture's own
+"Permissions" section already said: a pure adapter interface backing the three named
+role-based checks (`SchemaPermission`/`FieldPermission`/`HistoryPermission`), never identity
+storage of its own — `ROADMAP_V2.md`'s "every permission check in this design" phrasing was
+simply an overclaim, corrected to match.
+
+This raised a real design question, though: for `Revision.actor` to be useful (showing "who
+edited what" in revision history, not just an opaque value), something needs to own a table
+of real registered users. Where does that live? `Persistence\` can't own it directly as a
+concrete dependency — `Persistence\Changeset\Undo\Revision` would then depend on something
+nothing else in `Persistence\` needs, and worse, there's no existing user/auth system
+anywhere in this codebase to hook into (checked: no `User`/`Admin` class exists outside
+`Storage\`). The resolution: user registration is **out of scope for this document
+entirely**, the same deferral posture already used for `Editor\`'s own design. `Actor`
+stays a pure wrapper/adapter interface, exactly as it was already described — whatever
+system eventually registers real users (a new, separate namespace, not designed here, not
+even named yet) implements `Actor` over its own data to answer `hasRole()`. `Revision.actor`
+stays a plain UUID with no enforced database-level FK (which would itself be a schema
+dependency on a table `Persistence\` doesn't own) — the same loosely-coupled-identity
+posture `entities.id` itself already uses. Resolving that UUID into a real person's name for
+display is left entirely to whatever ends up owning user registration.
+
+Folded into `ARCHITECTURE_V2.md` ("Content undo, draft, and revision history" — a clause on
+`Revision.actor`'s type, and the "Undo authorization" paragraph clarified as a value
+comparison, not an `Actor::hasRole()` call; "Permissions" — `Actor` described explicitly as
+a pure adapter, not identity storage; "Explicitly out of scope" — gained a new bullet naming
+user/admin registration and authentication) and `ROADMAP_V2.md` (Phase 5.1's `Revision`
+bullet, Phase 5.2's undo-authorization bullet, and Phase 5.3's `Actor` bullet, all reworded
+to match). Described in each document in the resolved design's own terms, per the
+standalone requirement (see [[feedback_v2_docs_standalone]]).
 
 ### 2. `NoType` was never reconciled against the original `FieldDescriptor` factory enumeration
 

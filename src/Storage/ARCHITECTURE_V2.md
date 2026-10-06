@@ -1034,7 +1034,12 @@ Content-only now (schema mutations are excluded per above).
 **Structure adopts Hibernate Envers's shape (the grouping), not its storage (full
 snapshots).** One lightweight `Revision` record per flush — whatever triggered it: an
 ordinary publish, a Ctrl+Z undo, or a revision-history restore — holding just metadata (a
-monotonic sequence position, actor, kind), no diff data of its own. Every entity that
+monotonic sequence position, actor, kind), no diff data of its own. `actor` is a plain,
+opaque identifier naming whoever triggered the flush, not an instance of
+`Persistence\Permission\Actor` — resolving it to a real registered user (for display, e.g.
+"who edited this") is left to whatever owns user registration, a namespace not designed in
+this document, the same deferral posture as `Editor\` itself (see "Explicitly out of
+scope"). Every entity that
 flush actually touched gets its own independent `EntityChangeRecord` (before/after per
 changed field, not a full snapshot — kept as a diff, unlike Envers's own full-row audit
 tables, for the storage-efficiency reasons already decided), FK'd back to that shared
@@ -1105,9 +1110,13 @@ pruning something else.
   produce, and if the caller happens to have ordinary write permission on the affected
   field(s), the server would undo someone else's `Revision` passing as the caller's own
   Ctrl+Z. Undoing a specific `Revision` now requires a real check, behind
-  `Persistence\Permission\`, that the `Revision` actually belongs to the requesting user/session, checked once,
-  before the inverse changeset is even computed — in addition to, not instead of, the
-  ordinary write-gate. Revision-history restore (the separate, deliberate surface below)
+  `Persistence\Permission\`, that the `Revision`'s own stored `actor` matches the
+  requesting user/session's own identifier — a plain value comparison, never an
+  `Actor::hasRole()` call, since this is about preventing impersonation of someone else's
+  undo, not about whether the caller holds the right role — checked once, before the
+  inverse changeset is even computed — in addition to, not instead of, the ordinary
+  write-gate (which *is* `Actor`-gated, via `FieldPermission`, exactly as already decided).
+  Revision-history restore (the separate, deliberate surface below)
   is explicitly exempt from this check — reaching into anyone's past state there is the
   entire point of that surface.
 - **Client-side command stack**: `LocalCommand` (synchronous, in-memory, no server
@@ -1207,7 +1216,12 @@ a mandatory server-side write gate (before validation), and a client-side UX-onl
 `HistoryPermission` gates manual pruning (see "Content undo, draft, and revision history")
 — its own narrow permission, not folded into `SchemaPermission`, since pruning destroys
 content history rather than mutating schema. A minimal `Actor` interface
-(`hasRole(string): bool`) backs all three.
+(`hasRole(string): bool`) backs all three — a pure adapter, never identity storage of its
+own: whatever registers real users (a separate namespace, not designed in this document)
+implements it over its own data. `Revision.actor` (see "Content undo, draft, and revision
+history") is a related but distinct concept, a plain opaque identifier rather than an
+`Actor` instance — `Persistence\` never needs a class-level dependency on wherever user
+registration ends up living, only a value to compare and, eventually, resolve for display.
 
 **`FieldPermission` is a per-`FieldDescriptor` declaration, not a per-table or per-entity
 one** — every field, at whatever level of a shape's own tree, carries its own permission
@@ -1255,4 +1269,6 @@ shows up). Real-time concurrent multi-editor collaboration on the same entity �
 authoring-workflow mechanism `Editor\` eventually settles on is expected to stay
 single-writer-at-a-time, never true concurrent editing. EAV — actively rejected after
 confirming it's what ACF/WordPress actually do under the hood, and specifically the problem
-this whole design exists to avoid.
+this whole design exists to avoid. User/admin registration and authentication —
+`Persistence\Permission\Actor` is a pure adapter interface over whichever system owns real
+user identity; that system, and how it's wired up, isn't designed here.

@@ -332,6 +332,8 @@ per-entity `EntityChangeRecord` design; nothing is ever pruned automatically.
 
 - `Persistence\Changeset\Undo\Revision` (metadata-only, one per flush) + `Persistence\Changeset\Undo\EntityChangeRecord`
   (per-entity diff, FK'd to the `Revision`) ("Content undo, draft, and revision history").
+  `Revision.actor` is a plain opaque identifier, not a `Persistence\Permission\Actor`
+  instance — available here already, needing nothing from 5.3.
 
 **Done when**: every flush produces a correct `Revision` and correct per-entity
 `EntityChangeRecord`s, including for a multi-entity flush — verified by inspection, no
@@ -344,8 +346,10 @@ undo capability exists yet.
   `ChangesetFlusher`, outright refusal (never silent-partial) if any touched entity's
   record is missing or conflicted.
 - Redo (undo-the-undo, no new mechanism).
-- Undo authorization: a `Persistence\Permission\` check that the `Revision` belongs to the requesting
-  user/session, checked once, before the inverse changeset is even computed.
+- Undo authorization: a plain equality check that the `Revision`'s own stored `actor`
+  matches the requesting user/session's own identifier — a value comparison, not an
+  `Actor::hasRole()` call, so it needs nothing from 5.3's `Actor` interface — checked once,
+  before the inverse changeset is even computed.
 
 **Done when**: a multi-entity `Revision` undoes atomically with a per-entity conflict
 check; redo restores it exactly; undoing with someone else's `Revision` id is rejected;
@@ -356,10 +360,12 @@ itself.
 
 ### 5.3 — Revision-history restore and manual pruning
 
-- `Persistence\Permission\Actor` (`hasRole(string): bool`) — the minimal interface every
-  permission check in this design is built on, introduced here at its first point of use
-  and reused as-is by `SchemaPermission` (Phase 6.1) and `FieldPermission` (Phase 7), no
-  changes needed later.
+- `Persistence\Permission\Actor` (`hasRole(string): bool`) — a pure adapter interface,
+  implemented by whatever registers real users (a separate namespace, not built here);
+  introduced here at its first point of use and reused as-is by `SchemaPermission` (Phase
+  6.1) and `FieldPermission` (Phase 7), no changes needed later. Backs exactly these
+  role-based checks, not 5.2's undo-authorization check, which compares `Revision.actor` by
+  value instead and needs no role interface at all.
 - Revision-history restore: reads one entity's own `EntityChangeRecord` chain, restores by
   flushing a new changeset. Needs a single global, monotonically-incrementing
   `schema_version` sequence, stamped onto every `EntityChangeRecord` at write time — the
