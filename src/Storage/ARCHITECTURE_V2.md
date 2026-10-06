@@ -746,6 +746,24 @@ either undo mechanism. This was already implicitly required the moment "removing
 level" was decided above, for any reparent, not just the broken-parent-fix case below — it
 was never stated until now.
 
+**Reparenting a shape never touches column shape at its own entity tables — only at
+wherever it's used as an `#[Embed]` target.** A CTI level is an already-existing table (the
+parent class's own table, shared by every other subclass that extends it too), so
+reparenting an entity only ever adds or removes *a row* at that level, never a column. An
+`#[Embed]` site has no such separate level tables — the whole chain is flattened into one
+row on someone else's table — so a shape gaining or losing a CTI level *does* change column
+shape there, the same reverse-index discovery "Finding every site that points at shape X"
+already generalizes for rename/retype propagation reaching every such site: a level
+*inserted* adds that level's own fields as new columns, backfilled via `#[DefaultInstance]`
+— the same "an embedded shape gaining a field backfills every table that embeds it" rule
+Phase 2 already states, reparenting being one more trigger for it, not a separate mechanism;
+a level *removed* drops the now-stray columns at every embedding site — the previously
+unstated mirror-image direction, true as much for an ordinary `dropField()` on an embedded
+shape as for a reparent-triggered removal. Unlike the entity-side row deletions above, this
+column add/drop is ordinary schema-level DDL, the same as any other `addField()`/
+`dropField()` — no `EntityChangeRecord` of its own, consistent with schema mutations
+generally carrying no content-level undo trace.
+
 **`PrototypeRegistry::chainOf()` doesn't throw when a stored parent identifier fails to
 resolve — it truncates the chain there**, treating the affected identifier as rooted at
 `entities` directly from that point on. This is the shared primitive every case below

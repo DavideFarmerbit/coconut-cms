@@ -561,6 +561,15 @@ the next write, and removing it stops enforcing without touching existing data.
   Revision-history restore is independently cut off past it by `schema_version`, Phase 5.3);
   no backfill needed when reparenting onto a level the entity already had a row for (the two
   sides of the same mechanism).
+- Reparenting a shape used as an `#[Embed]` target propagates to every embedding site as a
+  column change, never a row change (unlike the entity-table side above, which never changes
+  columns) — a level inserted adds that level's own fields as new columns at each site,
+  backfilled via `#[DefaultInstance]`, reusing Phase 2's existing "gaining a field backfills
+  every embedding table" rule; a level removed drops the now-stray columns at each site, the
+  previously-missing mirror-image direction, true for an ordinary `dropField()` on an embedded
+  shape too, not just a reparent. Ordinary schema-level DDL, no `EntityChangeRecord` of its
+  own, found via the same reverse-index discovery Phase 6.2's rename/retype propagation
+  already uses.
 - `PrototypeRegistry::chainOf()` truncates at the first stored parent identifier that
   fails to resolve, instead of throwing — the shared primitive both halves of
   `editorExtensible` revocation below build on.
@@ -584,7 +593,14 @@ subclass falls back to
 minus the vanished level's fields; the same revocation triggered by an admin deleting an
 editor-created prototype instead stays broken and blocks that subclass's own schema save
 until fixed, with no deploy-time auto-fix; a chain with two broken links in a row (deleted
-grandparent and deleted parent) still resolves correctly down to `entities`.
+grandparent and deleted parent) still resolves correctly down to `entities`; reparenting a
+shape used as an `#[Embed]` target onto a brand-new level adds that level's fields as new
+columns at every embedding site, backfilled correctly, not left for the embedding site to
+somehow infer; reparenting away from a level drops the now-stray columns at every embedding
+site, proven as a schema-only change with no `EntityChangeRecord` produced, distinct from
+the entity-table-side row deletion's own logged version above; dropping a field directly
+(not via reparenting) from a shape used as an `#[Embed]` target drops the corresponding
+column at every embedding site the same way, proving the propagation isn't reparent-specific.
 
 ### 6.4 — Deletion policy, `NoType`, and auditing
 

@@ -1,11 +1,16 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 7)
 
-**Status: resolved (2026-10-06).** A seventh audit pass over `ARCHITECTURE_V2.md`/
-`ROADMAP_V2.md`, done after Round 6's items were folded back into both documents, plus three
-open design questions the user added afterward (items 6-8). All 8 items found have since
-been decided and folded back into `ARCHITECTURE_V2.md`/`ROADMAP_V2.md` directly — this file
-is kept only as a historical record of that audit pass and the discussion behind each
-decision, not as an open task list. Worked one item at a time per
+**Status: mostly resolved, item 8 has a known open follow-up (2026-10-06).** A seventh audit
+pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`, done after Round 6's items were folded back
+into both documents, plus three open design questions the user added afterward (items 6-8),
+plus a ninth item (reparenting/`#[Embed]` interaction) surfaced while working through 7-8.
+8 of 9 items are fully decided and folded back into `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`
+directly. **Item 8 is folded in but known too narrow** — working through its own mechanics
+(see item 9's note, and the live discussion around collapsing "swapping a prototype" into
+already-defined operations) surfaced that it needs to reach descendant prototypes' existing
+rows too, not just exact-type rows; expect a follow-up revision. This file is kept as a
+historical record of the discussion behind each decision, not as an open task list, item 8's
+asterisk aside. Worked one item at a time per
 [[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes what gets
 built, not alphabetically.
 
@@ -392,3 +397,43 @@ paragraph) and `ROADMAP_V2.md` (Phase 6.2 gained the `FieldRetypeConverter` bull
 matching "Done when" clauses; Phase 6.4 gained the `EntityRetypeConverter` bullet and
 matching "Done when" clauses). Described in each document in the resolved design's own
 terms, per the standalone requirement (see [[feedback_v2_docs_standalone]]).
+
+**Note:** working through item 8's own mechanics further (below, item 9, and ongoing)
+surfaced that "every row of exactly the deleted type" above is too narrow a scope for a
+*substitution* specifically — a descendant prototype's existing rows also have a physical
+row at the substituted level that needs migrating, which ordinary prototype *deletion*
+correctly does not reach but a level *swap* must. Left as-is here since it's still being
+worked through; expect a follow-up revision once that's settled.
+
+### 9. Reparenting never specified its own interaction with `#[Embed]` targets — **resolved (2026-10-06)**
+
+Surfaced while working through items 7-8: does reparenting a shape that's also used as an
+`#[Embed]` target actually update every embedding site's own flattened columns? Neither
+document ever said. "Reparenting" describes CTI-level insert/remove purely in terms of an
+entity's own table structure; "an embedded shape gaining a field backfills every table that
+embeds it" exists (Phase 2) but was never connected to reparenting as one of the ways a
+shape gains a field; the mirror-image direction (a field disappearing from an embedded
+shape dropping the corresponding column at every site) was never stated at all, for *any*
+trigger, reparenting or an ordinary `dropField()` alike.
+
+**Decided: reparenting's column-level consequences only ever show up at `#[Embed]` sites,
+never at the reparented shape's own entity tables.** A CTI level is an already-existing
+table (the parent class's own, shared by every other subclass extending it), so reparenting
+an entity only ever adds/removes *a row* at that level — never a column. An `#[Embed]` site
+has no separate level tables at all; the whole chain flattens into one row on someone else's
+table, so a shape gaining or losing a level there *does* change column shape. Both
+directions reuse the existing reverse-index discovery already generalized for rename/retype
+propagation — no new discovery mechanism, just the previously-missing "and here's what
+happens when fields disappear, not just appear" half: a level inserted adds new columns,
+backfilled via `#[DefaultInstance]` (Phase 2's existing rule, reparenting being one more
+trigger for it, not a separate mechanism); a level removed drops the now-stray columns,
+true for a direct `dropField()` on an embedded shape too, not reparent-specific. Unlike the
+entity-table side's row deletions (which already go through the ordinary `Changeset` path
+and produce their own `EntityChangeRecord`s), this column add/drop is ordinary schema-level
+DDL — no content-level undo trace, consistent with schema mutations generally.
+
+Folded into `ARCHITECTURE_V2.md` ("Migrations and schema mutation," a new paragraph right
+after "Reparenting"'s own entity-side row-deletion paragraph) and `ROADMAP_V2.md` (Phase
+6.3 gained a bullet and matching "Done when" clauses, including a clause proving the
+drop-direction isn't reparent-specific). Described in each document in the resolved design's
+own terms, per the standalone requirement (see [[feedback_v2_docs_standalone]]).
