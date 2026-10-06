@@ -1265,12 +1265,20 @@ independently — two already-ordinary checks composed, not a new mechanism.
 owner for deletion and concurrency purposes — see "Content write path" — though still
 logged with its own independent `EntityChangeRecord` history like any entity) and Shared
 (media library, referenced from wherever it's used) at once. Removing a `MediaAsset`
-reference is immediate at the
-database level; reclaiming the physical file bytes is deferred, piggybacking on the same
-manual pruning tool described above, not an automatic sweep — a file's bytes stay on disk
-as long as anything not yet manually pruned (an `EntityChangeRecord`, a live reference)
-could still reference them, and reclaiming them is itself part of that same deliberate,
-human-triggered action.
+reference is immediate at the database level. Where and how the underlying file bytes are
+actually stored, and whether/when they get reclaimed, is outside this document's four
+namespaces entirely — the same deferral posture as user registration ("Explicitly out of
+scope") — `MediaAsset` is, from `Persistence\`'s own point of view, an ordinary entity with
+whatever locator field its own storage needs, nothing more.
+
+**One deferred extension point is worth naming, though, since it needs no structural change
+to add later.** The manual pruning tool already has to read a record's full structured
+per-field content before deleting it (`EntityChangeRecord` is a structured diff, never an
+opaque blob — "No blobs" already rules out anything else). An optional, injectable observer
+notified with that same content immediately before the delete runs — so an application can
+decide for itself whether a just-pruned value means some referenced file's bytes are now
+safe to reclaim — is addable at that point with zero schema change. Not built in this
+rewrite.
 
 ## Deferred — not resolved in this document
 
@@ -1293,4 +1301,7 @@ single-writer-at-a-time, never true concurrent editing. EAV — actively rejecte
 confirming it's what ACF/WordPress actually do under the hood, and specifically the problem
 this whole design exists to avoid. User/admin registration and authentication —
 `Persistence\Permission\Actor` is a pure adapter interface over whichever system owns real
-user identity; that system, and how it's wired up, isn't designed here.
+user identity; that system, and how it's wired up, isn't designed here. File-byte storage
+and reclaim for `MediaAsset` (see "Media/file fields") — the pruning tool's optional
+post-prune observer hook needs no structural change to add later, so it's deferred rather
+than designed now.

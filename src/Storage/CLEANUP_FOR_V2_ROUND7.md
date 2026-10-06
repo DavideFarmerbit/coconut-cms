@@ -154,7 +154,7 @@ Phase 5.1, with Phase 4's own "Not yet" list noting where it went and why). Desc
 each document in the resolved design's own terms, per the standalone requirement (see
 [[feedback_v2_docs_standalone]]).
 
-### 4. `MediaAsset`'s physical-file-byte reclaim is asserted in `ARCHITECTURE_V2.md` but never scheduled in `ROADMAP_V2.md`
+### 4. `MediaAsset`'s physical-file-byte reclaim is asserted in `ARCHITECTURE_V2.md` but never scheduled in `ROADMAP_V2.md` — **resolved (2026-10-06)**
 
 "Media/file fields" describes reclaiming a removed `MediaAsset`'s physical file bytes by
 piggybacking on the manual pruning tool (Phase 5.3) rather than an automatic sweep. No
@@ -163,6 +163,36 @@ exercising both Owned... and Shared... at once," and not any later phase either.
 `Draft`, which gets an explicit callout under "Not covered by this roadmap," this gap is
 silent. Neither document ever states where or how file bytes are actually persisted (local
 disk, object storage, an adapter interface) in the first place.
+
+**Decided: file-byte storage and reclaim is out of scope for this document entirely, the
+same deferral posture as user registration (item 1) and `Draft`.** Pulling on why the
+"piggybacking" language never got scheduled anywhere surfaced the real reason: it implied an
+already-designed integration between the pruning tool and file storage, but nothing else in
+either document supports that — no event/hook mechanism exists anywhere else in this design,
+and inventing one just for this would be new, unmotivated machinery. File-byte storage also
+isn't one of the four backend concerns this roadmap actually covers
+(`Entity`/`Schema`/`Changeset`/`Permission`) — `MediaAsset` is, from `Persistence\`'s own
+point of view, an ordinary entity with whatever locator field its own storage needs, nothing
+more. The manual pruning tool stays scoped exactly as already described: it prunes
+`EntityChangeRecord`/`Revision` rows, full stop.
+
+**One deferred extension point is named explicitly, though, rather than left silent — it
+needs no structural change to add later, which is what makes deferring it safe.** The
+pruning tool already has to read a record's full structured per-field content before
+deleting it (`EntityChangeRecord` is a structured diff, never an opaque blob — "No blobs"
+already guarantees this). An optional, injectable observer notified with that same content
+immediately before the delete runs — letting an application decide for itself whether a
+just-pruned value means some referenced file's bytes are now safe to reclaim — is addable at
+that point with zero schema change, so there's no structural prerequisite missing today that
+deferring it would foreclose. This is the test applied generally to anything proposed for
+deferral here: easy to add later with no structural change, defer it; needs one, decide it
+now.
+
+Folded into `ARCHITECTURE_V2.md` ("Media/file fields" — rewritten to state the scope
+boundary plainly and name the deferred observer hook; "Explicitly out of scope" — gained a
+matching bullet) and `ROADMAP_V2.md` (Phase 5.3's pruning-tool bullet, noting the hook is a
+deliberate deferral, not an oversight). Described in each document in the resolved design's
+own terms, per the standalone requirement (see [[feedback_v2_docs_standalone]]).
 
 ## Roadmap coverage gaps
 

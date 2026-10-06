@@ -385,7 +385,10 @@ itself.
   the sequence yet until Phase 6 introduces schema mutation, so the guard can't be
   meaningfully exercised end to end until then — noted, not a blocker.
 - A manual pruning tool: explicit, human-triggered, no automatic policy of any kind, gated
-  by a new `Persistence\Permission\HistoryPermission` ("Permissions").
+  by a new `Persistence\Permission\HistoryPermission` ("Permissions"). No post-prune
+  observer hook built here (see "Media/file fields") — deliberately deferred, not an
+  oversight, since the tool already reads a record's full structured content before
+  deleting it, so the hook is addable later with no schema change.
 
 **Done when**: manually pruning one touched entity's `EntityChangeRecord` and then
 attempting to undo the `Revision` it belonged to produces a clean, specific refusal, not a
