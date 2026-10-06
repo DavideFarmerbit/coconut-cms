@@ -95,7 +95,7 @@ clause covering both a migrated-rows-collide and a collides-with-existing-row ca
 Described in each document in the resolved design's own terms, per the standalone
 requirement (see [[feedback_v2_docs_standalone]]).
 
-### 3. Logging/undo status of substitution's bulk row mutations, and reparent's backfill insertions, is unspecified
+### 3. Logging/undo status of substitution's bulk row mutations, and reparent's backfill insertions, is unspecified — **resolved (2026-10-06)**
 
 "Every touched entity gets its own independent `EntityChangeRecord` — no carve-out for Owned
 entities" is stated as a near-universal invariant ("Content undo, draft, and revision
@@ -116,13 +116,49 @@ Two cases fall in between and are never placed on either side:
   The architecture block describing this mechanism contains zero mentions of `Changeset`,
   `EntityChangeRecord`, or undo.
 
-This matters because the two answers have real consequences either way: logged means this
-bulk operation needs to run through `Changeset`/`ChangesetFlusher` (topological sort and
-all) the way ordinary writes do, which is heavier than anything else triggered by a single
-admin action elsewhere in this design; unlogged means every migrated row's revision history
-has a silent gap at the point its data changed, and undo/revision-restore can never reach
-behind it for that row — which would need to be reconciled with the `schema_version` cutoff
-mechanism rather than left implicit.
+**Decided: whether a schema-triggered data change goes through `Changeset` (and is
+therefore logged) turns entirely on a real constraint, not on symmetry or forensic
+completeness for its own sake.** The reason reparent's own level-removal goes through
+`Changeset` was never actually "deletions deserve a forensic trail" — it's that
+`entities.owner`'s own `RESTRICT` (see "References and collections") makes an unmanaged
+bulk delete genuinely unsafe the instant the removed level declares an Owned relationship
+whose own owned children, or anything transitively owned deeper, are still live.
+`Changeset`'s topological sort and Owned-subtree-expansion is the only mechanism that
+already solves that ordering problem safely; `EntityChangeRecord` is a byproduct of using
+that path, not the reason for using it.
+
+Insertions and in-place updates have no equivalent hazard: a backfilled row's own
+defaulted-instance children, if any, are written in the one order that's already safe
+(child first, then the row referencing it) — nothing like `RESTRICT` ever blocks a
+well-ordered `INSERT`/`UPDATE`, so nothing forces either through `Changeset`. This resolves
+both open cases, and is consistent with what the design already decided elsewhere without
+stating the reason explicitly (ordinary new-field backfill, `#[Embed]`-site column
+backfill — neither goes through `Changeset` either):
+
+- **Reparent's backfill insertion**: a direct write, not logged, no `EntityChangeRecord`.
+- **Substitution's three per-level outcomes split by the same rule**: a level present only
+  in the old chain is an ordinary entity-row deletion and goes through `Changeset`, logged,
+  for the identical `RESTRICT`-driven reason, at bulk scale across every migrated row. A
+  level kept with updated values, or a level freshly inserted, is a direct write, not
+  logged — same as reparent's own backfill.
+- **Substitution's `#[Embed]`-occurrence reconciliation**: never goes through `Changeset`
+  and is never logged, regardless of which of the three per-level outcomes applies to a
+  given site — an `#[Embed]` site has no `entities`-rooted row to begin with, and its own
+  column changes are already schema-level DDL in every other case this design treats them.
+
+Each unlogged case is named as a deferred extension point, the same posture as the pruning
+tool's post-prune observer hook (Round 7 item 4, "Media/file fields"): adding a hook later,
+if some future need wants one of these observed or logged, needs no structural change
+today, so it's deferred rather than designed now.
+
+Folded into `ARCHITECTURE_V2.md` ("Reparenting" — a new paragraph on the backfill-insertion
+side, explaining the `RESTRICT`-driven reasoning explicitly rather than leaving it implicit;
+the substitution block — a clause on the CTI-level-reconciliation bullet and a clause on the
+`#[Embed]`-occurrence bullet) and `ROADMAP_V2.md` (Phase 6.3's `reparent()` bullet and "Done
+when," and Phase 6.4's substitution and `#[Embed]`-occurrence bullets and "Done when," all
+gained the matching logged-vs-direct-write split). Described in each document in the
+resolved design's own terms, per the standalone requirement (see
+[[feedback_v2_docs_standalone]]).
 
 ## Roadmap coverage gaps
 

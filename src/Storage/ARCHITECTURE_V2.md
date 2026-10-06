@@ -765,6 +765,26 @@ either undo mechanism. This was already implicitly required the moment "removing
 level" was decided above, for any reparent, not just the broken-parent-fix case below — it
 was never stated until now.
 
+**The mirror-image case — backfilling a newly-added level's row — has no equivalent
+constraint forcing it through the same path, and is decided differently as a result.** Why
+removal goes through `Changeset` was never really about symmetry or forensic completeness
+for its own sake: `entities.owner`'s own `RESTRICT` (see "References and collections")
+makes an unmanaged bulk delete genuinely unsafe the moment the removed level declares an
+Owned relationship whose own owned children, or anything transitively owned deeper, are
+still live — only `Changeset`'s topological sort and Owned-subtree-expansion already solve
+that ordering problem safely, so reusing it beats re-solving it a second time. An insertion
+carries no equivalent hazard: a backfilled row's own defaulted-instance children, if the
+level being added declares any, are constructed and written in the one order that's already
+safe (the child first, then the row that references it) — nothing like `RESTRICT` ever
+blocks a well-ordered insert, so nothing forces this through `Changeset` either. **Decided:
+the backfill insertion is a direct write, not logged, producing no `EntityChangeRecord`** —
+consistent with every other schema-triggered backfill in this design (an ordinary
+new-field backfill, an `#[Embed]`-site column backfill), none of which go through
+`Changeset` for the same reason. Worth naming as a deferred extension point the same way the
+pruning tool's post-prune observer hook already is ("Media/file fields"): adding a hook
+here later, if some future need wants one logged or observed, needs no structural change
+today, so it's deferred rather than designed now, not an oversight.
+
 **Reparenting a shape never touches column shape at its own entity tables — only at
 wherever it's used as an `#[Embed]` target.** A CTI level is an already-existing table (the
 parent class's own table, shared by every other subclass that extends it too), so
@@ -887,7 +907,14 @@ fifth one invented for this:
   "Reparenting" already specifies, just reused per-row across the old type's whole live
   population instead of once for a single entity's own `reparent()` call, and sourced from
   the converter's output instead of `#[DefaultInstance]` backfill wherever a level is newly
-  inserted.
+  inserted. **Which of these three outcomes is a direct write and which must go through the
+  ordinary `Changeset` path follows the same `RESTRICT`-driven constraint "Reparenting"
+  already drew, not a separate decision**: a level present only in the old chain is an
+  ordinary entity-row deletion and goes through `Changeset` for the identical reason
+  reparent's own level-removal does, at bulk scale across every migrated row instead of
+  once; a level kept with updated values, or a level freshly inserted, is a direct write,
+  not logged, for the same reason reparent's own backfill insertion is — nothing like
+  `RESTRICT` blocks a well-ordered update or insert.
 - **Every prototype whose declared parent was exactly the old type gets reparented onto the
   replacement** — an ordinary `reparent()` call per direct child, using the same per-level
   reconciliation above. This already reaches every further descendant for free: `reparent()`
@@ -906,7 +933,12 @@ fifth one invented for this:
   converter instance, the same `convert(array $capturedFieldTree): object` call, serves all
   three physical contexts uniformly — once per entity-table row for the first two, once per
   embedding-table row for the third. No separate embed-specific converter, no adapter
-  between contexts.
+  between contexts. **This reconciliation never goes through `Changeset`, regardless of
+  which of the three per-level outcomes applies to a given embedding site** — an
+  `#[Embed]` site has no `entities`-rooted row of its own to begin with, and a column
+  add/drop/backfill is already schema-level DDL in every other case this design treats it
+  ("Reparenting," `#[Embed]` interaction), not a new exception carved out for substitution
+  specifically.
 - **Every plain `Reference`/`Collection`-of-reference field pointing at the old type or any
   of its live subclasses has its declared target type updated to the replacement
   automatically — no converter involved, because no value needs deriving.** The id never
