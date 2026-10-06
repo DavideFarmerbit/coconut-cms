@@ -160,6 +160,26 @@ gained the matching logged-vs-direct-write split). Described in each document in
 resolved design's own terms, per the standalone requirement (see
 [[feedback_v2_docs_standalone]]).
 
+### 3.1 — fixes
+
+Item 3's own closing paragraph overstates what actually landed in the folded-back text.
+
+"Each unlogged case is named as a deferred extension point, the same posture as the pruning
+tool's post-prune observer hook" (above) claims this for all three unlogged cases. Only one
+of them actually got it: `ARCHITECTURE_V2.md`'s reparent-backfill-insertion paragraph
+("Reparenting") explicitly says "Worth naming as a deferred extension point... adding a hook
+here later... needs no structural change today, so it's deferred rather than designed now."
+Neither substitution-side unlogged case — the CTI-level-reconciliation bullet's
+kept-with-updated-values/freshly-inserted outcomes, nor the `#[Embed]`-occurrence
+reconciliation bullet — got an equivalent sentence, in either `ARCHITECTURE_V2.md`'s
+substitution block or `ROADMAP_V2.md`'s Phase 6.4. "Each" is wrong; it's true for one case
+out of three.
+
+Not yet resolved: either add the matching deferred-extension-point sentence to both
+substitution-side unlogged cases (in `ARCHITECTURE_V2.md`'s substitution block and the
+corresponding `ROADMAP_V2.md` Phase 6.4 bullets), or narrow this document's own claim to
+the reparent-insertion case only, whichever better reflects the actual design intent.
+
 ## Roadmap coverage gaps
 
 ### 4. `SchemaPermission` is never tested for reparenting or prototype deletion/substitution
