@@ -196,7 +196,7 @@ own terms, per the standalone requirement (see [[feedback_v2_docs_standalone]]).
 
 ## Roadmap coverage gaps
 
-### 5. Lazy loading / `IdentityMap` correctness have no "Done when" in any phase
+### 5. Lazy loading / `IdentityMap` correctness have no "Done when" in any phase — **resolved (2026-10-06)**
 
 "Identity Map + Repository + lazy loading" states a hard requirement: "References/
 collections must not eagerly hydrate on an entity's own load — only on actual access," plus
@@ -207,6 +207,25 @@ references/collections (the things that must stay lazy) are introduced. This is 
 bug class the *old* roadmap had to retrofit-fix after the fact (its own Phase 6.1 "lazy
 loading" audit fix, per [[project_storage_editor_status]]) — worth a real test in this
 rewrite rather than risking the same rediscovery.
+
+**Decided: no design change needed, purely a missing-test-coverage gap.**
+`ARCHITECTURE_V2.md` already states both guarantees correctly; `ROADMAP_V2.md` just never
+assigned either one a "Done when." Split across two natural points instead of one, since
+they become testable at different times:
+
+- **Identity-map reuse** (same id resolves to the same PHP instance) needs nothing beyond
+  what Phase 1.2 already builds — added to its "Done when" directly.
+- **Laziness** needs an actual reference/collection field to prove against, so it lands in
+  Phase 3 instead: the full laziness-plus-identity-map-reuse proof in 3.2 (Shared, the first
+  point either kind of field exists), a shorter laziness-only re-proof in 3.3 (confirming the
+  same rule holds for Owned's reverse-indexed-query shape, not just a stored FK), and a
+  laziness-only proof in 3.4 (non-entity collections have no identity of their own to reuse,
+  so only the laziness half applies there).
+
+Folded into `ROADMAP_V2.md` only — `ARCHITECTURE_V2.md` already described the requirement
+correctly; this item was purely a scheduling gap, not a design one. Phase 1.2's "Done when"
+gained the identity-map clause; Phases 3.2/3.3/3.4 each gained a laziness clause scoped to
+what's newly provable at that point.
 
 ## Open design questions
 

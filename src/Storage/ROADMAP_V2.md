@@ -84,7 +84,9 @@ directly — rooted under `entities` via CTI, backed by a migration-generated ta
 round-trip also works end to end through the throwaway second identifier kind, table name
 included, resolved without ever appearing in the native case's own registration-time map,
 proving `Repository` never assumed native reflection or a pre-registered table name along
-the way.
+the way; resolving the same id twice within one request via `Repository::find()` returns
+the identical PHP instance, not two separate objects, proving the identity map from
+"Identity Map + Repository + lazy loading" ("identity map scoped per request" above).
 
 ### 1.3 — Validation, uniqueness, and backfill correctness
 
@@ -195,7 +197,13 @@ slot's `position` and the collection's true count rather than silently shrinking
 exist) is rejected at registration time, not left to fail later; a `Unique` group naming a
 field reached through a `Reference` (now that one exists) is rejected at registration time
 too, for the same reason — the compared column lives on the referenced row's own table, not
-on any table the constraint could be declared against.
+on any table the constraint could be declared against; loading an entity with a Shared
+reference or collection field triggers no query for the target until the field is actually
+accessed; accessing it then triggers exactly one query; resolving the same target id a
+second time in the same request — through the same field again, or found independently
+elsewhere — returns the identical PHP instance with no second query, proving laziness and
+the identity map compose the way "Identity Map + Repository + lazy loading" describes, not
+each proven in isolation.
 
 ### 3.3 — Owned references and collections
 
@@ -233,7 +241,10 @@ explicit-intent, logged version of this is Phase 4's own done-when, not retested
 `Unique` group declared on the Owned-collection item's own fields allows the
 same combination to appear once under two different owners while rejecting a second
 occurrence under the same owner, proving the owner-scoping column was folded into the real
-constraint rather than left as a group spanning every owner's items at once.
+constraint rather than left as a group spanning every owner's items at once; loading an
+owner triggers no `entities.owner`/`owner_field` lookup for an Owned singular or collection
+field until it's actually accessed, the same laziness rule as 3.2's Shared case, now proven
+for the reverse-indexed-query shape Owned uses instead of a stored FK.
 
 ### 3.4 — Non-entity collections and `MediaAsset`
 
@@ -254,7 +265,10 @@ its dedicated child table, ordered and cascade-deleted with the owner; a collect
 an `#[Embed]`-collection item's own fields allows the same combination to appear once under
 two different owners while rejecting a second occurrence under the same owner, the same
 owner-scoping proof as 3.3's Owned-collection case, now for a dedicated child table instead
-of `entities`.
+of `entities`; loading an owner triggers no query against a non-entity collection's own
+dedicated table until the field is actually accessed, the same laziness rule as 3.2/3.3,
+proven here for the dedicated-child-table shape rather than a live subtype needing identity-
+map reuse, since a non-entity item has no identity of its own to resolve twice.
 
 **Not yet** (end of Phase 3): the `Changeset` write path (a create-and-attach-in-one-call
 isn't atomic until Phase 4 — this phase's own tests create the referenced entity first, as
