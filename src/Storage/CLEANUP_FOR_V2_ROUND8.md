@@ -1,6 +1,6 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 8)
 
-**Status: in progress.** An eighth audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`,
+**Status: resolved (2026-10-07).** An eighth audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`,
 targeted specifically at Round 7's own items 6-9 (the attribute consolidation, the two
 retype-converter interfaces, and the reparenting/`#[Embed]` interaction) — checking not just
 that those items were folded back consistently, but that the mechanics they introduced are
@@ -9,7 +9,7 @@ taken on the strength of Round 7's own "resolved" framing. Terminology/cross-ref
 consistency held up (no stale `#[Table]`/`#[EditorExtensible]` references, single
 definitions for `FieldRetypeConverter`/`EntityRetypeConverter`/`FieldRetypeSignature`,
 roadmap phases matching architecture prose). The gaps below are new — none were raised or
-touched by Round 7. Not yet resolved; to be worked one item at a time per
+touched by Round 7. Worked one item at a time per
 [[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes what gets
 built, not alphabetically.
 
@@ -318,7 +318,7 @@ Phase 6.4 gained the same, covering the plain-cascade-delete and replacement+con
 substitution paths with the one clause). Described in each document in the resolved design's
 own terms, per the standalone requirement (see [[feedback_v2_docs_standalone]]).
 
-### 5. `deletePrototype()` is never named in `ROADMAP_V2.md`
+### 5. `deletePrototype()` is never named in `ROADMAP_V2.md` — **resolved (2026-10-07)**
 
 `ARCHITECTURE_V2.md` names the method explicitly ("the same `deletePrototype()` call, just
 with two more optional arguments"). Every sibling schema-mutation operation —
@@ -328,3 +328,15 @@ variant Round 7 item 8 added to it, is only ever described in prose in the roadm
 given its method name. Minor on its own; grouped here because Phase 6.4 is the same phase
 item 4 above flags for missing permission coverage, and both read as the roadmap's treatment
 of this one phase being less rigorous than its neighbors.
+
+**Decided: name it, nothing else changes.** A pure naming fix, same genre as item 4 — no new
+mechanism, no open design question, just bringing Phase 6.4's bullet list in line with how
+every sibling phase already opens its own bullets with the method name. Both of Phase 6.4's
+deletion bullets (plain cascade-delete, and the optional replacement + `EntityRetypeConverter`
+substitution) now open with `deletePrototype()` by name instead of the prose "Prototype/class
+deletion," matching `createPrototype()` (6.1), `addField()`/`dropField()`/`rename()`/
+`retype()` (6.2), and `reparent()` (6.3). The item-4 `SchemaPermission` bullet added to this
+same phase already named it too, so this closes the last unnamed reference.
+
+Folded into `ROADMAP_V2.md` only — `ARCHITECTURE_V2.md` already named the method, nothing
+there needed changing.

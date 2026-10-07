@@ -633,7 +633,7 @@ entity-row-side deletion's own subclass reach rather than stopping one level sho
 
 ### 6.4 — Deletion policy, `NoType`, and auditing
 
-- Prototype/class deletion drops the prototype's own table, every dedicated table a field
+- `deletePrototype()` drops the prototype's own table, every dedicated table a field
   it declares owns (a Shared-collection pivot, a "No blobs" child table — the same set its
   own rename already fans out across, per 6.2), and cascade-deletes every existing entity
   row of exactly that concrete type, through the same `Persistence\Entity\WriteExecutor`
@@ -641,7 +641,7 @@ entity-row-side deletion's own subclass reach rather than stopping one level sho
   so a deleted prototype's live editor-created
   subclasses keep their own existing instances untouched (only their parent link is
   affected, per 6.3).
-- Prototype/class deletion optionally takes a replacement identifier and an
+- `deletePrototype()` optionally takes a replacement identifier and an
   `Persistence\Schema\EntityRetypeConverter` (`convert(array $capturedFieldTree): object`,
   declaring its own `from()`/`to()` prototype identifiers as a self-consistency check) —
   the same call, not a separate operation ("Migrations and schema mutation"). Without them,
