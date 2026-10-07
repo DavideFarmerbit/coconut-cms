@@ -28,7 +28,7 @@ changes:
   concept of logging.
 - **`Persistence\Schema\`** — the shape/mutation half: `FieldDescriptor`, prototype
   registry, `SchemaBuilder`/`SchemaSynchronizer`/`SchemaEditor`, migrations,
-  rename/retype/reparent, attributes (`#[Entity]`, `#[DefaultInstance]`, the five field-kind
+  rename/retype/reparent, attributes (`#[Entity]`, `#[DefaultInstance]`, the six field-kind
   markers, ...). `EntityRegistrar` lives here too — despite its name, its job
   is registering a native class's *schema*, not runtime entity state. Every schema
   mutation builds its own `Persistence\Entity\WriteOperation`s and hands them straight to
@@ -83,24 +83,58 @@ attributes, or reading a stored schema an admin authored through the editor. One
 downstream pipeline (persistence, validation, migration) never needs to know which source
 a shape came from.
 
-`FieldDescriptor`: private constructor, named static factories (`scalar()`, `valueObject()`,
-`embed()`, `reference()`, `collection()`) — makes invalid combinations (a scalar kind with
-a referenced shape set, a collection with no item kind) unrepresentable rather than just
-unlikely. Same pattern already used for `Route::structured()`/`Route::simple()` in this
-codebase. A sixth kind, `NoType` (see "Migrations and schema mutation"), exists too, but has
-no public factory among these five — it's never developer-declared, only produced by the
-framework's own capture/retype machinery, so the five above remain the complete
+`FieldDescriptor`: private constructor, six named static factories — `scalar(name, type)`,
+`valueObject(name, type)`, `embed(name, type)`, `reference(name, type)`,
+`owningReference(name, type, required)`, `collection(name, itemDescriptor)` — make invalid
+combinations (a scalar field carrying a referenced shape, a collection with no item
+descriptor) unrepresentable rather than just unlikely. Same pattern already used for
+`Route::structured()`/`Route::simple()` in this codebase.
+
+`name` is the field's own name within its declaring shape — what `fieldsOf()` keys its
+result by, what a column name (or an Embed's own column *prefix*, see "Entity vs. Value
+Object vs. Embed") derives from, what `owner_field` stores to disambiguate an Owned
+relationship, what `FieldPermission`/`FieldValidator` attach to — carried explicitly on
+every factory because `FieldDescriptor` has to mean the same thing whether it came from a
+reflected native property or an editor-created field with no property to read a name from
+at all. `type` means something different per factory — a `ScalarType` enum case for
+`scalar()`, a custom `Type`-class string for `valueObject()` (the same shape as a Doctrine
+custom `Type`), the identifier of the referenced/embedded/owned shape for `embed()`/
+`reference()`/`owningReference()` — never a `ScalarType` *and* a shape at once on the same
+descriptor, exactly the invalid combination the per-kind factory signatures already rule
+out by construction rather than by a runtime check. `required` exists only on
+`owningReference()`: unlike `reference()`, which can never be required at the schema level
+(see "FK `ON DELETE` policy"), an `OwningReference` *can* be, and whether it is changes real
+behavior (a defaulted instance gets backfilled vs. the slot staying absent), not just a
+`FieldValidator` gate layered on afterward. `collection()`'s own `itemDescriptor` is any of
+the other five factories' output, never another `collection()` or `NoType` — Owned-ness of
+a collection rides entirely on its item descriptor (`collection(name, owningReference(...))`
+for an Owned collection, `collection(name, reference(...))` for a Shared one), so
+`collection()` itself never needs its own Owned/Shared variant.
+
+A seventh kind, `NoType` (see "Migrations and schema mutation"), exists too, but has no
+public factory among these six — it's never developer-declared, only produced by the
+framework's own capture/retype machinery, so the six above remain the complete
 developer-facing surface a native class or `SchemaEditor` field is ever declared through.
 
-**For a native class, each of the five factories above has exactly one matching PHP
-attribute** (`#[Scalar]`, `#[ValueObject]`, `#[Embed]`, `#[Reference]`, `#[Collection]`) that
-`EntityRegistrar` reflects on to build the matching `FieldDescriptor` — one attribute per
-field, never two stacked for one declaration. `FieldPermission`, the `FieldValidator` list,
-`Unique` (a class-level group, never per-field — see "Uniqueness"), and `PrototypeValidator`
-each stay their own independent attribute rather than folding into a kind marker's own
-parameters: unlike kind, which is mutually exclusive by construction, these are orthogonal
-and freely combine regardless of kind, so bundling them in would buy nothing while coupling
-unrelated concerns to one attribute class. At the class level,
+**For a native class, each of the six factories above has exactly one matching PHP
+attribute** (`#[Scalar]`, `#[ValueObject]`, `#[Embed]`, `#[Reference]`, `#[OwningReference]`,
+`#[Collection]`) that `EntityRegistrar` reflects on to build the matching `FieldDescriptor`
+— one attribute per field, never two stacked for one declaration. None of the five
+non-`Collection` attributes takes a `name` argument: each is attached to an already-named
+PHP property, so `EntityRegistrar` reads the name via reflection and supplies it to the
+factory call it builds internally — only `SchemaEditor`'s own calls, which have no property
+to read a name from, ever pass `name` explicitly. `#[Collection]`'s own params are
+necessarily flatter than `collection()`'s: attribute arguments must be compile-time constant
+expressions, so it can't hold a nested `FieldDescriptor` object the way the factory can —
+instead it takes `itemKind` (a `FieldKind` enum case, itself a legal compile-time constant)
+plus whichever of `type`/`required` that `itemKind` needs, and `EntityRegistrar`
+reconstructs the real nested item `FieldDescriptor` from those flattened params before
+calling `collection()` itself. `FieldPermission`, the `FieldValidator` list, `Unique` (a
+class-level group, never per-field — see "Uniqueness"), and `PrototypeValidator` each stay
+their own independent attribute rather than folding into a kind marker's own parameters:
+unlike kind, which is mutually exclusive by construction, these are orthogonal and freely
+combine regardless of kind, so bundling them in would buy nothing while coupling unrelated
+concerns to one attribute class. At the class level,
 `#[Entity(table: ..., editorExtensible: ...)]` is the one attribute carrying both the
 table-name override and the editor-extensibility flag — both singular,
 always-at-most-one-per-class facts, unlike `Unique`'s or `PrototypeValidator`'s own
@@ -213,7 +247,7 @@ into two different mechanisms instead of one:
 - **Value Object = a custom primitive type**, full stop. Exactly one column, a real
   custom type class doing PHP-value ↔ DB-value conversion (the standard approach — the
   same shape as a Doctrine custom `Type`). Never has its own identity, never doubles as
-  an Entity anywhere. `FieldDescriptor::valueObject(name, customTypeClass, ...)`.
+  an Entity anywhere. `FieldDescriptor::valueObject(name, type)`.
 - **Embed = reusing an Entity-capable shape at one specific field site**, flattening its
   fields into the owner's own row as real columns (`address.city` → `address_city`),
   recursively through nested embeds and value-object members. The *same* registered
@@ -245,7 +279,7 @@ registration, not at migration time.
 
 ## References and collections
 
-- **Shared, singular** (`SharedReference`): a real FK column on the referencing side,
+- **Shared, singular** (`Reference`): a real FK column on the referencing side,
   always nullable. A `Reference` is pointer semantics, never value semantics — it can never
   be required at the schema level, so the column is never anything but nullable and the
   delete policy is always `SET NULL`, never `RESTRICT` (see "FK `ON DELETE` policy").
@@ -420,7 +454,7 @@ Every native class, every shape ever used as an `#[Embed]` target, and every sha
 used as an `OwningReference`/Owned-`Collection` target must be able to produce a defaulted
 instance: a real zero-argument constructor, or a static factory carrying
 `#[DefaultInstance]` (needed because reflection has no other way to know which static
-method is *the* one). **A plain `SharedReference` target is deliberately excluded** — a
+method is *the* one). **A plain `Reference` target is deliberately excluded** — a
 `Reference` is pointer semantics, never value semantics (see "FK `ON DELETE` policy"), so
 there's no sense in which a "default target" could ever be manufactured; an unfillable
 Shared reference simply stays null until a human links something, same as any other
@@ -464,11 +498,11 @@ safe, since standard `UNIQUE` semantics never treat two `NULL`s as colliding.
 
 **Fail as early as possible.** For native classes: `EntityRegistrar::register()` walks
 every registered class's full field tree, recursively through every `#[Embed]`/
-`OwningReference`/Owned-`Collection` target (never a plain `SharedReference` target, which
+`OwningReference`/Owned-`Collection` target (never a plain `Reference` target, which
 needs none), and requires a defaulted instance for each distinct class found, before any
 schema work starts. For editor-created fields: rejected at field-save time if the
 referenced type has neither an explicit default nor a defaulted instance — the same
-`SharedReference` exclusion applies, never rejected for lacking one.
+`Reference` exclusion applies, never rejected for lacking one.
 
 ## Migrations and schema mutation
 
@@ -633,7 +667,7 @@ mixed`, matching the contract just described) **that also declares, statically, 
 retypes it's valid for** — `from(): FieldRetypeSignature` and `to(): FieldRetypeSignature`,
 checked by reflection alone, no instantiation needed. `FieldRetypeSignature` is its own
 small value object (private constructor, named factories mirroring `FieldDescriptor`'s own
-five kinds, deliberately not `FieldDescriptor` itself, which describes a real field and
+six kinds, deliberately not `FieldDescriptor` itself, which describes a real field and
 shouldn't grow a partial/wildcard mode): a kind, plus an optional target/item-kind that's
 `null` to mean "any target of this kind" — recursively, for a `Collection`'s own item
 signature. A retype naming a supplied converter whose `from()`/`to()` don't match the

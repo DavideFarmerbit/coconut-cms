@@ -11,32 +11,55 @@ built, not alphabetically.
 
 ## Missing pieces
 
-### 1. `FieldDescriptor`/attribute surface never specifies how `Reference`/`Collection` select Owned vs. Shared
+### 1. `FieldDescriptor`/attribute surface never specifies how `Reference`/`Collection` select Owned vs. Shared — **resolved (2026-10-07)**
 
-"Shape comes from a neutral descriptor" enumerates exactly five `FieldDescriptor` factories,
-each with exactly one matching PHP attribute — `scalar()`/`#[Scalar]`,
-`valueObject()`/`#[ValueObject]`, `embed()`/`#[Embed]`, `reference()`/`#[Reference]`,
-`collection()`/`#[Collection]` — "one attribute per field, never two stacked for one
-declaration." But "References and collections" treats Shared and Owned as having
+"Shape comes from a neutral descriptor" enumerated exactly five `FieldDescriptor` factories,
+each with exactly one matching PHP attribute — "one attribute per field, never two stacked
+for one declaration." But "References and collections" treats Shared and Owned as having
 completely different physical storage (FK column vs. no column at all), different
 `ON DELETE` policy (`SET NULL` vs. app-mediated `RESTRICT`), and different required-ness
 rules (`Reference` can never be required; `OwningReference`/Owned `Collection` can be) —
-for both the singular and collection cardinality. Nowhere does the document say what
-parameter or sub-factory on `reference()`/`collection()` (or attribute) actually selects
-Owned vs. Shared. "Deferred" lists "Exact attribute/API surface for `#[DefaultInstance]`,
-converter classes, rename/retype invocation parameters" as implementation detail out of
-scope for this document, but Owned-vs-Shared selection isn't a parameter-naming detail in
-the same sense — it determines which of two structurally different mechanisms a field
-compiles down to, which is exactly the kind of thing "makes invalid combinations
-unrepresentable rather than just unlikely" is supposed to settle at the factory level.
+for both the singular and collection cardinality. Nowhere did the document say what
+parameter or sub-factory actually selected Owned vs. Shared.
 
-**Open**: decide whether Owned vs. Shared is its own `FieldDescriptor` factory-level
-distinction (e.g. separate `reference()`/`ownedReference()` and `collection()`/
-`ownedCollection()` pairs) or a parameter on the existing `reference()`/`collection()`
-factories (e.g. `owned: bool`), write the decision into "Shape comes from a neutral
-descriptor," and confirm whether the PHP-attribute side needs two attributes per kind or
-one attribute with a parameter — reconciling it explicitly with the "one attribute per
-field" rule either way.
+**Decided: `OwningReference` is its own sixth `FieldKind`/factory/attribute, not a
+parameter on `Reference`** — recovered from the pre-rewrite design (which already had
+`FieldKind::OwningReference` as its own enum case), not invented fresh. This threads
+through `Collection` for free: `collection()`'s own `itemDescriptor` param takes any of the
+other five factories' output, so an Owned collection is just `collection(name,
+owningReference(...))` and a Shared one is `collection(name, reference(...))` — no
+`ownedCollection()` ever needed, Owned-ness rides entirely on the item descriptor, not on
+`collection()` itself.
+
+**While designing this, also settled the full six-factory signature set** (previously only
+`valueObject()`'s signature was shown anywhere, and inconsistently named):
+`scalar(name, type)`, `valueObject(name, type)`, `embed(name, type)`, `reference(name,
+type)`, `owningReference(name, type, required)`, `collection(name, itemDescriptor)`. `type`
+is deliberately one name reused across every non-`Collection` factory even though its
+domain varies (a `ScalarType` enum case, a custom `Type`-class string, or a shape
+identifier) — replaces the old inconsistent `customTypeClass` naming on `valueObject()`.
+`required` exists only on `owningReference()`, since it's the one kind where
+required-vs-optional changes real structural behavior (defaulted-instance backfill vs. an
+absent slot), not just a `FieldValidator` gate. `name` is explicit on every factory (even
+though the matching `#[...]` attribute never repeats it, since `EntityRegistrar` reads it
+off the reflected property) because `FieldDescriptor` has to mean the same thing whether it
+came from native reflection or from `SchemaEditor`, which has no property to read a name
+from. `#[Collection]`'s own attribute params are necessarily flatter than `collection()`'s
+own signature (`itemKind` enum case + whichever of `type`/`required` it needs, instead of a
+nested `FieldDescriptor` object), since attribute arguments must be compile-time constants
+— `EntityRegistrar` reconstructs the real nested item descriptor from those flattened
+params.
+
+Folded into `ARCHITECTURE_V2.md` ("Shape comes from a neutral descriptor" — rewritten
+around the six factories and their signatures; "Entity vs. Value Object vs. Embed"'s
+`valueObject()` signature updated to match; "References and collections" and "Defaulted
+instances"' stray `SharedReference` naming replaced with plain `Reference`, since
+`OwningReference` no longer needs a `Shared`-prefixed sibling to disambiguate against; the
+`FieldRetypeSignature` cross-reference updated from "five kinds" to "six") and
+`ROADMAP_V2.md` (Phase 1.1's factory list gained `owningReference()`; Phase 3.2/3.3 now name
+`reference()`/`owningReference()`/`collection()` explicitly instead of only in prose; the
+`NoType` paragraph's kind count updated to six). Described in each document in the resolved
+design's own terms, per the standalone requirement (see [[feedback_v2_docs_standalone]]).
 
 ## Real inconsistencies
 
@@ -139,10 +162,11 @@ same treatment Round 8 item 3.1 already gave the `Status` line itself.
   filename and item number.
 - "...the same granularity **the old roadmap** eventually needed (its own 6.1/6.2/6.3, and
   **Phase 8's** Step A-F split)..." (intro).
-- "...no per-relationship dedicated table detour (**the old design's** first attempt,
-  superseded before this rewrite even started)" (Phase 3.3).
+- ~~"...no per-relationship dedicated table detour (**the old design's** first attempt,
+  superseded before this rewrite even started)" (Phase 3.3)~~ — **fixed incidentally**
+  while resolving item 1 above (that line was rewritten to name `owningReference()`
+  explicitly, and the old-design clause dropped along with it).
 
-**Open**: reword the intro section and the Phase 3.3 bullet to justify these choices in
-`ROADMAP_V2.md`'s own terms (what Phase 1's generic-identifier design actually guarantees
-going forward, what Phase 3.3 actually builds and why) rather than contrasting against
+**Open**: reword the intro section (the remaining three instances) to justify Phase 1's
+generic-identifier design in `ROADMAP_V2.md`'s own terms rather than contrasting against
 `AUDIT.md` or the old roadmap's phase numbers.

@@ -39,8 +39,8 @@ with scalar fields round-trips through real storage, but every access path goes 
 
 - `Persistence\Schema\FieldDescriptor`/`FieldKind` — `scalar()` factory only for now ("Shape comes
   from a neutral descriptor"). Later kinds' factories (`valueObject()`, `embed()`,
-  `reference()`, `collection()`) are added in the phase that implements them, not stubbed
-  early.
+  `reference()`, `owningReference()`, `collection()`) are added in the phase that implements
+  them, not stubbed early.
 - The fixed `entities` table (`id` uuid, `owner`, `owner_field`, `position`,
   `concrete_identifier`) ("Global entity identity").
 - `Persistence\Schema\PrototypeRegistry` (`fieldsOf(identifier)`, `instantiate(identifier,
@@ -184,11 +184,12 @@ physical tables are involved.
 
 ### 3.2 — Shared references and collections
 
-- Shared singular (FK column, always nullable, `SET NULL` on the target's deletion — a
-  `Reference` can never be required at the schema level, so `RESTRICT` is never an option
-  here), Shared collection (real pivot table with its own `position` column, owner-side FK
-  `CASCADE`, target-side FK `SET NULL` same as the singular case) ("References and
-  collections", "FK `ON DELETE` policy").
+- `FieldDescriptor::reference()` — Shared singular (FK column, always nullable, `SET NULL`
+  on the target's deletion — a `Reference` can never be required at the schema level, so
+  `RESTRICT` is never an option here). `FieldDescriptor::collection()` with a `reference()`
+  item descriptor — Shared collection (real pivot table with its own `position` column,
+  owner-side FK `CASCADE`, target-side FK `SET NULL` same as the singular case) ("References
+  and collections", "FK `ON DELETE` policy").
 
 **Done when**: a native class can Shared-reference another, the FK column always nullable;
 deleting the referenced row sets the column to `NULL`, never blocked; a Shared collection
@@ -210,10 +211,11 @@ each proven in isolation.
 
 ### 3.3 — Owned references and collections
 
-- Owned singular / Owned collection via `entities.owner`/`owner_field`/`position` — built
-  this way from day one, no per-relationship dedicated table detour (the old design's
-  first attempt, superseded before this rewrite even started). The genuinely novel
-  mechanism in this design, isolated here deliberately.
+- `FieldDescriptor::owningReference()` — Owned singular; `FieldDescriptor::collection()`
+  with an `owningReference()` item descriptor — Owned collection. Both via
+  `entities.owner`/`owner_field`/`position` — built this way from day one, no
+  per-relationship dedicated table detour. The genuinely novel mechanism in this design,
+  isolated here deliberately.
 - `entities.owner` is `ON DELETE RESTRICT`, not `CASCADE` — deletion of an owner's Owned
   descendants is app-mediated. The auto-expanding version of that lives in `WriteExecutor`
   (Phase 4); here, proven via direct, explicit `Repository` deletes in dependency order.
@@ -687,7 +689,7 @@ entity-row-side deletion's own subclass reach rather than stopping one level sho
 - `NoType`: a reserved `FieldDescriptor` kind — its own distinct `FieldKind`, structurally
   shaped like a Value Object but never a special-cased `valueObject()` reusing a reserved
   `Type` class, and with no public factory; only the framework's own capture/retype
-  machinery ever constructs one, unlike the five developer-facing kinds from Phase 1.1
+  machinery ever constructs one, unlike the six developer-facing kinds from Phase 1.1
   onward ("Shape comes from a neutral descriptor") — that a `Reference`, `Embed`,
   `Collection`-item, Value-Object, `OwningReference`, or Owned `Collection`-item field
   converts into when its target becomes unresolvable or its value must be invalidated by an
