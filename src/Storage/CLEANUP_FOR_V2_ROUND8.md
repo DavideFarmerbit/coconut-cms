@@ -220,6 +220,67 @@ changelog of how a decision was reached — and the [[feedback_v2_docs_standalon
 was generalized to cover self-references to this document's own past drafts, not just
 references to the old pre-rewrite documents.
 
+### 3.2 — the safe-operation mechanism needed concrete names, not a borrowed `Changeset` one — **resolved (2026-10-07)**
+
+Item 3.1 settled the ordering/logging split but left the mechanism itself unnamed beyond
+"the same safe-ordering mechanism," and attributed pieces of it to `Persistence\Changeset\`
+(the downward/sideways expansion "is `Persistence\Changeset\`'s job"). That's a problem on
+its own, surfaced by the user asking where this now-decoupled mechanism should actually
+live: a namespace named `Changeset` still visually couples it to logging — the exact thing
+3.1 just decoupled it from — and `Persistence\Schema\`'s mutation methods would have had
+to reach into `Persistence\Changeset\` to use it, keeping the two conceptually fused
+regardless of what the prose said.
+
+**Decided: the mechanism moves to `Persistence\Entity\`, with three concrete,
+deliberately un-"Change"-named classes replacing the borrowed `Changeset`-family ones** —
+reached after rejecting two intermediate names along the way (`WriteSequencer` undersold
+that it also executes, not just orders; `AppliedWrite` broke naming consistency with
+`WriteOperation`/`WriteExecutor`; a plain "`WriteResult`" was rejected too, reserving
+"Result" for a possible future success-or-error wrapper around the per-operation outcome):
+
+- **`WriteOperation`** — a create/update/delete instruction, possibly naming a `TempId`
+  placeholder for an entity created in the same batch. Input *and* output of the expansion
+  step (expanding a delete produces more `WriteOperation`s of the same kind) — not the same
+  thing as a logged record, despite the old name `EntityChange` suggesting it was.
+- **`WriteExecutor`** — organizes (expands: downward Owned-subtree, sideways
+  Shared-reference nulling) and executes (full topological sort, cycle rejection, then
+  drives `Repository`'s single-entity primitives inside one transaction) a batch of
+  `WriteOperation`s. Knows nothing about logging.
+- **`WriteEffect`** — the per-operation outcome `WriteExecutor` returns: the resolved id,
+  the values actually applied. A fourth, different thing from `EntityChangeRecord` (a
+  logged record, built only by `ChangesetFlusher`, only for content-triggered writes) —
+  the two used to risk blurring together under one `EntityChange`-family name, and don't
+  anymore.
+
+`Persistence\Changeset\` shrinks to exactly the content-and-logging-specific layer:
+`Changeset` (now just a named collection of `WriteOperation`s for one flush, not a separate
+instruction type) and `ChangesetFlusher` (hands that collection to `WriteExecutor`, then
+builds `Revision`/`EntityChangeRecord` rows from the `WriteEffect`s it gets back), with
+`Undo\` nested underneath as before. `Persistence\Schema\`'s mutation methods build their
+own `WriteOperation`s and call `WriteExecutor` directly — they never import
+`Persistence\Changeset\` at all, which makes "a schema-triggered write is never logged"
+structural, not just a documented convention someone could violate by accident.
+
+One mechanic surfaced during this pass that item 3.1 hadn't separated out: the
+Owned-collection slot-shift expansion (position renumbering, `<field>_count` adjustment on
+an explicit Insert/Remove) is *not* `WriteExecutor`'s job, unlike the other two
+expansions — nothing schema-triggered ever needs it (`dropField()` drops a whole field,
+never one slot), so there's no reason to generalize it. It stays `Persistence\Changeset\`'s
+own job: `Changeset` computes the shift as ordinary `WriteOperation`s before the batch
+ever reaches `WriteExecutor`.
+
+Folded into `ARCHITECTURE_V2.md`: item 3.1's section renamed from "Safe write ordering vs.
+logging" to "Executing multi-entity writes safely," rewritten around the three concrete
+classes; the Namespaces section's `Persistence\Entity\`/`Persistence\Schema\`/
+`Persistence\Changeset\` bullets updated to match; every "the same safe-ordering
+mechanism" / "`Persistence\Changeset\`'s job" pointer across "Content write path" and
+"Migrations and schema mutation" renamed to name `WriteExecutor` concretely. `ROADMAP_V2.md`
+Phase 4 rewritten around the same three classes (and stopped calling pre-undo operations
+"logged," since nothing is logged until 5.1 introduces `ChangesetFlusher`'s actual
+construction of `EntityChangeRecord` from a `WriteEffect`); Phase 3.3, 5.1, 6.2, 6.3, and
+6.4 gained matching pointer/name fixes. Described in each document in the resolved
+design's own terms, per the standalone requirement (see [[feedback_v2_docs_standalone]]).
+
 ## Roadmap coverage gaps
 
 ### 4. `SchemaPermission` is never tested for reparenting or prototype deletion/substitution

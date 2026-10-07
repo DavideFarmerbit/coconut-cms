@@ -18,17 +18,31 @@ just as cleanly separated a namespace as it would be at the `src\` root, only it
 changes:
 
 - **`Persistence\Entity\`** — the persistence/runtime core: entities table, identity map,
-  repositories, row mapping, query builder.
+  repositories, row mapping, query builder. Also where every write, content-triggered or
+  schema-triggered, is safely organized and executed: `WriteOperation` (a create/update/
+  delete instruction, possibly naming a `TempId` placeholder instead of a real id),
+  `TempId` itself, `WriteExecutor` (expands, sorts, and executes a batch of
+  `WriteOperation`s against `Repository`, inside one transaction — see "Executing
+  multi-entity writes safely"), and `WriteEffect` (the per-operation outcome `WriteExecutor`
+  returns: the resolved id, the values actually applied). None of these four have any
+  concept of logging.
 - **`Persistence\Schema\`** — the shape/mutation half: `FieldDescriptor`, prototype
   registry, `SchemaBuilder`/`SchemaSynchronizer`/`SchemaEditor`, migrations,
   rename/retype/reparent, attributes (`#[Entity]`, `#[DefaultInstance]`, the five field-kind
   markers, ...). `EntityRegistrar` lives here too — despite its name, its job
-  is registering a native class's *schema*, not runtime entity state.
-- **`Persistence\Changeset\`** — the write path, promoted to its own namespace rather than
-  a subfolder of `Persistence\Entity\`, since undo is really just a different thing done with
-  the same object rather than a separate subsystem: `Changeset`/`EntityChange`/`TempId`/
-  `ChangesetSorter`/`ChangesetFlusher` at the top, **`Persistence\Changeset\Undo\`**
-  (`Revision`, `EntityChangeRecord`, conflict detection) nested underneath. Draft (`DraftStore`/
+  is registering a native class's *schema*, not runtime entity state. Every schema
+  mutation builds its own `Persistence\Entity\WriteOperation`s and hands them straight to
+  `Persistence\Entity\WriteExecutor` — this namespace never imports `Persistence\Changeset\`
+  at all, which is what makes "a schema-triggered write is never logged" structural rather
+  than a convention someone could forget.
+- **`Persistence\Changeset\`** — the content write path specifically, promoted to its own
+  namespace rather than a subfolder of `Persistence\Entity\`, since undo is really just a
+  different thing done with the same batch rather than a separate subsystem: `Changeset`
+  (a named collection of `Persistence\Entity\WriteOperation`s for one content-editing
+  flush) and `ChangesetFlusher` (hands that collection to `Persistence\Entity\WriteExecutor`,
+  then builds `Revision`/`EntityChangeRecord` rows from the `WriteEffect`s it gets back) at
+  the top, **`Persistence\Changeset\Undo\`** (`Revision`, `EntityChangeRecord`, conflict
+  detection) nested underneath. Draft (`DraftStore`/
   `DraftPreview`) lives in `Editor\` instead, not here — it has no meaning outside an
   authoring UI, unlike undo, which benefits any flush regardless of who's writing; see
   "Content undo, draft, and revision history" below.
@@ -485,10 +499,11 @@ relationship has to be cleaned up too, since nothing else ever will — spelled 
 
 **Removing an `OwningReference` or Owned `Collection` field cascade-deletes every existing
 owned entity at that relationship.** Scoped to every entity that currently declares or
-inherits the field, not just one row. Each deletion runs through the same safe-ordering
-mechanism, which already expands a delete in two directions ("Safe write ordering vs.
-logging"): downward into anything each owned entity in turn owns, and sideways into any
-outside Shared reference pointing at one of them. This reuses the same machinery prototype
+inherits the field, not just one row. Each deletion runs through
+`Persistence\Entity\WriteExecutor`, which already expands a delete in two directions
+("Executing multi-entity writes safely"): downward into anything each owned entity in
+turn owns, and sideways into any outside Shared reference pointing at one of them. This
+reuses the same machinery prototype
 deletion and reparenting's level-removal already reuse, not a third, separate bulk-delete
 mechanism.
 Skipping it would orphan every owned row at that relationship permanently — findable only
@@ -742,10 +757,10 @@ exists for a level an entity never had a row for; a level it already had, that o
 became temporarily unreachable, already has a valid row sitting there, untouched.
 **Removing a level, for any reparent, deletes that level's now-stray data for the
 reparented entity and every one of its live subclasses, as an immediate, direct part of
-the same reparent operation** — through the same safe-ordering mechanism "Deleting a
-prototype also cascade-deletes every existing entity row" already uses (see "Safe write
-ordering vs. logging"), not a second, separate bulk-delete mechanism that would have to
-re-solve the same dependency-ordering problem on its own.
+the same reparent operation** — through the same `Persistence\Entity\WriteExecutor`
+"Deleting a prototype also cascade-deletes every existing entity row" already uses (see
+"Executing multi-entity writes safely"), not a second, separate bulk-delete mechanism that
+would have to re-solve the same dependency-ordering problem on its own.
 
 **The mirror-image case — backfilling a newly-added level's row — reuses the same
 mechanism too.** A backfilled row's own defaulted-instance children, if the level being
@@ -843,8 +858,8 @@ like a stale pointer sitting harmlessly on some other row. Scoped to the *exact*
 type: deleting a prototype that has live editor-created subclasses doesn't touch those
 subclasses' own existing instances (they're a different concrete type, and the subclass
 itself wasn't deleted) — it only triggers the parent-revocation fallback above for them.
-This cascade-delete runs through the same safe-ordering mechanism (topological sort,
-Owned-subtree expansion — see "Safe write ordering vs. logging"), not a bulk bypass —
+This cascade-delete runs through `Persistence\Entity\WriteExecutor` (topological sort,
+Owned-subtree expansion — see "Executing multi-entity writes safely"), not a bulk bypass —
 which is exactly why it needs the mechanism below to stay possible at all when some of
 those rows are still `RESTRICT`-protected by a live `Reference` elsewhere. Reusing it is a
 structural choice: it already solves the dependency-safe ordering problem, no reason to
@@ -871,9 +886,9 @@ fifth one invented for this:
   "Reparenting" already specifies, just reused per-row across the old type's whole live
   population instead of once for a single entity's own `reparent()` call, and sourced from
   the converter's output instead of `#[DefaultInstance]` backfill wherever a level is newly
-  inserted. All three outcomes reuse the same safe-ordering mechanism "Reparenting" already
-  established for its own single-entity case, now run at bulk scale across every migrated
-  row (see "Safe write ordering vs. logging").
+  inserted. All three outcomes reuse `Persistence\Entity\WriteExecutor` the same way
+  "Reparenting" already does for its own single-entity case, now run at bulk scale across
+  every migrated row (see "Executing multi-entity writes safely").
 - **Every prototype whose declared parent was exactly the old type gets reparented onto the
   replacement** — an ordinary `reparent()` call per direct child, using the same per-level
   reconciliation above. This already reaches every further descendant for free: `reparent()`
@@ -957,8 +972,8 @@ pointed at by `Article.category` just lets the FK `SET NULL`, the same as any ot
 optional reference's target disappearing. Left at that, though, the fact that
 `Article.category` *used to* point at this specific `Tag` is lost the instant the delete
 runs, with nothing left to retype from and no trace at all — the deletion is
-schema-triggered, so it produces no `EntityChangeRecord` either (see "Safe write ordering
-vs. logging"). The fix is to retype the referencing field to `NoType` as part of the same
+schema-triggered, so it produces no `EntityChangeRecord` either (see "Executing
+multi-entity writes safely"). The fix is to retype the referencing field to `NoType` as part of the same
 operation, before the delete runs, preserving that information instead of letting it
 degrade to a bare `null`:
 
@@ -976,7 +991,7 @@ degrade to a bare `null`:
   serve as a historical record. An ordinary content-triggered deletion already has one
   independently, through the undo/revision-history pipeline (see "Content undo, draft, and
   revision history"); the deletions `NoType` capture sits in front of are schema-triggered
-  and never get that trail either (see "Safe write ordering vs. logging"), which is exactly
+  and never get that trail either (see "Executing multi-entity writes safely"), which is exactly
   why `NoType` capturing the value here matters — it's the only trace that survives. That
   purpose is what fixes both what gets captured and where it's stored:
   enough of the old value survives to feed a converter, landed whichever way an ordinary
@@ -1015,8 +1030,8 @@ degrade to a bare `null`:
   value from the owned row's *full recursively-flattened field tree*, read off it before
   it's deleted — **including, recursively, the full captured subtree of any
   `OwningReference`/Owned-`Collection` field found inside that tree, to any depth**, reusing
-  the same `owner`/`owner_field` lookup the Owned-subtree-expansion delete path already
-  walks ("Safe write ordering vs. logging"), not a new traversal. Without this, a nested
+  the same `owner`/`owner_field` lookup `WriteExecutor`'s own Owned-subtree-expansion
+  already walks ("Executing multi-entity writes safely"), not a new traversal. Without this, a nested
   owned row one level deeper than the field actually being retyped would be silently
   destroyed by that same cascade-delete with no trace anywhere, while the top-level row's
   own data survives in the blob — an inconsistency, not an accepted tradeoff. (An
@@ -1024,10 +1039,10 @@ degrade to a bare `null`:
   scalar/value-object/nested-embed fields only, no `Reference`/`Collection` at any depth,
   so this recursion only ever applies to an entity being captured, never to `#[Embed]`'s
   own flattening.) Deletion itself doesn't change at all — the owned row still goes
-  through the same safe-ordering mechanism (full topological sort, the downward
+  through `Persistence\Entity\WriteExecutor` (full topological sort, the downward
   Owned-subtree expansion for anything *it* in turn owned, and the sideways expansion that
-  finds and nulls any outside Shared reference pointing at it — "Safe write ordering vs.
-  logging"), exactly as any other delete, unlogged since it's schema-triggered; the
+  finds and nulls any outside Shared reference pointing at it — "Executing multi-entity
+  writes safely"), exactly as any other delete, unlogged since it's schema-triggered; the
   capture is just a read that happens first,
   the same sequencing `Embed`'s own conversion already uses. **Owned `Collection`-item**:
   same capture, same ordinary deletion of every existing
@@ -1095,14 +1110,19 @@ already "roll back the deploy," not "invert one DDL statement"). This retires th
 two-log (`SchemaUndoLog` + content `UndoLog`) bridging design the old system was building
 toward — there's only one undo log now, and it's content-only (see below).
 
-## Safe write ordering vs. logging
+## Executing multi-entity writes safely
 
-**Every database write runs through the same safe-ordering mechanism, unconditionally —
-content-triggered or schema-triggered, logged or not.**
+**`Persistence\Entity\WriteExecutor` is what every database write runs through,
+unconditionally — content-triggered or schema-triggered, logged or not.** It takes a
+batch of `WriteOperation`s (a create/update/delete instruction, possibly naming a `TempId`
+placeholder instead of a real id for an entity created in the same batch), organizes them
+into a safe, complete execution order, and runs them against `Repository` inside one
+database transaction. It returns a `WriteEffect` per operation — the resolved id, the
+values actually applied — and has no concept of logging at all.
 
 **Full topological sort**, not a bounded heuristic — CMS content nests arbitrarily deep,
 and a hand-maintained list of "supported nesting patterns" doesn't scale. Dependency edges
-are derived automatically from the write's own reference structure — an Owned
+are derived automatically from the batch's own reference structure — an Owned
 relationship's `owner` pointer is just another edge, not a special case. Read in opposite
 directions for inserts vs. deletes. **Cycles are rejected outright**, naming the cycle —
 this covers an ownership cycle (`A.owner = B`, `B.owner = A`) for free, the same
@@ -1112,10 +1132,10 @@ reference-graph check, no separate carve-out.
 explicit delete operations before the sort runs — reusing the same `owner`/`owner_field`
 lookup `Repository` already needs for ordinary Owned hydration. This is what makes
 `entities.owner`'s `RESTRICT` (see "References and collections") never actually fire in
-normal operation, whatever triggered the delete. This expansion is `Persistence\Changeset\`'s
-job, not `Persistence\Entity\Repository::delete()`'s — `Repository::delete()` stays a
-single-entity, CTI-chain-aware primitive; only `Repository`'s existing owned-descendant
-read is reused, not duplicated.
+normal operation, whatever triggered the delete. This expansion is `WriteExecutor`'s job,
+not `Repository::delete()`'s — `Repository::delete()` stays a single-entity,
+CTI-chain-aware primitive; `WriteExecutor` only reuses `Repository`'s existing
+owned-descendant read, not a duplicate of it.
 
 **Deleting any entity also finds and nulls every live Shared reference pointing at it** —
 a sideways expansion, before the sort runs, rather than letting the database's own `SET
@@ -1125,11 +1145,14 @@ Composes for free: downward into everything an owner transitively owns, each of 
 independently expanding sideways too. One mechanism, run uniformly, whatever triggered the
 write.
 
-**Logging is a separate layer on top — `Persistence\Changeset\Undo\` (`Revision`,
-`EntityChangeRecord`, conflict detection) — engaged exactly when the write originates from
-the content write path** (an ordinary content edit, undo/redo, revision-history restore).
-**A schema-triggered write never engages it, regardless of which row operations it
-contains** — delete, update, and insert alike. Reparenting's removal and backfill
+**Logging is a separate layer on top of `WriteExecutor`, not inside it — `Persistence\
+Changeset\ChangesetFlusher` builds `Persistence\Changeset\Undo\` (`Revision`,
+`EntityChangeRecord`, conflict detection) rows from the `WriteEffect`s `WriteExecutor`
+returns it, engaged exactly when the write originates from the content write path** (an
+ordinary content edit, undo/redo, revision-history restore). **A schema-triggered write
+never engages it, regardless of which row operations it contains** — delete, update, and
+insert alike, because `Persistence\Schema\`'s mutation methods call `WriteExecutor`
+directly and never construct a `Changeset` at all. Reparenting's removal and backfill
 insertion, a prototype's cascade-delete, `dropField()`'s cascade-delete of Owned
 descendants, substitution's three-way reconciliation, and an `#[Embed]`-site's column
 backfill/drop are all schema-triggered — none of them ever produce a `Revision` or
@@ -1145,23 +1168,26 @@ hook already uses — not the undo log's job.
 
 ## Content write path
 
-Explicit `Changeset`, not auto-diffing — reuses the same command stream the undo system
-needs anyway, avoiding a classic Unit-of-Work's automatic dirty-checking machinery
-entirely. A changeset supports a temporary/placeholder id for an entity created in the
-same flush. The ordering mechanism itself — topological sort, downward Owned-subtree
-expansion, sideways Shared-reference nulling — is described once, in "Safe write ordering
-vs. logging"; every content flush uses it unconditionally, the same as any
-schema-triggered write.
+Explicit `Changeset`, not auto-diffing — reuses the same batch the undo system needs
+anyway, avoiding a classic Unit-of-Work's automatic dirty-checking machinery entirely. A
+`Changeset` is a named collection of `Persistence\Entity\WriteOperation`s for one
+content-editing flush — the same instruction type any schema mutation builds too, just
+labeled and batched here specifically so `ChangesetFlusher` has something to log from
+afterward. `ChangesetFlusher` hands that collection to `Persistence\Entity\WriteExecutor`
+for the actual organizing and executing (see "Executing multi-entity writes safely");
+every content flush uses it unconditionally, the same as any schema-triggered write.
 
-**What's specific to content is that every one of those expansions is also logged.**
-Because every entity a flush touches gets its own independent `EntityChangeRecord` (see
-"Content undo, draft, and revision history"), the sideways Shared-reference-nulling
-expansion is what keeps that invariant true even for an entity whose only connection to a
-delete is "it referenced the thing that disappeared" (singular field or collection item —
-the change being "one item nulled" for the latter, never the pivot row, which carries no
-independently-logged content of its own, see "FK `ON DELETE` policy") — without that
-expansion, the reference would go null with no record of the change, and undoing the
-deletion would restore the deleted entity but not the reference to it.
+**What's specific to content is that `ChangesetFlusher` builds a `Revision`/
+`EntityChangeRecord` from every `WriteEffect` `WriteExecutor` returns it.** Because every
+entity a flush touches gets its own independent `EntityChangeRecord` (see "Content undo,
+draft, and revision history"), the sideways Shared-reference-nulling expansion
+`WriteExecutor` already performs is what keeps that invariant true even for an entity
+whose only connection to a delete is "it referenced the thing that disappeared" (singular
+field or collection item — the change being "one item nulled" for the latter, never the
+pivot row, which carries no independently-logged content of its own, see "FK `ON DELETE`
+policy") — without that expansion, the reference would go null with no record of the
+change, and undoing the deletion would restore the deleted entity but not the reference to
+it.
 
 **A third expansion flavor, specific to an Owned collection: inserting or removing a slot
 shifts every later sibling's `position` and adjusts the owner's own `<field>_count`, both
@@ -1186,16 +1212,21 @@ already drawn elsewhere in this design. Which of the four is meant can never be 
 from the create/delete alone — it's an explicit choice at the point the change is added to
 the changeset, the same never-inferred posture rename already uses.
 
-This expansion is `Persistence\Changeset\`'s job, the same reasoning as the
-downward/sideways expansions in "Safe write ordering vs. logging": it touches more than
-one entity (the item itself, every later sibling, the owner's own row), so it can't live
-on `Repository`'s single-entity create/delete primitives. Every shifted sibling gets its
-own ordinary `EntityChangeRecord`, same as any other touched entity — undo already
-restores a whole `Revision` atomically, so reversing a shift needs no new mechanism.
-Composes for free with those same expansions too: Remove is still fundamentally "delete
-this owned entity," so if that item itself owns descendants or is Shared-referenced from
-elsewhere, both of those expansions still run exactly as already described, no
-special-casing for the slot-shift case.
+This shift computation is `Persistence\Changeset\`'s own job, done before the batch ever
+reaches `WriteExecutor` — unlike the downward/sideways expansions ("Executing
+multi-entity writes safely"), which are generic and need to be shared with
+schema-triggered writes too, nothing about a schema mutation ever needs a slot-shift
+(`dropField()` removes a whole field, never one slot), so there's no reason to push this
+into `WriteExecutor`'s own scope. `ChangesetFlusher` adds the sibling-`position`/
+`<field>_count` updates as ordinary `WriteOperation`s into its own batch, alongside the
+slot's own create/delete, and `WriteExecutor` sorts and executes all of them together
+exactly as it would any other batch. Every shifted sibling gets its own ordinary
+`EntityChangeRecord`, same as any other touched entity — undo already restores a whole
+`Revision` atomically, so reversing a shift needs no new mechanism. Composes for free with
+`WriteExecutor`'s own downward/sideways expansions too: Remove is still fundamentally
+"delete this owned entity," so if that item itself owns descendants or is
+Shared-referenced from elsewhere, both of those expansions still run exactly as already
+described, no special-casing for the slot-shift case.
 
 **Concurrent-write protection**: an `expectedOperationId` receipt, reject-by-default with
 an explicit override to retry. The id itself is sourced from the undo log, not a second,

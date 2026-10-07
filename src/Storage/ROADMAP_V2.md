@@ -215,9 +215,8 @@ each proven in isolation.
   first attempt, superseded before this rewrite even started). The genuinely novel
   mechanism in this design, isolated here deliberately.
 - `entities.owner` is `ON DELETE RESTRICT`, not `CASCADE` — deletion of an owner's Owned
-  descendants is app-mediated. The auto-expanding, logged version of that lives in
-  `Changeset` (Phase 4); here, proven via direct, explicit `Repository` deletes in
-  dependency order.
+  descendants is app-mediated. The auto-expanding version of that lives in `WriteExecutor`
+  (Phase 4); here, proven via direct, explicit `Repository` deletes in dependency order.
 - The `#[DefaultInstance]` completeness walk extended to also cover every reachable
   `OwningReference`/Owned-`Collection` target, not just `#[Embed]` — never a plain
   `#[Reference]` target, which needs no default at all (`Reference` can never be required,
@@ -232,15 +231,15 @@ each proven in isolation.
 relationships (disambiguated by `owner_field`) round-trips correctly; deleting an owner
 while an Owned child still references it fails with a constraint violation, and only
 succeeds once every Owned descendant, at any depth, is deleted first — proven here via
-direct `Repository` calls, since `Changeset` doesn't exist until Phase 4 (the full
-auto-expanding, logged version of this delete is Phase 4's own done-when, not retested
-here); an Owned collection with an optional item kind round-trips with an empty slot in the
+direct `Repository` calls, since `WriteExecutor` doesn't exist until Phase 4 (the full
+auto-expanding version of this delete is Phase 4's own done-when, not retested here); an
+Owned collection with an optional item kind round-trips with an empty slot in the
 middle (not just at the end), the stored count correctly reflecting the true slot count
 rather than the number of live rows; removing a slot shrinks the stored count and shifts
 later positions down, while clearing a slot's content leaves the count and every position
 untouched — proven here via direct `Repository`/manual-update calls computing the shift and
 count change by hand, since `Changeset` doesn't exist until Phase 4 (the auto-expanding,
-explicit-intent, logged version of this is Phase 4's own done-when, not retested here); a
+explicit-intent version of this is Phase 4's own done-when, not retested here); a
 `Unique` group declared on the Owned-collection item's own fields allows the
 same combination to appear once under two different owners while rejecting a second
 occurrence under the same owner, proving the owner-scoping column was folded into the real
@@ -282,34 +281,42 @@ two separate steps), undo/draft, permissions, editor-created prototypes, `Query`
 **Goal**: every multi-entity write goes through an explicit, atomic changeset with a real
 topological sort — no more manual two-step create-then-attach.
 
-- `Persistence\Changeset\Changeset`/`EntityChange`/`TempId` ("Content write path").
-- `Persistence\Changeset\ChangesetSorter`: full topological sort resolving `TempId` dependency edges;
-  cycles rejected outright with a clear, named error.
-- Delete expansion, downward: adding a delete for entity X to a `Changeset` also adds a
-  delete for every entity in X's owned subtree, at any depth, before `ChangesetSorter` runs
-  — reusing `Repository`'s existing owned-descendant lookup, not a new query ("Safe write
-  ordering vs. logging").
+- `Persistence\Entity\WriteOperation` (a create/update/delete instruction, possibly naming
+  a `TempId` placeholder for an entity created in the same batch) and `TempId` itself — the
+  general instruction type `WriteExecutor` consumes, not specific to content ("Executing
+  multi-entity writes safely"); introduced here because content is the first consumer,
+  reused unchanged once schema mutations arrive in Phase 6.
+- `Persistence\Changeset\Changeset`: a named collection of `WriteOperation`s for one
+  content-editing flush.
+- `Persistence\Entity\WriteExecutor`: full topological sort resolving `TempId` dependency
+  edges; cycles rejected outright with a clear, named error.
+- Delete expansion, downward: adding a delete `WriteOperation` for entity X also adds a
+  delete for every entity in X's owned subtree, at any depth, before the sort runs —
+  reusing `Repository`'s existing owned-descendant lookup, not a new query.
 - Delete expansion, sideways: deleting any entity X also finds every entity whose declared
   field currently holds a live Shared reference to X (singular or collection item) and adds
-  that field's own `SET NULL` change to the same changeset, instead of letting the
-  database's `ON DELETE SET NULL` constraint fire untracked — logged against the
-  collection's own declaring entity for a collection-item case, never the pivot row
-  ("Content write path"). Composes with the downward expansion above automatically: each
-  owned descendant's own deletion independently triggers this same sideways check.
+  that field's own `SET NULL` update as its own `WriteOperation`, instead of letting the
+  database's `ON DELETE SET NULL` constraint fire untracked — against the collection's own
+  declaring entity for a collection-item case, never the pivot row. Composes with the
+  downward expansion above automatically: each owned descendant's own deletion
+  independently triggers this same sideways check.
 - Owned-collection slot expansion: an explicit Remove or Insert adds the sibling-`position`
-  shift and the owner's own `<field>_count` adjustment to the same changeset automatically,
-  as its own logged operations — never left for the caller to compute by hand the way Phase
-  3.3 proved the physical mechanics. Clear and Fill need no expansion at all, both already
-  an ordinary create/delete ("Content write path"). Composes with the downward/sideways
-  expansions above for free: Remove is still an ordinary delete underneath, so an owned item
-  that itself owns descendants or is Shared-referenced from elsewhere triggers both of those
-  the same as any other deletion.
-- `Persistence\Changeset\ChangesetFlusher`: applies a changeset as one atomic database transaction.
+  shift and the owner's own `<field>_count` adjustment as their own `WriteOperation`s into
+  the same `Changeset`, computed by `Changeset` itself before the batch ever reaches
+  `WriteExecutor` — never left for the caller to compute by hand the way Phase 3.3 proved
+  the physical mechanics. Clear and Fill need no expansion at all, both already an ordinary
+  create/delete. Composes with the downward/sideways expansions above for free: Remove is
+  still an ordinary delete underneath, so an owned item that itself owns descendants or is
+  Shared-referenced from elsewhere triggers both of those the same as any other deletion.
+- `Persistence\Changeset\ChangesetFlusher`: hands the `Changeset` to `WriteExecutor` and
+  applies it as one atomic database transaction — no logging yet, that's Phase 5.1, once
+  `Revision`/`EntityChangeRecord` exist to build from the `WriteEffect`s `WriteExecutor`
+  returns.
 
 **Not yet**: undo/draft, permissions, editor-created prototypes, `Query`, concurrent-write
 protection (`expectedOperationId` is sourced from the undo log's own monotonic sequence —
-see "Content write path" — so it can't exist before `EntityChangeRecord` does; lands in
-Phase 5.1 instead).
+see "Content undo, draft, and revision history" — so it can't exist before
+`EntityChangeRecord` does; lands in Phase 5.1 instead).
 
 **Done when**: a changeset creating a new Tag and attaching it to a Product in the same
 flush commits atomically; a changeset creating a new Owned child and its owner in the same
@@ -319,25 +326,25 @@ new entities referencing each other in one changeset are rejected with an error 
 cycle; a changeset deleting a referencer and
 what it references in the wrong order is corrected by the sort, not left to rely on
 `RESTRICT` as a backstop; deleting an owner with populated Owned descendants, at any depth,
-auto-expands into an explicit delete for each one, correctly ordered, each producing its
-own logged operation — not left to `entities.owner`'s `RESTRICT` constraint to reject the
-whole transaction; deleting an entity that's Shared-referenced elsewhere produces a logged
-field-change on the referencing entity (null-ing the FK) in the same flush, not just a raw
-database-level side effect, proven for both a singular reference and a collection item (the
-latter logged against the collection's own declaring entity); deleting an owner whose
-transitively-owned subtree includes an entity that's *also* Shared-referenced from outside
-that subtree produces both expansions in the same flush — the owned entity's own deletion,
-and the outside referrer's logged field-change — with no special-casing for how the delete
+auto-expands into an explicit delete `WriteOperation` for each one, correctly ordered — not
+left to `entities.owner`'s `RESTRICT` constraint to reject the whole transaction; deleting
+an entity that's Shared-referenced elsewhere produces its own update `WriteOperation` on
+the referencing entity (null-ing the FK) in the same flush, not just a raw database-level
+side effect, proven for both a singular reference and a collection item (the latter against
+the collection's own declaring entity); deleting an owner whose transitively-owned subtree
+includes an entity that's *also* Shared-referenced from outside that subtree produces both
+expansions in the same flush — the owned entity's own deletion `WriteOperation`, and the
+outside referrer's own update `WriteOperation` — with no special-casing for how the delete
 was reached; an explicit Remove of a middle slot in an Owned collection shifts every later
 sibling's `position` down and decrements the owner's own `<field>_count`, each shifted
-sibling producing its own logged operation, all in the same flush as the item's own deletion;
-an explicit Insert at a middle position does the mirror-image shift upward and increments the
-count; a Clear or a Fill produces no sibling shift and no count change, proven alongside
-Remove/Insert rather than assumed identical from Phase 3.3's own test of the physical
-mechanics; removing a slot whose own item owns further descendants or is Shared-referenced
-from outside the collection triggers the downward/sideways expansions in the same flush,
-proving the composition rather than assuming it from the two mechanisms being independently
-correct.
+sibling getting its own update `WriteOperation`, all in the same flush as the item's own
+deletion; an explicit Insert at a middle position does the mirror-image shift upward and
+increments the count; a Clear or a Fill produces no sibling shift and no count change,
+proven alongside Remove/Insert rather than assumed identical from Phase 3.3's own test of
+the physical mechanics; removing a slot whose own item owns further descendants or is
+Shared-referenced from outside the collection triggers the downward/sideways expansions in
+the same flush, proving the composition rather than assuming it from the two mechanisms
+being independently correct.
 
 ## Phase 5 — Undo, revision history (content-only)
 
@@ -348,9 +355,12 @@ per-entity `EntityChangeRecord` design; nothing is ever pruned automatically.
 
 - `Persistence\Changeset\Undo\Revision` (metadata-only, one per flush) + `Persistence\Changeset\Undo\EntityChangeRecord`
   (per-entity diff, FK'd to the `Revision`) ("Content undo, draft, and revision history").
-  `Revision.actor` is a plain opaque identifier, not a `Persistence\Permission\Actor`
-  instance — available here already, needing nothing from 5.3. Each `EntityChangeRecord`
-  also captures the entity's own `owner`/`owner_field` as of that write.
+  `ChangesetFlusher` builds these from the `WriteEffect`s `WriteExecutor` returns it — the
+  first point where `Persistence\Changeset\` actually adds something on top of what
+  `Persistence\Entity\WriteExecutor` already did in Phase 4. `Revision.actor` is a plain
+  opaque identifier, not a `Persistence\Permission\Actor` instance — available here
+  already, needing nothing from 5.3. Each `EntityChangeRecord` also captures the entity's
+  own `owner`/`owner_field` as of that write.
 - Concurrent-write protection: an `expectedOperationId` receipt, reject-by-default with an
   explicit override to retry ("Content write path") — buildable for the first time here,
   since it's sourced from `EntityChangeRecord`'s own monotonic sequence position, not a
@@ -470,11 +480,10 @@ reused rather than rebuilt for the second identifier kind.
   target shape before running anything, rejecting a mismatched converter outright, naming the
   mismatch ("Migrations and schema mutation"). `dropField()` on an `OwningReference` or Owned `Collection` cascade-deletes every
   existing owned entity at that relationship, across every entity with the field, through
-  the same safe-ordering mechanism Phase 4's delete expansion already built ("Safe write
-  ordering vs. logging": downward into anything each owned entity in turn owns, sideways
-  into any outside Shared reference pointing at one) — not left as a pure registry-record
-  change the way adding the field was. Never logged, same as every other schema-triggered
-  write.
+  the same `Persistence\Entity\WriteExecutor` Phase 4 built ("Executing multi-entity
+  writes safely": downward into anything each owned entity in turn owns, sideways into any
+  outside Shared reference pointing at one) — not left as a pure registry-record change
+  the way adding the field was. Never logged, same as every other schema-triggered write.
 - Adding or removing a field's membership in a `Unique` group, with no kind change bundled
   alongside it, takes the narrow path described in "Uniqueness": a friendly pre-check against
   current live values, then the real index `ALTER`, never routed through `retype()`'s
@@ -536,7 +545,7 @@ mechanism: retargeting an `OwningReference`/Owned-`Collection`'s own item type w
 Owned (e.g. `Warranty` to `Guarantee`) produces new owned entities from a supplied
 converter's output (any length, not necessarily matching the original count) or from the
 field's own class default if no converter is supplied, deleting every old owned row through
-the same safe-ordering mechanism Phase 4 built — proven to also run that mechanism's
+the same `Persistence\Entity\WriteExecutor` Phase 4 built — proven to also run its own
 sideways expansion: an old `Warranty` row that happens to be Shared-referenced from an
 unrelated field gets that referrer's FK nulled in the same flush, not left to a raw
 database-level side effect, unlogged since `retype()` is schema-triggered; retyping a field
@@ -558,10 +567,10 @@ the next write, and removing it stops enforcing without touching existing data.
   `#[DefaultInstance]` for a level the entity never had a row for; no backfill needed when
   reparenting onto a level the entity already had a row for (the two sides of the same
   mechanism). Removing a level immediately deletes that level's now-stray data for the
-  reparented entity and every live subclass, reusing the same safe-ordering mechanism
-  ("Safe write ordering vs. logging," introduced in Phase 4) ordinary cascade-delete uses.
-  Neither the removal nor the backfill insertion is logged — schema-triggered writes never
-  are, whichever row operation is involved.
+  reparented entity and every live subclass, reusing the same `Persistence\Entity\
+  WriteExecutor` ("Executing multi-entity writes safely," introduced in Phase 4) ordinary
+  cascade-delete uses. Neither the removal nor the backfill insertion is logged —
+  schema-triggered writes never are, whichever row operation is involved.
 - **Cycle rejection**: before any mutation runs, `reparent()` walks the candidate new
   parent's own chain and rejects outright, naming the cycle, if the entity being reparented
   appears in it anywhere — covers a direct self-reparent and reparenting onto any current
@@ -599,7 +608,7 @@ correctly, producing no `EntityChangeRecord`; reparenting it back onto a level i
 had a row for needs no backfill and the data round-trips as it was; reparenting away from
 a level deletes that level's data for the reparented entity and its subclasses
 immediately, not left stray, producing no `EntityChangeRecord` either — neither half of
-reparenting is ever logged, both reusing the same safe-ordering mechanism; revoking `#[Entity]`'s `editorExtensible` flag on a native class with a live editor-created
+reparenting is ever logged, both reusing the same `WriteExecutor`; revoking `#[Entity]`'s `editorExtensible` flag on a native class with a live editor-created
 subclass falls back to
 `entities` at deploy time with a "needs review" marker, content still readable/writable
 minus the vanished level's fields; the same revocation triggered by an admin deleting an
@@ -623,9 +632,9 @@ entity-row-side deletion's own subclass reach rather than stopping one level sho
 - Prototype/class deletion drops the prototype's own table, every dedicated table a field
   it declares owns (a Shared-collection pivot, a "No blobs" child table — the same set its
   own rename already fans out across, per 6.2), and cascade-deletes every existing entity
-  row of exactly that concrete type, through the same safe-ordering mechanism ("Safe write
-  ordering vs. logging," not a bulk bypass) — scoped to the exact type, so a deleted
-  prototype's live editor-created
+  row of exactly that concrete type, through the same `Persistence\Entity\WriteExecutor`
+  ("Executing multi-entity writes safely," not a bulk bypass) — scoped to the exact type,
+  so a deleted prototype's live editor-created
   subclasses keep their own existing instances untouched (only their parent link is
   affected, per 6.3).
 - Prototype/class deletion optionally takes a replacement identifier and an
@@ -640,8 +649,8 @@ entity-row-side deletion's own subclass reach rather than stopping one level sho
   converter's output — the same insert/remove-a-CTI-level primitive 6.3's `reparent()` already
   built, reused per-row across the old type's whole live population instead of once per
   entity, converter output replacing `#[DefaultInstance]` backfill wherever a level is newly
-  inserted. All three outcomes reuse the same safe-ordering mechanism 6.3's `reparent()`
-  already uses ("Safe write ordering vs. logging"), run at bulk scale across every
+  inserted. All three outcomes reuse the same `WriteExecutor` 6.3's `reparent()`
+  already uses ("Executing multi-entity writes safely"), run at bulk scale across every
   migrated row; none of them are logged, since substitution is schema-triggered like every
   other mutation in this phase. Every direct child prototype of the old type is reparented onto the replacement
   via an ordinary `reparent()` call using this same reconciliation, which already cascades to
@@ -680,8 +689,9 @@ entity-row-side deletion's own subclass reach rather than stopping one level sho
   converts into when its target becomes unresolvable or its value must be invalidated by an
   upstream deletion — to leave a later `retype()` something to
   convert from, not as a historical record: the deletion it sits in front of is
-  schema-triggered, so it gets no undo/revision-history trail either ("Safe write ordering
-  vs. logging") — `NoType`'s capture is the only trace that survives. Capturing what can be
+  schema-triggered, so it gets no undo/revision-history trail either ("Executing
+  multi-entity writes safely") — `NoType`'s capture is the only trace that survives.
+  Capturing what can be
   preserved in a blob is the one deliberate, narrow
   exception to "no blobs"; where that blob lands is purely a function of cardinality, never
   of which kind of field it used to be — a new column on the declaring row for a singular
@@ -695,7 +705,7 @@ entity-row-side deletion's own subclass reach rather than stopping one level sho
   permanent dead columns, using the same recursive field-tree resolution Phase 2 already
   built for flattening, not a shallow top-level-only walk. Converting an `OwningReference`
   or Owned `Collection`-item to `NoType` doesn't change deletion itself at all — the owned
-  row(s) still go through the same safe-ordering mechanism built in Phase 4 — it only adds
+  row(s) still go through the same `WriteExecutor` built in Phase 4 — it only adds
   a capture-before-delete step (same recursive flattening as the `Embed` case) and, for the
   first time, a real column/dedicated table for what was previously the no-column/no-table
   Owned representation.
