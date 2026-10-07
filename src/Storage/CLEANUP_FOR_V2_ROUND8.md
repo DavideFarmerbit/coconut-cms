@@ -283,7 +283,7 @@ design's own terms, per the standalone requirement (see [[feedback_v2_docs_stand
 
 ## Roadmap coverage gaps
 
-### 4. `SchemaPermission` is never tested for reparenting or prototype deletion/substitution
+### 4. `SchemaPermission` is never tested for reparenting or prototype deletion/substitution — **resolved (2026-10-07)**
 
 Phase 6.1 and 6.2's "Done when" clauses explicitly assert `SchemaPermission` gating ("an
 admin without `SchemaPermission` cannot create a prototype"; "each gated by
@@ -295,10 +295,28 @@ makes runtime mutation possible at all." The two highest-blast-radius mutations 
 design (bulk cascade-delete-with-replacement, and reparenting) are exactly the ones with no
 roadmap proof that the generic claim actually holds for them.
 
-Likely just a missing-test-coverage gap, same genre as Round 7 item 5 — `ARCHITECTURE_V2.md`
-already asserts the rule, `ROADMAP_V2.md` just never assigned it a "Done when" for these two
-phases. Worth confirming that's really all this is before treating it as resolved, given how
-much item 8 changed about what Phase 6.4 actually does.
+Confirmed to be exactly the missing-test-coverage gap suspected, same genre as Round 7 item
+5 — `ARCHITECTURE_V2.md`'s generic rule already covers `reparent()` and `deletePrototype()`
+with no carve-out; item 8's replacement/converter substitution changed what Phase 6.4 does
+mechanically, but not that it's still the one `deletePrototype()` call being gated, so
+nothing about that change bears on this item.
+
+**Decided: one `SchemaPermission` check at each call's own entry point, never a separate
+check per cascade step.** The only question this item's gap left open — confirmed with the
+user — is whether `reparent()`'s own cascade (subclass reach, `#[Embed]`-site propagation,
+cycle rejection) or `deletePrototype()`'s own cascade (substitution's per-level
+reconciliation across every migrated row) needed re-checking at each step, the way their
+scale might suggest. They don't: both cascades already run inside the one call that was
+already gated before anything in it executes, the same posture `SchemaPermission` already
+has for every other schema mutation in this design.
+
+Folded into `ARCHITECTURE_V2.md` ("Permissions" — a new sentence right after the generic
+`SchemaPermission` statement, naming `reparent()` and `deletePrototype()`'s cascades
+explicitly as the "one check at the call's entry point" case) and `ROADMAP_V2.md` (Phase 6.3
+gained a `SchemaPermission` bullet and matching "Done when" clause, mirroring 6.1/6.2;
+Phase 6.4 gained the same, covering the plain-cascade-delete and replacement+converter
+substitution paths with the one clause). Described in each document in the resolved design's
+own terms, per the standalone requirement (see [[feedback_v2_docs_standalone]]).
 
 ### 5. `deletePrototype()` is never named in `ROADMAP_V2.md`
 

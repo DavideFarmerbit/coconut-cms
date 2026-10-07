@@ -599,8 +599,12 @@ the next write, and removing it stops enforcing without touching existing data.
   schema until a valid parent is set, ordinary content reads/writes keep working via the
   same truncation) — the same split as deleting a prototype with live editor-created
   subclasses, which triggers the editor-created-triggered half for them.
+- `SchemaPermission` gates `reparent()` the same as every other schema mutation — one check
+  at the call's own entry point, not re-checked per cascade step (subclass reach, `#[Embed]`
+  propagation, and cycle rejection all run inside that one gated call, see "Permissions").
 
-**Done when**: reparenting a prototype directly onto itself, or onto one of its own current
+**Done when**: an admin without `SchemaPermission` cannot reparent a prototype; reparenting
+a prototype directly onto itself, or onto one of its own current
 descendants, is rejected outright before any mutation runs, naming the cycle, proven for
 both a direct descendant and a case reached only through a live subclass's own chain;
 reparenting an editor-created prototype onto a brand-new level backfills
@@ -722,8 +726,13 @@ entity-row-side deletion's own subclass reach rather than stopping one level sho
   auditing tool scanning every editor-created schema for breakage, now including dangling
   Value Object custom-type targets alongside reference/embed/collection targets and
   parent revoked/deleted.
+- `SchemaPermission` gates `deletePrototype()` the same as every other schema mutation,
+  with or without a supplied replacement + `EntityRetypeConverter` — one check at the call's
+  own entry point, same posture as `reparent()` (6.3), not re-checked per cascade step or per
+  migrated row.
 
-**Done when**: deleting a prototype with existing rows still live-referenced elsewhere by a
+**Done when**: an admin without `SchemaPermission` cannot delete a prototype, with or
+without a supplied replacement; deleting a prototype with existing rows still live-referenced elsewhere by a
 `Reference` succeeds without ever being blocked (a `Reference` can never be `RESTRICT`ed),
 converting that reference to `NoType` instead of leaving a bare, uninformative `null` where
 it used to point; deleting a prototype that's a Shared `Collection`'s item kind converts

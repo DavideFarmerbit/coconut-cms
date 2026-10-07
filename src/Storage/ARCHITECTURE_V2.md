@@ -1446,7 +1446,10 @@ of only its output rows.
 ## Permissions
 
 `SchemaPermission` gates every schema mutation from the first commit that makes runtime
-mutation possible at all. `FieldPermission` enforced at three points: read-time filtering,
+mutation possible at all. One check at the call's own entry point — `reparent()`'s subclass
+and `#[Embed]`-site cascade, and `deletePrototype()`'s substitution reconciliation across
+every migrated row, are never separately re-checked, since both already run inside the one
+call that was already gated. `FieldPermission` enforced at three points: read-time filtering,
 a mandatory server-side write gate (before validation), and a client-side UX-only gate.
 `HistoryPermission` gates manual pruning (see "Content undo, draft, and revision history")
 — its own narrow permission, not folded into `SchemaPermission`, since pruning destroys
