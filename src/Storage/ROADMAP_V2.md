@@ -287,8 +287,8 @@ topological sort — no more manual two-step create-then-attach.
   cycles rejected outright with a clear, named error.
 - Delete expansion, downward: adding a delete for entity X to a `Changeset` also adds a
   delete for every entity in X's owned subtree, at any depth, before `ChangesetSorter` runs
-  — reusing `Repository`'s existing owned-descendant lookup, not a new query ("Content write
-  path").
+  — reusing `Repository`'s existing owned-descendant lookup, not a new query ("Safe write
+  ordering vs. logging").
 - Delete expansion, sideways: deleting any entity X also finds every entity whose declared
   field currently holds a live Shared reference to X (singular or collection item) and adds
   that field's own `SET NULL` change to the same changeset, instead of letting the
@@ -470,9 +470,11 @@ reused rather than rebuilt for the second identifier kind.
   target shape before running anything, rejecting a mismatched converter outright, naming the
   mismatch ("Migrations and schema mutation"). `dropField()` on an `OwningReference` or Owned `Collection` cascade-deletes every
   existing owned entity at that relationship, across every entity with the field, through
-  the same ordinary `Changeset` path Phase 4's delete expansion already built (downward into
-  anything each owned entity in turn owns, sideways into any outside Shared reference
-  pointing at one) — not left as a pure registry-record change the way adding the field was.
+  the same safe-ordering mechanism Phase 4's delete expansion already built ("Safe write
+  ordering vs. logging": downward into anything each owned entity in turn owns, sideways
+  into any outside Shared reference pointing at one) — not left as a pure registry-record
+  change the way adding the field was. Never logged, same as every other schema-triggered
+  write.
 - Adding or removing a field's membership in a `Unique` group, with no kind change bundled
   alongside it, takes the narrow path described in "Uniqueness": a friendly pre-check against
   current live values, then the real index `ALTER`, never routed through `retype()`'s
@@ -490,10 +492,10 @@ table, or nothing beyond the registry record for an Owned relationship) without 
 existing rows; a column can be added/dropped/renamed/retyped safely, each gated by
 `SchemaPermission`, each reflected immediately through the ordinary read/write path;
 dropping an `OwningReference` or Owned `Collection` field that has existing owned entities
-cascade-deletes every one of them, at any depth, each producing its own logged operation
-through the same Phase 4 machinery — not left orphaned, findable only by
-`owner`/`owner_field` with no declaring field left to resolve them, and also dropping the
-field's own `<field>_count` column for the `Collection` case;
+cascade-deletes every one of them, at any depth, each going through the same safe-ordering
+machinery Phase 4 built, unlogged since the drop is schema-triggered — not left orphaned,
+findable only by `owner`/`owner_field` with no declaring field left to resolve them, and
+also dropping the field's own `<field>_count` column for the `Collection` case;
 renaming/retyping a field on a shape used as an `#[Embed]` target (introduced in Phase 2)
 propagates to every table embedding it, not just the shape's own declaration; retargeting a
 `Reference` field to a different target type converts every existing row through its
@@ -534,10 +536,11 @@ mechanism: retargeting an `OwningReference`/Owned-`Collection`'s own item type w
 Owned (e.g. `Warranty` to `Guarantee`) produces new owned entities from a supplied
 converter's output (any length, not necessarily matching the original count) or from the
 field's own class default if no converter is supplied, deleting every old owned row through
-the ordinary cascade-delete path — proven to also run that path's sideways expansion
-(Phase 4): an old `Warranty` row that happens to be Shared-referenced from an unrelated
-field gets that referrer's FK nulled and logged in the same flush, not left to a raw
-database-level side effect; retyping a field between Shared, Owned, and `#[Embed]`
+the same safe-ordering mechanism Phase 4 built — proven to also run that mechanism's
+sideways expansion: an old `Warranty` row that happens to be Shared-referenced from an
+unrelated field gets that referrer's FK nulled in the same flush, not left to a raw
+database-level side effect, unlogged since `retype()` is schema-triggered; retyping a field
+between Shared, Owned, and `#[Embed]`
 (e.g. a Shared reference becoming Owned, or an `#[Embed]` becoming Owned, and the reverse of
 each) never forks a duplicate entity or silently deletes a still-referenced row — the result
 is only ever what a supplied converter explicitly produces, or each kind's own ordinary
@@ -552,19 +555,13 @@ the next write, and removing it stops enforcing without touching existing data.
 ### 6.3 — Reparenting and `#[Entity]`'s `editorExtensible` flag
 
 - `reparent()` — mechanically uniform insert/remove of one CTI level, backfilled via
-  `#[DefaultInstance]` for a level the entity never had a row for; immediately deletes the
-  removed level's now-stray data for the reparented entity and every live subclass when
-  removing a level, through the ordinary `Changeset` path like any other delete (introduced
-  in Phase 4) — reusing the topological sort/Owned-subtree-expansion machinery, a structural
-  choice, not an attempt to make the deletion undo-able (it isn't, same as the reparent
-  itself: `RemoteCommand` is never pushed for a `SchemaEditor` operation, and
-  Revision-history restore is independently cut off past it by `schema_version`, Phase 5.3);
-  no backfill needed when reparenting onto a level the entity already had a row for (the two
-  sides of the same mechanism). The backfill insertion itself is a direct write, never
-  routed through `Changeset` and never logged — unlike the removal side, nothing like
-  `entities.owner`'s own `RESTRICT` ever blocks a well-ordered insert, so nothing forces it
-  through the same path; consistent with every other schema-triggered backfill already
-  built this way (an ordinary new-field backfill, an `#[Embed]`-site column backfill).
+  `#[DefaultInstance]` for a level the entity never had a row for; no backfill needed when
+  reparenting onto a level the entity already had a row for (the two sides of the same
+  mechanism). Removing a level immediately deletes that level's now-stray data for the
+  reparented entity and every live subclass, reusing the same safe-ordering mechanism
+  ("Safe write ordering vs. logging," introduced in Phase 4) ordinary cascade-delete uses.
+  Neither the removal nor the backfill insertion is logged — schema-triggered writes never
+  are, whichever row operation is involved.
 - **Cycle rejection**: before any mutation runs, `reparent()` walks the candidate new
   parent's own chain and rejects outright, naming the cycle, if the entity being reparented
   appears in it anywhere — covers a direct self-reparent and reparenting onto any current
@@ -577,9 +574,8 @@ the next write, and removing it stops enforcing without touching existing data.
   backfilled via `#[DefaultInstance]`, reusing Phase 2's existing "gaining a field backfills
   every embedding table" rule; a level removed drops the now-stray columns at each site, the
   previously-missing mirror-image direction, true for an ordinary `dropField()` on an embedded
-  shape too, not just a reparent. Ordinary schema-level DDL, no `EntityChangeRecord` of its
-  own, found via the same reverse-index discovery Phase 6.2's rename/retype propagation
-  already uses. Reaches every live subclass of the reparented shape too, not just the shape
+  shape too, not just a reparent. Ordinary schema-level DDL, found via the same reverse-index
+  discovery Phase 6.2's rename/retype propagation already uses. Reaches every live subclass of the reparented shape too, not just the shape
   `reparent()` was called on — the same cascading reach the entity-row-side deletion already
   has, extended to `#[Embed]` sites, since a subclass's own resolved field tree already
   includes whatever its reparented ancestor contributes.
@@ -599,13 +595,11 @@ the next write, and removing it stops enforcing without touching existing data.
 descendants, is rejected outright before any mutation runs, naming the cycle, proven for
 both a direct descendant and a case reached only through a live subclass's own chain;
 reparenting an editor-created prototype onto a brand-new level backfills
-correctly, as a direct write producing no `EntityChangeRecord`, distinct from the removal
-side's logged version below; reparenting it back onto a level it already had a row for
-needs no backfill and the data round-trips as it was; reparenting away from a level deletes
-that level's data for
-the reparented entity and its subclasses immediately, not left stray, each deleted row
-producing its own `EntityChangeRecord` the same as any other delete rather than vanishing
-unlogged; revoking `#[Entity]`'s `editorExtensible` flag on a native class with a live editor-created
+correctly, producing no `EntityChangeRecord`; reparenting it back onto a level it already
+had a row for needs no backfill and the data round-trips as it was; reparenting away from
+a level deletes that level's data for the reparented entity and its subclasses
+immediately, not left stray, producing no `EntityChangeRecord` either — neither half of
+reparenting is ever logged, both reusing the same safe-ordering mechanism; revoking `#[Entity]`'s `editorExtensible` flag on a native class with a live editor-created
 subclass falls back to
 `entities` at deploy time with a "needs review" marker, content still readable/writable
 minus the vanished level's fields; the same revocation triggered by an admin deleting an
@@ -615,8 +609,8 @@ grandparent and deleted parent) still resolves correctly down to `entities`; rep
 shape used as an `#[Embed]` target onto a brand-new level adds that level's fields as new
 columns at every embedding site, backfilled correctly, not left for the embedding site to
 somehow infer; reparenting away from a level drops the now-stray columns at every embedding
-site, proven as a schema-only change with no `EntityChangeRecord` produced, distinct from
-the entity-table-side row deletion's own logged version above; dropping a field directly
+site, proven as a schema-only change with no `EntityChangeRecord` produced, same as the
+entity-table-side row deletion above; dropping a field directly
 (not via reparenting) from a shape used as an `#[Embed]` target drops the corresponding
 column at every embedding site the same way, proving the propagation isn't reparent-specific;
 reparenting a shape with a live subclass that's independently used as its own `#[Embed]`
@@ -629,8 +623,9 @@ entity-row-side deletion's own subclass reach rather than stopping one level sho
 - Prototype/class deletion drops the prototype's own table, every dedicated table a field
   it declares owns (a Shared-collection pivot, a "No blobs" child table — the same set its
   own rename already fans out across, per 6.2), and cascade-deletes every existing entity
-  row of exactly that concrete type, through the ordinary `Changeset` path (not a bulk
-  bypass) — scoped to the exact type, so a deleted prototype's live editor-created
+  row of exactly that concrete type, through the same safe-ordering mechanism ("Safe write
+  ordering vs. logging," not a bulk bypass) — scoped to the exact type, so a deleted
+  prototype's live editor-created
   subclasses keep their own existing instances untouched (only their parent link is
   affected, per 6.3).
 - Prototype/class deletion optionally takes a replacement identifier and an
@@ -645,24 +640,19 @@ entity-row-side deletion's own subclass reach rather than stopping one level sho
   converter's output — the same insert/remove-a-CTI-level primitive 6.3's `reparent()` already
   built, reused per-row across the old type's whole live population instead of once per
   entity, converter output replacing `#[DefaultInstance]` backfill wherever a level is newly
-  inserted. Which of these three outcomes is logged follows the same `RESTRICT`-driven
-  split 6.3's own backfill note draws, not a separate decision: the deleted-old-chain-level
-  case goes through `Changeset` for the identical reason ordinary cascade-delete and
-  reparent's own level-removal do, at bulk scale across every migrated row; the
-  kept-with-updated-values and freshly-inserted cases are both direct writes, producing no
-  `EntityChangeRecord`, for the identical reason reparent's own backfill insertion isn't
-  logged either. Every direct child prototype of the old type is reparented onto the replacement
+  inserted. All three outcomes reuse the same safe-ordering mechanism 6.3's `reparent()`
+  already uses ("Safe write ordering vs. logging"), run at bulk scale across every
+  migrated row; none of them are logged, since substitution is schema-triggered like every
+  other mutation in this phase. Every direct child prototype of the old type is reparented onto the replacement
   via an ordinary `reparent()` call using this same reconciliation, which already cascades to
   every further descendant and to every descendant's own `#[Embed]` sites for free (6.3's own
   cascading reach). Every `#[Embed]` occurrence of the old type or any live subclass migrates
   in place through the *same* converter instead of degrading to `NoType` — one converter,
   invoked once per entity-table row for the chain-level case above and once per
   embedding-table row here, since both capture the identical full-field-tree shape elsewhere
-  in this design. This embedding-table migration never goes through `Changeset` and
-  produces no `EntityChangeRecord`, regardless of which of the three per-level outcomes
-  applies to a given site — an `#[Embed]` site's own column changes are already
-  schema-level DDL in every other case this design treats them, per 6.3, not a new
-  exception for substitution. Every plain `Reference`/`Collection`-of-reference occurrence has its
+  in this design. This embedding-table migration is a column add/drop/backfill at every
+  embedding table, same as 6.3's own `#[Embed]` propagation — not a new exception for
+  substitution. Every plain `Reference`/`Collection`-of-reference occurrence has its
   declared target type updated automatically, no converter needed, reusing prototype-rename's
   own reference-fixup list (`prototypes.parent`, `entities.concrete_identifier`,
   `reference()`/`embed()`/`collection()` pointers, `owner_field` values) rather than a second,
@@ -689,8 +679,10 @@ entity-row-side deletion's own subclass reach rather than stopping one level sho
   `Collection`-item, Value-Object, `OwningReference`, or Owned `Collection`-item field
   converts into when its target becomes unresolvable or its value must be invalidated by an
   upstream deletion — to leave a later `retype()` something to
-  convert from, not as a historical record (undo/revision history already covers that
-  independently). Capturing what can be preserved in a blob is the one deliberate, narrow
+  convert from, not as a historical record: the deletion it sits in front of is
+  schema-triggered, so it gets no undo/revision-history trail either ("Safe write ordering
+  vs. logging") — `NoType`'s capture is the only trace that survives. Capturing what can be
+  preserved in a blob is the one deliberate, narrow
   exception to "no blobs"; where that blob lands is purely a function of cardinality, never
   of which kind of field it used to be — a new column on the declaring row for a singular
   field, a new column on the field's own dedicated/pivot table for a collection-item.
@@ -703,7 +695,7 @@ entity-row-side deletion's own subclass reach rather than stopping one level sho
   permanent dead columns, using the same recursive field-tree resolution Phase 2 already
   built for flattening, not a shallow top-level-only walk. Converting an `OwningReference`
   or Owned `Collection`-item to `NoType` doesn't change deletion itself at all — the owned
-  row(s) still go through the ordinary cascade-delete path built in Phase 4 — it only adds
+  row(s) still go through the same safe-ordering mechanism built in Phase 4 — it only adds
   a capture-before-delete step (same recursive flattening as the `Embed` case) and, for the
   first time, a real column/dedicated table for what was previously the no-column/no-table
   Owned representation.
@@ -745,11 +737,11 @@ parent-link mechanism; the auditing tool finds a dangling Value Object target th
 it finds a dangling reference/embed/collection target; deleting a prototype with a supplied
 replacement and `EntityRetypeConverter` preserves every existing row's `entities.id` across
 the type swap, readable immediately as the replacement type, not left as a freshly-deleted-
-and-recreated row with a new id; the level dropped during this swap produces its own
-`EntityChangeRecord` through the ordinary `Changeset` path the same as any other delete,
-while the level kept-with-updated-values and the level freshly inserted both land as direct
-writes with no `EntityChangeRecord` produced for either, proven as three distinguishable
-outcomes in the same substitution rather than assumed uniform; the same operation also reaches a live subclass's own
+and-recreated row with a new id; the level dropped during this swap is an ordinary
+entity-row deletion, the level kept-with-updated-values has its existing row updated in
+place, and the level freshly inserted lands as a new row — three distinguishable physical
+outcomes in the same substitution rather than assumed uniform, none of them producing an
+`EntityChangeRecord`, since substitution is schema-triggered; the same operation also reaches a live subclass's own
 existing rows — not just the exact-type rows the unconditional cascade-delete bullet above is
 scoped to — reparenting the subclass's prototype onto the replacement and swapping its own
 physical row at the old type's level, while its own lower-level row is left completely
@@ -760,7 +752,7 @@ actually persist; the same operation migrates an existing `#[Embed]` occurrence 
 deleted type, or of a live subclass independently used as its own `#[Embed]` target, in place
 through that same converter rather than leaving it `NoType`, producing no `EntityChangeRecord`
 for this migration regardless of which of the three per-level outcomes landed at that
-embedding site, distinct from the entity-table-side deletion's own logged version above; an existing plain `Reference`
+embedding site, same as the entity-table-side reconciliation above; an existing plain `Reference`
 pointing at the deleted type or a live subclass resolves to the replacement type afterward
 with no converter involvement at all; a supplied `EntityRetypeConverter` whose declared
 `from()`/`to()` don't match the deletion's actual old and new identifiers is rejected before

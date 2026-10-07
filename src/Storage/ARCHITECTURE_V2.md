@@ -1,12 +1,8 @@
 # Storage / Editor Architecture — v2 (rewrite)
 
-Status: **decision log for a ground-up rewrite, nothing implemented yet.** Supersedes
-`ARCHITECTURE.md`/`ROADMAP.md` conceptually — the old documents describe the system as
-built through Phase 8C; this document is the result of deciding the original design had
-become entangled enough (mid Phase 8) to be worth rebuilding with a more correct starting
-shape, fixing naming along the way. `AUDIT.md`'s findings against the old system fed
-directly into several decisions below (noted inline where relevant); most of its open
-items are resolved here, a few are explicitly still open (see "Deferred" at the end).
+Status: **a standalone technical description of the system's current, decided shape —
+nothing implemented yet.** Each concept is described in its own terms; this document is
+never a changelog of how a decision was reached, what it replaced, or what came before it.
 
 Not a frozen spec. Revisit as implementation surfaces constraints this discussion didn't
 anticipate.
@@ -489,11 +485,12 @@ relationship has to be cleaned up too, since nothing else ever will — spelled 
 
 **Removing an `OwningReference` or Owned `Collection` field cascade-deletes every existing
 owned entity at that relationship.** Scoped to every entity that currently declares or
-inherits the field, not just one row. Each deletion runs through the ordinary `Changeset`
-path, which already expands a delete in two directions ("Content write path"): downward
-into anything each owned entity in turn owns, and sideways into any outside Shared
-reference pointing at one of them. This reuses the same machinery prototype deletion and
-reparenting's level-removal already reuse, not a third, separate bulk-delete mechanism.
+inherits the field, not just one row. Each deletion runs through the same safe-ordering
+mechanism, which already expands a delete in two directions ("Safe write ordering vs.
+logging"): downward into anything each owned entity in turn owns, and sideways into any
+outside Shared reference pointing at one of them. This reuses the same machinery prototype
+deletion and reparenting's level-removal already reuse, not a third, separate bulk-delete
+mechanism.
 Skipping it would orphan every owned row at that relationship permanently — findable only
 by `owner`/`owner_field`, with no declaring field left to resolve it through. Applies the
 same way whether the field disappears via `dropField()` or a native class dropping the
@@ -745,45 +742,15 @@ exists for a level an entity never had a row for; a level it already had, that o
 became temporarily unreachable, already has a valid row sitting there, untouched.
 **Removing a level, for any reparent, deletes that level's now-stray data for the
 reparented entity and every one of its live subclasses, as an immediate, direct part of
-the same reparent operation** — triggered by the schema mutation, but the deletion itself
-runs through the same ordinary `Changeset` path "Deleting a prototype also cascade-deletes
-every existing entity row" already uses, for the same reason: reusing the existing
-topological-sort and Owned-subtree-expansion machinery instead of a second, separate
-bulk-delete mechanism that would have to re-solve the same dependency-ordering problem on
-its own. **This is a structural/consistency choice, not a data-safety one** — it is not
-meant to make this deletion undo-able, and it isn't, doubly so: ordinary Ctrl+Z can never
-reach it, since a `RemoteCommand` is only ever pushed by an ordinary content-editing action,
-never by a `SchemaEditor` operation like `reparent()`, so nothing on any client's command
-stack ever references the `Revision` these deletions land in; and "Revision-history
-restore" is independently blocked from reaching back past it anyway by the global
-`schema_version` cutoff (see "Content undo, draft, and revision history"), since
-reparenting bumps that sequence like every other schema mutation. Each stray row still gets
-its own ordinary `EntityChangeRecord`, the same as any other delete, which keeps the old
-values inspectable as forensic history — a human can still read what was lost and act on it
-manually — without that record ever being a path back to the pre-reparent state through
-either undo mechanism. This was already implicitly required the moment "removing one CTI
-level" was decided above, for any reparent, not just the broken-parent-fix case below — it
-was never stated until now.
+the same reparent operation** — through the same safe-ordering mechanism "Deleting a
+prototype also cascade-deletes every existing entity row" already uses (see "Safe write
+ordering vs. logging"), not a second, separate bulk-delete mechanism that would have to
+re-solve the same dependency-ordering problem on its own.
 
-**The mirror-image case — backfilling a newly-added level's row — has no equivalent
-constraint forcing it through the same path, and is decided differently as a result.** Why
-removal goes through `Changeset` was never really about symmetry or forensic completeness
-for its own sake: `entities.owner`'s own `RESTRICT` (see "References and collections")
-makes an unmanaged bulk delete genuinely unsafe the moment the removed level declares an
-Owned relationship whose own owned children, or anything transitively owned deeper, are
-still live — only `Changeset`'s topological sort and Owned-subtree-expansion already solve
-that ordering problem safely, so reusing it beats re-solving it a second time. An insertion
-carries no equivalent hazard: a backfilled row's own defaulted-instance children, if the
-level being added declares any, are constructed and written in the one order that's already
-safe (the child first, then the row that references it) — nothing like `RESTRICT` ever
-blocks a well-ordered insert, so nothing forces this through `Changeset` either. **Decided:
-the backfill insertion is a direct write, not logged, producing no `EntityChangeRecord`** —
-consistent with every other schema-triggered backfill in this design (an ordinary
-new-field backfill, an `#[Embed]`-site column backfill), none of which go through
-`Changeset` for the same reason. Worth naming as a deferred extension point the same way the
-pruning tool's post-prune observer hook already is ("Media/file fields"): adding a hook
-here later, if some future need wants one logged or observed, needs no structural change
-today, so it's deferred rather than designed now, not an oversight.
+**The mirror-image case — backfilling a newly-added level's row — reuses the same
+mechanism too.** A backfilled row's own defaulted-instance children, if the level being
+added declares any, are constructed and written in the one order that's already safe: the
+child first, then the row that references it.
 
 **Reparenting a shape never touches column shape at its own entity tables — only at
 wherever it's used as an `#[Embed]` target.** A CTI level is an already-existing table (the
@@ -799,9 +766,8 @@ Phase 2 already states, reparenting being one more trigger for it, not a separat
 a level *removed* drops the now-stray columns at every embedding site — the previously
 unstated mirror-image direction, true as much for an ordinary `dropField()` on an embedded
 shape as for a reparent-triggered removal. Unlike the entity-side row deletions above, this
-column add/drop is ordinary schema-level DDL, the same as any other `addField()`/
-`dropField()` — no `EntityChangeRecord` of its own, consistent with schema mutations
-generally carrying no content-level undo trace.
+is ordinary schema-level DDL — a column add/drop, the same as any other `addField()`/
+`dropField()`.
 
 **This reaches every live subclass of the reparented shape too, not just the shape named in
 the `reparent()` call — the same cascading reach the entity-row-side deletion already has
@@ -877,14 +843,12 @@ like a stale pointer sitting harmlessly on some other row. Scoped to the *exact*
 type: deleting a prototype that has live editor-created subclasses doesn't touch those
 subclasses' own existing instances (they're a different concrete type, and the subclass
 itself wasn't deleted) — it only triggers the parent-revocation fallback above for them.
-This cascade-delete runs through the ordinary entity-deletion path (`Changeset`, the
-topological sort, Owned-subtree expansion), not a bulk bypass — which is exactly why it
-needs the mechanism below to stay possible at all when some of those rows are still
-`RESTRICT`-protected by a live `Reference` elsewhere. Reusing that path is a structural
-choice (the topological sort and Owned-subtree expansion already solve the dependency-safe
-ordering problem, no reason to re-solve it in a second, separate bulk-delete mechanism), not
-a data-safety one: neither undo mechanism can act on the `EntityChangeRecord`s it produces
-regardless, for the same reasons "Reparenting" states explicitly.
+This cascade-delete runs through the same safe-ordering mechanism (topological sort,
+Owned-subtree expansion — see "Safe write ordering vs. logging"), not a bulk bypass —
+which is exactly why it needs the mechanism below to stay possible at all when some of
+those rows are still `RESTRICT`-protected by a live `Reference` elsewhere. Reusing it is a
+structural choice: it already solves the dependency-safe ordering problem, no reason to
+re-solve it in a second, separate bulk-delete mechanism.
 
 **Prototype deletion optionally takes a replacement identifier and an `EntityRetypeConverter`
 — not a separate operation, the same `deletePrototype()` call, just with two more optional
@@ -907,14 +871,9 @@ fifth one invented for this:
   "Reparenting" already specifies, just reused per-row across the old type's whole live
   population instead of once for a single entity's own `reparent()` call, and sourced from
   the converter's output instead of `#[DefaultInstance]` backfill wherever a level is newly
-  inserted. **Which of these three outcomes is a direct write and which must go through the
-  ordinary `Changeset` path follows the same `RESTRICT`-driven constraint "Reparenting"
-  already drew, not a separate decision**: a level present only in the old chain is an
-  ordinary entity-row deletion and goes through `Changeset` for the identical reason
-  reparent's own level-removal does, at bulk scale across every migrated row instead of
-  once; a level kept with updated values, or a level freshly inserted, is a direct write,
-  not logged, for the same reason reparent's own backfill insertion is — nothing like
-  `RESTRICT` blocks a well-ordered update or insert.
+  inserted. All three outcomes reuse the same safe-ordering mechanism "Reparenting" already
+  established for its own single-entity case, now run at bulk scale across every migrated
+  row (see "Safe write ordering vs. logging").
 - **Every prototype whose declared parent was exactly the old type gets reparented onto the
   replacement** — an ordinary `reparent()` call per direct child, using the same per-level
   reconciliation above. This already reaches every further descendant for free: `reparent()`
@@ -933,12 +892,10 @@ fifth one invented for this:
   converter instance, the same `convert(array $capturedFieldTree): object` call, serves all
   three physical contexts uniformly — once per entity-table row for the first two, once per
   embedding-table row for the third. No separate embed-specific converter, no adapter
-  between contexts. **This reconciliation never goes through `Changeset`, regardless of
-  which of the three per-level outcomes applies to a given embedding site** — an
-  `#[Embed]` site has no `entities`-rooted row of its own to begin with, and a column
-  add/drop/backfill is already schema-level DDL in every other case this design treats it
-  ("Reparenting," `#[Embed]` interaction), not a new exception carved out for substitution
-  specifically.
+  between contexts. An `#[Embed]` site has no `entities`-rooted row of its own to begin
+  with, so this reconciliation is a column add/drop/backfill at every embedding table, the
+  same as "Reparenting," `#[Embed]` interaction already describes — not a new exception
+  carved out for substitution specifically.
 - **Every plain `Reference`/`Collection`-of-reference field pointing at the old type or any
   of its live subclasses has its declared target type updated to the replacement
   automatically — no converter involved, because no value needs deriving.** The id never
@@ -999,8 +956,9 @@ this delete the way `RESTRICT` would for a required value — deleting a `Tag` r
 pointed at by `Article.category` just lets the FK `SET NULL`, the same as any other
 optional reference's target disappearing. Left at that, though, the fact that
 `Article.category` *used to* point at this specific `Tag` is lost the instant the delete
-runs, with nothing left to retype from and no trace beyond ordinary `EntityChangeRecord`
-history. The fix is to retype the referencing field to `NoType` as part of the same
+runs, with nothing left to retype from and no trace at all — the deletion is
+schema-triggered, so it produces no `EntityChangeRecord` either (see "Safe write ordering
+vs. logging"). The fix is to retype the referencing field to `NoType` as part of the same
 operation, before the delete runs, preserving that information instead of letting it
 degrade to a bare `null`:
 
@@ -1015,9 +973,12 @@ degrade to a bare `null`:
   factory constructs it (see "Shape comes from a neutral descriptor") — only the framework's
   own capture/retype machinery ever does. **Its
   purpose is to leave a later `retype()` something concrete to convert from** — not to
-  serve as a historical record, which the undo/revision-history pipeline already provides,
-  independently, for any entity's own deletion (see "Content undo, draft, and revision
-  history"). That purpose is what fixes both what gets captured and where it's stored:
+  serve as a historical record. An ordinary content-triggered deletion already has one
+  independently, through the undo/revision-history pipeline (see "Content undo, draft, and
+  revision history"); the deletions `NoType` capture sits in front of are schema-triggered
+  and never get that trail either (see "Safe write ordering vs. logging"), which is exactly
+  why `NoType` capturing the value here matters — it's the only trace that survives. That
+  purpose is what fixes both what gets captured and where it's stored:
   enough of the old value survives to feed a converter, landed whichever way an ordinary
   field of that cardinality is already landed elsewhere in this design, never a new storage
   shape invented just for this. This is a deliberate, narrow exception to "No blobs" above,
@@ -1055,18 +1016,19 @@ degrade to a bare `null`:
   it's deleted — **including, recursively, the full captured subtree of any
   `OwningReference`/Owned-`Collection` field found inside that tree, to any depth**, reusing
   the same `owner`/`owner_field` lookup the Owned-subtree-expansion delete path already
-  walks ("Content write path"), not a new traversal. Without this, a nested owned row one
-  level deeper than the field actually being retyped would be silently destroyed by that
-  same cascade-delete with no trace anywhere, while the top-level row's own data survives in
-  the blob — an inconsistency, not an accepted tradeoff. (An `#[Embed]` target's own field
-  tree can never hit this case: it's already restricted to scalar/value-object/nested-embed
-  fields only, no `Reference`/`Collection` at any depth, so this recursion only ever applies
-  to an entity being captured, never to `#[Embed]`'s own flattening.) Deletion itself
-  doesn't change at all — the owned row still goes through
-  the ordinary cascade-delete path (`Changeset`, the full topological sort, the downward
+  walks ("Safe write ordering vs. logging"), not a new traversal. Without this, a nested
+  owned row one level deeper than the field actually being retyped would be silently
+  destroyed by that same cascade-delete with no trace anywhere, while the top-level row's
+  own data survives in the blob — an inconsistency, not an accepted tradeoff. (An
+  `#[Embed]` target's own field tree can never hit this case: it's already restricted to
+  scalar/value-object/nested-embed fields only, no `Reference`/`Collection` at any depth,
+  so this recursion only ever applies to an entity being captured, never to `#[Embed]`'s
+  own flattening.) Deletion itself doesn't change at all — the owned row still goes
+  through the same safe-ordering mechanism (full topological sort, the downward
   Owned-subtree expansion for anything *it* in turn owned, and the sideways expansion that
-  finds and logs a `SET NULL` for any outside Shared reference pointing at it — "Content
-  write path"), exactly as any other delete; the capture is just a read that happens first,
+  finds and nulls any outside Shared reference pointing at it — "Safe write ordering vs.
+  logging"), exactly as any other delete, unlogged since it's schema-triggered; the
+  capture is just a read that happens first,
   the same sequencing `Embed`'s own conversion already uses. **Owned `Collection`-item**:
   same capture, same ordinary deletion of every existing
   item — but landed in a newly-created dedicated child table scoped to that field
@@ -1133,59 +1095,73 @@ already "roll back the deploy," not "invert one DDL statement"). This retires th
 two-log (`SchemaUndoLog` + content `UndoLog`) bridging design the old system was building
 toward — there's only one undo log now, and it's content-only (see below).
 
+## Safe write ordering vs. logging
+
+**Every database write runs through the same safe-ordering mechanism, unconditionally —
+content-triggered or schema-triggered, logged or not.**
+
+**Full topological sort**, not a bounded heuristic — CMS content nests arbitrarily deep,
+and a hand-maintained list of "supported nesting patterns" doesn't scale. Dependency edges
+are derived automatically from the write's own reference structure — an Owned
+relationship's `owner` pointer is just another edge, not a special case. Read in opposite
+directions for inserts vs. deletes. **Cycles are rejected outright**, naming the cycle —
+this covers an ownership cycle (`A.owner = B`, `B.owner = A`) for free, the same
+reference-graph check, no separate carve-out.
+
+**Deleting an owner auto-expands to everything it transitively owns**, appended as
+explicit delete operations before the sort runs — reusing the same `owner`/`owner_field`
+lookup `Repository` already needs for ordinary Owned hydration. This is what makes
+`entities.owner`'s `RESTRICT` (see "References and collections") never actually fire in
+normal operation, whatever triggered the delete. This expansion is `Persistence\Changeset\`'s
+job, not `Persistence\Entity\Repository::delete()`'s — `Repository::delete()` stays a
+single-entity, CTI-chain-aware primitive; only `Repository`'s existing owned-descendant
+read is reused, not duplicated.
+
+**Deleting any entity also finds and nulls every live Shared reference pointing at it** —
+a sideways expansion, before the sort runs, rather than letting the database's own `SET
+NULL` fire as an untracked side effect.
+
+Composes for free: downward into everything an owner transitively owns, each of those
+independently expanding sideways too. One mechanism, run uniformly, whatever triggered the
+write.
+
+**Logging is a separate layer on top — `Persistence\Changeset\Undo\` (`Revision`,
+`EntityChangeRecord`, conflict detection) — engaged exactly when the write originates from
+the content write path** (an ordinary content edit, undo/redo, revision-history restore).
+**A schema-triggered write never engages it, regardless of which row operations it
+contains** — delete, update, and insert alike. Reparenting's removal and backfill
+insertion, a prototype's cascade-delete, `dropField()`'s cascade-delete of Owned
+descendants, substitution's three-way reconciliation, and an `#[Embed]`-site's column
+backfill/drop are all schema-triggered — none of them ever produce a `Revision` or
+`EntityChangeRecord`.
+
+**No changelog exists for what a schema mutation did, beyond a full database
+backup/restore** — consistent with "No schema-level undo/redo, deliberately." Using the
+undo log as one would be misleading regardless: it would only ever capture whichever row
+operations happened to be a delete, never the update/insert half of the same operation. A
+readable diff, if ever needed, is an injectable pre-change/post-change hook comparing
+captured state — the same deferred-extension-point posture the pruning tool's observer
+hook already uses — not the undo log's job.
+
 ## Content write path
 
 Explicit `Changeset`, not auto-diffing — reuses the same command stream the undo system
 needs anyway, avoiding a classic Unit-of-Work's automatic dirty-checking machinery
 entirely. A changeset supports a temporary/placeholder id for an entity created in the
-same flush.
+same flush. The ordering mechanism itself — topological sort, downward Owned-subtree
+expansion, sideways Shared-reference nulling — is described once, in "Safe write ordering
+vs. logging"; every content flush uses it unconditionally, the same as any
+schema-triggered write.
 
-**Full topological sort**, not a bounded heuristic — CMS content nests arbitrarily deep,
-and a hand-maintained list of "supported nesting patterns" doesn't scale. Dependency edges
-are derived automatically from the changeset's own reference structure — an Owned
-relationship's `owner` pointer is just another edge in that same structure, not a special
-case. Read in opposite directions for inserts vs. deletes (insert the referenced entity
-first so its id exists; delete it last). **Cycles are rejected outright** with a clear
-error naming the cycle — no deferred-edge escape hatch until an actual case demonstrates
-it's needed. This covers an ownership cycle (`A.owner = B`, `B.owner = A`) for free: it's
-the same reference-graph cycle check, not a mechanism needing its own carve-out.
-
-**Deleting an owner auto-expands to everything it transitively owns.** Before the
-topological sort runs, a delete targeting entity X gets every entity in X's owned subtree
-(any depth) appended as its own explicit delete operation in the same changeset — reusing
-the same `owner`/`owner_field` lookup `Repository` already needs for ordinary Owned
-hydration, not a new query. This is what makes `entities.owner`'s `RESTRICT` (see
-"References and collections") never actually fire in normal operation: by the time the
-changeset flushes, every descendant is already gone through the ordinary path, deleted and
-logged like any other changeset member. This expansion is `Persistence\Changeset\`'s job,
-not `Persistence\Entity\Repository::delete()`'s — `Repository::delete()` stays a
-single-entity, CTI-chain-aware primitive; only `Repository`'s existing owned-descendant
-read is reused, not duplicated.
-
-**Deleting any entity also finds and nulls every live Shared reference pointing at it,
-logged as part of the same changeset** — a sideways expansion, parallel to the downward one
-above. Before the topological sort runs, a delete targeting entity Z also finds every
-entity whose declared field currently holds a live Shared reference to Z (singular field or
-collection item — the same data-level "what's actually using one right now" query already
-needed by prototype deletion's `NoType` machinery, reused rather than a second scan) and
-adds that field's own change to the same changeset, rather than letting the database's own
-`ON DELETE SET NULL` constraint fire as an untracked side effect. For a singular field this
-is the referencing entity itself; for a collection field it's the collection's own declaring
-entity, the change being "one item nulled" — never the pivot row, which carries no
-independently-logged content of its own (see "FK `ON DELETE` policy"). This is what makes
-"every entity that flush actually touched gets its own independent `EntityChangeRecord`"
-(see "Content undo, draft, and revision history") actually true for an entity whose only
-connection to the delete is "it referenced the thing that disappeared" — without this, the
-reference goes null with no record of the change, and undoing the deletion restores Z but
-not the reference to it.
-
-Composes with the downward expansion above for free, no special-casing: deleting owner X
-expands downward into everything X transitively owns; each of those deletions, including
-the nested ones, independently expands sideways via this same rule, finding and nulling
-whatever else happened to reference that specific owned entity. One rule, run uniformly
-over every delete the changeset ends up containing, whether the entity being deleted is
-Owned, Shared, or neither — not two different mechanisms depending on how the delete was
-reached.
+**What's specific to content is that every one of those expansions is also logged.**
+Because every entity a flush touches gets its own independent `EntityChangeRecord` (see
+"Content undo, draft, and revision history"), the sideways Shared-reference-nulling
+expansion is what keeps that invariant true even for an entity whose only connection to a
+delete is "it referenced the thing that disappeared" (singular field or collection item —
+the change being "one item nulled" for the latter, never the pivot row, which carries no
+independently-logged content of its own, see "FK `ON DELETE` policy") — without that
+expansion, the reference would go null with no record of the change, and undoing the
+deletion would restore the deleted entity but not the reference to it.
 
 **A third expansion flavor, specific to an Owned collection: inserting or removing a slot
 shifts every later sibling's `position` and adjusts the owner's own `<field>_count`, both
@@ -1210,15 +1186,16 @@ already drawn elsewhere in this design. Which of the four is meant can never be 
 from the create/delete alone — it's an explicit choice at the point the change is added to
 the changeset, the same never-inferred posture rename already uses.
 
-This expansion is `Persistence\Changeset\`'s job, the same reasoning as the downward/sideways
-expansions above: it touches more than one entity (the item itself, every later sibling, the
-owner's own row), so it can't live on `Repository`'s single-entity create/delete primitives.
-Every shifted sibling gets its own ordinary `EntityChangeRecord`, same as any other touched
-entity — undo already restores a whole `Revision` atomically, so reversing a shift needs no
-new mechanism. Composes for free with the downward/sideways expansions above too: Remove is
-still fundamentally "delete this owned entity," so if that item itself owns descendants or is
-Shared-referenced from elsewhere, both of those expansions still run exactly as already
-described, no special-casing for the slot-shift case.
+This expansion is `Persistence\Changeset\`'s job, the same reasoning as the
+downward/sideways expansions in "Safe write ordering vs. logging": it touches more than
+one entity (the item itself, every later sibling, the owner's own row), so it can't live
+on `Repository`'s single-entity create/delete primitives. Every shifted sibling gets its
+own ordinary `EntityChangeRecord`, same as any other touched entity — undo already
+restores a whole `Revision` atomically, so reversing a shift needs no new mechanism.
+Composes for free with those same expansions too: Remove is still fundamentally "delete
+this owned entity," so if that item itself owns descendants or is Shared-referenced from
+elsewhere, both of those expansions still run exactly as already described, no
+special-casing for the slot-shift case.
 
 **Concurrent-write protection**: an `expectedOperationId` receipt, reject-by-default with
 an explicit override to retry. The id itself is sourced from the undo log, not a second,

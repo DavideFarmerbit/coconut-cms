@@ -160,25 +160,65 @@ gained the matching logged-vs-direct-write split). Described in each document in
 resolved design's own terms, per the standalone requirement (see
 [[feedback_v2_docs_standalone]]).
 
-### 3.1 — fixes
+**Correction (2026-10-07, superseded by item 3.1 below)**: the delete-side-logged /
+insert-side-unlogged split this item decided is wrong. Caught while discussing whether
+ordering and logging should be two separable mechanisms rather than one bundled
+`Changeset` path: this item's own reasoning already admitted `EntityChangeRecord` was "a
+byproduct of using that path, not the reason for using it" for the delete side — once
+ordering is its own mechanism, independent of logging, nothing is left forcing the delete
+side to be logged either. See item 3.1.
 
-Item 3's own closing paragraph overstates what actually landed in the folded-back text.
+### 3.1 — the ordering/logging split itself, not a per-operation rule — **resolved (2026-10-07)**
 
-"Each unlogged case is named as a deferred extension point, the same posture as the pruning
-tool's post-prune observer hook" (above) claims this for all three unlogged cases. Only one
-of them actually got it: `ARCHITECTURE_V2.md`'s reparent-backfill-insertion paragraph
-("Reparenting") explicitly says "Worth naming as a deferred extension point... adding a hook
-here later... needs no structural change today, so it's deferred rather than designed now."
-Neither substitution-side unlogged case — the CTI-level-reconciliation bullet's
-kept-with-updated-values/freshly-inserted outcomes, nor the `#[Embed]`-occurrence
-reconciliation bullet — got an equivalent sentence, in either `ARCHITECTURE_V2.md`'s
-substitution block or `ROADMAP_V2.md`'s Phase 6.4. "Each" is wrong; it's true for one case
-out of three.
+Item 3 above treated "does this go through `Changeset`" and "is this logged" as the same
+question, answered per row-operation (delete: yes; insert/update: no). That conflates two
+independent mechanisms that happened to travel together only because `Changeset` bundled
+them.
 
-Not yet resolved: either add the matching deferred-extension-point sentence to both
-substitution-side unlogged cases (in `ARCHITECTURE_V2.md`'s substitution block and the
-corresponding `ROADMAP_V2.md` Phase 6.4 bullets), or narrow this document's own claim to
-the reparent-insertion case only, whichever better reflects the actual design intent.
+**Decided: every database write, content-triggered or schema-triggered, runs through the
+same safe-ordering mechanism (full topological sort, downward Owned-subtree expansion,
+sideways Shared-reference nulling) unconditionally — this was never actually a logging
+question.** Logging is a separate layer on top, engaged exactly when the write originates
+from the content write path, never otherwise. A schema-triggered write never engages it,
+regardless of which row operations it contains — delete, update, and insert alike. This
+replaces item 3's three-way split with one uniform rule: reparent's removal and backfill
+insertion, a prototype's cascade-delete, `dropField()`'s cascade-delete of Owned
+descendants, substitution's three-way reconciliation, and an `#[Embed]`-site's column
+backfill/drop are all schema-triggered — none of them are ever logged, including the
+delete-side cases item 3 had marked logged.
+
+This also retracts the forensic-history framing item 3's predecessor text relied on (a
+reparent's stray-row deletion being human-inspectable via its `EntityChangeRecord`): that
+was never a deliberate feature, and a log that only ever captured the delete half of a
+multi-outcome operation would be a misleading changelog regardless. No changelog exists
+for what a schema mutation did, beyond a full database backup/restore — consistent with
+"No schema-level undo/redo, deliberately." A readable diff, if ever needed, is an
+injectable pre-change/post-change hook comparing captured state, the same
+deferred-extension-point posture the pruning tool's observer hook already uses — stated
+once, generally, rather than per unlogged case the way item 3 attempted and item 3's own
+"fixes" sub-item then had to chase down incompletely.
+
+Folded into `ARCHITECTURE_V2.md` as a new section, "Safe write ordering vs. logging,"
+placed before "Content write path" — the topological-sort/downward/sideways-expansion
+mechanics moved there from "Content write path" (which keeps only what's actually
+content-specific: explicit-changeset framing, the logging consequence, slot-shift
+mechanics, concurrent-write protection), and every RESTRICT-driven case-by-case argument in
+"Migrations and schema mutation" (Reparenting, prototype cascade-delete, substitution's
+CTI-level and `#[Embed]`-occurrence bullets) was trimmed to a pointer at the new section
+instead of re-deriving it. `ROADMAP_V2.md` Phase 4, 6.2, 6.3, and 6.4 gained matching
+pointer fixes and dropped every stale "logged"/"direct write" split in favor of the
+uniform rule. Described in each document in the resolved design's own terms, per the
+standalone requirement (see [[feedback_v2_docs_standalone]]).
+
+In the course of fixing this, `ARCHITECTURE_V2.md`'s own `Status` line was also rewritten:
+it previously called the document a "decision log" and narrated its own relationship to
+pre-rewrite documents, which is exactly the kind of self-referential, changelog-style
+framing that let item 3's "this used to be argued case by case" phrasing slip through in
+an early draft of this fix. The `Status` line now states plainly that the document is a
+standalone technical description of the system's current, decided shape, never a
+changelog of how a decision was reached — and the [[feedback_v2_docs_standalone]] memory
+was generalized to cover self-references to this document's own past drafts, not just
+references to the old pre-rewrite documents.
 
 ## Roadmap coverage gaps
 
