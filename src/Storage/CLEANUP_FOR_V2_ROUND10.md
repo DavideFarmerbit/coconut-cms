@@ -138,16 +138,17 @@ on what a developer can pass to the public `collection()` factory, never on what
 can later report once the framework's own capture/retype machinery has degraded a collection's
 item kind to `NoType` in place.
 
-### 3. `RolePermission` is named once and never defined
+### 3. `RolePermission` is named once and never defined — **resolved (2026-10-12)**
 
-"Namespaces and migration path" lists `Persistence\Permission\`'s contents as "`Actor`,
+"Namespaces and migration path" listed `Persistence\Permission\`'s contents as "`Actor`,
 `SchemaPermission`, `FieldPermission`, `HistoryPermission`, `RolePermission`, and any other
-auth-level class." `RolePermission` doesn't appear anywhere else in `ARCHITECTURE_V2.md` — not
+auth-level class." `RolePermission` didn't appear anywhere else in `ARCHITECTURE_V2.md` — not
 in "Permissions", which only describes `Actor`, `SchemaPermission`, `FieldPermission`, and
-`HistoryPermission` — and doesn't appear anywhere in `ROADMAP_V2.md` either.
+`HistoryPermission` — and didn't appear anywhere in `ROADMAP_V2.md` either.
 
-**Needs a decision**: either drop `RolePermission` as a leftover, or actually specify what it
-is and where it's used.
+**Resolved: dropped as a leftover.** `Actor::hasRole(string): bool` already is the role check,
+a pure adapter with no identity storage of its own ("Permissions") — there's no separate
+concept left for a `RolePermission` class to own.
 
 ### 4. The "Deferred" section's converter-API claim is stale
 

@@ -45,8 +45,8 @@ namespace as it would be at the `src\` root, only its prefix changes:
   authoring UI, unlike undo, which benefits any flush regardless of who's writing; see
   "Content undo, draft, and revision history" below.
 - **`Persistence\Permission\`** — shared by all of the above rather than split across
-  them: `Actor`, `SchemaPermission`, `FieldPermission`, `HistoryPermission`,
-  `RolePermission`, and any other auth-level class.
+  them: `Actor`, `SchemaPermission`, `FieldPermission`, `HistoryPermission`, and any other
+  auth-level class.
 
 **`Editor\`** — the admin-facing authoring surface, consuming the other four rather than
 merging into any of them — stays its own top-level namespace, not nested under
