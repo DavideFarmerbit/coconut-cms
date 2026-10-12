@@ -173,8 +173,15 @@ prototype family:
   failure instead of a silent one.
 - `owner_field` — nullable, disambiguates which Owned relationship put this row here when
   the same shape is owned by more than one relationship.
-- `position` — nullable, `-1` for a non-collection Owned relationship, an ordinal
-  otherwise (orders an Owned collection).
+- `position` — nullable, `-1` for a standalone/Shared-referenced row or a non-collection
+  Owned relationship, an ordinal otherwise (orders an Owned collection). One sentinel either
+  way: nothing ever needs to tell those two `-1` cases apart from `position` alone, since
+  `owner`/`owner_field` already does that job — every query filtering on `position = -1`
+  already scopes to a specific `owner`/`owner_field` pair first ("References and
+  collections"). Unlike `owner`/`owner_field`, `position` is never folded into a `Unique`
+  group's own index ("Uniqueness"), so there's no `NULL`-vs-`NULL` distinctness risk forcing
+  this the way there was for those two — the sentinel here is for consistency with their
+  "never a plain `NULL`" posture, not a second instance of the same correctness requirement.
 - `concrete_identifier` — the row's actual type, native class or editor-created
   prototype, resolved through the prototype registry to find its real table(s).
 

@@ -95,7 +95,9 @@ the way; resolving the same id twice within one request via `Repository::find()`
 the identical PHP instance, not two separate objects, proving the identity map from
 "Identity Map + Repository + lazy loading" ("identity map scoped per request" above); the
 class's own table carries the reserved sentinel pair in its own `owner`/`owner_field` copy
-for every row, proven before Phase 3.3 gives either column a real value to hold.
+for every row, proven before Phase 3.3 gives either column a real value to hold;
+`entities.position` carries the `-1` sentinel for every standalone row too, not a plain
+`NULL`, proven before Phase 3.3 gives it a real ordinal to hold.
 
 ### 1.3 — Validation, uniqueness, and backfill correctness
 

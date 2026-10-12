@@ -6,7 +6,7 @@ pieces, and design flaws, and separately checking both against the standalone-do
 ([[feedback_v2_docs_standalone]]) for stray references to pre-rewrite docs/concepts, and
 for the architecture-never-names-roadmap direction of that same rule. The hygiene check came
 back clean this round — no stray references found in either direction — so there's no
-hygiene section below. Eight items below, five resolved so far (items 1-5). Work one item
+hygiene section below. Eight items below, six resolved so far (items 1-6). Work one item
 at a time per [[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes
 what gets built, not alphabetically.
 
@@ -161,7 +161,7 @@ field kind that exists at that point); Phase 3.2's "Done when" gained the specif
 Architecture actually describes — `RequiredValidator` rejecting an empty `Reference` field
 at write time while the column stays nullable and the FK policy stays `SET NULL`.
 
-### 6. `entities.position` gets no reserved-sentinel treatment for a non-Owned row
+### 6. `entities.position` gets no reserved-sentinel treatment for a non-Owned row — **resolved (2026-10-12)**
 
 "Global entity identity" gives `owner` and `owner_field` explicit reserved sentinel values
 (the nil UUID; the empty string) specifically so neither column is ever "a plain `NULL`" on a
@@ -175,6 +175,16 @@ discussion right next to it.
 **Needs a decision**: either state explicitly that a plain `NULL` is fine here (and why — no
 query ever needs a non-null sentinel for `position` the way `owner`/`owner_field` need one),
 or give it a reserved value matching the same posture as the other two columns.
+
+**Resolved: `-1` for a standalone/Shared-referenced row too, same sentinel as a
+non-collection Owned relationship, not a third `NULL` state.** Nothing ever needs to tell the
+two `-1` cases apart from `position` alone — `owner`/`owner_field` already does that, and
+every query filtering on `position = -1` already scopes to a specific `owner`/`owner_field`
+pair first. Unlike `owner`/`owner_field`, `position` is never folded into a `Unique` group's
+own index, so there was never a real correctness requirement forcing a sentinel here the way
+there was for those two — the `-1` reuse is purely for consistency with their "never a plain
+`NULL`" posture, and it's simpler than introducing a new, third not-applicable state right
+next to two existing ones. Phase 1.2's "Done when" gained a matching assertion.
 
 ### 7. `Repository::lazyFind()` is cited in Architecture but never committed to a roadmap phase
 
