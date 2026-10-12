@@ -110,7 +110,7 @@ for every row, proven before Phase 3.3 gives either column a real value to hold.
   scalar fields — needs nothing beyond what this phase already has, same as `Unique` below.
   `describe()` proven the same way as `FieldValidator`'s.
 - `Unique`: its own recognized validation kind, not a `PrototypeValidator` kind — the two
-  only share the closed-menu editor affordance ("Validation") — naming one or more of a
+  only share the registered-menu editor affordance ("Validation") — naming one or more of a
   class's own fields, materialized as a real composite (or single-column) `UNIQUE` index at
   registration time, with a friendly pre-check ahead of the real constraint ("Uniqueness").
   The index always includes the `owner`/`owner_field` columns Phase 1.2 already put on the
@@ -469,16 +469,22 @@ guard end to end for the first time.
 
 - `Persistence\Schema\DynamicEntity` + the editor-created implementation of
   `PrototypeRegistry::instantiate()`/`fieldsOf()` — the second identifier kind the
-  registry interface has supported since Phase 1.
+  registry interface has supported since Phase 1. Backed by the `prototypes` table
+  (`identifier`, `parent`, `schema`) ("Prototype storage: the `prototypes` table");
+  `fieldsOf()` hydrates `schema` into the same `FieldDescriptor[]` shape native reflection
+  already produces.
 - `Persistence\Schema\SchemaEditor::createPrototype()` — minimal, scalar fields only, no parent
   complexity yet. Non-scalar field addition is deliberately not stubbed here — it lands in
   6.2's `addField()`, once an existing prototype can be safely mutated at all.
-- An editor-created prototype can attach a closed-menu validation declaration at creation
-  time — a `PrototypeValidator` rule or a `Unique` group, both picked from the same
-  closed-menu affordance Phase 1.3's native-side mechanism already proves built-ins for.
-  `Unique` is the first one exercised here, since it's the only kind this phase needs to
-  prove end to end; arbitrary native-only `PrototypeValidator` logic was already proven
-  native-side in Phase 1.3 and has no editor-created equivalent, by design ("Validation").
+- `Persistence\Schema\FieldValidatorRegistry`/`PrototypeValidatorRegistry` — the
+  open-registration mechanism "Validation" describes: any PHP code registers a validator
+  class under a name, and `SchemaEditor`'s own admin-facing menu lists whatever is currently
+  registered. An editor-created prototype can attach any registered validation declaration
+  at creation time — a `PrototypeValidator` rule or a `Unique` group. `Unique` reuses Phase
+  1.3's native-side mechanism directly. The framework ships no concrete built-in
+  `PrototypeValidator` rule of its own, so this phase registers its own test rule (the same
+  "end date after start date" example Phase 1.3 already hand-wrote for native) to prove the
+  open-registration path end to end.
 - `Persistence\Permission\SchemaPermission` gating from the start, not bolted on after.
 
 **Done when**: an admin without `SchemaPermission` cannot create a prototype; one who does
@@ -487,7 +493,10 @@ readable/writable through the exact same `Persistence\Entity\Repository`/`Persis
 every native class already uses — no separate wiring step, since the wiring already
 existed; a fresh editor-created prototype created with a `Unique` group attached enforces it
 immediately, the same real-constraint mechanism Phase 1.3 already proved for native classes,
-reused rather than rebuilt for the second identifier kind.
+reused rather than rebuilt for the second identifier kind; a fresh editor-created prototype
+created with this phase's own test-registered `PrototypeValidator` rule attached enforces it
+immediately too, proving the open-registration mechanism end to end for the second
+identifier kind.
 
 ### 6.2 — Mutating an existing, populated prototype
 
@@ -531,7 +540,7 @@ reused rather than rebuilt for the second identifier kind.
   (below) — skipping it would leave a `Unique` group comparing against the field's old
   name.
 - Attaching or removing a `PrototypeValidator` rule on an already-populated editor-created
-  prototype, picked from the same closed menu 6.1's creation path already draws from —
+  prototype, picked from the same registry 6.1's creation path already draws from —
   mutating which rules are attached is governed by `SchemaPermission` the same as any other
   schema mutation, no separate permission needed.
 
@@ -622,6 +631,11 @@ the next write, and removing it stops enforcing without touching existing data.
   descendant with one check, native and editor-created alike, and transitively protects
   every live subclass of the reparented entity too, since a subclass's own chain already
   runs through it.
+- **`editorExtensible` check**: before any mutation runs, `reparent()` (and
+  `createPrototype()`'s own parent argument) also rejects outright when the candidate new
+  parent is a native class whose own `#[Entity(editorExtensible: ...)]` is `false`. Only
+  checked when the candidate parent is native — an editor-created parent carries no such
+  flag, so attaching one is always allowed.
 - Reparenting a shape used as an `#[Embed]` target propagates to every embedding site as a
   column change, never a row change (unlike the entity-table side above, which never changes
   columns) — a level inserted adds that level's own fields as new columns at each site,
@@ -652,6 +666,10 @@ the next write, and removing it stops enforcing without touching existing data.
 a prototype directly onto itself, or onto one of its own current
 descendants, is rejected outright before any mutation runs, naming the cycle, proven for
 both a direct descendant and a case reached only through a live subclass's own chain;
+reparenting onto a native parent whose `editorExtensible` is `false` is rejected outright
+before any mutation runs, naming the reason; the same reparent succeeds once
+`editorExtensible` is `true`; reparenting onto an editor-created parent succeeds regardless,
+proving the check never fires for a parent of that kind;
 reparenting an editor-created prototype onto a brand-new level backfills
 correctly, producing no `EntityChangeRecord`; reparenting it back onto a level it already
 had a row for needs no backfill and the data round-trips as it was; reparenting away from
@@ -720,7 +738,7 @@ entity-row-side deletion's own subclass reach rather than stopping one level sho
   something a migration tool can rewrite on its behalf — and the explicit replacement+converter
   declaration then drives the tool's own DDL generation and per-row migrations against the
   result; for editor-created, every step above is immediate and automatic once triggered
-  through `SchemaEditor`, the converter picked from a closed, pre-registered menu.
+  through `SchemaEditor`, the converter picked from a registered menu.
 - Any `Unique` group declared at a level the above reconciliation touches gets the same
   pairwise-distinctness check 6.2's own field-level `retype()` already enforces, not a
   weaker one — every migrated row's produced value for that group is collected and checked

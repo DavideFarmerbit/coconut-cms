@@ -6,13 +6,13 @@ pieces, and design flaws, and separately checking both against the standalone-do
 ([[feedback_v2_docs_standalone]]) for stray references to pre-rewrite docs/concepts, and
 for the architecture-never-names-roadmap direction of that same rule. The hygiene check came
 back clean this round — no stray references found in either direction — so there's no
-hygiene section below. Eight items below, none resolved yet. Work one item at a time per
-[[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes what gets
-built, not alphabetically.
+hygiene section below. Eight items below, three resolved so far (items 1-3). Work one item
+at a time per [[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes
+what gets built, not alphabetically.
 
 ## Missing pieces
 
-### 1. The `prototypes` table is used but never defined
+### 1. The `prototypes` table is used but never defined — **resolved (2026-10-12)**
 
 `prototypes.parent` is cited three times in `ARCHITECTURE_V2.md` — "Migrations and schema
 mutation" (prototype-level rename's reference-fixup list), "Reparenting" (the dangling-parent
@@ -31,7 +31,26 @@ lives — either a full column layout here, or an explicit statement that field-
 is implementation API, not architecture (the same posture already taken toward native
 migration-tool invocation parameters, see "Deferred").
 
-### 2. The promised closed menu of `PrototypeValidator` rules for editor-created prototypes is never populated
+**Resolved: `prototypes` gets `identifier`, `parent`, and one `schema` JSON column** — new
+section "Prototype storage: the `prototypes` table" in `ARCHITECTURE_V2.md`, right after
+"Global entity identity." `identifier`/`parent` are named plainly, matching what the three
+existing citations already depend on. A field's own definition (kind, target, permission,
+`FieldValidator` rules by name, explicit default) lives inside `schema`, hydrated by
+`PrototypeRegistry::fieldsOf()` into the same `FieldDescriptor[]` shape native reflection
+produces, written back by `SchemaEditor` on every field-level mutation.
+
+This went a different way than either option the item itself posed. JSON storage for
+`schema` doesn't violate "No blobs," because that rule governs entity *content*
+(independently filterable/sortable per field) and a prototype's own field definitions are
+never content — nothing ever runs a SQL `WHERE` against one field's own kind or target; every
+consumer already loads the row and inspects the hydrated `FieldDescriptor[]` in PHP. "No
+blobs"'s own opening line was tightened to say "entity content" instead of "at all,
+anywhere," since it was previously phrased broadly enough to contradict this. The exact
+internal shape of the JSON document, and whether `SchemaEditor` rebuilds it whole or patches
+it in place, stay implementation API, not architecture, the same posture already held for
+native migration-tool parameter names.
+
+### 2. The promised closed menu of `PrototypeValidator` rules for editor-created prototypes is never populated — **resolved (2026-10-12)**
 
 "Validation" states plainly: "editor-created prototypes pick from a closed menu only." But no
 roadmap phase ever defines a single concrete, reusable, admin-selectable `PrototypeValidator`
@@ -50,7 +69,22 @@ for native-side testing into a real registered, reusable rule), or rewrite "Vali
 plainly that the closed-menu registry ships empty in this rewrite — a mechanism designed to
 accept rules later with no new machinery, not a promise that one exists today.
 
-### 3. `editorExtensible`'s positive-case semantics are never stated
+**Resolved: the premise was wrong, not just the roadmap coverage.** "Closed menu" had
+conflated two different things: an editor-created prototype can never write arbitrary logic
+inline (a real safety constraint — the live editor can't execute PHP a browser session just
+typed in), and the registry it picks from being limited to a small, framework-fixed set
+(which doesn't follow from that constraint at all, and was never a deliberate decision).
+"Validation" now describes an open registry instead: any PHP code, framework or host
+application, registers a `FieldValidator`/`PrototypeValidator` class under a name at boot,
+and the admin-facing menu lists whatever is currently registered, with no cap. The framework
+ships no concrete built-in `PrototypeValidator` rule of its own — Phase 6.1 proves the
+open-registration mechanism end to end with its own test-registered rule (reusing the "end
+date after start date" example already hand-written for native in Phase 1.3) instead.
+Every other "closed menu"/"closed-menu" reference in both documents (field retype's
+converter selection, prototype substitution's converter selection, `Unique`'s shared editor
+affordance) was reworded to "registered menu" for the same reason.
+
+### 3. `editorExtensible`'s positive-case semantics are never stated — **resolved (2026-10-12)**
 
 The flag is introduced at `#[Entity(table: ..., editorExtensible: ...)]` ("Shape comes from a
 neutral descriptor") and only ever discussed afterward in terms of *revoking* it ("Reparenting"
@@ -65,6 +99,16 @@ first place — is never described in `ARCHITECTURE_V2.md`, and never tested in
 and at which call(s) it's checked, then add the corresponding roadmap assertion (most likely
 to Phase 6.3's "Done when," since that's where reparenting onto an arbitrary native parent is
 first exercised).
+
+**Resolved: checked only when the candidate new parent is native.** `reparent()` (and
+`createPrototype()`'s own parent argument) rejects outright, before any mutation runs, when
+the candidate new parent is a native class whose own `#[Entity(editorExtensible: ...)]` is
+`false` — a second structural check alongside the existing cycle-rejection check in
+"Reparenting," reading the native parent's own attribute at the moment of attachment, not a
+stored flag. An editor-created identifier carries no `editorExtensible` flag of its own, so
+attaching one as a parent is always allowed regardless. Phase 6.3 gained a matching bullet
+and "Done when" assertion, proving the rejection, the `true` success case, and the
+always-allowed editor-created-parent case as three distinct scenarios.
 
 ### 4. Phase 6's own stated goal isn't covered by any of its "Done when" criteria
 

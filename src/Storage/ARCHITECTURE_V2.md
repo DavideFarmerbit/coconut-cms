@@ -212,11 +212,52 @@ universal, regardless-of-use posture `entities` itself already has. The payoff i
 index with no join, no backfill, and no separate add/drop step, because the two columns and
 their values are already correct on every row from the day that row was created.
 
+## Prototype storage: the `prototypes` table
+
+Every editor-created identifier gets one row in a `prototypes` table.
+
+- `identifier` — string, primary key. The identifier `PrototypeRegistry` resolves for this
+  prototype, parallel to a native class-string.
+- `parent` — nullable string. Another prototype's `identifier`, or a native class-string.
+  Null means the prototype has no declared parent. It resolves straight to `entities`, the
+  same as a native root class.
+- `schema` — one JSON column. It holds the prototype's own field definitions as a single
+  serialized value object. `PrototypeRegistry::fieldsOf()` hydrates this column into the
+  same `FieldDescriptor[]` shape a native class's reflected attributes already produce
+  ("Shape comes from a neutral descriptor"). `SchemaEditor` reads and writes this same
+  column for every field-level mutation (add, drop, rename, retype).
+
+The table's own name is never stored. It resolves live, derived from `identifier` the same
+way a native class's table name falls back to a derivation from its own short name, absent
+an explicit `#[Entity(table: ...)]`.
+
+A field's own stored definition carries the same facts a native class's attributes already
+carry per field: its `kind` (one of `FieldDescriptor`'s six public factories, never
+`NoType`), its `target` where that kind needs one, whether it's a `required`
+`OwningReference`, its attached `FieldPermission`, its attached `FieldValidator` rules, and
+its explicit default. `FieldValidator` rules are recorded by registered name, never inline
+logic ("Validation").
+
+**`schema` being JSON does not contradict "No blobs" below.** That rule governs entity
+*content*: data an admin or a visitor enters, which has to stay independently filterable and
+sortable per field. A prototype's own field definitions are never content. Nothing in this
+design ever runs a SQL `WHERE` clause against one field's own kind or target. Every place
+that needs to inspect them — dangling-reference auditing, "finding every site that points at
+shape X" — already works by loading a candidate prototype's row and inspecting its hydrated
+`FieldDescriptor[]` in PHP, never by querying inside the JSON directly.
+
+The exact internal shape of that JSON document — the specific key names and nesting — and
+whether `SchemaEditor` rebuilds the whole document on every mutation or patches it in place,
+are both implementation API, not architecture. Same posture already held for native
+migration-tool invocation parameter names ("Deferred").
+
 ## No blobs. Every field is a real column or a real table.
 
-There is no JSON-blob storage tier at all, anywhere: every field is a real column or a real
+There is no JSON-blob storage tier for entity content, anywhere: every content field is a
+real column or a real
 table. Migrating data inside an opaque blob is exactly the kind of problem this avoids by
-construction. Consequences:
+construction. (Prototype schema metadata is a narrower, separate case — see "Prototype
+storage: the `prototypes` table" above.) Consequences:
 
 - Every field is already a real, filterable/sortable column, regardless of kind — no flag
   needed to opt a field into that. What's left is a pure indexing decision (does this
@@ -835,6 +876,15 @@ destructive operation at all, it's a structurally unresolvable one, and `chainOf
 truncation rule doesn't catch it either — truncation only ever triggers on an *unresolvable*
 link, and every link in a cycle still resolves, just forever.
 
+**A second check, structural too, rejects reparenting (or `createPrototype()`'s own parent
+argument) outright when the candidate new parent is a native class whose own
+`#[Entity(editorExtensible: ...)]` is `false`.** This check only applies when the candidate
+parent is native. An editor-created identifier carries no `editorExtensible` flag of its
+own — nothing in this design gives it one — so attaching an editor-created parent is always
+allowed. The check reads the native parent's own attribute at the moment the attachment is
+attempted, the same way the cycle check above reads the candidate parent's own chain at that
+same moment, not from any stored flag on the child.
+
 **Reparenting onto a level the entity already had a row for (most commonly: fixing a
 broken parent, see below) needs no backfill at all** — the defaulted-instance mechanism
 exists for a level an entity never had a row for; a level it already had, that only
@@ -1034,7 +1084,7 @@ propagation and dangling-target auditing — not a new scan.
 **Native and editor-created genuinely differ here, unlike most of this design's other
 native/editor-created splits.** For editor-created, every bullet above is immediate and
 automatic once the admin triggers the substitution through `SchemaEditor`, the converter
-picked from a closed, pre-registered menu — the same posture `PrototypeValidator` already
+picked from a registered menu — the same posture `PrototypeValidator` already
 uses — because editor-created schemas are data, with nothing analogous to a compiled
 language's own type-safety requirements standing in the way. For native, the *values and
 DDL* are equally tool-driven from the explicit "old type replaced by new type, with this
@@ -1474,14 +1524,26 @@ on actual access.
 `FieldValidator` — a composable list per field (required, length, format, ...), never a
 growing pile of `FieldDescriptor` flags. `PrototypeValidator` — a separate entity-level
 interface for cross-field rules (end date after start date), evaluated against the whole
-candidate state; native classes get arbitrary logic, editor-created prototypes pick from a
-closed menu only. `Unique` (see "Uniqueness") lives in this same family as one more
-recognized kind, naming one or more of a shape's own fields that together must be unique —
-the one kind the framework also materializes as a real database constraint rather than
-evaluating purely against candidate state. **`Unique` is its own mechanism, not a
-`PrototypeValidator` kind** — the two merely share the same closed-menu editor affordance:
-an editor-created prototype picks any validation declaration, `PrototypeValidator` rule or
-`Unique` group alike, from one registered menu, never arbitrary logic. Server-side
+candidate state.
+
+Native classes attach `FieldValidator`/`PrototypeValidator` logic directly, by class
+reference. Editor-created prototypes can only pick a rule by name, from a registry — the
+live editor can never execute arbitrary PHP a browser session just typed in. That is the
+real constraint, and it is about what the *live editor* can do, not about who can supply a
+rule.
+
+Any PHP code can register a `FieldValidator` or `PrototypeValidator` class under a name, at
+boot. The framework registers its own built-ins this way. A host application registers its
+own rules the same way, with no separate mechanism. The admin-facing menu simply lists
+whatever is currently registered, with no cap.
+
+`Unique` (see "Uniqueness") lives in this same family as one more registrable kind, naming
+one or more of a shape's own fields that together must be unique — the one kind the
+framework also materializes as a real database constraint rather than evaluating purely
+against candidate state. **`Unique` is its own mechanism, not a `PrototypeValidator` kind**
+— the two merely share the same registered-menu editor affordance: an editor-created
+prototype picks any validation declaration, `PrototypeValidator` rule or `Unique` group
+alike, from the same registry, never arbitrary logic. Server-side
 validation is mandatory regardless of what the client already checked.
 
 Client-side pre-validation splits into three tiers behind one clean interface
