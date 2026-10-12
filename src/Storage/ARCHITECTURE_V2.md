@@ -1490,8 +1490,11 @@ candidate state; native classes get arbitrary logic, editor-created prototypes p
 closed menu only. `Unique` (see "Uniqueness") lives in this same family as one more
 recognized kind, naming one or more of a shape's own fields that together must be unique —
 the one kind the framework also materializes as a real database constraint rather than
-evaluating purely against candidate state. Server-side validation is mandatory regardless of
-what the client already checked.
+evaluating purely against candidate state. **`Unique` is its own mechanism, not a
+`PrototypeValidator` kind** — the two merely share the same closed-menu editor affordance:
+an editor-created prototype picks any validation declaration, `PrototypeValidator` rule or
+`Unique` group alike, from one registered menu, never arbitrary logic. Server-side
+validation is mandatory regardless of what the client already checked.
 
 Client-side pre-validation splits into three tiers behind one clean interface
 (`describe()` emits `{type, ...params}`, never needs to know which tier applies): native

@@ -111,8 +111,9 @@ for every row, proven before Phase 3.3 gives either column a real value to hold.
   arbitrary-logic example (end date after start date) on a native class with two plain
   scalar fields — needs nothing beyond what this phase already has, same as `Unique` below.
   `describe()` proven the same way as `FieldValidator`'s.
-- `Unique`: one of `PrototypeValidator`'s built-in kinds, naming one or more of a class's
-  own fields, materialized as a real composite (or single-column) `UNIQUE` index at
+- `Unique`: its own recognized validation kind, not a `PrototypeValidator` kind — the two
+  only share the closed-menu editor affordance ("Validation") — naming one or more of a
+  class's own fields, materialized as a real composite (or single-column) `UNIQUE` index at
   registration time, with a friendly pre-check ahead of the real constraint ("Uniqueness").
   The index always includes the `owner`/`owner_field` columns Phase 1.2 already put on the
   table, one rule with no exception — harmless here, since every row is standalone and
@@ -474,11 +475,12 @@ guard end to end for the first time.
 - `Persistence\Schema\SchemaEditor::createPrototype()` — minimal, scalar fields only, no parent
   complexity yet. Non-scalar field addition is deliberately not stubbed here — it lands in
   6.2's `addField()`, once an existing prototype can be safely mutated at all.
-- An editor-created prototype can attach a `PrototypeValidator` rule at creation time,
-  picked from the closed menu Phase 1.3's native-side mechanism already supports built-in
-  kinds for — `Unique` is the first one exercised here, since it's the only kind this phase
-  needs to prove end to end; arbitrary native-only logic was already proven native-side in
-  Phase 1.3 and has no editor-created equivalent, by design ("Validation").
+- An editor-created prototype can attach a closed-menu validation declaration at creation
+  time — a `PrototypeValidator` rule or a `Unique` group, both picked from the same
+  closed-menu affordance Phase 1.3's native-side mechanism already proves built-ins for.
+  `Unique` is the first one exercised here, since it's the only kind this phase needs to
+  prove end to end; arbitrary native-only `PrototypeValidator` logic was already proven
+  native-side in Phase 1.3 and has no editor-created equivalent, by design ("Validation").
 - `Persistence\Permission\SchemaPermission` gating from the start, not bolted on after.
 
 **Done when**: an admin without `SchemaPermission` cannot create a prototype; one who does

@@ -167,20 +167,22 @@ same constraint the constructor alternative already carries ("Defaulted instance
 native migration-tool invocation parameter names for `rename()`/`retype()` remain in the
 bullet now.
 
-### 5. `Unique`'s relationship to `PrototypeValidator` is stated two different ways
+### 5. `Unique`'s relationship to `PrototypeValidator` is stated two different ways — **resolved (2026-10-12)**
 
-`ARCHITECTURE_V2.md`'s "Shape comes from a neutral descriptor" lists `Unique` among the things
+`ARCHITECTURE_V2.md`'s "Shape comes from a neutral descriptor" listed `Unique` among the things
 that "stay their own independent attribute rather than folding into a kind marker's own
 parameters" — alongside, not inside, `PrototypeValidator`. `ROADMAP_V2.md` Phase 1.3 and 6.1
-instead call it "one of `PrototypeValidator`'s built-in kinds" and have an admin "attach a
+instead called it "one of `PrototypeValidator`'s built-in kinds" and had an admin "attach a
 `PrototypeValidator` rule... picked from the closed menu... `Unique` is the first one exercised
-here" — which reads as `Unique` being attached *through* the `PrototypeValidator` mechanism,
+here" — which read as `Unique` being attached *through* the `PrototypeValidator` mechanism,
 not alongside it.
 
-**Needs a decision**: state plainly whether `#[Unique]` is its own attribute/mechanism that
-merely shares the editor's "closed menu" affordance with `PrototypeValidator` for UI purposes,
-or whether it's genuinely implemented as a `PrototypeValidator` kind — then make both documents
-say the same thing.
+**Resolved: `Unique` is its own mechanism, not a `PrototypeValidator` kind.** The two merely
+share the same closed-menu editor affordance — an editor-created prototype picks any
+validation declaration, `PrototypeValidator` rule or `Unique` group alike, from one
+registered menu, never arbitrary logic. Stated explicitly now in `ARCHITECTURE_V2.md`'s
+"Validation", and `ROADMAP_V2.md` Phase 1.3 and 6.1 reworded to match (no more "one of
+`PrototypeValidator`'s built-in kinds").
 
 ## Documentation hygiene
 
