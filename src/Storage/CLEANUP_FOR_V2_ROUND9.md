@@ -128,7 +128,7 @@ was the other open question here — settled the same way, since the same no-own
 column reasoning applies to it unconditionally, not just as an assumption worth
 double-checking.
 
-### 4. `ARCHITECTURE_V2.md` claims a "never/conditional/always classification" that's never actually established
+### 4. `ARCHITECTURE_V2.md` claims a "never/conditional/always classification" that's never actually established — **resolved (2026-10-12)**
 
 Split out from item 3, unrelated to that item's actual `Unique`-scoping question. "Content
 undo, draft, and revision history"'s restore-blocking discussion says the future
@@ -139,7 +139,10 @@ more broadly)" — but no such named classification is actually established anyw
 in the document; it only appears here, inline, as part of describing an unresolved
 refinement.
 
-**Open**: either point to where it's actually defined or drop "already used."
+**Resolved**: dropped the dangling clause entirely rather than inventing the classification
+elsewhere just to justify it — the refinement itself is still explicitly deferred/undecided,
+so the sentence now just says it's worth narrowing later by bookkeeping what a given schema
+operation touched, without claiming reuse of a mechanism that doesn't exist.
 
 ## Documentation hygiene
 

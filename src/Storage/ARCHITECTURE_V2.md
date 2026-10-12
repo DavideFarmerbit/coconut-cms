@@ -1420,11 +1420,8 @@ pruning something else.
   propagation path a given mutation might touch is exactly the bookkeeping the refinement
   below defers, not something the conservative default needs to get right first. Worth
   narrowing later by bookkeeping exactly what a given schema operation actually touched and
-  only blocking restore for the touched part — reusing the same never/conditional/always
-  classification already used for schema-mutation kinds (purely-additive changes never
-  block; a single-field change like drop/rename/retype blocks only that field;
-  reparent/delete block more broadly) — but the conservative, global default is what's
-  decided now; the refinement is not.
+  only blocking restore for the touched part — but the conservative, global default is
+  what's decided now; the refinement is not.
 
 ## Identity Map + Repository + lazy loading
 
