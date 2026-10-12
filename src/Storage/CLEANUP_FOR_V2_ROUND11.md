@@ -6,7 +6,7 @@ pieces, and design flaws, and separately checking both against the standalone-do
 ([[feedback_v2_docs_standalone]]) for stray references to pre-rewrite docs/concepts, and
 for the architecture-never-names-roadmap direction of that same rule. The hygiene check came
 back clean this round — no stray references found in either direction — so there's no
-hygiene section below. Eight items below, four resolved so far (items 1-4). Work one item
+hygiene section below. Eight items below, five resolved so far (items 1-5). Work one item
 at a time per [[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes
 what gets built, not alphabetically.
 
@@ -139,7 +139,7 @@ empty-`Revision` pruning. Fixed in the same pass: Phase 5.3's "Done when" now al
 that restoring to an earlier state resets an entity's fields exactly and produces its own new
 `Revision`, appending to history rather than rewriting it.
 
-### 5. `RequiredValidator` is named but never built
+### 5. `RequiredValidator` is named but never built — **resolved (2026-10-12)**
 
 `ARCHITECTURE_V2.md` references `RequiredValidator` by name three times ("FK `ON DELETE`
 policy," twice, and "Migrations and schema mutation"'s `NoType` discussion) as an existing
@@ -150,6 +150,16 @@ policy," twice, and "Migrations and schema mutation"'s `NoType` discussion) as a
 **Needs a decision**: name `RequiredValidator` explicitly as one of Phase 1.3's built-in
 validators (it's the natural fit, already described by Architecture), or explain what's
 actually meant to back the behavior Architecture attributes to it if not that class.
+
+**Resolved: named explicitly as one of Phase 1.3's built-ins, alongside the length/format
+checks.** Unlike item 2's `PrototypeValidator` example, this wasn't a speculative
+illustration — "FK `ON DELETE` policy" leans on `RequiredValidator` actually existing to
+explain a real distinction (a `Reference`'s schema-level nullability and its content-level
+required-ness are independent), and it's basic, universally-needed functionality rather than
+a bespoke rule. Phase 1.3's "Done when" gained an assertion on a plain scalar field (the only
+field kind that exists at that point); Phase 3.2's "Done when" gained the specific scenario
+Architecture actually describes — `RequiredValidator` rejecting an empty `Reference` field
+at write time while the column stays nullable and the FK policy stays `SET NULL`.
 
 ### 6. `entities.position` gets no reserved-sentinel treatment for a non-Owned row
 

@@ -101,7 +101,8 @@ for every row, proven before Phase 3.3 gives either column a real value to hold.
 
 - `Persistence\Schema\FieldValidator` strategy interface, a couple of default validators,
   each exposing `describe(): array` — proven here by checking the shape it returns for a
-  couple of built-ins (e.g. a length check, a format check), not yet consumed by anything;
+  couple of built-ins (e.g. a length check, a format check, `RequiredValidator` rejecting an
+  empty/null value at write time), not yet consumed by anything;
   the client-side mapping of that output to an HTML5 attribute, a shared JS algorithm
   registry, or a server-only fallback is `Editor\`'s own concern (see "Not covered by this
   roadmap"), nothing to build here.
@@ -131,7 +132,9 @@ each independently of the other; a `Unique` group still correctly rejects a dupl
 two standalone rows even with `owner`/`owner_field` folded into its index, proving the
 reserved sentinel pair (shared by every standalone row) doesn't weaken the check; an
 arbitrary-logic `PrototypeValidator` rejects a candidate state that violates it and accepts
-one that doesn't; `describe()` on a couple of `FieldValidator` built-ins and on the
+one that doesn't; `RequiredValidator` attached to a plain scalar field rejects a write with
+that field empty or null and accepts one with a value, independently of the column's own
+schema-level nullability; `describe()` on a couple of `FieldValidator` built-ins and on the
 arbitrary-logic `PrototypeValidator` each return the expected shape; adding a new field to
 an already-populated class backfills every existing row via `#[DefaultInstance]`
 resolution.
@@ -205,7 +208,10 @@ physical tables are involved.
   and collections", "FK `ON DELETE` policy").
 
 **Done when**: a native class can Shared-reference another, the FK column always nullable;
-deleting the referenced row sets the column to `NULL`, never blocked; a Shared collection
+a `RequiredValidator` attached to that same `Reference` field rejects a write with no target
+picked, while the column itself stays nullable and the FK's delete policy stays `SET NULL`
+regardless — proving the write-time content gate and the schema-level nullability are
+genuinely independent, as "FK `ON DELETE` policy" describes; deleting the referenced row sets the column to `NULL`, never blocked; a Shared collection
 round-trips through a real pivot table, ordered by `position`; deleting the owner-side
 entity removes its own join rows via `CASCADE`; deleting a target referenced by a collection
 item sets that pivot row's own FK to `NULL` instead of removing the row, preserving the
