@@ -150,19 +150,22 @@ in "Permissions", which only describes `Actor`, `SchemaPermission`, `FieldPermis
 a pure adapter with no identity storage of its own ("Permissions") — there's no separate
 concept left for a `RolePermission` class to own.
 
-### 4. The "Deferred" section's converter-API claim is stale
+### 4. The "Deferred" section's converter-API claim is stale — **resolved (2026-10-12)**
 
-"Deferred — not resolved in this document" lists "Exact attribute/API surface for
+"Deferred — not resolved in this document" listed "Exact attribute/API surface for
 `#[DefaultInstance]`, converter classes, rename/retype invocation parameters" as unresolved.
 But "Migrations and schema mutation" already fully specifies both converter interfaces by
 method signature: `FieldRetypeConverter` (`convert(mixed $captured): mixed`, `from()`/`to():
 FieldRetypeSignature`) and `EntityRetypeConverter` (`convert(array $capturedFieldTree):
 object`, `from()`/`to(): string`). That's a decided method-level API, not an open question.
 
-**Needs a decision**: narrow the "Deferred" bullet to what's actually still open (e.g.
-`#[DefaultInstance]`'s own attribute parameters, native migration-tool invocation parameter
-names) and drop converter classes from it, or explain what's still genuinely unresolved about
-them if something is.
+**Resolved: dropped converter classes from the bullet** (their signatures are already
+decided in "Migrations and schema mutation") **and decided `#[DefaultInstance]`'s own
+parameter surface too, instead of just leaving it deferred**: it takes no attribute
+parameters, a bare marker, and the static method it marks must take zero arguments, the
+same constraint the constructor alternative already carries ("Defaulted instances"). Only
+native migration-tool invocation parameter names for `rename()`/`retype()` remain in the
+bullet now.
 
 ### 5. `Unique`'s relationship to `PrototypeValidator` is stated two different ways
 

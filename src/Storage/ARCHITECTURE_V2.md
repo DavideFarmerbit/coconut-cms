@@ -508,7 +508,11 @@ Every native class, every shape ever used as an `#[Embed]` target, and every sha
 used as an `OwningReference`/Owned-`Collection` target must be able to produce a defaulted
 instance: a real zero-argument constructor, or a static factory carrying
 `#[DefaultInstance]` (needed because reflection has no other way to know which static
-method is *the* one). **A plain `Reference` target is deliberately excluded** — a
+method is *the* one). **`#[DefaultInstance]` itself takes no attribute parameters — a bare
+marker.** The method it marks must take zero arguments, the same constraint the
+constructor alternative already carries; `#[DefaultInstance]`'s only job is telling
+reflection which static method is the one to call, never carrying arguments for it.
+**A plain `Reference` target is deliberately excluded** — a
 `Reference` is pointer semantics, never value semantics (see "FK `ON DELETE` policy"), so
 there's no sense in which a "default target" could ever be manufactured; an unfillable
 Shared reference simply stays null until a human links something, same as any other
@@ -1584,11 +1588,8 @@ rewrite.
 
 - **Fine-grained revision-history reachability across a schema change.** Conservative
   default (blocked) is decided; the touched-field-bookkeeping refinement is not.
-- **Exact attribute/API surface** for `#[DefaultInstance]`, converter classes, rename/retype
-  invocation parameters — this document is architecture, not the implementation API. One
-  structural piece of this is decided, though (see "Shape comes from a neutral descriptor"):
-  which concerns get their own attribute versus consolidate into one, not every parameter
-  name and type.
+- **Native migration-tool invocation parameter names** for `rename()`/`retype()` — this
+  document is architecture, not the implementation API.
 - **Naming conventions pass.** Namespace-level naming is decided (`Persistence\Entity\`/
   `Persistence\Schema\`/`Editor\`, see above), but class/method-level terminology
   (`Owned`/`Shared`, `Embed`, `FieldDescriptor`, ...) is not finalized and remains a
