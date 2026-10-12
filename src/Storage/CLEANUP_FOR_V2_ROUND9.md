@@ -146,7 +146,7 @@ operation touched, without claiming reuse of a mechanism that doesn't exist.
 
 ## Documentation hygiene
 
-### 5. `ARCHITECTURE_V2.md` still narrates decision history and names pre-rewrite concepts
+### 5. `ARCHITECTURE_V2.md` still narrates decision history and names pre-rewrite concepts — **resolved (2026-10-12)**
 
 The document's own `Status` line says it's "a standalone technical description of the
 system's current, decided shape... never a changelog of how a decision was reached, what
@@ -177,9 +177,11 @@ item 3.1). Several passages still violate it:
   document, but narrates how the problem used to look rather than just stating the decided
   mechanism.
 
-**Open**: reword each to describe the current decided shape in its own terms, with no
-reference to "the old design"/"the old system"/"original baseline"/old phase numbers —
-same treatment Round 8 item 3.1 already gave the `Status` line itself.
+**Resolved**: reworded each passage to describe the current decided shape in its own terms,
+with no reference to "the old design"/"the old system"/"original baseline"/old phase
+numbers — same treatment Round 8 item 3.1 already gave the `Status` line itself, including
+the softer "Flipping an existing relationship between Owned and Shared" instance (restated
+as a direct statement of the retype mechanism rather than narrating what used to look hard).
 
 ### 6. `ROADMAP_V2.md` cites `AUDIT.md` and the old roadmap directly, instead of only `ARCHITECTURE_V2.md`
 

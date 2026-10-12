@@ -9,13 +9,11 @@ anticipate.
 
 ## Namespaces and migration path
 
-The old `Storage` namespace covered too many distinct concepts at once (entity
-persistence, schema/migrations, editor authoring, write-path/undo, permissions) — part of
-what made Phase 8 feel entangled. The rewrite splits it into four backend namespaces
-nested under one shared parent, **`Persistence\`**, kept purely for filesystem/`src\`-root
-tidiness — nesting doesn't reintroduce the old entanglement, since each of the four stays
-just as cleanly separated a namespace as it would be at the `src\` root, only its prefix
-changes:
+Entity persistence, schema/migrations, the content write path/undo, and permissions are
+four distinct concerns, each its own backend namespace, nested under one shared parent,
+**`Persistence\`**, kept purely for filesystem/`src\`-root tidiness — nesting doesn't blur
+the separation between them, since each of the four stays just as cleanly separated a
+namespace as it would be at the `src\` root, only its prefix changes:
 
 - **`Persistence\Entity\`** — the persistence/runtime core: entities table, identity map,
   repositories, row mapping, query builder. Also where every write, content-triggered or
@@ -168,9 +166,8 @@ Every entity, native or editor-created, gets a row in one shared `entities` tabl
 above every prototype's own Class Table Inheritance chain — one root, period, not one per
 prototype family:
 
-- `id` — uuid, the identity every chain's own top level is now an FK back to.
-  **Re-confirmed** (not just carried over from the original baseline): uuid over an
-  autoincrementing PK, deliberately — avoids a single global sequence shared by every
+- `id` — uuid, the identity every chain's own top level is now an FK back to. **Deliberately
+  uuid over an autoincrementing PK**: avoids a single global sequence shared by every
   entity in the system regardless of prototype, and keeps id generation possible without a
   round-trip to the database first.
 - `owner` — nullable, self-referencing FK to `entities.id`, `ON DELETE RESTRICT`. Not
@@ -203,9 +200,9 @@ discriminator-per-chain-root mechanism.
 
 ## No blobs. Every field is a real column or a real table.
 
-The single biggest change from the old design: there is no JSON-blob storage tier at all,
-anywhere. Migrating data inside an opaque blob is the exact kind of problem this rewrite
-exists to avoid. Consequences:
+There is no JSON-blob storage tier at all, anywhere: every field is a real column or a real
+table. Migrating data inside an opaque blob is exactly the kind of problem this avoids by
+construction. Consequences:
 
 - `queryable` is retired outright, not carried forward in any reduced form. Its only job
   was the storage-tier switch — every field being filterable/sortable via SQL depended on
@@ -232,9 +229,9 @@ exists to avoid. Consequences:
 
 **Tradeoff accepted knowingly**: unlimited-depth Embed flattening plus no blob tier means a
 deeply-nested shape can produce a wide table — real limits exist (Postgres ~1600
-columns/table, MySQL row-size ceilings) that the old design's blob tier partly existed to
-avoid. Almost certainly fine for realistic CMS content shapes; revisit only if an actual
-schema approaches these limits, not preemptively.
+columns/table, MySQL row-size ceilings) that a column-per-field design has to live with.
+Almost certainly fine for realistic CMS content shapes; revisit only if an actual schema
+approaches these limits, not preemptively.
 
 ## Entity vs. Value Object vs. Embed
 
@@ -744,13 +741,11 @@ succeed, or it fails loudly, same "no attempt to guess, refuse loudly" posture a
 other retype. For Shared: there is no required case, ever; a null FK is always an
 acceptable outcome, full stop.
 
-This closes "Flipping an existing relationship between Owned and Shared" entirely, not just
-narrows it: the thing that made it look hard was assuming it had to preserve the original
-row's identity through the swap. It never does — fork a new entity (or none, or the class
+**Retyping a Reference-kind field across Owned and Shared never needs to preserve the
+original row's identity through the swap.** Fork a new entity (or none, or the class
 default) via the converter, exactly like any other retype crossing a relationship kind, and
 the old side is handled exactly as its own kind's capture already specifies (untouched if
-Shared, ordinarily cascade-deleted if Owned). No narrower version of this problem is left
-open.
+Shared, ordinarily cascade-deleted if Owned).
 
 **Changing a field's cardinality (`Collection` ↔ singular) is the one orthogonal axis this
 doesn't fold into** — a deliberate retype in its own right, never a side effect of anything
@@ -1150,9 +1145,8 @@ it, at the point that matters for that context:**
 **No schema-level undo/redo, deliberately.** Schema mutations are immediate and permanent
 from the write path's perspective — recoverable only through a full database
 backup/restore, the same posture native migrations already have (a bad migration is
-already "roll back the deploy," not "invert one DDL statement"). This retires the
-two-log (`SchemaUndoLog` + content `UndoLog`) bridging design the old system was building
-toward — there's only one undo log now, and it's content-only (see below).
+already "roll back the deploy," not "invert one DDL statement"). There's only one undo log
+in this design, and it's content-only (see below).
 
 ## Executing multi-entity writes safely
 
@@ -1322,11 +1316,9 @@ the entity's own `owner`/`owner_field` as of that write, for both an update and 
 cheap, since it's already read during the write regardless. This is what lets concurrent-
 write protection (see "Content write path") trace a since-deleted Owned descendant's place
 in its former owner's subtree without needing a live `entities.owner` link to walk to it
-directly. The old design's "Owned folds into the
-owner's own diff, no independent record" rule is retracted: it made sense when an Owned
-row lived in a per-relationship child table with no identity of its own, but an Owned
-entity now has a full `entities` row exactly like a Shared one, so nothing structurally
-distinguishes it in the undo/logging path anymore. One rule for every touched entity,
+directly. An Owned entity has a full `entities` row exactly like a Shared one, so nothing
+structurally distinguishes it in the undo/logging path — there's no reason to fold its diff
+into the owner's own. One rule for every touched entity,
 Owned or Shared, is also what lets the per-touched-entity conflict check in undo (below)
 cover Owned for free, with no ownership-based special case. (This is specific to
 undo/logging — write-time concurrency protection treats Owned differently, on purpose;
@@ -1381,14 +1373,12 @@ pruning something else.
   partial revert.**
 - **Redo** needs no new mechanism: undoing is itself a logged `Revision`, redoing is
   undoing the undo.
-- **Undo authorization, reversing the v1 stance, attaches at the `Revision`.** The old
-  design concluded no dedicated server-side check was needed beyond ordinary
-  `FieldPermission` write-gating, reasoning that a client only ever holds its own
-  operation ids. **Decided differently here**: that leaves a real loophole — nothing
-  stops a client calling the undo endpoint directly with a `Revision` id it didn't itself
-  produce, and if the caller happens to have ordinary write permission on the affected
+- **Undo authorization attaches at the `Revision`.** Ordinary `FieldPermission`
+  write-gating alone leaves a real loophole — nothing stops a client calling the undo
+  endpoint directly with a `Revision` id it didn't itself produce, and if the caller
+  happens to have ordinary write permission on the affected
   field(s), the server would undo someone else's `Revision` passing as the caller's own
-  Ctrl+Z. Undoing a specific `Revision` now requires a real check, behind
+  Ctrl+Z. Undoing a specific `Revision` requires a real check, behind
   `Persistence\Permission\`, that the `Revision`'s own stored `actor` matches the
   requesting user/session's own identifier — a plain value comparison, never an
   `Actor::hasRole()` call, since this is about preventing impersonation of someone else's
@@ -1548,9 +1538,8 @@ rewrite.
   name and type.
 - **Naming conventions pass.** Namespace-level naming is decided (`Persistence\Entity\`/
   `Persistence\Schema\`/`Editor\`, see above), but class/method-level terminology
-  (`Owned`/`Shared`, `Embed`,
-  `FieldDescriptor`, ...) is still carried over from the old design unchanged and remains
-  a candidate for renaming later.
+  (`Owned`/`Shared`, `Embed`, `FieldDescriptor`, ...) is not finalized and remains a
+  candidate for renaming later.
 
 ## Explicitly out of scope
 
