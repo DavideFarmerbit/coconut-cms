@@ -1,35 +1,125 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 10)
 
-**Status: open (2026-10-12).** A tenth audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`,
-checking the two documents against each other for inconsistencies, missing pieces, and
-design flaws, and separately checking both against the standalone-document rule
+**Status: in progress (2026-10-12).** A tenth audit pass over `ARCHITECTURE_V2.md`/
+`ROADMAP_V2.md`, checking the two documents against each other for inconsistencies, missing
+pieces, and design flaws, and separately checking both against the standalone-document rule
 ([[feedback_v2_docs_standalone]]) for stray references to pre-rewrite docs/concepts, and
-for the architecture-never-names-roadmap direction of that same rule. Nine items below, none
-resolved yet. Work one item at a time per [[feedback_coconut_cms_development_workflow]].
-Ordered by how much it changes what gets built, not alphabetically.
+for the architecture-never-names-roadmap direction of that same rule. Nine items below; item
+1 resolved, eight still open. Work one item at a time per
+[[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes what gets
+built, not alphabetically.
 
 ## Missing pieces
 
-### 1. Owned-collection items have no way to express owner-scoped uniqueness
+### 1. Owned-collection items have no way to express owner-scoped uniqueness — **resolved (2026-10-12)**
 
-"Uniqueness" is explicit and consistent (confirmed against `ROADMAP_V2.md` Phase 3.3's own
+"Uniqueness" was explicit and consistent (confirmed against `ROADMAP_V2.md` Phase 3.3's own
 "Done when") that an Owned-collection item's `Unique` group is always global, never scoped to
 its owner — because the group's named fields live on the item's own CTI-chain table, which has
 no `owner`/`owner_field` column of its own to fold into a composite index (those columns live
-only on `entities`). Only a *non-entity* collection's dedicated child table gets owner-scoped
+only on `entities`). Only a *non-entity* collection's dedicated child table got owner-scoped
 uniqueness, because that table already carries `ownerId` directly.
 
-This isn't a contradiction — it's deliberate and the stated reasoning holds — but it's a real
-practical gap. Common CMS shapes need exactly the scoping this can't express: a variant's SKU
-unique *within* a product, a line item unique *within* an order. As written, the only way to
-get owner-scoped uniqueness on something that otherwise deserves to be a real Entity (its own
-identity, independently queryable, referenceable) is to not make it an Entity — which fights
-"Entity vs. Value Object vs. Embed"'s own test for when something must be a full Entity.
+This wasn't a contradiction — it was deliberate and the stated reasoning held — but it was a
+real practical gap. Common CMS shapes need exactly the scoping this couldn't express: a
+variant's SKU unique *within* a product, a line item unique *within* an order. As written, the
+only way to get owner-scoped uniqueness on something that otherwise deserves to be a real
+Entity (its own identity, independently queryable, referenceable) was to not make it an
+Entity — fighting "Entity vs. Value Object vs. Embed"'s own test for when something must be a
+full Entity.
 
-**Needs a decision**: accept the global-only limitation as-is (and say so plainly, so nobody
-hits this expecting scoped uniqueness to work), or find a structural way to fold `owner`/
-`owner_field` into an Owned-collection item's own constraint (e.g. a denormalized owner-scoping
-column on the item's own table, maintained alongside `entities.owner`).
+**Resolved: a `Unique` group on an Owned-collection item is automatically owner-scoped — not
+a choice.** Three options were on the table: a denormalized scope key on the item's own
+table, folded into the index; an application-level pre-check made safe by the existing
+`expectedOperationId` serialization of an Owned subtree; or just documenting the limitation.
+Went with denormalization — it's the only one that keeps "Uniqueness"'s existing rule intact:
+a real database constraint, never an application-level check.
+
+A first pass made this an opt-in flag per group. Dropped that in favor of making it automatic,
+once the parallel to Embed was pointed out: a non-entity collection's own `Unique` group
+*already* folds `ownerId` into its index unconditionally, no flag, no choice — "Collection
+cardinality, non-entity only" never offered a global alternative for it. Owned and Embed only
+differ in type-erasure vs. polymorphism; the ownership semantics ("this row has no life apart
+from its owner") are identical, so there was no real reason for Owned-collection to behave
+differently from the Embed-collection case it already sat next to. The one counter-case
+considered — a field that needs to stay unique *across* different owners, e.g. a globally
+unique code — doesn't actually need an opt-out: needing cross-owner uniqueness is itself the
+same signal "Entity vs. Value Object vs. Embed" already uses for "this needs its own
+independent identity," so it's a sign the field belongs on a standalone entity referenced by a
+`Reference`, not on something Owned. Closing that door is deliberate, not a gap.
+
+A second pass simplified the mechanics further, after two follow-up questions. First: is it
+worth adding the two columns to *every* entity's own table, unconditionally, rather than only
+when a shape first becomes an Owned-`Collection` item somewhere? Yes — it removes the
+add-on-first-use/drop-on-last-use trigger entirely. If `owner`/`owner_field` exist on every
+CTI-chain table from the moment that table is built (not just `entities`), every row already
+carries the correct value — real or sentinel — from its own creation, forever. Declaring (or
+un-declaring) owner-scoping on a `Unique` group then only ever changes the index definition,
+never the columns: no `ALTER ADD/DROP COLUMN`, no backfill, ever. Cost: two small columns on
+every table, always populated — cheap, and the same kind of uniform cost this design already
+pays elsewhere (the `entities` join on every read, `<field>_count` on every Owned-collection
+field regardless of required/optional).
+
+A database trigger was considered, to keep the copy in sync without touching application
+code at all. Rejected: the insert-time half is a portable same-key lookup (`BEFORE INSERT`,
+look up `entities` by `id`), but it saves nothing, since `Repository`/`WriteExecutor` already
+compute `owner`/`owner_field` in the same call that writes the `entities` row — writing them
+a second time costs nothing extra. The rename-time half isn't portably doable as a trigger at
+all: a trigger on `entities` would need to resolve `concrete_identifier` to a table name and
+run dynamic SQL against it, which MySQL triggers can't do. Since the rename half has to stay
+application code regardless, splitting the two into trigger-plus-code would leave two
+different mechanisms maintaining one pair of columns, instead of one — introducing triggers
+as a wholly new category of tool this design otherwise never uses, for a net increase in
+moving parts rather than a decrease.
+
+Second: the "never changed afterward" claim was wrong. `owner` never changes, correctly —
+nothing in this design moves a row to a different owner. But `owner_field` does change: when
+the declaring `OwningReference`/Owned-`Collection` field itself is renamed, "Migrations and
+schema mutation" already updates `entities.owner_field` for every existing row at that
+relationship. The item's own denormalized copy is a second place holding that same value, so
+the same rename operation now updates both, in one step — skipped, the copy would silently go
+stale and an owner-scoped `Unique` group would start comparing against the wrong bucket.
+
+The reserved `owner` value is the nil UUID (`00000000-0000-0000-0000-000000000000`); the
+reserved `owner_field` value is the empty string `""`, since a real field name can never be
+empty.
+
+A third pass went further, after the index-level trigger left over from the second pass —
+rebuilding a `Unique` group's index whenever some *other* class's field declaration starts
+or stops pointing at this shape as an Owned-`Collection` item — was called out as a genuinely
+odd thing for anything to have to listen for. Dropped that cross-schema check entirely:
+every `Unique` group, standalone, Shared-referenced, Owned singular, or Owned collection,
+with no exception, always folds `owner`/`owner_field` into its own index, decided once when
+the group is declared. What that protects against now falls out of the data instead of a
+schema-level choice: a standalone/Shared row shares the sentinel pair with every other row of
+its kind (global, same as before); an Owned-singular row is the only row at its own
+`(owner, owner_field)` pair, so the check is real but can never fire across different owners;
+an Owned-collection item shares its pair with its siblings, so the check is genuinely
+protective there, same as always. The "closing one door on purpose" tradeoff from the first
+pass now applies to Owned singular too, not just collection — a field needing cross-owner
+uniqueness on anything Owned, any cardinality, is a sign it needs independent identity, same
+remedy as before. Checked this against Embed on the way: Embed-singular's own long-standing
+"global" behavior isn't a deliberately protective mechanic worth matching — it's a structural
+accident of flattening onto the owner's own shared row, with no owner dimension available to
+scope by even in principle — so it argued for keeping Owned-singular global on its own
+separate merits (a single slot has nothing to compare against within one owner, so scoping it
+would make the check permanently vacuous), not for matching Owned to Embed. "Owned is owned"
+won anyway: cardinality shouldn't decide whether something Owned gets cross-owner protection,
+and dropping that last distinction removes the cross-schema check completely, with nothing
+needed in its place.
+
+Folded into `ARCHITECTURE_V2.md`'s "Global entity identity" (the universal `owner`/
+`owner_field` copy, written by `Repository`/`WriteExecutor`, synced on rename) and
+"Uniqueness" (the two previously-separate bullets collapsed into one — every row with its
+own `entities` entry always folds `owner`/`owner_field` in, no exception — and the
+now-obsolete "index changes shape" paragraph removed outright; the rename paragraph under
+"Migrations and schema mutation" still updates the item's own copy) and `ROADMAP_V2.md` Phase
+1.2 (the columns and sentinel values built from day one, before anything is Owned), Phase 1.3
+(proving the sentinel pair doesn't weaken a plain standalone group), Phase 3.3 (proving the
+collection case protective and the singular case deliberately, provably vacuous — not
+assumed), and Phase 6.2 (no retrofit needed on `addField()`, since the index was never
+missing the columns; renaming an `OwningReference`/Owned-`Collection` field still syncs both
+copies in one operation).
 
 ## Real inconsistencies
 

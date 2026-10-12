@@ -71,8 +71,15 @@ table name fail registration with an actionable error. No data written yet.
   ("No blobs. Every field is a real column or a real table.").
 - CTI chain of at least 2 for every identifier (`entities` + the class's own table) — no
   "chain of one, no join" case, even for a standalone class with no declared parent.
+- Every CTI-chain table also gets a plain `owner`/`owner_field` copy, unconditionally, from
+  the moment the table is built — not just `entities` ("Global entity identity"). Reserved
+  sentinel values from day one (the nil UUID for `owner`, the empty string for
+  `owner_field`), since nothing is Owned yet in Phase 1 — every row gets the sentinel pair,
+  proving the columns exist and are populated before any `Unique` group or Owned
+  relationship ever needs them.
 - `Persistence\Entity\Repository`/`IdentityMap`: insert writes the root row into `entities` first
-  (this is where `id` originates), then the class's own row; find/delete join through
+  (this is where `id` originates), then the class's own row — including its own
+  `owner`/`owner_field` copy, written in the same statement; find/delete join through
   `entities`; identity map scoped per request.
 - A throwaway second identifier kind for `Persistence\Schema\PrototypeRegistry` (a fake, not
   the editor-created one Phase 6 builds for real), including a fake table-name resolution,
@@ -88,7 +95,9 @@ included, resolved without ever appearing in the native case's own registration-
 proving `Repository` never assumed native reflection or a pre-registered table name along
 the way; resolving the same id twice within one request via `Repository::find()` returns
 the identical PHP instance, not two separate objects, proving the identity map from
-"Identity Map + Repository + lazy loading" ("identity map scoped per request" above).
+"Identity Map + Repository + lazy loading" ("identity map scoped per request" above); the
+class's own table carries the reserved sentinel pair in its own `owner`/`owner_field` copy
+for every row, proven before Phase 3.3 gives either column a real value to hold.
 
 ### 1.3 — Validation, uniqueness, and backfill correctness
 
@@ -105,9 +114,12 @@ the identical PHP instance, not two separate objects, proving the identity map f
 - `Unique`: one of `PrototypeValidator`'s built-in kinds, naming one or more of a class's
   own fields, materialized as a real composite (or single-column) `UNIQUE` index at
   registration time, with a friendly pre-check ahead of the real constraint ("Uniqueness").
-  Single-field and multi-field groups both land here — composite grouping among plain scalar
-  fields on one standalone class needs nothing beyond what this phase already has; the
-  scoping/exclusion rules that depend on `#[Embed]`, references, collections, or CTI
+  The index always includes the `owner`/`owner_field` columns Phase 1.2 already put on the
+  table, one rule with no exception — harmless here, since every row is standalone and
+  carries the same reserved sentinel pair, so the group behaves exactly like a plain group
+  would. Single-field and multi-field groups both land here — composite grouping among
+  plain scalar fields on one standalone class needs nothing beyond what this phase already
+  has; the exclusion rules that depend on `#[Embed]`, references, collections, or CTI
   extension are proven later, in the phase that introduces each.
 - `#[DefaultInstance]` + resolution order + the eager-failure registration walk
   ("Defaulted instances") — brought in now, not deferred to a late phase, since
@@ -116,11 +128,14 @@ the identical PHP instance, not two separate objects, proving the identity map f
 
 **Done when**: a hand-written native class with a mix of `Unique` and plain scalar fields
 round-trips fully; a single-field `Unique` group and a multi-field one are both enforced,
-each independently of the other; an arbitrary-logic `PrototypeValidator` rejects a candidate
-state that violates it and accepts one that doesn't; `describe()` on a couple of
-`FieldValidator` built-ins and on the arbitrary-logic `PrototypeValidator` each return the
-expected shape; adding a new field to an already-populated class backfills every existing
-row via `#[DefaultInstance]` resolution.
+each independently of the other; a `Unique` group still correctly rejects a duplicate across
+two standalone rows even with `owner`/`owner_field` folded into its index, proving the
+reserved sentinel pair (shared by every standalone row) doesn't weaken the check; an
+arbitrary-logic `PrototypeValidator` rejects a candidate state that violates it and accepts
+one that doesn't; `describe()` on a couple of `FieldValidator` built-ins and on the
+arbitrary-logic `PrototypeValidator` each return the expected shape; adding a new field to
+an already-populated class backfills every existing row via `#[DefaultInstance]`
+resolution.
 
 **Not yet** (end of Phase 1): entity references/collections, value objects/embed,
 native CTI extension (a native class extending another), the `Changeset` write path
@@ -226,6 +241,12 @@ each proven in isolation.
   table, uniformly for required and optional item kinds — needed because an absent
   *optional* owned item leaves no row at all, so counting `entities` rows undercounts the
   true slot count the moment any slot is empty ("References and collections").
+- A `Unique` group on anything Owned here — singular or collection — folds the
+  `owner`/`owner_field` columns Phase 1.2 already put on every table into its own index,
+  the same one rule every `Unique` group already uses, no column change and no backfill
+  needed. A row of the same shape with no owner carries the reserved sentinel pair in those
+  same columns, so it still collides with every other ownerless row — the same behavior a
+  plain group already gives them ("Uniqueness").
 
 **Done when**: a native class can Owned-collection a shape via
 `entities.owner`/`owner_field`/`position`; the same reusable shape Owned by two unrelated
@@ -241,12 +262,16 @@ later positions down, while clearing a slot's content leaves the count and every
 untouched — proven here via direct `Repository`/manual-update calls computing the shift and
 count change by hand, since `Changeset` doesn't exist until Phase 4 (the auto-expanding,
 explicit-intent version of this is Phase 4's own done-when, not retested here); a
-`Unique` group declared on the Owned-collection item's own fields rejects a second
-occurrence of the same combination even under a different owner, proving an
-Owned-collection item's uniqueness is the same global, table-wide constraint a standalone
-row's own `Unique` group already gets (Phase 1.3), never owner-scoped — an Owned-collection
-item is an ordinary row of the shared `entities` table like any other, with no
-`ownerId`-equivalent column on its own table to fold into the index; loading an owner
+`Unique` group on an Owned-collection item's own fields allows the same combination to
+recur under a different owner but rejects a repeat under the same owner, proven using the
+`owner`/`owner_field` columns Phase 1.2 already put on the table — the same columns, no
+column added, no row backfilled; the same kind of group declared on an Owned-*singular*
+item's own fields instead never rejects a repeat across different owners, proven
+deliberately rather than assumed — there is only ever one row per `(owner, owner_field)`
+pair, so the same real index simply never finds a second row to compare against; a row of
+either kind with no owner still collides with every other ownerless row under that same
+group, proven via the reserved sentinel pair covering it, not left to slip through as a
+bare, un-sentineled `NULL`; loading an owner
 triggers no `entities.owner`/`owner_field` lookup for an Owned singular or collection
 field until it's actually accessed, the same laziness rule as 3.2's Shared case, now proven
 for the reverse-indexed-query shape Owned uses instead of a stored FK.
@@ -496,7 +521,15 @@ reused rather than rebuilt for the second identifier kind.
   current live values, then the real index `ALTER`, never routed through `retype()`'s
   capture/reconstruct machinery since no value ever changes. Bundled with a kind change in
   the same admin action, it goes through `retype()` instead, which already needs to know
-  about `Unique` membership regardless (see the distinctness check below).
+  about `Unique` membership regardless (see the distinctness check below). Every such
+  index already includes the `owner`/`owner_field` columns Phase 1.2 put on the table from
+  the start ("Uniqueness") — `addField()` adding an Owned-`Collection` field to a shape that
+  already carries a `Unique` group needs no retrofit of any kind, since the group's index
+  was never missing those columns in the first place. Renaming an
+  `OwningReference`/Owned-`Collection` field also updates the item's own denormalized
+  `owner_field` copy in the same operation that already updates `entities.owner_field`
+  (below) — skipping it would leave a `Unique` group comparing against the field's old
+  name.
 - Attaching or removing a `PrototypeValidator` rule on an already-populated editor-created
   prototype, picked from the same closed menu 6.1's creation path already draws from —
   mutating which rules are attached is governed by `SchemaPermission` the same as any other
@@ -538,7 +571,11 @@ dedicated table too, not just the field's metadata; removing such a field drops 
 dedicated table outright; renaming a field that declares an `OwningReference` or an Owned
 `Collection` (introduced in Phase 3.3) updates `entities.owner_field` for every existing
 row at that relationship, proven by reading an already-owned row back correctly under the
-field's new name after the rename; renaming an Owned `Collection` field also renames its own
+field's new name after the rename; the same rename also updates the item's own denormalized
+`owner_field` copy (Phase 1.2) — proven, for the Owned-collection case, by a `Unique` group
+on that item still correctly rejecting a same-owner duplicate under the field's new name,
+not left comparing against the stale old one; renaming an Owned `Collection` field also
+renames its own
 `<field>_count` column (introduced in Phase 3.3) alongside the `owner_field` update, an
 ordinary column rename rather than a new mechanism; adding a field to a `Unique` group with
 no existing duplicates among its current values succeeds, and is refused, naming the

@@ -198,6 +198,23 @@ declared parent, now joins to `entities` once. Traded for removing the need for 
 per-relationship dedicated table (see "References and collections" below) and any
 discriminator-per-chain-root mechanism.
 
+**Every entity's own CTI-chain table also carries a plain copy of `owner` and
+`owner_field`.** Not just `entities` — every level, from the moment its table is created.
+Each copy holds the same value as the row's own `entities` entry: the real values for an
+Owned row, a fixed reserved pair for a row with no owner (see "Reserved sentinel values"
+under "Uniqueness" — never a plain `NULL`). `Repository`/`WriteExecutor` write both copies
+in the same insert that already writes the row's own fields. `owner` never changes
+afterward: nothing in this design moves a row to a different owner. `owner_field` changes
+exactly once, in the same operation that already updates `entities.owner_field` when the
+declaring relationship's own field is renamed (see "Renaming a field that declares an
+`OwningReference`..." below).
+
+This copy exists on every table, used or not by any `Unique` group on that level — the same
+universal, regardless-of-use posture `entities` itself already has. The payoff is
+"Uniqueness": every `Unique` group folds `owner`/`owner_field` into its own single-table
+index with no join, no backfill, and no separate add/drop step, because the two columns and
+their values are already correct on every row from the day that row was created.
+
 ## No blobs. Every field is a real column or a real table.
 
 There is no JSON-blob storage tier at all, anywhere: every field is a real column or a real
@@ -387,15 +404,36 @@ shape declaring it.
 
 **Where the constraint physically lands, by how the declaring shape is used:**
 
-- **Standalone, Shared-referenced, or Owned** (singular or collection): every row with its
-  own entry in the shared `entities` table lives in the one shared physical table its whole
-  chain is rooted through, regardless of how that row is currently used, so the constraint
-  is always global — every standalone row and every Owned row under every relationship,
-  compared together, never scoped by owner. Deliberate, not just the absence of a narrower
-  option: a group's named fields live on the row's own CTI-chain table, never on `entities`
-  itself, so `owner`/`owner_field` (which live only on `entities`) are never columns the
-  group's own table even has to fold in — there is no single-table index that could express
-  owner-scoping for these rows at all, so uniqueness for them is simply global instead.
+- **Every row with its own entry in `entities`** — standalone, Shared-referenced, Owned
+  singular, Owned collection, all four alike, no exception for any of them. The group's
+  index always folds in the row's own `owner`/`owner_field` copy (see "Global entity
+  identity") alongside its named fields: `(owner, owner_field, ...named fields)`, never
+  just `(...named fields)`. One rule, decided once, when the group is declared — nothing
+  about how the shape happens to be used elsewhere ever needs checking, now or later.
+
+  What that one rule actually protects against falls out of the data, not a schema-level
+  choice:
+  - A standalone or Shared-referenced row carries the same reserved sentinel pair as every
+    other row of its kind (see "Reserved sentinel values" below), so they still all collide
+    with each other — the same behavior a plain, unscoped group already gave them.
+  - A singular `OwningReference` row is the only row at its own `(owner, owner_field)` pair,
+    by construction, so the check can never find a second row to collide with — a real
+    index, just one that can never fire across different owners.
+  - An Owned-`Collection` item shares its `(owner, owner_field)` pair with every sibling
+    slot under the same owner, so the check is genuinely protective there — the case this
+    rule exists for.
+
+  This closes one door on purpose, for Owned singular and Owned collection alike: a field on
+  anything Owned can never be unique *across* different owners. A field that genuinely needs
+  that — found or compared the same way no matter who currently owns it — is a sign the item
+  has its own independent identity, and belongs modeled as a standalone entity with a
+  `Reference` pointing to it, not as something Owned.
+
+  **Reserved sentinel values.** `owner` is a UUID column, so its reserved value must be a
+  valid UUID that no real row will ever get: the nil UUID,
+  `00000000-0000-0000-0000-000000000000` (RFC 4122's own reserved "no value" UUID).
+  `owner_field` is a string holding a real field name, so its reserved value is simply the
+  empty string `""` — a real field name can never be empty.
 - **`#[Embed]` target**: each embedding site gets its own, independently-flattened copy of
   the columns (`House.homeAddress_street` and `Order.deliveryAddress_street` are unrelated
   columns, possibly on unrelated tables, per "Entity vs. Value Object vs. Embed"). A declared
@@ -404,9 +442,9 @@ shape declaring it.
   but each site's resulting constraint stands alone.
 - **Collection cardinality, non-entity only** (a Shared pivot's own target-FK column, or a
   non-entity/`#[Embed]` collection's own dedicated child table): these items have no entry
-  in `entities` at all — no identity of their own — so they have no global table to fall
-  back to the way a standalone/Shared-referenced/Owned row above does. Every owner's items
-  instead share one dedicated table that already carries `ownerId` directly alongside
+  in `entities` at all — no identity of their own — so they have no `owner`/`owner_field`
+  copy to fold in the way a row above does. Every owner's items instead share one dedicated
+  table that already carries `ownerId` directly alongside
   `position` and the value column(s), so `ownerId` is folded into the materialized index
   automatically, alongside whatever fields were named — otherwise the constraint would
   wrongly span every different owner's collection system-wide instead of staying scoped to
@@ -443,7 +481,11 @@ data** — same posture as every other non-retype field operation (see "Migratio
 mutation"): it runs a friendly pre-check over the current live values, refusing and naming
 the collision if any duplicate already exists, then issues the real `ALTER ... ADD UNIQUE`.
 Removing membership is always safe, no check needed. A kind change bundled together with a
-membership change goes through the full retype mechanism instead, described below.
+membership change goes through the full retype mechanism instead, described below. The
+`owner`/`owner_field` columns are part of every such index from the start, by the one rule
+above — nothing about them ever needs adding, dropping, or backfilling on their own, since
+they already exist, correctly populated, on every row from the table's own creation (see
+"Global entity identity").
 
 **Cleanup on rename or removal is mostly already free, with one new case.** Dropping the
 whole table, or the sole field of a single-field group, drops the index with it. Renaming a
@@ -582,7 +624,12 @@ covered by the column/table renames above; this is specific to the no-column cas
 Owned relationship is. **An Owned `Collection` field's own `<field>_count` column does
 need an ordinary rename alongside this** — unlike the relationship itself, the count column
 is a real column on the owner's own declaring table, renamed the same way any other column
-would be, run as part of the same rename operation.
+would be, run as part of the same rename operation. **The item's own denormalized
+`owner_field` copy (see "Global entity identity") updates in the same operation too** —
+`UPDATE <item's table> SET owner_field = ? WHERE owner = ? AND owner_field = ?`, the exact
+same `WHERE` clause against the item's own table instead of `entities`. Skipping this leaves
+the copy holding the field's old name, so any `Unique` group folding it into an index (see
+"Uniqueness") would silently start comparing against the wrong bucket.
 
 **Every table name is checked for collisions at registration time, not discovered later as
 a migration failure**: an entity's own table name (derived from the class's short name, or
