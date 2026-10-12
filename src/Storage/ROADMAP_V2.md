@@ -2,9 +2,7 @@
 
 Phased build plan for `ARCHITECTURE_V2.md`. Section names below (`"Like this"`) refer to
 headings in that document; build against it, not a re-explanation here. This is the only
-roadmap in effect for `Persistence\`/`Editor\` work going forward (see
-`ARCHITECTURE_V2.md`, "Namespaces and migration path" for how pre-existing code is handled
-during the transition).
+roadmap in effect for `Persistence\`/`Editor\` work going forward.
 
 **Scope**: this roadmap covers `Persistence\Entity\`, `Persistence\Schema\`, `Persistence\Changeset\`, and `Persistence\Permission\` — the
 backend. `Editor\` (the admin-facing authoring UI, including the client-side

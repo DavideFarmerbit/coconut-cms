@@ -7,7 +7,7 @@ never a changelog of how a decision was reached, what it replaced, or what came 
 Not a frozen spec. Revisit as implementation surfaces constraints this discussion didn't
 anticipate.
 
-## Namespaces and migration path
+## Namespaces
 
 Entity persistence, schema/migrations, the content write path/undo, and permissions are
 four distinct concerns, each its own backend namespace, nested under one shared parent,
@@ -56,14 +56,6 @@ persistence system itself, a separate later track per `ROADMAP_V2.md`.
 Same pattern `Routing\` and `Core\Error\` already use in this codebase: one class per
 file, subdirectories mirror sub-namespaces, `tests/` mirrors `src/` 1:1 folder-for-folder,
 plus a `Fixtures/` folder for test-only support classes.
-
-**The old `Storage\` namespace is left untouched during the rewrite, not migrated,
-extended, or deleted.** It keeps working exactly as it does today and stays available as
-a running reference to consult while the new `Persistence\`/`Editor\` code is built —
-deliberately not reused or built on top of, to keep the rewrite a clean-room effort rather
-than dragging the old entanglement forward. `Storage\` gets retired once it's no longer
-needed for that reference purpose — no fixed point in the roadmap for that, revisit once
-`Persistence\` actually covers everything `Storage\` did.
 
 ## The goal
 
@@ -1411,7 +1403,7 @@ pruning something else.
 
 - **Draft belongs to `Editor\`, not this document.** Unlike undo, it has no meaning for a
   write path that isn't a human composing an edit through the admin UI, so it isn't a
-  persistence-layer concern (see "Namespaces and migration path"). Whatever it ends up
+  persistence-layer concern (see "Namespaces"). Whatever it ends up
   being is built from `Persistence\Changeset\Changeset` plus `ChangesetFlusher` to publish
   — the same way `RemoteCommand` below is built from `Revision` — but its actual shape
   (what triggers one, how a read is supposed to differ from the ordinary live state while

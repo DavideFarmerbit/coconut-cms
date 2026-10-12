@@ -186,20 +186,24 @@ registered menu, never arbitrary logic. Stated explicitly now in `ARCHITECTURE_V
 
 ## Documentation hygiene
 
-### 6. `ARCHITECTURE_V2.md` names and narrates the old `Storage\` namespace
+### 6. `ARCHITECTURE_V2.md` names and narrates the old `Storage\` namespace — **resolved (2026-10-12)**
 
 "Namespaces and migration path": "**The old `Storage\` namespace is left untouched during the
 rewrite, not migrated, extended, or deleted.** It keeps working exactly as it does today and
 stays available as a running reference to consult while the new `Persistence\`/`Editor\` code
 is built — deliberately not reused or built on top of, to keep the rewrite a clean-room effort
-rather than dragging the old entanglement forward." This explains the migration's relationship
-to old code rather than describing the new system's own shape — it reads like
+rather than dragging the old entanglement forward." This explained the migration's relationship
+to old code rather than describing the new system's own shape — it read like
 `CLEANUP_FOR_V2_ROUNDn.md` material, not `ARCHITECTURE_V2.md` material.
 
-**Needs a decision**: either drop this paragraph from `ARCHITECTURE_V2.md` entirely (the
-migration-coexistence fact belongs in a cleanup round, not the standalone architecture), or
-restate only the part that's a real constraint on the new system (if any) without narrating
-what happens to the old namespace.
+**Resolved: dropped the paragraph entirely.** It's pure migration-coexistence narration
+([[feedback_v2_docs_standalone]] names exactly this pattern as the violation, not a one-off),
+with no standalone-architecture fact left once removed. The section, now carrying only
+namespace-organization content, is renamed "Namespaces" (was "Namespaces and migration
+path"); the one internal cross-reference to the old heading name is updated. `ROADMAP_V2.md`
+had the identical violation in its own intro — a parenthetical pointing at this very
+paragraph "for how pre-existing code is handled during the transition" — dropped there too,
+since the same standalone rule binds `ROADMAP_V2.md` as well.
 
 ### 7. "Unchanged from the original design"
 
