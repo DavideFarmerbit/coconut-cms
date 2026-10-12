@@ -6,7 +6,7 @@ pieces, and design flaws, and separately checking both against the standalone-do
 ([[feedback_v2_docs_standalone]]) for stray references to pre-rewrite docs/concepts, and
 for the architecture-never-names-roadmap direction of that same rule. The hygiene check came
 back clean this round — no stray references found in either direction — so there's no
-hygiene section below. Eight items below, three resolved so far (items 1-3). Work one item
+hygiene section below. Eight items below, four resolved so far (items 1-4). Work one item
 at a time per [[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes
 what gets built, not alphabetically.
 
@@ -110,7 +110,7 @@ attaching one as a parent is always allowed regardless. Phase 6.3 gained a match
 and "Done when" assertion, proving the rejection, the `true` success case, and the
 always-allowed editor-created-parent case as three distinct scenarios.
 
-### 4. Phase 6's own stated goal isn't covered by any of its "Done when" criteria
+### 4. Phase 6's own stated goal isn't covered by any of its "Done when" criteria — **resolved (2026-10-12)**
 
 Phase 6's intro promises every mutation introduced in the phase "bumps the global
 `schema_version` sequence from Phase 5.3, exercising its restore-blocking guard end to end for
@@ -124,6 +124,20 @@ as written.
 testable (6.1, since `createPrototype()` is the first schema mutation that exists) — something
 like: creating a prototype bumps `schema_version`, and a revision-history restore attempting to
 reach back across that bump is rejected by Phase 5.3's guard.
+
+**Resolved: added to Phase 6.1's "Done when," as suggested, once only.** `schema_version` is
+one global counter, and the guard's rule is "blocked if any schema change happened since" —
+proving the block once, at the earliest testable point, exercises the same mechanism 6.2's
+`addField()`/etc. and 6.3's `reparent()` would otherwise re-exercise with no new behavior to
+show, so neither gained its own repeat assertion.
+
+While fixing this, found a related but distinct gap one level down: Phase 5.3 introduces
+revision-history restore as a bullet ("reads one entity's own `EntityChangeRecord` chain,
+restores by flushing a new changeset") but its own "Done when" never tested a basic
+*successful* restore at all — only pruning-then-undo-refusal, pruning permission, and
+empty-`Revision` pruning. Fixed in the same pass: Phase 5.3's "Done when" now also asserts
+that restoring to an earlier state resets an entity's fields exactly and produces its own new
+`Revision`, appending to history rather than rewriting it.
 
 ### 5. `RequiredValidator` is named but never built
 

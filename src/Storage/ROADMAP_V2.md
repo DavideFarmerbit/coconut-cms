@@ -446,7 +446,10 @@ itself.
   oversight, since the tool already reads a record's full structured content before
   deleting it, so the hook is addable later with no schema change.
 
-**Done when**: manually pruning one touched entity's `EntityChangeRecord` and then
+**Done when**: restoring one entity's own `EntityChangeRecord` chain to an earlier past
+state resets its fields to that state exactly, flushing a new changeset that produces its
+own new `Revision` — history is only ever appended to, never rewritten; manually pruning one
+touched entity's `EntityChangeRecord` and then
 attempting to undo the `Revision` it belonged to produces a clean, specific refusal, not a
 silent partial revert; pruning without `HistoryPermission` is rejected; pruning the last
 `EntityChangeRecord` under a `Revision` leaves it as an empty row, not auto-deleted, and
@@ -496,7 +499,10 @@ immediately, the same real-constraint mechanism Phase 1.3 already proved for nat
 reused rather than rebuilt for the second identifier kind; a fresh editor-created prototype
 created with this phase's own test-registered `PrototypeValidator` rule attached enforces it
 immediately too, proving the open-registration mechanism end to end for the second
-identifier kind.
+identifier kind; creating a prototype bumps the global `schema_version` sequence Phase 5.3
+introduced; a revision-history restore attempted on an `EntityChangeRecord` stamped before
+that bump is rejected, naming the reason, proving Phase 5.3's restore-blocking guard end to
+end for the first time.
 
 ### 6.2 — Mutating an existing, populated prototype
 
