@@ -103,11 +103,17 @@ out by construction rather than by a runtime check. `required` exists only on
 `owningReference()`: unlike `reference()`, which can never be required at the schema level
 (see "FK `ON DELETE` policy"), an `OwningReference` *can* be, and whether it is changes real
 behavior (a defaulted instance gets backfilled vs. the slot staying absent), not just a
-`FieldValidator` gate layered on afterward. `collection()`'s own `itemDescriptor` is any of
-the other five factories' output, never another `collection()` or `NoType` — Owned-ness of
-a collection rides entirely on its item descriptor (`collection(name, owningReference(...))`
-for an Owned collection, `collection(name, reference(...))` for a Shared one), so
-`collection()` itself never needs its own Owned/Shared variant.
+`FieldValidator` gate layered on afterward. `collection()`'s own `itemDescriptor` parameter
+only ever accepts any of the other five factories' output, never another `collection()` or
+`NoType` — Owned-ness of a collection rides entirely on its item descriptor
+(`collection(name, owningReference(...))` for an Owned collection,
+`collection(name, reference(...))` for a Shared one), so `collection()` itself never needs
+its own Owned/Shared variant. That restriction is on what a developer can pass to the public
+`collection()` factory, not on what `fieldsOf()` can later report: once the framework's own
+capture/retype machinery degrades a collection's item kind to `NoType` in place (see
+"Migrations and schema mutation"), `fieldsOf()` legitimately reports a `collection()`
+descriptor whose `itemDescriptor` is `NoType` — the same already-decided carve-out `NoType`
+gets below applies here too.
 
 A seventh kind, `NoType` (see "Migrations and schema mutation"), exists too, but has no
 public factory among these six — it's never developer-declared, only produced by the

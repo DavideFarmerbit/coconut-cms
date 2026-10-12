@@ -123,20 +123,20 @@ copies in one operation).
 
 ## Real inconsistencies
 
-### 2. `collection()`'s itemDescriptor restriction contradicts the `NoType` conversion mechanics
+### 2. `collection()`'s itemDescriptor restriction contradicts the `NoType` conversion mechanics — **resolved (2026-10-12)**
 
-"Shape comes from a neutral descriptor" states: "`collection()`'s own `itemDescriptor` is any
+"Shape comes from a neutral descriptor" stated: "`collection()`'s own `itemDescriptor` is any
 of the other five factories' output, never another `collection()` or `NoType`." But
 "Migrations and schema mutation" and "Uniqueness" both describe a collection's item kind
 legitimately *becoming* `NoType` in place (the pivot/child table's value column "converts its
 value column(s) to `NoType` the same way" a singular field does) — a real, queryable,
 retypeable runtime state, not a forbidden one.
 
-**Needs a decision**: the "never `NoType`" line should get the same carve-out `NoType` already
-has elsewhere ("no public factory... only produced by the framework's own capture/retype
-machinery") — i.e. clarify that the restriction is on what a developer can pass to the public
-`collection()` factory, not on what `fieldsOf()` can later report once the framework's own
-machinery has degraded a field.
+**Resolved: gave the line the same carve-out `NoType` already has elsewhere** ("no public
+factory... only produced by the framework's own capture/retype machinery"). The restriction is
+on what a developer can pass to the public `collection()` factory, never on what `fieldsOf()`
+can later report once the framework's own capture/retype machinery has degraded a collection's
+item kind to `NoType` in place.
 
 ### 3. `RolePermission` is named once and never defined
 
