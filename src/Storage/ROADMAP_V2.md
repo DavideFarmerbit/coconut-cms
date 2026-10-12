@@ -242,11 +242,13 @@ later positions down, while clearing a slot's content leaves the count and every
 untouched — proven here via direct `Repository`/manual-update calls computing the shift and
 count change by hand, since `Changeset` doesn't exist until Phase 4 (the auto-expanding,
 explicit-intent version of this is Phase 4's own done-when, not retested here); a
-`Unique` group declared on the Owned-collection item's own fields allows the
-same combination to appear once under two different owners while rejecting a second
-occurrence under the same owner, proving the owner-scoping column was folded into the real
-constraint rather than left as a group spanning every owner's items at once; loading an
-owner triggers no `entities.owner`/`owner_field` lookup for an Owned singular or collection
+`Unique` group declared on the Owned-collection item's own fields rejects a second
+occurrence of the same combination even under a different owner, proving an
+Owned-collection item's uniqueness is the same global, table-wide constraint a standalone
+row's own `Unique` group already gets (Phase 1.3), never owner-scoped — an Owned-collection
+item is an ordinary row of the shared `entities` table like any other, with no
+`ownerId`-equivalent column on its own table to fold into the index; loading an owner
+triggers no `entities.owner`/`owner_field` lookup for an Owned singular or collection
 field until it's actually accessed, the same laziness rule as 3.2's Shared case, now proven
 for the reverse-indexed-query shape Owned uses instead of a stored FK.
 
@@ -267,10 +269,12 @@ its dedicated child table, ordered and cascade-deleted with the owner; a collect
 `#[Embed]` items round-trips with each position's shape flattened into its own row;
 `MediaAsset` demonstrates both Owned and Shared usage at once; a `Unique` group declared on
 an `#[Embed]`-collection item's own fields allows the same combination to appear once under
-two different owners while rejecting a second occurrence under the same owner, the same
-owner-scoping proof as 3.3's Owned-collection case, now for a dedicated child table instead
-of `entities`; loading an owner triggers no query against a non-entity collection's own
-dedicated table until the field is actually accessed, the same laziness rule as 3.2/3.3,
+two different owners while rejecting a second occurrence under the same owner, proving the
+dedicated child table's own `ownerId` column was folded into the real constraint — possible
+here precisely because that column lives directly on the item's own table, unlike an
+Owned-collection item (Phase 3.3), which has no such column on its own table and so stays
+globally unique instead; loading an owner triggers no query against a non-entity
+collection's own dedicated table until the field is actually accessed, the same laziness rule as 3.2/3.3,
 proven here for the dedicated-child-table shape rather than a live subtype needing identity-
 map reuse, since a non-entity item has no identity of its own to resolve twice.
 

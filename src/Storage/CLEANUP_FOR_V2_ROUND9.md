@@ -89,7 +89,7 @@ same two-cases-folded-into-one wording in its own summary parenthetical, missed 
 original audit note since the quoted "Done when" text was about the drop side, not the add
 side).
 
-### 3. `Unique` group scope for an Owned relationship is stated two incompatible ways
+### 3. `Unique` group scope for an Owned relationship is stated two incompatible ways — **resolved (2026-10-12)**
 
 "Uniqueness"'s first scoping bullet says a group declared on a "Standalone,
 Shared-referenced, or Owned (singular **or collection**)" shape is global — "every
@@ -103,24 +103,47 @@ the second (owner-scoped) reading explicitly: "...proving the owner-scoping colu
 folded into the real constraint rather than left as a group spanning every owner's items at
 once."
 
-**Open**: narrow the first bullet's "(singular or collection)" to "(singular)" — and in the
-same pass, confirm that Owned-*singular* really is meant to be globally unique across every
-unrelated owner (worth double-checking that's the intended semantics and not just leftover
-wording from before the collection case was carved out), since nothing else in the document
-tests or motivates that specific choice.
+**Resolved: any row with its own entry in the shared `entities` table is always globally
+unique, never owner-scoped — including an Owned-collection item.** This isn't just picking
+the first bullet's reading over the second's; it's also the only one that's physically
+buildable. A `Unique` group's named fields always live on the declaring shape's own
+CTI-chain table, never on `entities` itself — `owner`/`owner_field` live only on `entities`
+(the whole point of that table being universal and type-agnostic, see "Global entity
+identity") — so there is no single table a composite index could even be declared against
+to fold owner-scoping in for an Owned-collection item. Owner-scoping only ever works for the
+non-entity case: a Shared pivot's own target-FK column, or a non-entity/`#[Embed]`
+collection's own dedicated child table, because those items have no `entities` row of their
+own at all, and their dedicated table already carries `ownerId` directly alongside the
+named fields — one physical table, no cross-table problem. "Collection cardinality" is
+narrowed to cover only that non-entity case now; "Owned collection" moved up into the first
+bullet alongside Owned-singular, both globally unique, both for the same reason (no
+owner-scoping column reachable from their own table). Folded into `ARCHITECTURE_V2.md`'s
+"Uniqueness" section and `ROADMAP_V2.md` Phase 3.3/3.4's "Done when" (3.3's now proves an
+Owned-collection `Unique` group rejects a cross-owner duplicate instead of permitting one;
+3.4's no longer claims parity with 3.3's case, since 3.3 is no longer an owner-scoping
+proof).
 
-**Minor, related**: "Content undo, draft, and revision history"'s restore-blocking
-discussion says the future touched-field refinement would reuse "the same
-never/conditional/always classification already used for schema-mutation kinds (purely-
-additive changes never block; a single-field change like drop/rename/retype blocks only
-that field; reparent/delete block more broadly)" — but no such named classification is
-actually established anywhere earlier in the document; it only appears here, inline, as
-part of describing an unresolved refinement. Either point to where it's actually defined or
-drop "already used."
+Whether Owned-*singular* is really meant to be globally unique across every unrelated owner
+was the other open question here — settled the same way, since the same no-owner-scoping-
+column reasoning applies to it unconditionally, not just as an assumption worth
+double-checking.
+
+### 4. `ARCHITECTURE_V2.md` claims a "never/conditional/always classification" that's never actually established
+
+Split out from item 3, unrelated to that item's actual `Unique`-scoping question. "Content
+undo, draft, and revision history"'s restore-blocking discussion says the future
+touched-field refinement would reuse "the same never/conditional/always classification
+already used for schema-mutation kinds (purely-additive changes never block; a
+single-field change like drop/rename/retype blocks only that field; reparent/delete block
+more broadly)" — but no such named classification is actually established anywhere earlier
+in the document; it only appears here, inline, as part of describing an unresolved
+refinement.
+
+**Open**: either point to where it's actually defined or drop "already used."
 
 ## Documentation hygiene
 
-### 4. `ARCHITECTURE_V2.md` still narrates decision history and names pre-rewrite concepts
+### 5. `ARCHITECTURE_V2.md` still narrates decision history and names pre-rewrite concepts
 
 The document's own `Status` line says it's "a standalone technical description of the
 system's current, decided shape... never a changelog of how a decision was reached, what
@@ -155,7 +178,7 @@ item 3.1). Several passages still violate it:
 reference to "the old design"/"the old system"/"original baseline"/old phase numbers —
 same treatment Round 8 item 3.1 already gave the `Status` line itself.
 
-### 5. `ROADMAP_V2.md` cites `AUDIT.md` and the old roadmap directly, instead of only `ARCHITECTURE_V2.md`
+### 6. `ROADMAP_V2.md` cites `AUDIT.md` and the old roadmap directly, instead of only `ARCHITECTURE_V2.md`
 
 - "Supersedes `ROADMAP.md` the same way `ARCHITECTURE_V2.md` supersedes `ARCHITECTURE.md` —
   **the old roadmap's** phases 1-8C stay as-is..." (intro).

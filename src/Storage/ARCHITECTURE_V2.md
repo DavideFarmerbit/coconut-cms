@@ -390,24 +390,33 @@ shape declaring it.
 
 **Where the constraint physically lands, by how the declaring shape is used:**
 
-- **Standalone, Shared-referenced, or Owned** (singular or collection): every such row of a
-  concrete type lives in the one shared physical table its whole chain is rooted through, so
-  the constraint is global — every standalone row and every Owned row under every
-  relationship, compared together. Deliberate: there is no narrower storage to scope it to,
-  since the shared `entities` table exists specifically to avoid a dedicated table per
-  relationship.
+- **Standalone, Shared-referenced, or Owned** (singular or collection): every row with its
+  own entry in the shared `entities` table lives in the one shared physical table its whole
+  chain is rooted through, regardless of how that row is currently used, so the constraint
+  is always global — every standalone row and every Owned row under every relationship,
+  compared together, never scoped by owner. Deliberate, not just the absence of a narrower
+  option: a group's named fields live on the row's own CTI-chain table, never on `entities`
+  itself, so `owner`/`owner_field` (which live only on `entities`) are never columns the
+  group's own table even has to fold in — there is no single-table index that could express
+  owner-scoping for these rows at all, so uniqueness for them is simply global instead.
 - **`#[Embed]` target**: each embedding site gets its own, independently-flattened copy of
   the columns (`House.homeAddress_street` and `Order.deliveryAddress_street` are unrelated
   columns, possibly on unrelated tables, per "Entity vs. Value Object vs. Embed"). A declared
   group materializes as an *independent* composite index *at each site*, never spanning
   sites — propagated to every embedding table the same way a rename/retype already fans out,
   but each site's resulting constraint stands alone.
-- **Collection cardinality** (Owned collection, Shared pivot, or a non-entity/`#[Embed]`
-  collection's own dedicated child table): every owner's items share one physical table, so
-  the table's own scoping column (`owner`/`owner_field`, or the dedicated table's `ownerId`)
-  is folded into the materialized index automatically, alongside whatever fields were named —
-  otherwise the constraint would wrongly span every different owner's collection system-wide
-  instead of staying scoped to one owner's own items.
+- **Collection cardinality, non-entity only** (a Shared pivot's own target-FK column, or a
+  non-entity/`#[Embed]` collection's own dedicated child table): these items have no entry
+  in `entities` at all — no identity of their own — so they have no global table to fall
+  back to the way a standalone/Shared-referenced/Owned row above does. Every owner's items
+  instead share one dedicated table that already carries `ownerId` directly alongside
+  `position` and the value column(s), so `ownerId` is folded into the materialized index
+  automatically, alongside whatever fields were named — otherwise the constraint would
+  wrongly span every different owner's collection system-wide instead of staying scoped to
+  one owner's own items. (A Shared pivot's own group only ever constrains the pivot's own
+  target-FK column — "this owner can't reference the same target twice" — never the
+  referenced row's own fields, which "Two structural exclusions" below rules out
+  regardless.)
 
 **Two structural exclusions, both rejected at registration time — same posture as every
 other structural violation in this design** (Embed-of-Embed cycles, a `Reference`/
