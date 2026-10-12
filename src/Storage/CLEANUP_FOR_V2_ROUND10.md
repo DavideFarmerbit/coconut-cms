@@ -1,13 +1,12 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 10)
 
-**Status: in progress (2026-10-12).** A tenth audit pass over `ARCHITECTURE_V2.md`/
+**Status: done (2026-10-12).** A tenth audit pass over `ARCHITECTURE_V2.md`/
 `ROADMAP_V2.md`, checking the two documents against each other for inconsistencies, missing
 pieces, and design flaws, and separately checking both against the standalone-document rule
 ([[feedback_v2_docs_standalone]]) for stray references to pre-rewrite docs/concepts, and
-for the architecture-never-names-roadmap direction of that same rule. Nine items below; item
-1 resolved, eight still open. Work one item at a time per
-[[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes what gets
-built, not alphabetically.
+for the architecture-never-names-roadmap direction of that same rule. Nine items below, all
+resolved. Worked one item at a time per [[feedback_coconut_cms_development_workflow]].
+Ordered by how much it changed what gets built, not alphabetically.
 
 ## Missing pieces
 
@@ -205,28 +204,30 @@ had the identical violation in its own intro — a parenthetical pointing at thi
 paragraph "for how pre-existing code is handled during the transition" — dropped there too,
 since the same standalone rule binds `ROADMAP_V2.md` as well.
 
-### 7. "Unchanged from the original design"
+### 7. "Unchanged from the original design" — **resolved (2026-10-12)**
 
-"The goal" opens with "Unchanged from the original design: an admin editor in the spirit of
-Unreal's UObject/Details-panel system..." — names an external/prior design instead of just
+"The goal" opened with "Unchanged from the original design: an admin editor in the spirit of
+Unreal's UObject/Details-panel system..." — named an external/prior design instead of just
 stating the goal.
 
-**Needs a decision**: reword to state the goal directly, with no "unchanged from" framing.
+**Resolved: reworded to state the goal directly**, dropping both "Unchanged from the
+original design" and the matching "also unchanged in spirit" on the two supporting pieces
+right after it.
 
-### 8. The `queryable` paragraph narrates a retired pre-rewrite concept
+### 8. The `queryable` paragraph narrates a retired pre-rewrite concept — **resolved (2026-10-12)**
 
 "No blobs": "`queryable` is retired outright, not carried forward in any reduced form. Its
 only job was the storage-tier switch — every field being filterable/sortable via SQL depended
 on it being `true`. With no second tier to switch into, every field is already a real,
 filterable/sortable column regardless, so there's no correctness gap left for a flag to
-cover." This narrates a pre-rewrite concept (`queryable`, the blob storage-tier switch) and its
+cover." This narrated a pre-rewrite concept (`queryable`, the blob storage-tier switch) and its
 retirement, rather than just stating that every field is already real and filterable.
 
-**Needs a decision**: reword to state directly that every field is a real, filterable/sortable
-column (which is already the standalone fact that matters), without naming or explaining the
-retired `queryable` flag.
+**Resolved: reworded to state the standalone fact directly** — every field is already a
+real, filterable/sortable column, no flag needed — with no mention of `queryable` or the
+storage-tier switch it used to gate.
 
-### 9. `ARCHITECTURE_V2.md` names `ROADMAP_V2.md`, violating the one-directional citation rule
+### 9. `ARCHITECTURE_V2.md` names `ROADMAP_V2.md`, violating the one-directional citation rule — **resolved (2026-10-12)**
 
 Two instances: "Namespaces and migration path" — "...it's the UI-facing surface built on top
 of this system, not part of the persistence system itself, a separate later track per
@@ -236,6 +237,10 @@ before the undo log does; `ROADMAP_V2.md` sequences it accordingly." Per
 facts here (Editor is a separate later track; the undo-log ordering is a sequencing constraint,
 not a structural one) can be stated without naming the roadmap file.
 
-**Needs a decision**: reword both passages to state the fact itself (Editor's namespace
-independence; the ordering dependency between concurrent-write protection and the undo log)
-without citing `ROADMAP_V2.md`.
+**Resolved: reworded both to state the fact itself, no file citation.** "Namespaces" (the
+section's own old-`Storage\` paragraph is gone too, see item 6, so the citation is now to
+the renamed section): "...built on top of this system, not part of the persistence system
+itself, built as a separate, later track." "Content write path": the trailing "`ROADMAP_V2.md`
+sequences it accordingly" clause is dropped outright — "This is also why the mechanism can't
+exist before the undo log does" already states the ordering constraint on its own, with
+nothing lost by not naming which document sequences it.

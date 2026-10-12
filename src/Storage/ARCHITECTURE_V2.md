@@ -51,7 +51,7 @@ namespace as it would be at the `src\` root, only its prefix changes:
 **`Editor\`** — the admin-facing authoring surface, consuming the other four rather than
 merging into any of them — stays its own top-level namespace, not nested under
 `Persistence\`: it's the UI-facing surface built on top of this system, not part of the
-persistence system itself, a separate later track per `ROADMAP_V2.md`.
+persistence system itself, built as a separate, later track.
 
 Same pattern `Routing\` and `Core\Error\` already use in this codebase: one class per
 file, subdirectories mirror sub-namespaces, `tests/` mirrors `src/` 1:1 folder-for-folder,
@@ -59,11 +59,10 @@ plus a `Fixtures/` folder for test-only support classes.
 
 ## The goal
 
-Unchanged from the original design: an admin editor in the spirit of Unreal's
-UObject/Details-panel system — classes displayed and edited through reflection, PHP
-attributes customizing how each property renders. Two supporting pieces, also unchanged
-in spirit: content types can be assembled entirely in the editor with no PHP class behind
-them, and editor operations are undo-able client-side. This document focuses on the
+An admin editor in the spirit of Unreal's UObject/Details-panel system — classes displayed
+and edited through reflection, PHP attributes customizing how each property renders. Two
+supporting pieces: content types can be assembled entirely in the editor with no PHP class
+behind them, and editor operations are undo-able client-side. This document focuses on the
 storage/entity layer underneath both.
 
 ## Shape comes from a neutral descriptor
@@ -219,15 +218,12 @@ There is no JSON-blob storage tier at all, anywhere: every field is a real colum
 table. Migrating data inside an opaque blob is exactly the kind of problem this avoids by
 construction. Consequences:
 
-- `queryable` is retired outright, not carried forward in any reduced form. Its only job
-  was the storage-tier switch — every field being filterable/sortable via SQL depended on
-  it being `true`. With no second tier to switch into, every field is already a real,
-  filterable/sortable column regardless, so there's no correctness gap left for a flag to
-  cover. What would be left is a pure indexing decision (does this column get a database
-  index) — a performance concern, not a capability one, with no mechanism to even act on
-  it yet (`SchemaEditor`'s closed set of safe mutations has no index-toggling operation).
-  Same posture as the Embed column-count risk below: not designed preemptively, revisit if
-  and when an actual schema demonstrates the need.
+- Every field is already a real, filterable/sortable column, regardless of kind — no flag
+  needed to opt a field into that. What's left is a pure indexing decision (does this
+  column get a database index) — a performance concern, not a capability one, with no
+  mechanism to even act on it yet (`SchemaEditor`'s closed set of safe mutations has no
+  index-toggling operation). Same posture as the Embed column-count risk below: not
+  designed preemptively, revisit if and when an actual schema demonstrates the need.
 - A **collection of scalars, value-object-primitives, or `#[Embed]` items** (non-entity
   items) can no longer live as a JSON array. It gets its own dedicated child table:
   `(ownerId, position, value column(s))`, `CASCADE`-deleted with the owner. A Shared
@@ -1320,7 +1316,7 @@ an explicit override to retry. The id itself is sourced from the undo log, not a
 parallel counter: the monotonic sequence position of the most recent `Revision` whose
 `EntityChangeRecord` touched the entity (see "Content undo, draft, and revision history") —
 reusing the same monotonic-sequence idiom `Revision` already carries. This is also why the
-mechanism can't exist before the undo log does; `ROADMAP_V2.md` sequences it accordingly.
+mechanism can't exist before the undo log does.
 For an entity with Owned descendants, the id it must match
 is the latest such position touching *it or anything it transitively owns* — recursive over
 the owned subtree, found by walking what's still live via the same lookup the expansion
