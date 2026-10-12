@@ -516,9 +516,10 @@ Nothing else, ever, at the field level; this is enforced by `SchemaEditor` expos
 field-level mutation method, not just by policy. **Adding a field**'s physical shape is a
 pure function of the field's own kind, not a fifth operation per kind: a column on the
 subclass's own table for scalar/value-object/singular-`Reference`/`Embed`-flattening, a
-dedicated pivot/child table for a `Collection`, no physical change at all beyond the registry
-record for an `OwningReference` or Owned `Collection` (see "References and collections", "No
-blobs"). This has to be true: `SchemaEditor` is the live, unreviewed counterpart to a native
+dedicated pivot/child table for a Shared or non-entity `Collection`, no physical change at
+all beyond the registry record for a singular `OwningReference`, and the registry record
+plus a new `<field>_count` column on the subclass's own table for an Owned `Collection` (see
+"References and collections", "No blobs"). This has to be true: `SchemaEditor` is the live, unreviewed counterpart to a native
 class's own attribute-declared fields (see "Shape comes from a neutral descriptor"), and it
 has to support every `FieldDescriptor` kind a PHP class can declare, not a scalar-only
 subset, or admin-authored content types would permanently fall short of "content types can

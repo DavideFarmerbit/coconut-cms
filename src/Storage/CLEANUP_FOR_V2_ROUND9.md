@@ -63,7 +63,7 @@ design's own terms, per the standalone requirement (see [[feedback_v2_docs_stand
 
 ## Real inconsistencies
 
-### 2. Adding an Owned-`Collection` field claims "no physical change" but also mandates a new `<field>_count` column
+### 2. Adding an Owned-`Collection` field claims "no physical change" but also mandates a new `<field>_count` column — **resolved (2026-10-12)**
 
 "Migrations and schema mutation" states adding a field is "...no physical change at all
 beyond the registry record for an `OwningReference` or Owned `Collection`." But "References
@@ -80,10 +80,14 @@ column...") and Phase 6.2's own "Done when" ("...also dropping the field's own
 `<field>_count` column for the `Collection` case") both correctly assume the column exists
 — so the roadmap contradicts itself in the same way.
 
-**Open**: split "Adding a field"'s `OwningReference`/Owned-`Collection` case into two —
+**Resolved**: split "Adding a field"'s `OwningReference`/Owned-`Collection` case into two —
 singular `OwningReference` (truly no physical change beyond the registry record) and Owned
-`Collection` (adds the `<field>_count` column) — in `ARCHITECTURE_V2.md`, and apply the
-same split to `ROADMAP_V2.md` Phase 6.2's `addField()` bullet.
+`Collection` (registry record plus a new `<field>_count` column on the subclass's own
+table) — in `ARCHITECTURE_V2.md`'s "Migrations and schema mutation", and applied the same
+split to `ROADMAP_V2.md` Phase 6.2's `addField()` bullet and its "Done when" (which had the
+same two-cases-folded-into-one wording in its own summary parenthetical, missed by the
+original audit note since the quoted "Done when" text was about the drop side, not the add
+side).
 
 ### 3. `Unique` group scope for an Owned relationship is stated two incompatible ways
 

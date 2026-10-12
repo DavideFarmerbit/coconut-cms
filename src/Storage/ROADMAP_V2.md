@@ -468,9 +468,11 @@ reused rather than rebuilt for the second identifier kind.
   old→new mapping, never inferred, never an attribute. `addField()` accepts any
   `FieldDescriptor` kind, not just scalar: a column for
   scalar/value-object/singular-`Reference`/`Embed`-flattening, a new dedicated pivot/child
-  table for a `Collection`, no physical change beyond the registry record for an
-  `OwningReference` or Owned `Collection` — this is what actually lets an editor-created
-  prototype gain a relationship field at all, deferred from 6.1's scalar-only creation path.
+  table for a Shared or non-entity `Collection`, no physical change beyond the registry
+  record for a singular `OwningReference`, and the registry record plus a new
+  `<field>_count` column on the subclass's own table for an Owned `Collection` — this is what
+  actually lets an editor-created prototype gain a relationship field at all, deferred from
+  6.1's scalar-only creation path.
   `retype()` covers every field kind, including collection-item-kind changes,
   `Reference`/`OwningReference`/Owned-`Collection` target-type changes, and crossing
   between Shared, Owned, and `#[Embed]` — one capture-to-`NoType` plus
@@ -499,7 +501,8 @@ reused rather than rebuilt for the second identifier kind.
 
 **Done when**: an already-populated editor-created prototype can have a field of any kind
 added, each landing in the physical shape its kind implies (a column, a new dedicated
-table, or nothing beyond the registry record for an Owned relationship) without disturbing
+table, nothing beyond the registry record for a singular `OwningReference`, or the registry
+record plus a new `<field>_count` column for an Owned `Collection`) without disturbing
 existing rows; a column can be added/dropped/renamed/retyped safely, each gated by
 `SchemaPermission`, each reflected immediately through the ordinary read/write path;
 dropping an `OwningReference` or Owned `Collection` field that has existing owned entities
