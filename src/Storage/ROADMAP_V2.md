@@ -1,10 +1,10 @@
 # Storage / Editor — Development Roadmap v2 (rewrite)
 
 Phased build plan for `ARCHITECTURE_V2.md`. Section names below (`"Like this"`) refer to
-headings in that document; build against it, not a re-explanation here. Supersedes
-`ROADMAP.md` the same way `ARCHITECTURE_V2.md` supersedes `ARCHITECTURE.md` — the old
-roadmap's phases 1-8C stay as-is under the old `Storage\` namespace, left untouched as a
-reference (see `ARCHITECTURE_V2.md`, "Namespaces and migration path").
+headings in that document; build against it, not a re-explanation here. This is the only
+roadmap in effect for `Persistence\`/`Editor\` work going forward (see
+`ARCHITECTURE_V2.md`, "Namespaces and migration path" for how pre-existing code is handled
+during the transition).
 
 **Scope**: this roadmap covers `Persistence\Entity\`, `Persistence\Schema\`, `Persistence\Changeset\`, and `Persistence\Permission\` — the
 backend. `Editor\` (the admin-facing authoring UI, including the client-side
@@ -15,19 +15,18 @@ backend exists to author and drive it against — not numbered as phases here.
 from Phase 1, and every phase from Phase 1 onward builds `Persistence\Entity\Repository`/
 `Persistence\Changeset\ChangesetFlusher`/`Persistence\Entity\Query` against `Persistence\Schema\PrototypeRegistry`'s generic
 identifier interface — never against native reflection directly, even in Phase 1 when
-native classes are the only identifier kind that exists. This is a deliberate reversal of
-the old roadmap, where global entity identity landed at Phase 8 and generic
-identifier-based repository access landed at Phase 7 Step A — both bolted on after years of
-native-only code existed, which is exactly what `AUDIT.md` found half-migrated and
-inconsistent (items 8 and 14: `SchemaBuilder`, `RowMapper`, `DraftPreview` calling
-`PrototypeShape`/reflection directly, never updated when the generic path arrived). Here,
-there's no later retrofit phase for this at all — Phase 6 (admin-authored schema) just
-plugs a second identifier kind into an interface that's been there since Phase 1.
+native classes are the only identifier kind that exists. This is deliberate: building the
+generic identifier interface in from Phase 1, rather than retrofitting it once a
+native-only implementation has already accumulated, avoids leaving code written directly
+against concrete native internals that never gets updated once a second identifier kind
+needs to flow through the same paths. Here, there's no later retrofit phase for this at
+all — Phase 6 (admin-authored schema) just plugs a second identifier kind into an interface
+that's been there since Phase 1.
 
 Phases with more than one genuinely distinct mechanism are split into numbered
 sub-phases (`1.1`, `1.2`, ...), each ending in its own independently testable "Done when"
-— the same granularity the old roadmap eventually needed (its own 6.1/6.2/6.3, and Phase
-8's Step A-F split) applied proactively here instead of discovered after the fact.
+— fine-grained sub-phasing applied proactively from the start, rather than something a
+phase only grows once it's already turned out to need splitting.
 
 ## Phase 1 — Foundation: `entities` table, generic identifier resolution, one native scalar entity
 
@@ -141,8 +140,8 @@ permissions enforcement, editor-created prototypes actually existing (the regist
 - Recursive column flattening (`address.city` → `address_city`), resolved through
   `PrototypeRegistry::fieldsOf($identifier)` for whichever identifier is named as the
   embed target — proving the generic-identifier decision from Phase 1 pays for itself
-  immediately: this never needs the old system's Step-E-style retrofit, since there was
-  never a native-only path to retrofit away from.
+  immediately: there's no native-only path to retrofit away from, since the generic
+  interface was already there.
 - Embed-of-Embed cycle detection at registration time.
 - `#[DefaultInstance]` propagation extended: an embedded shape gaining a field backfills
   every table that embeds it.

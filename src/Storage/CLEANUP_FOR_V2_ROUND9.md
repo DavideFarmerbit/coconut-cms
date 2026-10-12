@@ -1,11 +1,11 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 9)
 
-**Status: in progress.** A ninth audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`,
+**Status: resolved (2026-10-12).** A ninth audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`,
 independent of Round 8's own targeted scope (Round 7's attribute consolidation and
 retype-converter mechanics) — a fresh pass checking the two documents against each other
 for inconsistencies, missing pieces, and design flaws, and separately checking both against
 the standalone-document rule ([[feedback_v2_docs_standalone]]) for stray references to
-pre-rewrite docs/concepts. Items below are open, not yet decided. Worked one item at a time
+pre-rewrite docs/concepts. All six items below were resolved. Worked one item at a time
 per [[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes what gets
 built, not alphabetically.
 
@@ -183,7 +183,7 @@ numbers — same treatment Round 8 item 3.1 already gave the `Status` line itsel
 the softer "Flipping an existing relationship between Owned and Shared" instance (restated
 as a direct statement of the retype mechanism rather than narrating what used to look hard).
 
-### 6. `ROADMAP_V2.md` cites `AUDIT.md` and the old roadmap directly, instead of only `ARCHITECTURE_V2.md`
+### 6. `ROADMAP_V2.md` cites `AUDIT.md` and the old roadmap directly, instead of only `ARCHITECTURE_V2.md` — **resolved (2026-10-12)**
 
 - "Supersedes `ROADMAP.md` the same way `ARCHITECTURE_V2.md` supersedes `ARCHITECTURE.md` —
   **the old roadmap's** phases 1-8C stay as-is..." (intro).
@@ -198,6 +198,12 @@ as a direct statement of the retype mechanism rather than narrating what used to
   superseded before this rewrite even started)" (Phase 3.3)~~ — **fixed incidentally**
   while resolving item 1 above (that line was rewritten to name `owningReference()`
   explicitly, and the old-design clause dropped along with it).
+
+**Resolved**: reworded all three remaining intro instances to justify Phase 1's
+generic-identifier design in `ROADMAP_V2.md`'s own terms, with no reference to `AUDIT.md`
+or the old roadmap's phase numbers. Also found and fixed a fourth instance the original
+audit missed, outside the intro (Phase 2: "this never needs the old system's Step-E-style
+retrofit" — reworded to state the same point without naming the old system).
 
 **Open**: reword the intro section (the remaining three instances) to justify Phase 1's
 generic-identifier design in `ROADMAP_V2.md`'s own terms rather than contrasting against
