@@ -40,10 +40,9 @@ namespace as it would be at the `src\` root, only its prefix changes:
   flush) and `ChangesetFlusher` (hands that collection to `Persistence\Entity\WriteExecutor`,
   then builds `Revision`/`EntityChangeRecord` rows from the `WriteEffect`s it gets back) at
   the top, **`Persistence\Changeset\Undo\`** (`Revision`, `EntityChangeRecord`, conflict
-  detection) nested underneath. Draft (`DraftStore`/
-  `DraftPreview`) lives in `Editor\` instead, not here — it has no meaning outside an
-  authoring UI, unlike undo, which benefits any flush regardless of who's writing; see
-  "Content undo, draft, and revision history" below.
+  detection) nested underneath. Draft lives in `Editor\` instead, not here — it has no
+  meaning outside an authoring UI, unlike undo, which benefits any flush regardless of who's
+  writing; see "Content undo, draft, and revision history" below.
 - **`Persistence\Permission\`** — shared by all of the above rather than split across
   them: `Actor`, `SchemaPermission`, `FieldPermission`, `HistoryPermission`, and any other
   auth-level class.

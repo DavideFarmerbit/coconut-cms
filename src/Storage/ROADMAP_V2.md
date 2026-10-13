@@ -945,8 +945,8 @@ search, real-time concurrent multi-editor collaboration.
 ## Not covered by this roadmap
 
 - **`Editor\`** — the admin-facing authoring UI, the client-side `LocalCommand`/
-  `RemoteCommand` stack, **Draft** (`DraftStore`/`DraftPreview`), and consuming every
-  `describe()` output `FieldValidator` exposes (mapping it to a native HTML5 constraint
+  `RemoteCommand` stack, **Draft**, and consuming every `describe()` output `FieldValidator`
+  exposes (mapping it to a native HTML5 constraint
   attribute, a shared registry of named JS algorithms, or a server-only fallback) — none of
   which have a meaning for a write path that isn't a human composing an edit through this
   UI, so none of it is a persistence-layer concern. A separate, later track, once enough of

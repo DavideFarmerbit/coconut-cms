@@ -1,6 +1,6 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 13)
 
-**Status: open.** A thirteenth audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`. Checked
+**Status: done (2026-10-13).** A thirteenth audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`. Checked
 the two documents against each other for inconsistencies, missing pieces, and design flaws.
 Also checked the standalone-document rule ([[feedback_v2_docs_standalone]]): no stray
 references to pre-rewrite docs/concepts, and the roadmap cites only the architecture. No
@@ -101,7 +101,7 @@ sentinel values" already required and what the new default values make possible.
 change needed: `ROADMAP_V2.md`'s own "nullable" mentions are all about ordinary `Reference` FK
 columns, unrelated to these three.
 
-### 4. "Namespaces" names concrete Draft classes that "Content undo, draft, and revision history" says aren't decided yet
+### 4. "Namespaces" names concrete Draft classes that "Content undo, draft, and revision history" says aren't decided yet — **resolved (2026-10-13)**
 
 "Namespaces" states "Draft (`DraftStore`/`DraftPreview`) lives in `Editor\` instead, not here"
 (line 53) — naming two specific classes as if settled. "Content undo, draft, and revision
@@ -109,6 +109,8 @@ history" says the opposite: "Draft's own lifecycle and shape... [isn't] decided 
 to `Editor\`'s own design pass" (line 1478). `ROADMAP_V2.md`'s "Not covered by this roadmap"
 section repeats the same two class names.
 
-**Question for discussion:** drop the `DraftStore`/`DraftPreview` names from "Namespaces" (and the
-roadmap) until `Editor\`'s own design pass actually settles them, and just say "Draft lives in
-`Editor\`, not here"?
+**Resolved: dropped the `DraftStore`/`DraftPreview` names from both documents.** "Namespaces"
+now just says "Draft lives in `Editor\` instead, not here," and `ROADMAP_V2.md`'s "Not covered
+by this roadmap" section names only **Draft**, not the two classes. Neither document claims a
+class breakdown for Draft anymore; "Content undo, draft, and revision history" remains the
+only place that speaks to Draft's shape, and it still says that shape is undecided.
