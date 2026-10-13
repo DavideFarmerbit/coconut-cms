@@ -9,7 +9,7 @@ built.
 
 ## Real inconsistencies
 
-### 1. `expectedOperationId` never advances from a schema-triggered write that changes existing row data
+### 1. `expectedOperationId` never advances from a schema-triggered write that changes existing row data — **resolved (2026-10-13)**
 
 "Content write path" (line 1448) sources `expectedOperationId` only from the undo log's own
 monotonic sequence: "the monotonic sequence position of the most recent `Revision` whose
@@ -33,13 +33,45 @@ protects a concurrent content editor from racing it.
 bumped by every schema mutation, including this exact class of write — it's just never
 consulted by the write-time check, only by revision-history restore.
 
-Open question: should the ordinary write-time `expectedOperationId` check also compare
-`schema_version` (reject if it's advanced since the client's last read, the same conservative
-posture restore already takes), or is this an accepted gap given schema mutation against live
-content is already a "warned, not blocked" operation? If the former, which phase absorbs it —
-`schema_version` doesn't exist until Phase 5.3, after Phase 5.1 already builds
-`expectedOperationId` — so retrofitting likely lands as a Phase 6 "Done when" addition rather
-than touching the Phase 5.1 mechanism's own definition.
+**Resolved: a second, independent receipt value, `expectedSchemaStamp`, closes the gap —
+not by reusing the global `schema_version` sequence directly (rejected: its blast radius is
+every entity in the system, not just the ones actually affected), but by stamping it
+per-prototype instead.** Native identifiers need nothing: native schema is frozen for the
+life of the process, so no live request can ever straddle a native schema change, which
+rules out the race entirely on that side. Only editor-created identifiers can be mutated
+live against already-populated content, so only `prototypes` needed anything new: one more
+column, `last_modified_schema_version`, re-stamped with the current global `schema_version`
+by every mutation that touches that row — not just the row named directly in the call, but
+every row reached by that same mutation's own existing walks (`reparent()`'s live-subclass
+cascade, embed-propagation's reverse index, substitution's per-level reconciliation and its
+reference-retargeting fixup list). One uniform rule either way: a row is stamped the same
+whether the mutation changed its own stored values or only a field's declared metadata (a
+retargeted `Reference`'s type, for instance), never a case-by-case judgment about which kind
+of change counts — the user flagged the reference-retargeting case specifically, since
+substitution's fixup list reaches prototypes that never get their own data reconciled at all.
+
+An entity's own relevant stamp is the highest `last_modified_schema_version` reachable two
+ways: across every editor-created level of its own chain (`PrototypeRegistry::chainOf()`),
+and, recursively, across everything it transitively owns, via the exact same subtree walk
+`expectedOperationId` already performs — which is also how the user's own worked example
+(a native `Product` owning, by reference, a native `Warranty` type, with an editor-created
+`ExtendedWarranty` subclass actually stored there) falls out for free: `Product`'s own chain
+never includes `Warranty`/`ExtendedWarranty` at all (`OwningReference` has no column on the
+owner's own table), so it's the owned-subtree half of the walk that picks up
+`ExtendedWarranty`'s own stamp, not the chain half.
+
+Folded into `ARCHITECTURE_V2.md`'s "Prototype storage: the `prototypes` table" (the new
+column) and "Content write path" (a new paragraph after the existing `expectedOperationId`
+discussion, stating the check, its native-side exemption, the uniform stamping rule, and the
+two-part relevant-stamp computation). `ROADMAP_V2.md` Phase 5.1 gained a forward pointer to
+where the second half of the receipt actually lands; Phase 6.1 gained the column, the basic
+stamp-and-return wiring, and a "Done when" proving the check stays narrow (an unrelated
+prototype's creation never stale-rejects another prototype's own entity); Phase 6.2 gained
+the first proof that it actually catches something (a `retype()`/`addField()`/etc. against
+an already-populated prototype stale-rejects a stranded receipt even though
+`expectedOperationId` alone would still look current); Phase 6.3 gained the live-subclass
+cascade proof; Phase 6.4 gained the reference-retargeting-fixup proof, the one case where no
+row's own data changes at all, only a field's declared target type.
 
 ### 2. `ROADMAP_V2.md` names three classes `ARCHITECTURE_V2.md` never introduces
 

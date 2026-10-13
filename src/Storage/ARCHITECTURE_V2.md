@@ -270,6 +270,12 @@ Every editor-created identifier gets one row in a `prototypes` table.
   same `FieldDescriptor[]` shape a native class's reflected attributes already produce
   ("Shape comes from a neutral descriptor"). `SchemaEditor` reads and writes this same
   column for every field-level mutation (add, drop, rename, retype).
+- `last_modified_schema_version` — integer. Holds the global `schema_version` sequence's
+  value as of the most recent schema mutation that affected this row, re-stamped every time
+  one does — not just a mutation named directly against this row, but any mutation that
+  reaches it through one of its own existing walks (reparenting's live-subclass cascade,
+  embed-propagation's reverse index, substitution's per-level reconciliation and its
+  reference-retargeting fixup list). See "Content write path" for what this guards against.
 
 The table's own name is never stored. It resolves live, derived from `identifier` the same
 way a native class's table name falls back to a derivation from its own short name, absent
@@ -1473,6 +1479,31 @@ neither touches what the other changed. (An `Embed` field like `Pricing` doesn't
 tradeoff to conflict with a concurrent edit elsewhere on the same root — it's flattened
 into the owner's own row, so any two edits touching that same row already conflict under
 ordinary single-row concurrency, independent of the Owned-subtree-bubbling rule above.)
+
+**A second, independent check guards against a schema mutation changing data or field
+metadata without ever producing a logged write.** `retype()`, `reparent()`'s level
+insert/removal, and `deletePrototype()`'s substitution can all change an already-existing
+row's stored values or a field's own declared metadata (a retargeted `Reference`'s type, for
+instance) — none of them ever produce an `EntityChangeRecord` (see "Executing multi-entity
+writes safely"), so `expectedOperationId` alone has nothing to advance on and can't detect
+this case. Native identifiers need no equivalent: native schema is frozen for the life of the
+process, so no live request can ever straddle a native schema change the way one can
+straddle a live `SchemaEditor` mutation against an already-populated prototype — this check
+only ever matters for editor-created identifiers. Every editor-created `prototypes` row
+carries `last_modified_schema_version` (see "Prototype storage: the `prototypes` table"),
+re-stamped with the current global `schema_version` by every mutation that touches that
+row — not just the row named directly in the call, but every row reached by that same
+mutation's own existing walks: `reparent()`'s live-subclass cascade, embed-propagation's
+reverse index, and substitution's per-level reconciliation together with its
+reference-retargeting fixup list. A row is stamped the same way whether the mutation changed
+its own stored values or only a field's declared metadata — one uniform rule, never a
+case-by-case judgment about which kind of change counts. An entity's own relevant stamp is
+the highest `last_modified_schema_version` reachable two ways: across every editor-created
+level of its own chain (`PrototypeRegistry::chainOf()`), and, recursively, across everything
+it transitively owns, via the exact same subtree walk `expectedOperationId` above already
+performs. The write-time receipt carries this value, `expectedSchemaStamp`, alongside
+`expectedOperationId` — a stale value on either one rejects the write, the same
+reject-by-default posture `expectedOperationId` already has.
 
 ## Content undo, draft, and revision history
 

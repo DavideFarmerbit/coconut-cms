@@ -421,7 +421,10 @@ per-entity `EntityChangeRecord` design; nothing is ever pruned automatically.
   separate counter. For an entity with Owned descendants, the expected id covers its whole
   owned subtree: found by walking what's still live, plus, for anything removed, that
   entity's own captured `owner`/`owner_field` to keep resolving upward through whatever of
-  the chain remains.
+  the chain remains. The receipt's second half, `expectedSchemaStamp`, guards against a
+  schema mutation changing data outside this logged path entirely — it has nothing to
+  compare against until `prototypes` exists, so it lands in Phase 6.1 instead, extending
+  this same receipt rather than redefining it.
 - A flush that only changes a collection field backed by its own dedicated child table (a
   Shared collection's pivot table, or a non-entity collection's own child table — "No blobs"
   already treats these as one mechanism) still produces an `EntityChangeRecord` for the
@@ -509,9 +512,12 @@ guard end to end for the first time.
 - `Persistence\Schema\DynamicEntity` + the editor-created implementation of
   `PrototypeRegistry::instantiate()`/`fieldsOf()` — the second identifier kind the
   registry interface has supported since Phase 1. Backed by the `prototypes` table
-  (`identifier`, `parent`, `schema`) ("Prototype storage: the `prototypes` table");
-  `fieldsOf()` hydrates `schema` into the same `FieldDescriptor[]` shape native reflection
-  already produces.
+  (`identifier`, `parent`, `schema`, `last_modified_schema_version`) ("Prototype storage: the
+  `prototypes` table"); `fieldsOf()` hydrates `schema` into the same `FieldDescriptor[]` shape
+  native reflection already produces.
+- `expectedSchemaStamp`, the second half of 5.1's concurrent-write receipt: stamped onto
+  `prototypes.last_modified_schema_version` at creation time, read back as part of the same
+  receipt every other editor-created write already returns ("Content write path").
 - `Persistence\Schema\SchemaEditor::createPrototype()` — minimal, scalar fields only, no parent
   complexity yet. Non-scalar field addition is deliberately not stubbed here — it lands in
   6.2's `addField()`, once an existing prototype can be safely mutated at all.
@@ -538,7 +544,13 @@ immediately too, proving the open-registration mechanism end to end for the seco
 identifier kind; creating a prototype bumps the global `schema_version` sequence Phase 5.3
 introduced; a revision-history restore attempted on an `EntityChangeRecord` stamped before
 that bump is rejected, naming the reason, proving Phase 5.3's restore-blocking guard end to
-end for the first time.
+end for the first time; creating a fresh editor-created prototype stamps its own
+`prototypes` row with the current `schema_version`, returned as `expectedSchemaStamp` on the
+same receipt as `expectedOperationId`; creating a second, unrelated prototype afterward does
+not change the first prototype's own stamp, so a write against an already-existing entity of
+the first prototype, holding a receipt issued before the second prototype's creation, is not
+stale-rejected — proving the check is scoped to an entity's own relevant chain, never the
+global `schema_version` sequence directly.
 
 ### 6.2 — Mutating an existing, populated prototype
 
@@ -664,7 +676,14 @@ a converter nor a class default produces something valid, while an optional one 
 accepts an empty result and leaves the new side absent — proven distinctly from `Reference`,
 which has no required case to fail at all; attaching a `Unique` group to an already-populated
 editor-created prototype through this path, not just at creation, enforces it immediately on
-the next write, and removing it stops enforcing without touching existing data.
+the next write, and removing it stops enforcing without touching existing data; a
+`retype()` or `addField()`/`dropField()`/`rename()` against an already-populated prototype
+re-stamps its own `prototypes` row's `last_modified_schema_version`, and a content write
+against one of its existing entities holding a receipt issued before that mutation is
+rejected for a stale `expectedSchemaStamp`, proven even though the same write's
+`expectedOperationId` is still current (the row's data changed, but no `EntityChangeRecord`
+was ever produced to advance it) — the first proof that this check actually catches
+something, not just that it stays narrow (Phase 6.1).
 
 ### 6.3 — Reparenting and `#[Entity]`'s `editorExtensible` flag
 
@@ -753,7 +772,12 @@ column at every embedding site the same way, proving the propagation isn't repar
 reparenting a shape with a live subclass that's independently used as its own `#[Embed]`
 target elsewhere updates that subclass's own embedding site too, not just sites embedding the
 shape `reparent()` was directly called on, proving the cascading reach matches the
-entity-row-side deletion's own subclass reach rather than stopping one level short.
+entity-row-side deletion's own subclass reach rather than stopping one level short;
+reparenting a prototype with a live editor-created subclass re-stamps the subclass's own
+`prototypes` row too, not just the directly-reparented one, proven by a content write
+against an existing entity of the subclass, holding a receipt from before the reparent,
+being rejected for a stale `expectedSchemaStamp` — the cascade that moves the subclass's own
+data also has to be the cascade that marks it stale, not a narrower one.
 
 ### 6.4 — Deletion policy, `NoType`, and auditing
 
@@ -903,7 +927,12 @@ anything is touched; a substitution whose converter produces a colliding value f
 under a `Unique` group at a reconciled level is refused outright before anything commits,
 naming the collision, proven once for a collision among the migrated rows themselves and
 once for a collision against an already-existing live row of the replacement type that was
-never part of the migration.
+never part of the migration; a substitution's reference-retargeting fixup re-stamps every
+*other* prototype whose field it retargets, not just the levels it reconciles, proven by a
+content write against an existing entity of that other, unreconciled prototype, holding a
+receipt from before the substitution, being rejected for a stale `expectedSchemaStamp` even
+though none of that entity's own row values changed — only its field's declared target
+type did, which the uniform stamping rule treats the same as a value change.
 
 **Not yet** (end of Phase 6): `FieldPermission`, `Query`.
 
