@@ -1,12 +1,12 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 14)
 
-**Status: in progress.** A fourteenth audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`.
+**Status: done (2026-10-13).** A fourteenth audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`.
 Checked the two documents against each other for inconsistencies, missing pieces, and design
 flaws. Also checked the standalone-document rule ([[feedback_v2_docs_standalone]]): no stray
 references to pre-rewrite docs/concepts, and the roadmap cites only the architecture — clean,
-aside from one note below that isn't being treated as a violation. Two items below. Working one
-at a time per [[feedback_coconut_cms_development_workflow]]. Ordered by how much each one
-changes what gets built.
+aside from one note below that isn't being treated as a violation. Two items below, both
+resolved. Worked one at a time per [[feedback_coconut_cms_development_workflow]]. Ordered by
+how much each one changes what gets built.
 
 ## Real inconsistencies
 
@@ -64,7 +64,7 @@ FK needs it to already exist), and its "Done when" clause now asserts the FK is 
 enforced — a standalone row's insert succeeds because `Cms`'s row already exists at that id,
 not because the constraint happens to be unchecked.
 
-### 2. Revoking `editorExtensible` is handled as if it makes the parent link unresolvable, but nothing in the design actually makes that true
+### 2. Revoking `editorExtensible` is handled as if it makes the parent link unresolvable, but nothing in the design actually makes that true — **resolved (2026-10-13)**
 
 "Reparenting" (lines 976-1008) states that both "revoking `#[Entity]`'s `editorExtensible` flag"
 and "deleting a prototype with live editor-created subclasses" invalidate the parent link of
@@ -90,3 +90,28 @@ subclasses (e.g. `chainOf()` or the deploy step explicitly re-checking it for ex
 just at attach-time), or was grandfathering existing subclasses the actual intent all along —
 in which case the "native-triggered: needs review" bullet is describing a trigger that should be
 dropped, and only prototype deletion keeps that handling?
+
+**Resolved: confirmed intent is that revocation should have the same effect as deletion, so
+`chainOf()`'s own resolution predicate is widened rather than grandfathering existing
+subclasses.** Traced how deletion actually produces its effect first, since the fix needed to
+reuse the same mechanism rather than invent a second one: `PrototypeRegistry` is stateless, so
+nothing is ever pushed to affected subclasses when a parent disappears — `prototypes.parent`
+is never rewritten, and `chainOf()` simply discovers the break the next time it happens to walk
+that chain, truncating to `entities` from that point on. The native-triggered deploy step's
+"needs review" marking isn't separate stored state either; it's that same lazy predicate
+(identical to the one the dangling-target auditor already runs) re-run proactively at a
+deploy-reviewed moment and surfaced to the admin, which is exactly why "collecting every
+subclass in either state needs no new backend mechanism" (the existing text) was already true.
+
+Revocation was missing only one thing to plug into this: the `editorExtensible` attribute
+read wasn't part of what `chainOf()` treats as "fails to resolve" — it was checked once, at
+attach-time, and never again. **Fix: `chainOf()`'s own resolution predicate now treats a
+native parent whose `editorExtensible` has gone false as unresolvable, re-read fresh on every
+walk rather than cached, the same way plain non-existence already was.** No new storage, no
+cascade step at the moment of revocation — the existing lazy truncation and the existing
+deploy-time scan both pick this up automatically, for the same reason they already handle
+deletion. Updated "Reparenting"'s attach-time `editorExtensible` bullet and the `chainOf()`
+truncation primitive in `ARCHITECTURE_V2.md` to state this explicitly; updated the matching
+bullets in `ROADMAP_V2.md` Phase 6.3 and added a "Done when" clause proving an
+already-attached subclass starts resolving truncated the moment its parent's flag flips,
+with no `reparent()` call or migration of its own involved.

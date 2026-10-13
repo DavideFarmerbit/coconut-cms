@@ -686,7 +686,10 @@ the next write, and removing it stops enforcing without touching existing data.
   `createPrototype()`'s own parent argument) also rejects outright when the candidate new
   parent is a native class whose own `#[Entity(editorExtensible: ...)]` is `false`. Only
   checked when the candidate parent is native — an editor-created parent carries no such
-  flag, so attaching one is always allowed.
+  flag, so attaching one is always allowed. The same read is not attach-time-only:
+  `chainOf()` repeats it on every resolution of an editor-created identifier's chain, which is
+  what makes revocation (below) actually break an already-attached subclass instead of only
+  blocking new attachments.
 - Reparenting a shape used as an `#[Embed]` target propagates to every embedding site as a
   column change, never a row change (unlike the entity-table side above, which never changes
   columns) — a level inserted adds that level's own fields as new columns at each site,
@@ -700,7 +703,10 @@ the next write, and removing it stops enforcing without touching existing data.
   includes whatever its reparented ancestor contributes.
 - `PrototypeRegistry::chainOf()` truncates at the first stored parent identifier that
   fails to resolve, instead of throwing — the shared primitive both halves of
-  `editorExtensible` revocation below build on.
+  `editorExtensible` revocation below build on. "Fails to resolve" now includes a native
+  parent whose own `editorExtensible` has gone from `true` to `false` since the chain was
+  built, re-read fresh on every walk rather than cached, not just a deleted/missing
+  identifier.
 - `#[Entity]`'s `editorExtensible` flag (introduced unused back in Phase 1.1) + revocation,
   split into two passes: native-triggered
   (deploy step auto-applies the `entities`-direct fallback, marks every affected direct
@@ -720,7 +726,11 @@ both a direct descendant and a case reached only through a live subclass's own c
 reparenting onto a native parent whose `editorExtensible` is `false` is rejected outright
 before any mutation runs, naming the reason; the same reparent succeeds once
 `editorExtensible` is `true`; reparenting onto an editor-created parent succeeds regardless,
-proving the check never fires for a parent of that kind;
+proving the check never fires for a parent of that kind; an editor-created subclass already
+successfully attached to a native parent resolves normally, then starts resolving truncated
+at `entities` the moment that parent's own `editorExtensible` flips to `false` — with no
+`reparent()` call, migration, or any other action taken on the subclass itself — proving the
+flag is re-read live on every `chainOf()` walk rather than only checked once at attachment;
 reparenting an editor-created prototype onto a brand-new level backfills
 correctly, producing no `EntityChangeRecord`; reparenting it back onto a level it already
 had a row for needs no backfill and the data round-trips as it was; reparenting away from

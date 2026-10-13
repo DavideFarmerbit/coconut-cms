@@ -935,7 +935,11 @@ parent is native. An editor-created identifier carries no `editorExtensible` fla
 own — nothing in this design gives it one — so attaching an editor-created parent is always
 allowed. The check reads the native parent's own attribute at the moment the attachment is
 attempted, the same way the cycle check above reads the candidate parent's own chain at that
-same moment, not from any stored flag on the child.
+same moment, not from any stored flag on the child. **This same attribute read isn't
+attach-time-only** — `chainOf()`'s own resolution of an editor-created identifier's chain
+(below) re-reads it on every walk, not just once at attachment. That's what lets revoking the
+flag later have the same effect on an already-attached subclass as deleting the parent
+outright would, rather than only blocking brand-new attachments going forward.
 
 **Reparenting onto a level the entity already had a row for (most commonly: fixing a
 broken parent, see below) needs no backfill at all** — the defaulted-instance mechanism
@@ -981,7 +985,14 @@ found and updated too, via the same reverse-index, not just sites embedding the 
 
 **`PrototypeRegistry::chainOf()` doesn't throw when a stored parent identifier fails to
 resolve — it truncates the chain there**, treating the affected identifier as rooted at
-`entities` directly from that point on. This is the shared primitive every case below
+`entities` directly from that point on. **"Fails to resolve" covers two cases, not one:**
+the identifier itself no longer exists (a deleted native class or editor-created prototype),
+or — for an editor-created identifier's own chain specifically — the identifier still exists
+but names a native class whose own `#[Entity(editorExtensible: ...)]` has since become
+`false`. The second case needs no stored flag of its own: the attribute is read fresh off
+the native class on every walk, the same read "Reparenting"'s attach-time check above
+already does, just repeated here instead of cached, consistent with `PrototypeRegistry`
+staying stateless. This is the shared primitive every case below
 builds on. Nothing about any table or row changes to make this true: the tables on either
 side of the break were already correctly linked, resolution just stops walking past it.
 Because of that, it needs no defaulted-instance backfill (that mechanism is for a level
