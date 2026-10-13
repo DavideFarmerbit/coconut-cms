@@ -615,7 +615,14 @@ collision, when a duplicate already exists; retyping a field that participates i
 group, across a prototype with more than one existing row, is refused outright when no
 converter is supplied, and succeeds when a supplied converter's output is checked and found
 pairwise-distinct across every row, proven alongside a case where the converter's output
-collides and the whole retype is refused rather than partially applied.
+collides and the whole retype is refused rather than partially applied; adding a brand-new
+field that's immediately declared part of a `Unique` group to an already-populated prototype
+with more than one existing row is refused outright when no backfill converter is supplied
+("Defaulted instances"' own named exception to the plain defaulted-instance path), and
+succeeds when a supplied converter's output is checked and found pairwise-distinct across
+every row, proven alongside a case where the converter's output collides and the whole
+`addField()` is refused rather than partially applied — the same distinctness check as the
+retype case just above, applied to a backfill instead.
 
 The same phase also proves the Owned-crossing cases that come with the general retype
 mechanism: retargeting an `OwningReference`/Owned-`Collection`'s own item type while staying

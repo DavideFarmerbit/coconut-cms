@@ -148,6 +148,23 @@ editor-created identifier, reading the already-loaded class via reflection for a
 one — so `fieldsOf()`/`chainOf()`/`instantiate()` can never go stale: there is no snapshot
 of any of them sitting anywhere to go stale in the first place.
 
+**`instantiate(identifier, values)`'s own return type splits the same way.** For a native
+identifier it's a real instance of that PHP class, built and populated through reflection, same
+as always. An editor-created identifier has no native class to instantiate, so it returns a
+`Persistence\Schema\DynamicEntity` instead — one generic PHP class, shared by every
+editor-created shape regardless of which prototype it represents, holding the resolved
+`identifier` plus a field-name-keyed value map populated from `values`. Reading and writing a
+field goes through that map by name (`getField(string)`/`setField(string, mixed)`), never
+through a declared PHP property — there isn't one to bind to. This is what lets `Repository`,
+`WriteExecutor`, `Query`, and every validator stay genuinely source-agnostic past `fieldsOf()`
+down into the object itself: each already works off a `FieldDescriptor[]`'s own field names, so
+reading/writing by name through `DynamicEntity`'s map is the same operation as reading/writing
+a native object's declared property by reflection, just through a different accessor.
+`DynamicEntity` carries no behavior of its own beyond that map — any admin-authored validation
+or default is attached by name through the registries described in "Validation"/"Defaulted
+instances," never as a method on the object itself, the same restriction that already keeps the
+live editor from executing arbitrary PHP.
+
 A native identifier's table name is a different case, and correctly so: decided once, when
 registration runs, and frozen for the life of the process, since native schema can't change
 without a redeploy and nothing needs to ever revisit it. An editor-created identifier's
