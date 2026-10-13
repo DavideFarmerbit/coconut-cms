@@ -274,8 +274,9 @@ Every editor-created identifier gets one row in a `prototypes` table.
   value as of the most recent schema mutation that affected this row, re-stamped every time
   one does — not just a mutation named directly against this row, but any mutation that
   reaches it through one of its own existing walks (reparenting's live-subclass cascade,
-  embed-propagation's reverse index, substitution's per-level reconciliation and its
-  reference-retargeting fixup list). See "Content write path" for what this guards against.
+  embed-propagation's reverse index, prototype-level `rename()`'s own reference-fixup list,
+  and substitution's per-level reconciliation plus its reuse of that same fixup list). See
+  "Content write path" for what this guards against.
 
 The table's own name is never stored. It resolves live, derived from `identifier` the same
 way a native class's table name falls back to a derivation from its own short name, absent
@@ -1481,21 +1482,24 @@ into the owner's own row, so any two edits touching that same row already confli
 ordinary single-row concurrency, independent of the Owned-subtree-bubbling rule above.)
 
 **A second, independent check guards against a schema mutation changing data or field
-metadata without ever producing a logged write.** `retype()`, `reparent()`'s level
-insert/removal, and `deletePrototype()`'s substitution can all change an already-existing
-row's stored values or a field's own declared metadata (a retargeted `Reference`'s type, for
-instance) — none of them ever produce an `EntityChangeRecord` (see "Executing multi-entity
-writes safely"), so `expectedOperationId` alone has nothing to advance on and can't detect
-this case. Native identifiers need no equivalent: native schema is frozen for the life of the
-process, so no live request can ever straddle a native schema change the way one can
+metadata without ever producing a logged write.** Every schema mutation that touches an
+already-existing row qualifies: `addField()`'s backfill, `dropField()`'s cascade-delete of
+Owned descendants, `rename()`'s metadata change, `retype()`, `reparent()`'s level
+insert/removal, and `deletePrototype()`'s substitution. None of them ever produce an
+`EntityChangeRecord` (see "Executing multi-entity writes safely"), so `expectedOperationId`
+alone has nothing to advance on and can't detect this case. Native identifiers need no
+equivalent: native schema is frozen for the life of the process, so no live request can ever
+straddle a native schema change the way one can
 straddle a live `SchemaEditor` mutation against an already-populated prototype — this check
 only ever matters for editor-created identifiers. Every editor-created `prototypes` row
 carries `last_modified_schema_version` (see "Prototype storage: the `prototypes` table"),
 re-stamped with the current global `schema_version` by every mutation that touches that
 row — not just the row named directly in the call, but every row reached by that same
 mutation's own existing walks: `reparent()`'s live-subclass cascade, embed-propagation's
-reverse index, and substitution's per-level reconciliation together with its
-reference-retargeting fixup list. A row is stamped the same way whether the mutation changed
+reverse index, prototype-level `rename()`'s own reference-fixup list (every other
+prototype's `reference()`/`embed()`/`collection()` pointer retargeted to the new
+identifier), and substitution's per-level reconciliation together with its reuse of that
+same fixup list. A row is stamped the same way whether the mutation changed
 its own stored values or only a field's declared metadata — one uniform rule, never a
 case-by-case judgment about which kind of change counts. An entity's own relevant stamp is
 the highest `last_modified_schema_version` reachable two ways: across every editor-created
@@ -1659,13 +1663,16 @@ built-ins this way. A host application registers its own rules the same way, wit
 separate mechanism. The admin-facing menu simply lists whatever is currently registered,
 with no cap.
 
-`Unique` (see "Uniqueness") lives in this same family as one more registrable kind, naming
-one or more of a shape's own fields that together must be unique — the one kind the
-framework also materializes as a real database constraint rather than evaluating purely
-against candidate state. **`Unique` is its own mechanism, not a `PrototypeValidator` kind**
-— the two merely share the same registered-menu editor affordance: an editor-created
-prototype picks any validation declaration, `PrototypeValidator` rule or `Unique` group
-alike, from the same registry, never arbitrary logic. Server-side
+`Unique` (see "Uniqueness") lives in this same family as one more recognized validation
+declaration, naming one or more of a shape's own fields that together must be unique — the
+one kind the framework also materializes as a real database constraint rather than
+evaluating purely against candidate state. **`Unique` is its own mechanism, not a
+`PrototypeValidator` kind, and it needs no registry of its own** — unlike a
+`FieldValidator`/`PrototypeValidator` rule, there's no implementation class to register
+under a name: an editor-created prototype declares which of its own fields form the group
+directly, nothing to look up. The two still share the same editor affordance in spirit,
+menu-driven rather than arbitrary logic — `PrototypeValidatorRegistry` supplies the rule
+names, `Unique`'s own field-selection needs no registry lookup at all. Server-side
 validation is mandatory regardless of what the client already checked.
 
 Client-side pre-validation splits into three tiers behind one clean interface
@@ -1707,10 +1714,13 @@ join** — a plain join would fan the outer row out once per matching item, exac
 cardinality problem a flat dot-path can't solve for a `Collection`-cardinality field.
 `Query::for($identifier)->whereHas($field, fn($q) => $q->where(...))` (and
 `whereDoesntHave()` for the negation) compiles to `EXISTS`/`NOT EXISTS` against whichever
-physical shape that collection already has — a Shared pivot, an
-`entities.owner`/`owner_field` lookup for Owned, or the "No blobs" dedicated child table for
-non-entity — with the inner builder free to keep traversing further through the same
-dot-path mechanism above, scoped inside the subquery. **Sorting by something inside a
+physical shape that collection already has — a Shared pivot joined through to the target's
+own chain, an `entities.owner`/`owner_field` lookup joined to the owned item's own chain for
+Owned, or the "No blobs" dedicated child table for non-entity. That join is part of
+`whereHas()`'s own compilation, not something the inner builder has to spell out: `$q`'s
+own fields name the item's own fields directly (a Shared/Owned item's own chain, or a
+non-entity item's own value column(s)), with the same dot-path mechanism above available
+only for going *past* the item, into one of its own further relationships. **Sorting by something inside a
 collection stays out of scope** — "order Products by their tags" has no single answer
 (which tag's name wins?), a genuinely harder aggregate-selection problem, not the same shape
 as `EXISTS` filtering at all.

@@ -521,18 +521,22 @@ guard end to end for the first time.
   (`identifier`, `parent`, `schema`, `last_modified_schema_version`) ("Prototype storage: the
   `prototypes` table"); `fieldsOf()` hydrates `schema` into the same `FieldDescriptor[]` shape
   native reflection already produces.
-- `expectedSchemaStamp`, the second half of 5.1's concurrent-write receipt: stamped onto
-  `prototypes.last_modified_schema_version` at creation time, read back as part of the same
-  receipt every other editor-created write already returns ("Content write path").
+- `expectedSchemaStamp`, the second half of 5.1's concurrent-write receipt: `createPrototype()`
+  stamps `prototypes.last_modified_schema_version` with the current `schema_version` at
+  creation time; any later content write against an entity of that prototype reads it back
+  as part of the same receipt `ChangesetFlusher` already returns ("Content write path") —
+  `createPrototype()` itself returns no content receipt, since nothing of that type exists
+  yet to write against.
 - `Persistence\Schema\SchemaEditor::createPrototype()` — minimal, scalar fields only, no parent
   complexity yet. Non-scalar field addition is deliberately not stubbed here — it lands in
   6.2's `addField()`, once an existing prototype can be safely mutated at all.
 - `Persistence\Schema\FieldValidatorRegistry`/`PrototypeValidatorRegistry` — the
   open-registration mechanism "Validation" describes: any PHP code registers a validator
   class under a name, and `SchemaEditor`'s own admin-facing menu lists whatever is currently
-  registered. An editor-created prototype can attach any registered validation declaration
-  at creation time — a `PrototypeValidator` rule or a `Unique` group. `Unique` reuses Phase
-  1.3's native-side mechanism directly. The framework ships no concrete built-in
+  registered. An editor-created prototype can attach a `PrototypeValidator` rule this way at
+  creation time, or a `Unique` group declared directly against its own fields, with no
+  registry lookup needed for the latter. `Unique` reuses Phase 1.3's native-side mechanism
+  directly. The framework ships no concrete built-in
   `PrototypeValidator` rule of its own, so this phase registers its own test rule (the same
   "end date after start date" example Phase 1.3 already hand-wrote for native) to prove the
   open-registration path end to end.
@@ -551,9 +555,10 @@ identifier kind; creating a prototype bumps the global `schema_version` sequence
 introduced; a revision-history restore attempted on an `EntityChangeRecord` stamped before
 that bump is rejected, naming the reason, proving Phase 5.3's restore-blocking guard end to
 end for the first time; creating a fresh editor-created prototype stamps its own
-`prototypes` row with the current `schema_version`, returned as `expectedSchemaStamp` on the
-same receipt as `expectedOperationId`; creating a second, unrelated prototype afterward does
-not change the first prototype's own stamp, so a write against an already-existing entity of
+`prototypes` row with the current `schema_version`; a content write against an entity of
+that prototype reads this back as `expectedSchemaStamp` on the same receipt as
+`expectedOperationId`; creating a second, unrelated prototype afterward does not change the
+first prototype's own stamp, so a write against an already-existing entity of
 the first prototype, holding a receipt issued before the second prototype's creation, is not
 stale-rejected — proving the check is scoped to an entity's own relevant chain, never the
 global `schema_version` sequence directly.
@@ -1003,9 +1008,12 @@ and nothing extra when it isn't.
   one hop further ("Admin list/filter views").
 - `Query::whereHas($field, fn($q) => $q->where(...))`/`whereDoesntHave($field, ...)`: a
   correlated `EXISTS`/`NOT EXISTS` against a `Collection`-cardinality field's own dedicated
-  physical shape (a Shared pivot, an `entities.owner`/`owner_field` lookup for Owned, or the
-  "No blobs" dedicated child table for non-entity), with the inner builder free to keep
-  traversing further via the same dot-path mechanism, scoped inside the subquery.
+  physical shape (a Shared pivot joined through to the target's own chain, an
+  `entities.owner`/`owner_field` lookup joined to the owned item's own chain for Owned, or
+  the "No blobs" dedicated child table for non-entity) — that join is part of `whereHas()`'s
+  own compilation, so `$q`'s own fields name the item's own fields directly, with the same
+  dot-path mechanism available only for going past the item, into one of its own further
+  relationships.
 - `FieldPermission`'s existing read-time check on `where()`/`orderBy()` extended to every
   hop a dot-path or `whereHas()` traverses, not just the root identifier's own fields.
 - Sorting by something inside a collection stays out of scope, deliberately — only
