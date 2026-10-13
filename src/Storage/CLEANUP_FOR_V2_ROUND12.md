@@ -11,7 +11,7 @@ it changes what gets built, not alphabetically.
 
 ## Hygiene
 
-### 1. `ARCHITECTURE_V2.md` narrates its own drafting history
+### 1. `ARCHITECTURE_V2.md` narrates its own drafting history — **resolved (2026-10-13)**
 
 "Content undo, draft, and revision history" says the no-automatic-pruning design "is also what
 makes atomic multi-entity undo viable again: a `Revision`'s `EntityChangeRecord`s only
@@ -22,8 +22,10 @@ from ordinary operation anymore." This directly violates the document's own open
 it replaced, or what came before it") — and does so more plainly than a stale cross-reference
 would, since it names prior conversation turns rather than even a prior document.
 
-**Needs a decision**: delete the parenthetical clause; the sentence reads fine as a plain
-statement of the current design's property without narrating what came before it.
+**Resolved: deleted the clause, reworded as a plain statement of the current design's
+property.** Now reads "...not as a side effect of some other entity's unrelated edit
+frequency — independent per-entity retention clocks never diverge and fragment a shared
+operation this way," with no reference to how that conclusion was arrived at.
 
 ## Missing pieces
 

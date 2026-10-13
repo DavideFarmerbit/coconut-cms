@@ -1444,10 +1444,9 @@ disposable cache; deciding what to discard is a deliberate, human-triggered acti
 age, by entity, by prototype, whatever an admin judges appropriate at the time), never a
 background policy. This is also what makes atomic multi-entity undo viable again: a
 `Revision`'s `EntityChangeRecord`s only disappear when a human explicitly prunes them, not
-as a side effect of some other entity's unrelated edit frequency — the "independent
-per-entity retention clocks diverge and fragment a shared operation" problem earlier
-turns got stuck on doesn't arise from ordinary operation anymore. It can still happen if
-an admin manually prunes one touched entity's old history but not another's — accepted as
+as a side effect of some other entity's unrelated edit frequency — independent per-entity
+retention clocks never diverge and fragment a shared operation this way. It can still happen
+if an admin manually prunes one touched entity's old history but not another's — accepted as
 a rare, deliberate, admin-caused edge case (see the refusal behavior below), not a routine
 one to design around.
 
