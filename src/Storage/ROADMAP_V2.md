@@ -147,7 +147,13 @@ that field empty or null and accepts one with a value, independently of the colu
 schema-level nullability; `describe()` on a couple of `FieldValidator` built-ins and on the
 arbitrary-logic `PrototypeValidator` each return the expected shape; adding a new field to
 an already-populated class backfills every existing row via `#[DefaultInstance]`
-resolution.
+resolution; adding a new field that's immediately declared part of a `Unique` group to an
+already-populated native class, across more than one existing row, is refused outright when
+no backfill converter is supplied, and succeeds when a supplied converter's output is
+checked and found pairwise-distinct across every row, proven alongside a case where the
+converter's output collides and the whole migration is refused rather than partially
+applied — the same distinctness check Phase 6.2 later reuses, unchanged, for the
+editor-created identifier kind.
 
 **Not yet** (end of Phase 1): entity references/collections, value objects/embed,
 native CTI extension (a native class extending another), the `Changeset` write path
@@ -655,7 +661,9 @@ with more than one existing row is refused outright when no backfill converter i
 succeeds when a supplied converter's output is checked and found pairwise-distinct across
 every row, proven alongside a case where the converter's output collides and the whole
 `addField()` is refused rather than partially applied — the same distinctness check as the
-retype case just above, applied to a backfill instead.
+retype case just above, applied to a backfill instead, and the same mechanism Phase 1.3
+already proved for a native class, reused rather than rebuilt for the second identifier
+kind.
 
 The same phase also proves the Owned-crossing cases that come with the general retype
 mechanism: retargeting an `OwningReference`/Owned-`Collection`'s own item type while staying

@@ -98,7 +98,7 @@ registers against, one per kind, each a simple name-to-class map. No change need
 `ROADMAP_V2.md` — it already used these exact names; only `ARCHITECTURE_V2.md` was missing
 the commitment.
 
-### 3. Native-side `Unique`-group backfill-with-converter distinctness check is never roadmap-tested
+### 3. Native-side `Unique`-group backfill-with-converter distinctness check is never roadmap-tested — **resolved (2026-10-13)**
 
 "Defaulted instances" states the backfill-converter-plus-distinctness mechanism generically,
 not scoped to either identifier kind: "Backfilling such a field gains the same optional
@@ -119,11 +119,13 @@ mechanism directly," etc.); this is the one case where the shared mechanism's ow
 distinctness-check guarantee is asserted only on the side introduced second, with no matching
 assertion on the side introduced first.
 
-Open question: add the missing assertion to Phase 1.3's own "Done when" (a native class
-gaining a `Unique`-grouped field across more than one existing row, with and without a
-converter, mirroring Phase 6.2's own two outcomes), or treat Phase 6.2's proof as sufficient
-since the mechanism is explicitly shared and native migrations are deferred implementation-API
-detail anyway?
+**Resolved: added the missing assertion to Phase 1.3's own "Done when"**, mirroring Phase
+6.2's own two outcomes (refused outright with no converter across more than one existing
+row; succeeds with a supplied converter whose output is checked pairwise-distinct; refused
+again if that output collides) — reworded to say this is the same mechanism Phase 6.2 later
+reuses, rather than a second one invented for the editor-created side. Phase 6.2's own
+matching bullet reworded the other direction, to say it reuses Phase 1.3's mechanism rather
+than reading as the only place this is proven.
 
 ## Worth a decision, lower confidence
 
