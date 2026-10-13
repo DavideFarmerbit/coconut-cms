@@ -1,13 +1,13 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 16)
 
-**Status: in progress.** One item, surfaced while verifying Round 15's own edits held up
-against the rest of the document — not something Round 15 caused, but adjacent material its
-own wording had to touch (see `CLEANUP_FOR_V2_ROUND15.md` item 1's enumerated stamping
-walks). Not yet resolved.
+**Status: done (2026-10-13).** One item, surfaced while verifying Round 15's own edits held
+up against the rest of the document — not something Round 15 caused, but adjacent material
+its own wording had to touch (see `CLEANUP_FOR_V2_ROUND15.md` item 1's enumerated stamping
+walks). Resolved. Worked per [[feedback_coconut_cms_development_workflow]].
 
 ## Real inconsistencies
 
-### 1. Prototype-level `rename()` is never roadmap-tested, and its own described fixup list may itself be wrong
+### 1. Prototype-level `rename()` is never roadmap-tested, and its own described fixup list may itself be wrong — **resolved (2026-10-13)**
 
 "Rename — no attributes, ever, for either kind" (`ARCHITECTURE_V2.md` line 697) says:
 
@@ -45,10 +45,26 @@ renaming a *prototype's own identifier* and checking that `prototypes.parent`,
 `entities.concrete_identifier`, and every referencing prototype's own pointer actually get
 fixed up.
 
-Open questions:
-1. Is `owner_field` values" genuinely wrong in both places it appears (prototype-rename's
-   own paragraph, and substitution's citation of it), and should it be dropped from both?
-2. Once the correct fixup list is settled, which phase should prove prototype-level
-   `rename()` end to end — 6.2, alongside field-level `rename()`, or its own bullet since
-   it's a structurally different operation (fixing up other prototypes' own stored pointers,
-   never the renamed prototype's own data)?
+**Resolved: `owner_field` is wrong in both places and is dropped from both; the missing
+roadmap proof is added to Phase 6.2, alongside field-level `rename()`, not as its own
+bullet.**
+
+`owner_field` holds a field name, not an identifier, scoped to whatever class declares the
+`OwningReference`/Owned-`Collection` field — renaming a prototype's own identifier string
+renames no field, on any class, anywhere, so there's nothing for `owner_field` to need
+fixing up over. The correct fixup list for prototype-level `rename()` has three items:
+`prototypes.parent`, `entities.concrete_identifier`, and every other prototype's
+`reference()`/`embed()`/`collection()` pointer naming the old identifier. Substitution's
+citation of this list is wrong the same way, since it reuses the list verbatim.
+
+Prototype-level `rename()` gets its roadmap proof in Phase 6.2, not its own bullet, since
+"Rename — no attributes, ever, for either kind" already groups field-level and
+prototype-level rename under one mechanism — an explicit mapping, never inferred, never an
+attribute — and Phase 6.2 is where field-level `rename()` already gets that same proof, not
+Phase 6.3 (reparenting) or 6.4 (deletion/substitution), which cover structural changes to
+the CTI chain rather than an identifier rename.
+
+Folded into `ARCHITECTURE_V2.md`'s "Rename" section (the prototype-rename paragraph, and
+substitution's citation of its fixup list) and `ROADMAP_V2.md` Phase 6.2 (a new clause on
+the operation itself, and a new "Done when" assertion proving the three-item fixup end to
+end and proving `owner_field` stays untouched).

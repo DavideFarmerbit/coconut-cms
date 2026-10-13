@@ -567,7 +567,12 @@ global `schema_version` sequence directly.
 
 - `addField()`/`dropField()`/`rename()`/`retype()` — safe-DDL-only, scoped to the
   subclass's own schema ("Migrations and schema mutation"). `rename()` takes an explicit
-  old→new mapping, never inferred, never an attribute. `addField()` accepts any
+  old→new mapping, never inferred, never an attribute. Prototype-level `rename()` is a
+  separate operation from field-level `rename()` — it renames the prototype's own
+  identifier instead of a field, using the same explicit-mapping mechanism, and fixes up
+  `prototypes.parent`, `entities.concrete_identifier`, and every other prototype's
+  `reference()`/`embed()`/`collection()` pointer naming the old identifier.
+  `addField()` accepts any
   `FieldDescriptor` kind, not just scalar: a column for
   scalar/value-object/singular-`Reference`/`Embed`-flattening, a new dedicated pivot/child
   table for a Shared or non-entity `Collection`, no physical change beyond the registry
@@ -653,7 +658,12 @@ on that item still correctly rejecting a same-owner duplicate under the field's 
 not left comparing against the stale old one; renaming an Owned `Collection` field also
 renames its own
 `<field>_count` column (introduced in Phase 3.3) alongside the `owner_field` update, an
-ordinary column rename rather than a new mechanism; adding a field to a `Unique` group with
+ordinary column rename rather than a new mechanism; renaming a prototype's own identifier
+updates `prototypes.parent` for every direct child, `entities.concrete_identifier` for
+every existing entity at that level, and every other prototype's own
+`reference()`/`embed()`/`collection()` pointer naming the old identifier — proven by
+reading an entity back correctly under the new identifier and by resolving a pointer from
+an unrelated prototype that targeted the old name; adding a field to a `Unique` group with
 no existing duplicates among its current values succeeds, and is refused, naming the
 collision, when a duplicate already exists; retyping a field that participates in a `Unique`
 group, across a prototype with more than one existing row, is refused outright when no
@@ -829,7 +839,7 @@ data also has to be the cascade that marks it stale, not a narrower one.
   substitution. Every plain `Reference`/`Collection`-of-reference occurrence has its
   declared target type updated automatically, no converter needed, reusing prototype-rename's
   own reference-fixup list (`prototypes.parent`, `entities.concrete_identifier`,
-  `reference()`/`embed()`/`collection()` pointers, `owner_field` values) rather than a second,
+  `reference()`/`embed()`/`collection()` pointers) rather than a second,
   substitution-specific fixup mechanism. For native, the developer edits every affected
   class's own source (type-hints, attribute `target` parameters, `extends` clauses) as an
   ordinary reviewed code change first — PHP referencing a class about to stop existing isn't

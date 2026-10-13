@@ -696,8 +696,8 @@ mapping ("since last run: `oldField` → `newField`") as an argument. For editor
 the signal is inherent — `SchemaEditor` performs one explicit admin-triggered rename
 action, never inferred from a diff. Prototype-level rename works the same way and fixes up
 every stored reference to the old identifier: `prototypes.parent`, `entities.concrete_identifier`,
-every other prototype's `reference()`/`embed()`/`collection()` pointing at it, and any
-`owner_field` values. **Renaming a field on a shape used as an `#[Embed]` target
+and every other prototype's `reference()`/`embed()`/`collection()` pointing at it.
+**Renaming a field on a shape used as an `#[Embed]` target
 propagates to every table that embeds it** — same reasoning as new-field backfill below:
 every embedding table has its own flattened copy of that column (`address.city` →
 `address_city`), so the rename must run against each one, not just the shape's own
@@ -1125,8 +1125,8 @@ fifth one invented for this:
   automatically — no converter involved, because no value needs deriving.** The id never
   changes, so retargeting a pointer's *declared* type is pure metadata — reusing the exact
   reference-fixup list prototype-rename already performs (`prototypes.parent`,
-  `entities.concrete_identifier`, every `reference()`/`embed()`/`collection()` pointer,
-  `owner_field` values), which already handles this correctly since a substitution and a
+  `entities.concrete_identifier`, every `reference()`/`embed()`/`collection()` pointer),
+  which already handles this correctly since a substitution and a
   rename touch the same stored pointers, substitution just additionally has real data to
   migrate at the levels that actually change shape. Not an exception to "no automatic
   fixing, ever" — the same exemption rename propagation already has, for the same reason:
