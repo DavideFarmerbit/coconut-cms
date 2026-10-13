@@ -204,6 +204,24 @@ prototype family:
 - `concrete_identifier` — the row's actual type, native class or editor-created
   prototype, resolved through the prototype registry to find its real table(s).
 
+**`owner`'s sentinel default resolves to one real, seeded row: a reserved native class,
+`Cms`.** A self-referencing `RESTRICT` FK has to point at something that actually exists;
+rather than special-case the constraint for the sentinel, the nil UUID is `Cms`'s own `id`,
+seeded once at registration/schema-sync time, never produced through the ordinary write
+path — the one deliberate exception to "a fresh uuid generated at creation time with no DB
+round-trip." `Cms`'s own `owner`/`owner_field` are the sentinel pair too, pointing at itself:
+not a dangling reference, since the row being pointed at and the row doing the pointing are
+the same seeded row. This self-reference is never flagged as a cycle by `WriteExecutor`
+("Executing multi-entity writes safely"): that check builds dependency edges from `TempId`
+placeholders inside one batch, and `Cms`'s seed operation names its own `id` as an
+already-known literal, not a placeholder — there's nothing for another operation to resolve
+first, so there's no edge for a cycle to exist in. `Cms` is an ordinary native class
+otherwise, resolving through `PrototypeRegistry` and getting its own CTI-chain table like
+any other identifier — not a row of no resolvable type that every generic `entities` scan
+has to learn to exclude. It declares no fields of its own for now; nothing yet needs it to
+hold CMS-level singleton data, though its own Owned fields would be exactly where such data
+would live if that need shows up later.
+
 `entities` is chain position 0 for every identifier, standalone or already part of an
 inheritance chain — there's no more "chain of one, no join" case. Resolving a row's
 concrete type is one indexed lookup (`SELECT concrete_identifier FROM entities WHERE id =
@@ -492,10 +510,12 @@ shape declaring it.
   `Reference` pointing to it, not as something Owned.
 
   **Reserved sentinel values.** `owner` is a UUID column, so its reserved value must be a
-  valid UUID that no real row will ever get: the nil UUID,
-  `00000000-0000-0000-0000-000000000000` (RFC 4122's own reserved "no value" UUID).
-  `owner_field` is a string holding a real field name, so its reserved value is simply the
-  empty string `""` — a real field name can never be empty.
+  valid UUID no *ordinarily-created* row's randomly-generated id could ever collide with:
+  the nil UUID, `00000000-0000-0000-0000-000000000000` (RFC 4122's own reserved "no value"
+  UUID). The one row that legitimately has it is `Cms`'s own seeded singleton (see "Global
+  entity identity"), never produced through the ordinary creation path. `owner_field` is a
+  string holding a real field name, so its reserved value is simply the empty string `""` —
+  a real field name can never be empty.
 - **`#[Embed]` target**: each embedding site gets its own, independently-flattened copy of
   the columns (`House.homeAddress_street` and `Order.deliveryAddress_street` are unrelated
   columns, possibly on unrelated tables, per "Entity vs. Value Object vs. Embed"). A declared

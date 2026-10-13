@@ -64,6 +64,11 @@ table name fail registration with an actionable error. No data written yet.
 
 - The `entities` table itself built and synced unconditionally, before any class-derived
   table.
+- The reserved `Cms` native class, and its one seeded row at
+  `id = 00000000-0000-0000-0000-000000000000`, `owner`/`owner_field` pointing at itself —
+  built and seeded as part of this same unconditional step, before any other class's table,
+  since every other row's `owner` FK needs this row to already exist before its own sentinel
+  default can ever be written ("Global entity identity"). No fields of its own yet.
 - `Persistence\Schema\SchemaBuilder`/`SchemaSynchronizer`: Doctrine DBAL `Schema`/`Comparator`-based
   sync. Every field is a real column, full stop — there's no blob tier to ever build
   ("No blobs. Every field is a real column or a real table.").
@@ -97,7 +102,10 @@ the identical PHP instance, not two separate objects, proving the identity map f
 class's own table carries the reserved sentinel pair in its own `owner`/`owner_field` copy
 for every row, proven before Phase 3.3 gives either column a real value to hold;
 `entities.position` carries the `-1` sentinel for every standalone row too, not a plain
-`NULL`, proven before Phase 3.3 gives it a real ordinal to hold.
+`NULL`, proven before Phase 3.3 gives it a real ordinal to hold; inserting that same
+scalar-only class's row, with `owner` defaulted to the nil UUID, succeeds against a real,
+enforced self-referencing FK constraint rather than merely an unchecked one, because
+`Cms`'s own seeded row already exists at that id before the insert ever runs.
 
 ### 1.3 — Validation, uniqueness, and backfill correctness
 

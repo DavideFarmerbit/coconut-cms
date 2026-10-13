@@ -10,7 +10,7 @@ changes what gets built.
 
 ## Real inconsistencies
 
-### 1. `entities.owner`'s sentinel default has no row for the FK to point at
+### 1. `entities.owner`'s sentinel default has no row for the FK to point at — **resolved (2026-10-13)**
 
 "Global entity identity" (line 186) declares `owner` as "not nullable, self-referencing FK to
 `entities.id`, `ON DELETE RESTRICT`, defaulting to the nil UUID... when the row has no real
@@ -30,6 +30,39 @@ real constraint)? The latter would cut against "Enforcement is always a real dat
 constraint, never an application-level check" (line 456-458), which the document leans on
 elsewhere to justify not needing a race-prone pre-check — so a seeded sentinel row looks like the
 smaller change, but worth deciding deliberately rather than defaulting to it.
+
+**Resolved: the nil UUID resolves to one real, seeded row — a reserved native class, `Cms`,
+whose own `owner`/`owner_field` point at itself.** Discussed and rejected: making `owner`
+nullable instead, which would undo Round 13 item 3's fix (a `NULL` default breaks the
+`Unique`-group guarantee for standalone rows via SQL's `NULL != NULL`, which is exactly why
+`owner` was made `NOT NULL` with a sentinel in the first place). A bare sentinel row with no
+resolvable type was also considered and rejected: it would need its own reserved
+`concrete_identifier` value, and every generic walk over `entities` (`Query`, admin list
+views, the dangling-reference auditor) would need to learn to exclude it. Making it a real,
+ordinary native class instead means nothing needs to learn to skip it — a list view for any
+*other* prototype never returns it, and a list view for `Cms` itself correctly returns
+exactly one row.
+
+Added to "Global entity identity" (new paragraph after the `entities` column list) and
+"Reserved sentinel values" (reworded "no real row will ever get" to account for the one
+deliberate exception). Three details made explicit in the writeup, since each would otherwise
+be left for a reader to work out on their own: `Cms`'s `id` is a fixed constant seeded once at
+registration/schema-sync time, the one deliberate exception to every other entity's
+freshly-generated, round-trip-free `id`; the self-reference is never flagged as a cycle by
+`WriteExecutor`, since that check builds edges from `TempId` placeholders and `Cms`'s seed
+operation names its own `id` as an already-known literal, not a placeholder, so there's no
+edge to find a cycle in; and `owner_field = ""` staying reserved (never a real declared field
+name) is what keeps every standalone row sharing `(owner=Cms, owner_field="")` from becoming a
+backdoor `OwningReference`-style relationship — it's still a pure uniqueness-index trick, not a
+real relationship, even though it now points at a real row. `Cms` starts out with no fields of
+its own; nothing currently needs it to hold anything, though its own Owned fields are exactly
+where CMS-level singleton data would land later if a need for that shows up.
+
+`ROADMAP_V2.md` Phase 1.2 got a new bullet seeding `Cms` as part of the same unconditional
+`entities`-table-build step (before any other class's table, since every other row's `owner`
+FK needs it to already exist), and its "Done when" clause now asserts the FK is genuinely
+enforced — a standalone row's insert succeeds because `Cms`'s row already exists at that id,
+not because the constraint happens to be unchecked.
 
 ### 2. Revoking `editorExtensible` is handled as if it makes the parent link unresolvable, but nothing in the design actually makes that true
 
