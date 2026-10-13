@@ -1684,14 +1684,36 @@ field is a real, typed column. One real multi-table `JOIN` across the whole chai
 per-level column aliasing replaces a one-query-per-level approach for a list of rows.
 `count()` reuses the same `WHERE`, independent of pagination.
 
+**A dot-path reaches one field through a singular relationship, recursively**:
+`where('category.name', ...)`/`orderBy('currentPricing.listPrice')` resolve the named field
+the same way the identifier's own fields already do, just one or more
+`Reference`/`OwningReference` hops out, each hop a real `LEFT JOIN` — a `Reference` hop
+joins through its FK column, an `OwningReference` hop joins through
+`entities.owner`/`owner_field`/`position = -1` the same way the field itself is already
+found elsewhere. Always `LEFT`, never `INNER`: an optional relationship being absent must
+never silently drop an otherwise-matching row from a filter or sort that has nothing to do
+with it. The target identifier is statically declared on the field, so this reuses the
+exact same per-level, aliased multi-table join the identifier's own chain already gets,
+applied again one hop further — no second mechanism for the relationship case.
+
 **Polymorphic hydration of a `Query`'s own result rows is opt-in, never the default** — a
 row that's physically a more specific subtype only gets fully hydrated as that subtype
 when the caller explicitly asks (batched by distinct `concrete_identifier` present on the
 page), keeping cost predictable and visible at the call site rather than an implicit,
 unpredictable per-row tax.
 
-Deliberately out of scope: filtering an outer list by something inside a collection
-sub-structure (`EXISTS`-style semantics) — meaningfully harder, rarer need.
+**Filtering by something inside a collection sub-structure uses a correlated `EXISTS`, not a
+join** — a plain join would fan the outer row out once per matching item, exactly the
+cardinality problem a flat dot-path can't solve for a `Collection`-cardinality field.
+`Query::for($identifier)->whereHas($field, fn($q) => $q->where(...))` (and
+`whereDoesntHave()` for the negation) compiles to `EXISTS`/`NOT EXISTS` against whichever
+physical shape that collection already has — a Shared pivot, an
+`entities.owner`/`owner_field` lookup for Owned, or the "No blobs" dedicated child table for
+non-entity — with the inner builder free to keep traversing further through the same
+dot-path mechanism above, scoped inside the subquery. **Sorting by something inside a
+collection stays out of scope** — "order Products by their tags" has no single answer
+(which tag's name wins?), a genuinely harder aggregate-selection problem, not the same shape
+as `EXISTS` filtering at all.
 
 **`Query`'s hydrated results go through the same read-time `FieldPermission` filter as
 `Repository::find()`/`lazyFind()`** — one filtering step, not a separate one `Query` would
@@ -1704,7 +1726,10 @@ would leak the field's values via a side channel (sort order, or which rows pass
 even though `FieldPermission` scrubs the field itself from what's returned; a cursor
 carries the sort field's own value, which would leak it just by existing. Same posture as
 every other read-time `FieldPermission` check, just applied to the query's inputs instead
-of only its output rows.
+of only its output rows. **This reaches every hop a dot-path or `whereHas()` traverses, not
+just the root identifier's own fields** — a relationship field the actor can't read blocks
+any path through it, and a field named inside a `whereHas()` builder is checked exactly as
+if it were named directly against the root identifier.
 
 ## Permissions
 

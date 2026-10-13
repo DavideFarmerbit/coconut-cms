@@ -963,7 +963,8 @@ that touches a field the actor can't write is rejected by the same gate.
 ## Phase 8 — Admin list/filter views
 
 **Goal**: browse, filter, and sort across native and editor-created prototypes, any
-inheritance level, cursor-paginated from the start.
+inheritance level, cursor-paginated from the start, including filtering/sorting through a
+singular relationship and filtering by collection containment.
 
 ### 8.1 — Base query builder
 
@@ -991,6 +992,40 @@ that field's values through sort order or which rows pass the filter.
 **Done when**: a page mixing several distinct concrete subtypes costs exactly one extra
 batched lookup per distinct subtype when polymorphic hydration is explicitly requested,
 and nothing extra when it isn't.
+
+### 8.3 — Relationship traversal and collection containment
+
+- Dot-path field resolution through a singular `Reference`/`OwningReference`, recursively:
+  `where('category.name', ...)`/`orderBy('currentPricing.listPrice')`. Each hop is a
+  `LEFT JOIN` — through the FK column for `Reference`, through
+  `entities.owner`/`owner_field`/`position = -1` for `OwningReference` — reusing the same
+  per-level aliased join 8.1 already builds for the root identifier's own chain, applied
+  one hop further ("Admin list/filter views").
+- `Query::whereHas($field, fn($q) => $q->where(...))`/`whereDoesntHave($field, ...)`: a
+  correlated `EXISTS`/`NOT EXISTS` against a `Collection`-cardinality field's own dedicated
+  physical shape (a Shared pivot, an `entities.owner`/`owner_field` lookup for Owned, or the
+  "No blobs" dedicated child table for non-entity), with the inner builder free to keep
+  traversing further via the same dot-path mechanism, scoped inside the subquery.
+- `FieldPermission`'s existing read-time check on `where()`/`orderBy()` extended to every
+  hop a dot-path or `whereHas()` traverses, not just the root identifier's own fields.
+- Sorting by something inside a collection stays out of scope, deliberately — only
+  filtering (`whereHas()`/`whereDoesntHave()`) is built here.
+
+**Done when**: filtering or sorting by a field reached through a singular `Reference`
+returns correct results, including rows where the relationship is absent, found via the
+`LEFT JOIN` rather than silently dropped; the same proven through an `OwningReference` hop;
+filtering by a field reached two hops deep (through two singular relationships in a row)
+resolves correctly, proving the mechanism recurses rather than being hardcoded to one hop;
+`whereHas()` against a Shared collection correctly returns only rows with at least one
+matching item, proven against a row with zero matching items, one, and several, without
+ever returning a result row more than once for a row with several matches; the same proven
+for an Owned collection and for a non-entity collection; `whereDoesntHave()` returns the
+complement; a `whereHas()` predicate that itself traverses a further relationship (e.g.
+`whereHas('tags', fn($q) => $q->where('category.name', '=', 'Promo'))`) resolves correctly,
+proving the two mechanisms compose; filtering or sorting through a relationship hop the
+actor can't read is rejected, the same as a field named directly on the root identifier; a
+field named inside a `whereHas()` builder that the actor can't read is rejected the same
+way.
 
 ## Shelf items (unchanged from `ARCHITECTURE_V2.md`)
 

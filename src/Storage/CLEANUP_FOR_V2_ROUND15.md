@@ -1,11 +1,12 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 15)
 
-**Status: in progress.** A fifteenth audit pass over `ARCHITECTURE_V2.md`/`ROADMAP_V2.md`, the
-final one before implementation starts. Checked the two documents against each other for
-inconsistencies, missing pieces, and design flaws, plus the standalone-document rule
-([[feedback_v2_docs_standalone]]). No stray pre-rewrite references found this round. Items
-below are open questions, not yet resolved. Ordered by how much each one changes what gets
-built.
+**Status: done (2026-10-13).** A fifteenth audit pass over `ARCHITECTURE_V2.md`/
+`ROADMAP_V2.md`, the final one before implementation starts. Checked the two documents
+against each other for inconsistencies, missing pieces, and design flaws, plus the
+standalone-document rule ([[feedback_v2_docs_standalone]]). No stray pre-rewrite references
+found this round. Four items below, all resolved. Worked one at a time per
+[[feedback_coconut_cms_development_workflow]]. Ordered by how much each one changes what
+gets built.
 
 ## Real inconsistencies
 
@@ -127,9 +128,7 @@ reuses, rather than a second one invented for the editor-created side. Phase 6.2
 matching bullet reworded the other direction, to say it reuses Phase 1.3's mechanism rather
 than reading as the only place this is proven.
 
-## Worth a decision, lower confidence
-
-### 4. `Query`'s "deliberately out of scope" carve-out names collection sub-structure filtering but not relationship-traversal filtering
+### 4. `Query`'s "deliberately out of scope" carve-out names collection sub-structure filtering but not relationship-traversal filtering — **resolved (2026-10-13)**
 
 "Admin list/filter views" explicitly excludes one case: "filtering an outer list by something
 inside a collection sub-structure (`EXISTS`-style semantics) — meaningfully harder, rarer
@@ -139,6 +138,36 @@ each field to its real column and which chain-level table holds it" reads as sco
 identifier's own CTI chain only, which would make single-step relationship-traversal filtering
 unsupported too, just never said so explicitly the way the collection case is.
 
-Open question: is this silence intentional (relationship-traversal filtering is out of scope,
-same as the collection case, just not yet written down), or is a single-step join across a
-`Reference`/`OwningReference` actually meant to be in scope for Phase 8 and simply unspecified?
+**Resolved: relationship-traversal filtering/sorting is real and in scope, and so — going
+further than the original question — is collection-containment filtering, reversing the
+original "deliberately out of scope" call.** Settled as two distinct mechanisms, not one,
+since the cardinality problem differs: a singular `Reference`/`OwningReference` hop is
+always 1:1-or-absent, so a dot-path (`where('category.name', ...)`) resolves as a real
+`LEFT JOIN` through the hop — through the FK column for `Reference`, through
+`entities.owner`/`owner_field`/`position = -1` for `OwningReference` — reusing the exact
+multi-table join mechanism already built for the root identifier's own chain, applied one
+hop further, recursively. `LEFT`, never `INNER`, specifically so an absent optional
+relationship doesn't silently drop an otherwise-matching row.
+
+A `Collection`-cardinality field can't use a plain join at all — it would fan the outer row
+out once per matching item — so filtering by collection containment
+(`Query::whereHas($field, fn($q) => $q->where(...))`/`whereDoesntHave()`) compiles to a
+correlated `EXISTS`/`NOT EXISTS` against whichever physical shape that collection already
+has (Shared pivot, `entities.owner`/`owner_field` lookup for Owned, or the "No blobs"
+dedicated child table for non-entity), with the inner builder able to keep traversing
+further through the same dot-path mechanism. **Sorting by something inside a collection
+stays out of scope** — "order Products by their tags" has no single answer, a genuinely
+harder aggregate-selection problem unrelated to the `EXISTS`-filtering case, so the original
+scope note narrows rather than disappears.
+
+`FieldPermission`'s existing "a field the actor can't read is rejected the same as if it
+didn't exist" rule was extended explicitly to cover every hop either mechanism traverses,
+not just the root identifier's own fields — the same rule, wider reach, since neither
+mechanism existed to need it stated before now.
+
+Folded into `ARCHITECTURE_V2.md`'s "Admin list/filter views" (a new dot-path paragraph, the
+`whereHas()`/`whereDoesntHave()` paragraph replacing the old out-of-scope bullet, and the
+`FieldPermission` extension); `ROADMAP_V2.md` gained a new Phase 8.3 for both mechanisms,
+with its own "Done when" covering single- and multi-hop traversal, all three collection
+physical shapes, negation, composition of the two mechanisms together, and the matching
+permission-rejection cases.
