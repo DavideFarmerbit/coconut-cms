@@ -208,6 +208,12 @@ physical tables are involved.
   item descriptor — Shared collection (real pivot table with its own `position` column,
   owner-side FK `CASCADE`, target-side FK `SET NULL` same as the singular case) ("References
   and collections", "FK `ON DELETE` policy").
+- `Persistence\Entity\Repository::lazyFind($id)` — the second read path Architecture names
+  alongside `find()`: returns a proxy immediately, with no query run, the same mechanism a
+  `Reference`/`Collection` field's own resolution already needs to stay lazy on an entity's
+  own load ("Identity Map + Repository + lazy loading"). A `Reference`/`Collection` field
+  resolves its target through this same method internally, not a second, parallel laziness
+  mechanism built alongside it — `lazyFind()` is equally callable directly.
 
 **Done when**: a native class can Shared-reference another, the FK column always nullable;
 a `RequiredValidator` attached to that same `Reference` field rejects a write with no target
@@ -222,13 +228,16 @@ slot's `position` and the collection's true count rather than silently shrinking
 exist) is rejected at registration time, not left to fail later; a `Unique` group naming a
 field reached through a `Reference` (now that one exists) is rejected at registration time
 too, for the same reason — the compared column lives on the referenced row's own table, not
-on any table the constraint could be declared against; loading an entity with a Shared
-reference or collection field triggers no query for the target until the field is actually
-accessed; accessing it then triggers exactly one query; resolving the same target id a
-second time in the same request — through the same field again, or found independently
-elsewhere — returns the identical PHP instance with no second query, proving laziness and
-the identity map compose the way "Identity Map + Repository + lazy loading" describes, not
-each proven in isolation.
+on any table the constraint could be declared against; calling `Repository::lazyFind($id)`
+directly returns a proxy with no query run yet, and accessing any of its own properties
+triggers exactly one query that populates it, with no further query on later access; loading
+an entity with a Shared reference or collection field triggers no query for the target until
+the field is actually accessed, proving the field resolves through this same `lazyFind()`
+path rather than a separate mechanism; accessing it then triggers exactly one query;
+resolving the same target id a second time in the same request — through the same field
+again, or found independently elsewhere — returns the identical PHP instance with no second
+query, proving laziness and the identity map compose the way "Identity Map + Repository +
+lazy loading" describes, not each proven in isolation.
 
 ### 3.3 — Owned references and collections
 

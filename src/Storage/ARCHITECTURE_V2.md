@@ -1524,7 +1524,10 @@ complementary — a lazy proxy consults the identity map before running a fresh 
 Scope is per-request, built fresh and discarded at request end; a cross-request cache is a
 separate, later optimization layered on top, not conflated with this correctness
 guarantee. References/collections must not eagerly hydrate on an entity's own load — only
-on actual access.
+on actual access, through `Repository::lazyFind($id)`: a proxy returned immediately, with no
+query run until one of its own properties is first accessed. A `Reference`/`Collection`
+field resolves its target through this same method, never a separate laziness mechanism of
+its own; `lazyFind()` is equally callable directly, independent of any field.
 
 ## Validation
 

@@ -6,7 +6,7 @@ pieces, and design flaws, and separately checking both against the standalone-do
 ([[feedback_v2_docs_standalone]]) for stray references to pre-rewrite docs/concepts, and
 for the architecture-never-names-roadmap direction of that same rule. The hygiene check came
 back clean this round — no stray references found in either direction — so there's no
-hygiene section below. Eight items below, six resolved so far (items 1-6). Work one item
+hygiene section below. Eight items below, seven resolved so far (items 1-7). Work one item
 at a time per [[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes
 what gets built, not alphabetically.
 
@@ -186,7 +186,7 @@ there was for those two — the `-1` reuse is purely for consistency with their 
 `NULL`" posture, and it's simpler than introducing a new, third not-applicable state right
 next to two existing ones. Phase 1.2's "Done when" gained a matching assertion.
 
-### 7. `Repository::lazyFind()` is cited in Architecture but never committed to a roadmap phase
+### 7. `Repository::lazyFind()` is cited in Architecture but never committed to a roadmap phase — **resolved (2026-10-13)**
 
 "Permissions" names `Repository::find()`/`lazyFind()` together as the two read paths
 `FieldPermission` filters identically. `ROADMAP_V2.md` only ever names `find()` (Phase 1.2) and
@@ -198,6 +198,28 @@ actually accessed").
 **Needs a decision**: name `Repository::lazyFind()` explicitly in Phase 3.2 (where the laziness
 behavior it backs is first introduced and tested), or confirm the behavior is meant to live
 somewhere else and correct the Architecture reference.
+
+**Resolved: named explicitly in Phase 3.2, as suggested, plus one gap found while tracing
+it.** The citation itself was slightly mis-pointed — `find()`/`lazyFind()` are actually named
+together at the tail of "Admin list/filter views," not in "Permissions" — a minor detail that
+doesn't change the finding. More substantially, `ARCHITECTURE_V2.md` itself never defined
+what `lazyFind()` does before naming it in passing; "Identity Map + Repository + lazy
+loading" now states it explicitly: a proxy returned immediately, no query run until a
+property is first accessed, with a `Reference`/`Collection` field resolving its target
+through this same method rather than a separate laziness mechanism — and the method is
+equally callable directly, independent of any field. Phase 3.2 gained a matching bullet and
+a direct-call "Done when" assertion, distinct from the existing field-mediated one, since
+Architecture treats it as its own callable method, not purely a hidden implementation detail
+behind `Reference` fields.
+
+A related design question came up while discussing this (should lazy loading become
+opt-in via a field attribute, eager by default) and was resolved as **no** — eager-by-default
+on a CMS-shaped entity risks combinatorial over-fetching across its own `Reference`/
+`Collection` fields, which is exactly why Doctrine (the pattern this design already follows)
+defaults associations to lazy too. A field-level attribute also bakes in one answer per
+declaration when the real need, if one ever appears, is a per-*query* eager-load hint (a
+`Query`/`Repository` parameter, not a `FieldDescriptor` one) — deferred, not designed now,
+since nothing in the architecture has surfaced a concrete need for it yet.
 
 ## Real inconsistencies
 
