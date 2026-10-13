@@ -82,7 +82,7 @@ owner, if the declaring entity is itself Owned. That would reverse "no carve-out
 entities," which the document states repeatedly and relies on elsewhere (undo's per-entity
 conflict check, revision-history restore) — a much bigger change than this item needs.
 
-### 3. `entities.owner`/`owner_field`/`position` are called "nullable," but must never actually be null
+### 3. `entities.owner`/`owner_field`/`position` are called "nullable," but must never actually be null — **resolved (2026-10-13)**
 
 "Global entity identity" introduces all three columns as "nullable" (lines 187, 191, 193). But
 "Reserved sentinel values" (lines 491-495) requires every row to carry a non-null sentinel
@@ -94,8 +94,12 @@ standalone rows.
 A reader who builds the schema from the literal column definitions ("nullable," no default)
 would produce exactly the schema that breaks that guarantee.
 
-**Question for discussion:** reword the three column definitions to say they're always populated
-(never actually null, sentinel or real value), rather than "nullable"?
+**Resolved: all three columns are now declared not nullable, each with its own sentinel
+default.** `owner` defaults to the nil UUID, `owner_field` to the empty string, `position` to
+`-1`, each used when the row has no real value for that column — matching what "Reserved
+sentinel values" already required and what the new default values make possible. No roadmap
+change needed: `ROADMAP_V2.md`'s own "nullable" mentions are all about ordinary `Reference` FK
+columns, unrelated to these three.
 
 ### 4. "Namespaces" names concrete Draft classes that "Content undo, draft, and revision history" says aren't decided yet
 

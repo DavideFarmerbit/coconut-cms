@@ -184,14 +184,17 @@ prototype family:
   uuid over an autoincrementing PK**: avoids a single global sequence shared by every
   entity in the system regardless of prototype, and keeps id generation possible without a
   round-trip to the database first.
-- `owner` — nullable, self-referencing FK to `entities.id`, `ON DELETE RESTRICT`. Not
-  `CASCADE` — see "References and collections" and "Content write path": deletion of an
-  Owned subtree is app-mediated, and this constraint is what makes skipping that a hard
-  failure instead of a silent one.
-- `owner_field` — nullable, disambiguates which Owned relationship put this row here when
-  the same shape is owned by more than one relationship.
-- `position` — nullable, `-1` for a standalone/Shared-referenced row or a non-collection
-  Owned relationship, an ordinal otherwise (orders an Owned collection). One sentinel either
+- `owner` — not nullable, self-referencing FK to `entities.id`, `ON DELETE RESTRICT`,
+  defaulting to the nil UUID (see "Reserved sentinel values" under "Uniqueness") when the row
+  has no real owner. Not `CASCADE` — see "References and collections" and "Content write
+  path": deletion of an Owned subtree is app-mediated, and this constraint is what makes
+  skipping that a hard failure instead of a silent one.
+- `owner_field` — not nullable, defaulting to the empty string when the row has no real
+  owner, disambiguates which Owned relationship put this row here when the same shape is
+  owned by more than one relationship.
+- `position` — not nullable, defaulting to `-1` for a standalone/Shared-referenced row or a
+  non-collection Owned relationship, an ordinal otherwise (orders an Owned collection). One
+  sentinel either
   way: nothing ever needs to tell those two `-1` cases apart from `position` alone, since
   `owner`/`owner_field` already does that job — every query filtering on `position = -1`
   already scopes to a specific `owner`/`owner_field` pair first ("References and
