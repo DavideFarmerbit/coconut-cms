@@ -73,7 +73,7 @@ an already-populated prototype stale-rejects a stranded receipt even though
 cascade proof; Phase 6.4 gained the reference-retargeting-fixup proof, the one case where no
 row's own data changes at all, only a field's declared target type.
 
-### 2. `ROADMAP_V2.md` names three classes `ARCHITECTURE_V2.md` never introduces
+### 2. `ROADMAP_V2.md` names three classes `ARCHITECTURE_V2.md` never introduces — **resolved (2026-10-13)**
 
 "Roadmap only names architecture as its source" is the rule Round 12 Item 2 established (for
 `DynamicEntity`). Three more instances slipped past that round and every round since:
@@ -86,11 +86,17 @@ row's own data changes at all, only a field's declared target type.
   mechanism entirely in prose — "Any PHP code can register a `FieldValidator` or
   `PrototypeValidator` class under a name, at boot" — and never names the registry itself.
 
-Open question: name these three in `ARCHITECTURE_V2.md` (the same fix Round 12 applied to
-`DynamicEntity` — add a sentence to the relevant section committing to the class), or walk
-the roadmap's own references back to prose? Given all three are real, load-bearing pieces
-of the design (not implementation-API detail like migration parameter names), naming them
-in Architecture looks like the better fit with the rest of the document.
+**Resolved: named all three in `ARCHITECTURE_V2.md`, the same fix Round 12 applied to
+`DynamicEntity`, rather than walking the roadmap's own references back to prose** — all
+three are real, load-bearing pieces of the design, not implementation-API detail like
+migration parameter names. "Identity Map + Repository + lazy loading" now commits to
+`Persistence\Entity\IdentityMap` as the concrete class backing "the identity map," keyed by
+identifier plus id and consulted by `Repository::find()`/`lazyFind()` before either issues a
+query. "Validation" now names `Persistence\Schema\FieldValidatorRegistry`/
+`PrototypeValidatorRegistry` as the two concrete registries the open-registration mechanism
+registers against, one per kind, each a simple name-to-class map. No change needed in
+`ROADMAP_V2.md` — it already used these exact names; only `ARCHITECTURE_V2.md` was missing
+the commitment.
 
 ### 3. Native-side `Unique`-group backfill-with-converter distinctness check is never roadmap-tested
 

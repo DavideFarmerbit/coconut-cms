@@ -1625,9 +1625,12 @@ pruning something else.
 ## Identity Map + Repository + lazy loading
 
 Standard pattern (Fowler's PoEAA / Doctrine's `EntityManager`+`UnitOfWork`): resolving the
-same entity id twice within a request yields the same PHP instance. Lazy loading (when a
-query runs) and the identity map (whether a second resolution reuses the first) are
-complementary — a lazy proxy consults the identity map before running a fresh query.
+same entity id twice within a request yields the same PHP instance.
+`Persistence\Entity\IdentityMap` is the concrete class backing this — keyed by identifier
+plus id, consulted by `Repository::find()`/`lazyFind()` before either ever issues a query.
+Lazy loading (when a query runs) and the identity map (whether a second resolution reuses
+the first) are complementary — a lazy proxy consults the identity map before running a
+fresh query.
 Scope is per-request, built fresh and discarded at request end; a cross-request cache is a
 separate, later optimization layered on top, not conflated with this correctness
 guarantee. References/collections must not eagerly hydrate on an entity's own load — only
@@ -1650,9 +1653,11 @@ real constraint, and it is about what the *live editor* can do, not about who ca
 rule.
 
 Any PHP code can register a `FieldValidator` or `PrototypeValidator` class under a name, at
-boot. The framework registers its own built-ins this way. A host application registers its
-own rules the same way, with no separate mechanism. The admin-facing menu simply lists
-whatever is currently registered, with no cap.
+boot, through `Persistence\Schema\FieldValidatorRegistry`/`PrototypeValidatorRegistry` — one
+registry per kind, each a simple name-to-class map. The framework registers its own
+built-ins this way. A host application registers its own rules the same way, with no
+separate mechanism. The admin-facing menu simply lists whatever is currently registered,
+with no cap.
 
 `Unique` (see "Uniqueness") lives in this same family as one more registrable kind, naming
 one or more of a shape's own fields that together must be unique — the one kind the
