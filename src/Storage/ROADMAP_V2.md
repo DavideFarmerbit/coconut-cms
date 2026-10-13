@@ -414,6 +414,13 @@ per-entity `EntityChangeRecord` design; nothing is ever pruned automatically.
   owned subtree: found by walking what's still live, plus, for anything removed, that
   entity's own captured `owner`/`owner_field` to keep resolving upward through whatever of
   the chain remains.
+- A flush that only changes a collection field backed by its own dedicated child table (a
+  Shared collection's pivot table, or a non-entity collection's own child table — "No blobs"
+  already treats these as one mechanism) still produces an `EntityChangeRecord` for the
+  collection's declaring entity. A row in either table is never an entity and gets none of
+  its own ("FK `ON DELETE` policy" for the pivot case), but the write is still attributed to
+  the declaring entity, Owned or standalone, same as any other entity write ("Content write
+  path").
 
 **Done when**: every flush produces a correct `Revision` and correct per-entity
 `EntityChangeRecord`s, including for a multi-entity flush — verified by inspection, no
@@ -421,7 +428,11 @@ undo capability exists yet; a stale `expectedOperationId` is rejected, including
 only stale on an entity's owned subtree rather than the entity itself, and including one
 that's stale only because a deeply-nested Owned descendant was removed entirely, resolved
 via that descendant's own captured `owner`/`owner_field` rather than a live
-`entities.owner` walk.
+`entities.owner` walk; a flush that only adds or removes an item in a Shared collection, or
+only adds/removes/changes an item in a non-entity collection, still produces an
+`EntityChangeRecord` for the collection's declaring entity, advancing that entity's own
+`expectedOperationId` the same as an ordinary field write would — proving neither dedicated
+child table's writes are silently untracked, for either kind.
 
 ### 5.2 — Undo, redo, authorization
 

@@ -31,7 +31,7 @@ event already documented.
 
 ## Real inconsistencies
 
-### 2. Collection-membership concurrency protection doesn't actually work for Shared collections
+### 2. Collection-membership concurrency protection doesn't actually work for Shared collections — **resolved (2026-10-13)**
 
 "Uniqueness" (line 530) and "Content write path" (line 1393) both say a write touching a
 collection's own membership is serialized by the owning entity's `expectedOperationId`. But
@@ -53,10 +53,30 @@ never recorded in undo history at all, since nothing produces an `EntityChangeRe
 Every other kind of content edit gets one. This isn't called out anywhere as a deliberate
 exclusion (unlike Draft or schema mutations, which are explicitly excluded from undo).
 
-**Question for discussion:** does a Shared-collection membership change need its own
-`EntityChangeRecord` (and if so, attributed to which entity — the pivot has no identity of its
-own), or is the "serializing concurrent edits" claim simply wrong and should be removed/narrowed
-to Owned collections (which do advance the owner's `EntityChangeRecord` via `<field>_count`)?
+**Resolved, and broadened while fixing it: a write to any collection field backed by its own
+dedicated child table now produces an `EntityChangeRecord` for the collection's declaring
+entity.** The original report only named Shared collections, but "No blobs" already states a
+Shared pivot table and a non-entity collection's own child table (scalar, value-object, or
+`#[Embed]` items) are "this exact same `(position, value column(s))` shape... not a second,
+independently-arrived-at mechanism" — so a fix scoped to pivots only would have left the
+identical gap sitting in the non-entity-collection case. Added to "Content write path," right
+after the Owned-collection slot-shift mechanics, covering both: a row in either dedicated
+table is never an entity and gets no `EntityChangeRecord` of its own, but adding, removing, or
+changing one still changes the declaring entity's own content, so `ChangesetFlusher`
+attributes that write to the declaring entity's own `EntityChangeRecord` for the flush. This
+follows the existing "no carve-out for Owned entities" rule exactly — the record attaches to
+the declaring entity itself, Owned or standalone, never bubbled further up an ownership chain,
+the same way every other entity write already works. Also added a short clarifying
+cross-reference to "FK `ON DELETE` policy" (the pivot row still carries no
+*independently*-logged content of its own, but the write is logged, against the declaring
+entity) and a new `ROADMAP_V2.md` Phase 5.1 "Done when" assertion proving a flush confined to
+either kind of dedicated table still produces the declaring entity's `EntityChangeRecord` and
+advances its `expectedOperationId`.
+
+Considered and rejected: bubbling the record up to the declaring entity's ultimate standalone
+owner, if the declaring entity is itself Owned. That would reverse "no carve-out for Owned
+entities," which the document states repeatedly and relies on elsewhere (undo's per-entity
+conflict check, revision-history restore) — a much bigger change than this item needs.
 
 ### 3. `entities.owner`/`owner_field`/`position` are called "nullable," but must never actually be null
 

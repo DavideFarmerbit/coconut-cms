@@ -431,7 +431,8 @@ a hard failure instead.
 
 A Shared collection's pivot table splits rather than following one rule for both FKs. A
 pivot row carries no independently-logged content of its own (not an entity, gets no
-`EntityChangeRecord`), which is what makes `CASCADE` safe on the owner side: the owner-side
+`EntityChangeRecord` of its own — the write is still logged, against the collection's
+declaring entity; see "Content write path"), which is what makes `CASCADE` safe on the owner side: the owner-side
 FK is `CASCADE`, the same semantic every other table-based collection already has (a
 non-entity collection's own dedicated table is "`CASCADE`-deleted with the owner," "No
 blobs"). The target-side FK is `SET NULL` instead, same policy and same reason as the
@@ -1389,6 +1390,22 @@ exactly as it would any other batch. Every shifted sibling gets its own ordinary
 "delete this owned entity," so if that item itself owns descendants or is
 Shared-referenced from elsewhere, both of those expansions still run exactly as already
 described, no special-casing for the slot-shift case.
+
+**A collection field backed by its own dedicated child table needs the same explicit logging
+step, for a different reason.** This covers both cases "No blobs" already treats as one
+mechanism: a Shared collection's own pivot table, and a non-entity collection's own child
+table (scalar, value-object, or `#[Embed]` items) — the same `(position, value column(s))`
+shape either way. A row in either table is never an entity. It gets no `EntityChangeRecord`
+of its own (see "FK `ON DELETE` policy" for the pivot case). But adding, removing, or
+changing one of these rows still changes the declaring entity's own content.
+`ChangesetFlusher` attributes that write to the declaring entity's own `EntityChangeRecord`
+for the flush — the same "no carve-out for Owned entities" rule already stated for every
+other kind of entity write (see "Content undo, draft, and revision history"). The record
+always attaches to the declaring entity itself, Owned or standalone, never bubbled further up
+an ownership chain. Without this, a change confined to one of these dedicated tables would
+leave no trace at all: the declaring entity's `expectedOperationId` would never advance, and
+the edit would never be undoable. For a Shared collection specifically, this is also what
+"Uniqueness" relies on for its own concurrent-write-protection claim.
 
 **Concurrent-write protection**: an `expectedOperationId` receipt, reject-by-default with
 an explicit override to retry. The id itself is sourced from the undo log, not a second,
