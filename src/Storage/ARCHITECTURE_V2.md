@@ -1000,11 +1000,16 @@ type: deleting a prototype that has live editor-created subclasses doesn't touch
 subclasses' own existing instances (they're a different concrete type, and the subclass
 itself wasn't deleted) — it only triggers the parent-revocation fallback above for them.
 This cascade-delete runs through `Persistence\Entity\WriteExecutor` (topological sort,
-Owned-subtree expansion — see "Executing multi-entity writes safely"), not a bulk bypass —
-which is exactly why it needs the mechanism below to stay possible at all when some of
-those rows are still `RESTRICT`-protected by a live `Reference` elsewhere. Reusing it is a
-structural choice: it already solves the dependency-safe ordering problem, no reason to
-re-solve it in a second, separate bulk-delete mechanism.
+Owned-subtree expansion — see "Executing multi-entity writes safely"), not a bulk bypass.
+Two different things make that necessary, not one. Some of those rows may still have live
+Owned descendants — `entities.owner`'s own `RESTRICT` would block a raw delete on those
+outright, so the downward expansion is what makes the delete possible at all. Some rows may
+instead be live-referenced by a `Reference` elsewhere, which never blocks a delete (always
+`SET NULL`, never `RESTRICT`, per "FK `ON DELETE` policy") — there, the sideways expansion
+isn't about making the delete possible, it's what keeps the referrer's own nulled FK a
+tracked write effect instead of an invisible database-level side effect. Reusing
+`WriteExecutor` for both is a structural choice: it already solves the dependency-safe
+ordering problem, no reason to re-solve it in a second, separate bulk-delete mechanism.
 
 **Prototype deletion optionally takes a replacement identifier and an `EntityRetypeConverter`
 — not a separate operation, the same `deletePrototype()` call, just with two more optional

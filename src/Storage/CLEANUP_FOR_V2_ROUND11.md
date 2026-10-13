@@ -1,14 +1,14 @@
 # Storage / Editor v2 — Cleanup Before Building (Round 11)
 
-**Status: open (2026-10-12).** An eleventh audit pass over `ARCHITECTURE_V2.md`/
+**Status: done (2026-10-13).** An eleventh audit pass over `ARCHITECTURE_V2.md`/
 `ROADMAP_V2.md`, checking the two documents against each other for inconsistencies, missing
 pieces, and design flaws, and separately checking both against the standalone-document rule
 ([[feedback_v2_docs_standalone]]) for stray references to pre-rewrite docs/concepts, and
 for the architecture-never-names-roadmap direction of that same rule. The hygiene check came
 back clean this round — no stray references found in either direction — so there's no
-hygiene section below. Eight items below, seven resolved so far (items 1-7). Work one item
-at a time per [[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes
-what gets built, not alphabetically.
+hygiene section below. Eight items below, all resolved. Worked one item at a time per
+[[feedback_coconut_cms_development_workflow]]. Ordered by how much it changes what gets
+built, not alphabetically.
 
 ## Missing pieces
 
@@ -223,7 +223,7 @@ since nothing in the architecture has surfaced a concrete need for it yet.
 
 ## Real inconsistencies
 
-### 8. "RESTRICT-protected by a live `Reference`" contradicts "FK `ON DELETE` policy"
+### 8. "RESTRICT-protected by a live `Reference`" contradicts "FK `ON DELETE` policy" — **resolved (2026-10-13)**
 
 "Migrations and schema mutation"'s prototype-deletion discussion says a prototype's own rows
 might still be "`RESTRICT`-protected by a live `Reference` elsewhere," as part of explaining
@@ -240,3 +240,14 @@ point (deletion needs `WriteExecutor`'s downward Owned-subtree expansion *and* i
 may have live Owned descendants (`entities.owner`'s `RESTRICT`), and some may be
 live-referenced by a `Reference` elsewhere (handled by the sideways `SET NULL` expansion, not a
 `RESTRICT`) — rather than attributing `RESTRICT` to `Reference`.
+
+**Resolved: reworded as suggested, with one refinement found while rewriting it.** The two
+reasons aren't just different in *kind* (which relationship), they're different in *what
+`WriteExecutor` actually buys*: for Owned descendants, `entities.owner`'s `RESTRICT` would
+really block a raw delete outright, so the downward expansion is what makes the delete
+possible at all; for a `Reference`, nothing ever blocks the delete (always `SET NULL`), so
+the sideways expansion isn't about possibility — it's what keeps the referrer's own nulled
+FK a tracked write effect instead of an invisible database-level side effect, matching the
+reasoning "Content undo, draft, and revision history" already relies on elsewhere. Checked
+`ROADMAP_V2.md` for the same misattribution while there — its own two `RESTRICT`/`Reference`
+mentions (Phase 6.4) were already correctly worded, nothing to fix.
