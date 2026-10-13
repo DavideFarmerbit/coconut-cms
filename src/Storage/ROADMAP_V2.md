@@ -595,8 +595,10 @@ propagates to every table embedding it, not just the shape's own declaration; re
 converter if one is supplied, or leaves the FK null otherwise — never a failure, since a
 `Reference` can never be required; retyping a `Collection` field into a singular one (or the
 reverse) through its own converter, or its own class default if none is supplied, drops the
-now-unused dedicated table (or creates a freshly-needed one), proven as its own case
-distinct from a deletion-triggered `NoType` conversion, which never changes cardinality;
+now-unused dedicated table (or creates a freshly-needed one) for the Shared/non-entity case,
+or drops/creates the field's own `<field>_count` column instead for the Owned case (which has
+no dedicated table either way), proven as its own case distinct from a deletion-triggered
+`NoType` conversion, which never changes cardinality;
 retyping a `Collection`'s item kind across the entity/non-entity boundary (a collection of
 value-object items retyped into a collection of `Reference` items, and the reverse) passes
 the whole captured array to a single converter call that returns a new array of any

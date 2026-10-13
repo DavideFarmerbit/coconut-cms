@@ -867,10 +867,15 @@ touch it. Collapsing an existing `Collection` field into a singular one needs a 
 that picks or combines the field's existing items into one value, or, if none is supplied,
 falls back to the singular field's own class default; the collection's own dedicated table
 (the Shared pivot, or the "No blobs" child table) drops once the conversion's done, same as
-removing any other collection field. The reverse (a singular field becoming a `Collection`)
+removing any other collection field. **An Owned Collection has no dedicated table to drop**
+— its own `<field>_count` column drops instead, same as removing an Owned Collection field
+("Migrations and schema mutation"). The reverse (a singular field becoming a `Collection`)
 needs a converter that decides how to produce items from the one existing value, or falls
 back to the collection field's own class default, landing in a freshly created dedicated
-table the same shape any other collection field gets. The two axes compose freely when a
+table the same shape any other collection field gets. **Becoming an Owned Collection creates
+no dedicated table either** — a fresh `<field>_count` column lands on the owner's own
+declaring table instead, same as adding an Owned Collection field for the first time
+("Migrations and schema mutation"). The two axes compose freely when a
 retype changes both at once — kind and cardinality are independent, each already reducible
 to "drop the old physical representation, build whatever the new one needs, an optional
 converter bridges them, the class default fills in when none is supplied."

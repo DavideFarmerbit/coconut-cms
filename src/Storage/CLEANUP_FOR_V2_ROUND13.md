@@ -10,7 +10,7 @@ built.
 
 ## Missing pieces
 
-### 1. Cardinality retype never says what happens to a Collection field's `<field>_count` column
+### 1. Cardinality retype never says what happens to a Collection field's `<field>_count` column — **resolved (2026-10-13)**
 
 "Changing a field's cardinality" lets a Collection field become singular, or a singular field
 become a Collection. For the Shared and non-entity cases, it says the dedicated table drops (or
@@ -24,10 +24,14 @@ Every other event in that column's life is spelled out elsewhere: added when the
 is the one place this column's fate goes unstated. `ROADMAP_V2.md` Phase 6.2 (line 586-588)
 repeats the same gap: it only mentions dropping/creating "the dedicated table."
 
-**Question for discussion:** should the cardinality section just say "drops `<field>_count` too,
-for the Owned case" and "creates `<field>_count`, for the Owned case" alongside the existing
-table-drop/create language? That would make the rule symmetric with every other `<field>_count`
-event already documented.
+**Resolved: the cardinality section now covers the Owned case explicitly, symmetric with the
+Shared/non-entity case already there.** Collapsing an Owned Collection into a singular
+`OwningReference` drops the field's own `<field>_count` column (no dedicated table to drop,
+since there never was one); the reverse creates a fresh `<field>_count` column on the owner's
+own declaring table (no dedicated table to create). Both sides reuse the exact same
+add-field/drop-field mechanic "Migrations and schema mutation" already uses for this column,
+rather than inventing a cardinality-specific rule for it. `ROADMAP_V2.md` Phase 6.2's matching
+"Done when" clause got the same addition.
 
 ## Real inconsistencies
 
