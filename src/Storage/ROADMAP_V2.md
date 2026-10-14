@@ -301,7 +301,10 @@ deliberately rather than assumed — there is only ever one row per `(owner, own
 pair, so the same real index simply never finds a second row to compare against; a row of
 either kind with no owner still collides with every other ownerless row under that same
 group, proven via the reserved sentinel pair covering it, not left to slip through as a
-bare, un-sentineled `NULL`; loading an owner
+bare, un-sentineled `NULL`; a native class whose own `#[DefaultInstance]`-resolved default for
+an Owned-collection field produces two colliding items under that field's own `Unique` group
+is rejected at registration time, before any row is ever created from it, distinct from (and
+checked earlier than) the backfill-distinctness case Phase 1.3 already proves; loading an owner
 triggers no `entities.owner`/`owner_field` lookup for an Owned singular or collection
 field until it's actually accessed, the same laziness rule as 3.2's Shared case, now proven
 for the reverse-indexed-query shape Owned uses instead of a stored FK.
@@ -327,7 +330,9 @@ two different owners while rejecting a second occurrence under the same owner, p
 dedicated child table's own `ownerId` column was folded into the real constraint — possible
 here precisely because that column lives directly on the item's own table, unlike an
 Owned-collection item (Phase 3.3), which has no such column on its own table and so stays
-globally unique instead; loading an owner triggers no query against a non-entity
+globally unique instead; the same registration-time distinctness check Phase 3.3 proves for
+an Owned-collection default's own colliding items is reused unchanged here for a non-entity/
+`#[Embed]`-collection default, not reproven from scratch; loading an owner triggers no query against a non-entity
 collection's own dedicated table until the field is actually accessed, the same laziness rule as 3.2/3.3,
 proven here for the dedicated-child-table shape rather than a live subtype needing identity-
 map reuse, since a non-entity item has no identity of its own to resolve twice.

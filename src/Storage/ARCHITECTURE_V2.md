@@ -637,6 +637,22 @@ reused-default path, since that path can never be distinct past the first row. A
 unique field needs none of this regardless of row count: backfilling to `NULL` is always
 safe, since standard `UNIQUE` semantics never treat two `NULL`s as colliding.
 
+**The same test applies within a single row's own collection, against a `Unique` group
+declared on that collection's own item kind.** A collection's resolved default produces more
+than one item at once (`[1, 2, 3]` for a scalar collection, several built entities for an
+Owned `Collection`), and if the collection's item kind carries a `Unique` group, those items
+have to already be pairwise-distinct among themselves — a default producing two equal items
+would violate its own declared constraint before a single row is ever created, no backfill or
+migration involved. Caught the same way every other structural violation in this design is,
+at the point of declaration rather than as a later runtime collision: for native classes,
+`EntityRegistrar::register()`'s existing walk additionally checks a resolved default's own
+produced items for pairwise distinctness wherever a `Unique` group applies to the collection's
+item kind, throwing immediately if it finds a collision; for editor-created fields,
+`SchemaEditor` runs the same check before accepting the save. Only applies to Owned and
+non-entity/`#[Embed]` collections — a Shared collection's item kind is a plain `Reference`,
+which has no default concept at all (see above), so there's nothing for this check to run
+against there.
+
 **Fail as early as possible.** For native classes: `EntityRegistrar::register()` walks
 every registered class's full field tree, recursively through every `#[Embed]`/
 `OwningReference`/Owned-`Collection` target (never a plain `Reference` target, which
