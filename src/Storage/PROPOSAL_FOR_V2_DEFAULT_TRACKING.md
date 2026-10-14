@@ -165,8 +165,22 @@ the default was something else, stays frozen at whatever it chose, and the defau
 change to match it. A new write claiming defaulted now has to check against that old, frozen
 value, not just against other defaulted claimants. Reading is unaffected by this either way —
 each row resolves its own value correctly regardless of what any other row holds; only writing
-(and the `Unique` check itself) has to account for it. Undo needs no separate rule here: it's
-just another write of a recorded value through this exact same path, so it's already covered.
+(and the `Unique` check itself) has to account for it.
+
+**`EntityChangeRecord` captures the resolved value for a change, never an abstract "set to
+default" marker.** A revision record is an immutable snapshot of what the entity actually
+showed at that moment; if it stored a marker instead, viewing that same past revision later —
+after the live default has since changed again — would show whatever the *new* default
+currently resolves to, not what was actually there when the revision was made, which isn't a
+historical record at all, it's a live pointer pretending to be one. Whatever builds the record
+from a `WriteEffect` resolves the live default at that moment for any field that ended up
+defaulted, the same "resolved, not raw" rule `RequiredValidator` already follows above.
+
+Undo needs no separate rule given this: restoring a past value is just another write of
+that recorded, concrete value through this exact same comparison-and-`Unique` path — if the
+restored value happens to equal today's live default, it becomes defaulted; if not, it's
+touched — automatically, with nothing about touched/defaulted state needing to be preserved or
+decided specially for undo.
 
 This is harmless, not wrong, for singular Owned specifically: a `Unique` group on anything
 Owned is always owner-scoped, never spanning different owners ("Uniqueness"), so there's only
