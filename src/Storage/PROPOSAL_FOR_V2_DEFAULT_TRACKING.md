@@ -81,6 +81,20 @@ holding a stale real value that happens to currently match. A row or item that's
 created already defaulted (see "Collections" below) starts this way from the moment it's
 created: `NULL` content, `defaulted` state, never a materialized copy of today's default.
 
+## Validation runs against the resolved value, never the raw column
+
+`RequiredValidator`, `FieldValidator`, and `PrototypeValidator` all check a field's *resolved*
+candidate value, never the raw stored column directly — the same candidate-state assembly
+that already hydrates `Reference` values into real objects before any validator runs
+("Uniqueness") does the same live-default resolution for an untouched field before validation
+sees it. This matters specifically for `RequiredValidator`: a required field left untouched
+has `NULL` in its content column by the invariant above, but its *resolved* value is whatever
+the current default produces, which is a well-formed, non-`NULL` value — the same posture
+`RequiredValidator` already takes toward a `NoType` value ("a well-formed value, not a `NULL`
+violating a `NOT NULL` column"). Without this, a required field would spuriously fail its own
+required-ness check every time it's correctly left tracking a perfectly valid default, which
+would defeat the entire mechanism for exactly the fields where getting it right matters most.
+
 ## Reading: untouched means resolved fresh, every time, nothing cached
 
 Hydration consults the side table for each eligible field. Touched: read the stored value
@@ -130,18 +144,29 @@ of the following to hold, checked atomically in the same write:
    default (the ordinary content-column distinctness check, run with the live default as the
    candidate value).
 
-If either check fails, the write can't claim the defaulted flag — the value must instead be
-resolved to something genuinely distinct and stored as touched, through the same
-distinctness-check-with-converter machinery "Defaulted instances" already specifies for
-backfill, just also triggered here. Both checks are real, race-free database operations: the
-first is a real index, and the second compares against a deterministic, computable constant
-(today's live default), not against other uncertain concurrent writes — nothing racy about it.
+If either check fails, the write is rejected outright — the same `Unique`-violation refusal
+any other duplicate attempt already gets, naming the collision, the same "fail before, not
+during" posture this design already holds to everywhere else. There's no automatic fallback
+to a different value: resolving one on the caller's behalf would mean guessing, which this
+design refuses to do anywhere. The separate distinctness-check-with-converter machinery
+"Defaulted instances" specifies is for a different moment entirely — a deliberate, reviewed
+schema-mutation backfill where a developer explicitly supplies the converter — not an ordinary
+content write, which has no converter available to it at all.
+
+Both checks are real, race-free database operations: the first is a real index, and the
+second compares against a deterministic, computable constant (today's live default), not
+against other uncertain concurrent writes — nothing racy about it.
 
 This fully closes the collision risk, in both directions: two untouched rows can't both
 coast on the same live value (check 1), and a deliberately-written value can't silently
 duplicate what the one remaining defaulted row is tracking (check 2). It also means required
 vs. optional stops mattering — both get the same uniform treatment, and nothing about a field
 being `Unique`-constrained excludes it from live tracking anymore.
+
+A collection's own declared default producing two colliding items under its own `Unique`
+group is already rejected independent of any of this — native throws at registration,
+editor-created is refused at save ("Defaulted instances") — unrelated to live tracking and
+unaffected by it.
 
 ## Collections: every kind eagerly creates its rows, no special case
 
