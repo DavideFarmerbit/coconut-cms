@@ -3,10 +3,13 @@
 **Status: proposed (2026-10-14).** Written after Round 16 (`CLEANUP_FOR_V2_ROUND16.md`), the
 last completed cleanup pass before implementation. Not yet merged into `ARCHITECTURE_V2.md`/
 `ROADMAP_V2.md` — this document records a new mechanism those two will need to absorb, not a
-fix to an existing inconsistency between them. Reached through discussion, working one
-sub-problem at a time, per [[feedback_coconut_cms_development_workflow]]. The concrete
-mechanism for editor-created cascading defaults (see "Cascading defaults" below) is the one
-piece still to be designed.
+fix to an existing inconsistency between them. Written assuming `CLEANUP_FOR_V2_ROUND17.md`'s
+own item 2 (an Owned entity's edits are attributed to its nearest non-Owned ancestor's own
+`EntityChangeRecord`, not an independent one of its own) is already folded into the baseline
+architecture — this document doesn't re-derive that, it relies on it. Reached through
+discussion, working one sub-problem at a time, per
+[[feedback_coconut_cms_development_workflow]]. The concrete mechanism for editor-created
+cascading defaults (see "Cascading defaults" below) is the one piece still to be designed.
 
 ## The problem
 
@@ -56,11 +59,10 @@ Two reasons rule out keeping it on the content table:
   and once a `Reference` field can carry an explicit default (see below), `NULL` can no longer
   also mean "untouched, tracking that default" without losing the ability to tell it apart
   from "deliberately cleared."
-- **Almost every field is eligible** — everything except where a `Unique` constraint applies
-  (see below, now fully compatible rather than excluded). A companion boolean column added
-  directly to the content table would roughly double the width of every table in the schema,
-  immediately, for every shape — not an occasional cost for unusually wide shapes, the way
-  `#[Embed]` flattening's column-count risk is, but a universal one from day one.
+- **Almost every field is eligible.** A companion boolean column added directly to the
+  content table would roughly double the width of every table in the schema, immediately, for
+  every shape — not an occasional cost for unusually wide shapes, the way `#[Embed]`
+  flattening's column-count risk is, but a universal one from day one.
 
 A side table avoids both: the content table's own columns keep meaning exactly what they
 already mean. The join/write-coordination cost this adds is small and already paid elsewhere
@@ -77,9 +79,7 @@ table.
 field touched, never otherwise.** Whenever a write's comparison determines a field now equals
 its current default — whether it was previously touched and is being reverted, or is being
 set for the first time — the content column is explicitly nulled in the same write, never left
-holding a stale real value that happens to currently match. A row or item that's eagerly
-created already defaulted (see "Collections" below) starts this way from the moment it's
-created: `NULL` content, `defaulted` state, never a materialized copy of today's default.
+holding a stale real value that happens to currently match.
 
 ## Validation runs against the resolved value, never the raw column
 
@@ -124,84 +124,147 @@ should derive it deterministically from something already known and stable — t
 id (already assigned with no DB round-trip) plus the item's position, for example — rather
 than true randomness.
 
-## `Unique`: a constraint on the state table's own flag, not an exclusion
+## `Unique`: no two claimants in a scope may resolve to the same effective value
 
-A real `UNIQUE` index constrains physically stored values, and this design has already ruled
-out an application-level "check then write" pass as an acceptable substitute for enforcing one
-(a race two concurrent writers can both pass — "Uniqueness"). Rather than excluding `Unique`
-fields from this mechanism, the constraint moves onto the state table's own flag column:
+Within one `Unique` scope, no two claimants — a row or item still tracking its own live
+default, or one holding an explicit stored value — may ever resolve to the same effective
+value. Enforcement differs depending on whether every potential claimant in a scope shares one
+common default value, or each has its own — a distinction that follows cardinality, not
+ownership.
 
-**At most one row or item per `Unique` scope may hold the `defaulted` flag at a time**,
-enforced by a real `UNIQUE` index on that flag column, scoped identically to however the
-`Unique` group itself is scoped (owner-folded for an Owned-collection item, global for a
-standalone row, and so on — no new scoping concept, the same shape the content-column index
-already uses). Claiming that flag — writing `NULL` content, `defaulted` state — requires both
-of the following to hold, checked atomically in the same write:
+**Singular fields** (standalone rows, Shared-referenced rows, and singular Owned
+relationships, all three alike): every claimant in the scope resolves to the *same*
+default — one field, one class default, one scope. A real `UNIQUE` index on the state table's
+own flag column, scoped identically to however the `Unique` group itself is scoped, enforces
+"at most one claimant may be defaulted" directly. Claiming that flag — writing `NULL` content,
+`defaulted` state — requires both of the following, checked atomically in the same write:
 
-1. No other row or item in the same scope currently holds `defaulted` for this field (the
-   `UNIQUE` index on the state column itself).
+1. No other row in the same scope currently holds `defaulted` for this field (the `UNIQUE`
+   index on the state column itself).
 2. No existing *touched* row in that scope already stores a real value equal to today's live
-   default (the ordinary content-column distinctness check, run with the live default as the
-   candidate value).
+   default — checked as a locking read (`SELECT ... FOR UPDATE` or equivalent) against the
+   state table's row for that scope, inside the same transaction as the write, not a bare
+   query-then-decide. This has to be locking to stay race-free: a plain unlocked query would
+   be exactly the "look for a duplicate, then write" pattern this design already forbids.
 
-If either check fails, the write is rejected outright — the same `Unique`-violation refusal
-any other duplicate attempt already gets, naming the collision, the same "fail before, not
-during" posture this design already holds to everywhere else. There's no automatic fallback
-to a different value: resolving one on the caller's behalf would mean guessing, which this
-design refuses to do anywhere. The separate distinctness-check-with-converter machinery
-"Defaulted instances" specifies is for a different moment entirely — a deliberate, reviewed
+If either check fails, the write is rejected outright — the same refusal any other duplicate
+already gets, naming the collision — the same "fail before, not during" posture held
+everywhere else in this design. No automatic fallback to a different value: resolving one on
+the caller's behalf would mean guessing. (The separate distinctness-check-with-converter
+machinery "Defaulted instances" specifies is for a different moment — a deliberate, reviewed
 schema-mutation backfill where a developer explicitly supplies the converter — not an ordinary
-content write, which has no converter available to it at all.
+content write, which has no converter available to it at all. That machinery already has the
+same shape as this rule, though: "the first row can reuse the default, every row after that
+needs the converter to produce something genuinely distinct" is exactly "at most one claimant
+may stay defaulted," already present in the existing migration machinery before any of this.)
 
-Both checks are real, race-free database operations: the first is a real index, and the
-second compares against a deterministic, computable constant (today's live default), not
-against other uncertain concurrent writes — nothing racy about it.
+Check 2 exists because of a temporal gap, not an instantaneous contradiction: a value can
+never equal its *own* contemporaneous default at the moment it's written (that write would be
+classified defaulted instead, by the same comparison rule) — but a row touched earlier, when
+the default was something else, stays frozen at whatever it chose, and the default can later
+change to match it. A new write claiming defaulted now has to check against that old, frozen
+value, not just against other defaulted claimants. Reading is unaffected by this either way —
+each row resolves its own value correctly regardless of what any other row holds; only writing
+(and the `Unique` check itself) has to account for it. Undo needs no separate rule here: it's
+just another write of a recorded value through this exact same path, so it's already covered.
 
-This fully closes the collision risk, in both directions: two untouched rows can't both
-coast on the same live value (check 1), and a deliberately-written value can't silently
-duplicate what the one remaining defaulted row is tracking (check 2). It also means required
-vs. optional stops mattering — both get the same uniform treatment, and nothing about a field
-being `Unique`-constrained excludes it from live tracking anymore.
+This is harmless, not wrong, for singular Owned specifically: a `Unique` group on anything
+Owned is always owner-scoped, never spanning different owners ("Uniqueness"), so there's only
+ever one row per scope regardless — the check simply never finds a second claimant to compare
+against, the same reason the ordinary content-level check "never actually fires" there today.
 
-A collection's own declared default producing two colliding items under its own `Unique`
-group is already rejected independent of any of this — native throws at registration,
-editor-created is refused at save ("Defaulted instances") — unrelated to live tracking and
-unaffected by it.
+**Collection items**: each position resolves to its *own* distinct default value, not a value
+shared across the whole scope, so the state-column index above doesn't apply here — a
+collection's own declared default already has to be internally pairwise-distinct under its own
+`Unique` group before any row exists, checked at registration (native) or save
+(editor-created) ("Defaulted instances"), which rules out sibling-vs-sibling collisions among
+defaulted items entirely. What remains is a defaulted item colliding with a *different*,
+explicitly-touched sibling: an explicit write to one item is checked against every other
+still-defaulted sibling's own resolved value, made race-free by the same serialization any
+write to a collection's own membership already requires — the owning entity's current
+`expectedOperationId` ("Content write path") — not a new index. This is "all the same"
+mechanism regardless of item kind — scalar, value-object, embed, or Owned-reference — the
+check only cares about resolved values, not what produced them.
 
-## Collections: every kind eagerly creates its rows, no special case
+Worth noting, not designing around: a `Unique` group declared on a specific subclass's own
+fields, inside a polymorphic Owned collection, only ever compares items that are that exact
+concrete subclass within the same owner's collection — a sibling holding a different subclass
+simply has no row at that level at all. In a typical heterogeneous collection this check often
+finds nothing to compare against, the same structurally-moot shape singular Owned's check has,
+not a gap, just rarely triggered.
 
-**Every collection — Owned, Shared, or non-entity alike — eagerly creates its rows or items at
-creation time, matching whatever cardinality the live default specifies at that moment.** No
-branch on whether a `Unique` field happens to be present anywhere in the collection.
+Either way, required vs. optional stops mattering — both get the same uniform treatment, and
+nothing about a field being `Unique`-constrained excludes it from live tracking anymore.
 
-Two reasons converge on eager creation, for different collection kinds, unified into one rule
-rather than kept as separate special cases:
+## This gives up the database's own `NOT NULL` guarantee, universally, not as an opt-in
 
-- **Owned items are real entities with their own identity** — unlike a scalar value, they
-  can't be resolved purely on demand once anything might need to address one individually (an
-  edit, an undo entry, a permission check). This was the original motivation.
-- **A deferred (zero-row) collection can't let a real `Unique` constraint do its job at all.**
-  If nothing physically exists until first touch, a collection of three `Unique`-constrained
-  items all silently defaulting to the same value sits there colliding indefinitely — not
-  delayed, genuinely undetectable, for as long as nobody happens to touch it. That's not a
-  timing nuance, it's a permanent hole in "always a real constraint, never a maybe-someday
-  check." Eager creation closes it: every item is a real row with a real state-table entry the
-  moment the collection exists, so the `Unique`-on-state-column mechanism above applies
-  immediately, the same way it does for any other row.
+Every ordinary content field — scalar, value-object, embed-flattened, `Reference`,
+`OwningReference`/Owned-`Collection`, required or optional alike — becomes unconditionally
+nullable at the schema level, since any of them can end up `NULL`-and-defaulted. This isn't a
+per-field choice; it's the universal shape of the mechanism. The only columns that keep a real
+`NOT NULL` are the system-generated structural ones — `owner`, `owner_field`, `position`,
+`<field>_count` — which were never part of this mechanism at all and keep their existing
+reserved-sentinel posture for unrelated reasons ("Global entity identity"/"Uniqueness"); not
+exceptions carved out of this rule, just never subject to it.
 
-Each eagerly-created item starts with every field defaulted (`NULL` content, `defaulted`
-state), exactly as the invariant above requires, never a materialized copy of today's values.
+This reverses something the current architecture doc currently assumes elsewhere: the
+`NoType` passage ("a well-formed value, not a `NULL` violating a `NOT NULL` column") only
+makes sense if an ordinary field is expected to sit behind a real `NOT NULL` column today.
+This needs calling out explicitly when this proposal is reconciled with `ARCHITECTURE_V2.md`.
 
-**Every collection field also gets one `initialized` boolean of its own**, living in the same
-side table as everything else, uniform across all three collection kinds. This tracks whether
-*anything* inside the collection has ever been explicitly touched — a fact distinct from row
-count (which eager creation already makes accurate from the start) and not derivable without
-it: scanning every field of every item just to answer "has anything here ever been touched" is
-exactly the kind of check worth a cheap, explicit flag instead of a scan. The first touch to
-any field, any add, remove, or reorder, flips it. It also resolves the one remaining ambiguity
-row-presence alone can't: "the live default currently has zero items" and "an admin
-deliberately emptied this" look identical from row count alone, and only the flag tells them
-apart.
+The loss is narrower than it first looks, though. A required field's class already can't be
+registered (native) or saved (editor-created) without a resolvable defaulted instance
+("Defaulted instances") — that precondition predates this proposal. Combined with
+`RequiredValidator` checking the *resolved* candidate value rather than the raw column (see
+"Validation" above), a required field can never actually present as missing to anything going
+through the ordinary read/write path. The guarantee doesn't disappear, it moves: from "the
+database physically can't store nothing here" to "the class structurally can't exist without
+a way to produce something here, and nothing ever reads the raw column without resolving
+through it first."
+
+What's honestly lost is defense-in-depth against a *bug* — something that leaves content
+`NULL` while the state table says touched, or skips checking state entirely. A real `NOT NULL`
+constraint catches that outright regardless of what application code does; here it depends on
+the content/state invariant being correctly maintained by the write path, not enforced by
+schema. Recovering that at the database level would need a cross-table check (content `NULL`
+only valid if the matching state-table row agrees), which isn't expressible as a plain column
+constraint, only a trigger spanning two tables — judged not worth building for this.
+
+## Nothing is eagerly created — every relationship defers until first touch
+
+Every relationship kind — a singular `OwningReference`, an Owned `Collection`, a Shared
+`Collection`, a non-entity `Collection` — stays at zero rows, nothing materialized, until the
+first explicit touch (an edit, an add, a remove, a reorder). Hydrating an untouched
+relationship resolves its current default fresh from `#[DefaultInstance]`, the same way an
+untouched scalar field does, type included — if the default itself changes which concrete
+type it produces, an untouched relationship picks that up on its very next read, same as any
+other live-tracked value, with no migration and nothing to delete or recreate.
+
+**Owned items don't need an exception to this, and treating them as one was based on an
+assumption that doesn't hold.** The original reasoning was that an Owned item is a real entity
+with its own identity, so it can't be resolved purely on demand once anything might address it
+individually. But this design's own mechanism for retargeting an `OwningReference`/Owned-
+`Collection` item's concrete type while staying Owned already works by capturing the old row's
+full field tree, cascade-deleting it, and constructing a fresh one — the ordinary, expected way
+to change what occupies an Owned slot, not a rare migration path, the same shape as Unreal
+destroying and recreating an instanced subobject when its class changes. An Owned item's
+identity is already disposable by design; eagerly creating it to protect that identity was
+protecting something this design doesn't actually treat as stable anywhere else. The first
+touch to a still-virtual Owned relationship materializes a real row, of whatever concrete type
+the current default produces, and the write that does so is an ordinary create — logged
+through this design's existing undo path exactly like any other Owned entity's first write,
+attributed to its nearest non-Owned ancestor's own `EntityChangeRecord`.
+
+**Every relationship field — singular or collection, Owned or not — gets one `initialized`
+boolean of its own**, living in the same side table as everything else. This tracks whether
+*anything* in the relationship has ever been explicitly touched, a fact distinct from row
+count and not derivable from it: "the live default currently has zero/one items" and "an admin
+deliberately emptied this" look identical from row presence alone, and only the flag tells
+them apart. It's also the cheap, explicit answer to "has anything here ever been touched"
+without scanning every field of every item to find out. The first touch to any field, any add,
+remove, or reorder, flips it and — for a collection — materializes every sibling implied by the
+current default at that same moment, not just the one being touched, since position and count
+are only coherent relative to the whole set.
 
 `<field>_count` (Owned collections only) is untouched by any of this. It still exists for a
 different reason — an optional Owned item can legitimately have no row at all, so cardinality
@@ -223,19 +286,6 @@ Native classes declaring a `Reference` default is accepted as in-scope too, but 
 isn't designed yet — it would need something in the shape of `Cms`'s own seeded-singleton
 lookup pattern (a static resolution to a known, already-existing row) rather than an
 entity-picker UI. Left as a follow-up.
-
-## Owned singular and Owned collection items
-
-An `OwningReference`/Owned-`Collection` item's row always exists from the moment its
-relationship is created — there's no deferred-creation step for Owned at all, singular or
-collection, for the identity reason given above. Every field on that row starts out
-individually untouched, comparing against its own current default the same way as any other
-field — eager existence and per-field touched state are separate facts, and the row existing
-doesn't mean any of its fields are touched.
-
-A singular `OwningReference` field gets the same `initialized` flag a collection field gets,
-for the same reason: it's the cheap, explicit answer to "has anything on this owned row ever
-been touched," which per-field state alone doesn't give you without scanning every field.
 
 ## Cascading defaults: the owning entity's default can pin specific nested fields
 
