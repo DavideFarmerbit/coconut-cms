@@ -110,9 +110,9 @@ default change takes effect for every untouched row on its very next read, at ze
 the live default inlined as a literal, keyed off the side table's own flag instead of
 `IS NULL` — the same shape `COALESCE` would give a nullable column, just driven by the side
 table. New work for `Query`, not free, but necessary for query results to agree with what
-hydration actually returns. A `Unique` field needs none of this: it's never eligible for live
-tracking (see "`Unique` fields" below), so its content column always holds a real, committed
-value and an ordinary query against it already agrees with what hydration returns.
+hydration actually returns. A `Unique` field needs none of this: its state flag is always
+`touched`, never `defaulted`, so its content column always holds a real value, and an ordinary
+query against it already agrees with what hydration returns.
 
 ## Determinism is a precondition for participating at all
 
@@ -148,12 +148,20 @@ other duplicate write already gets.
 
 ## `Unique` fields: excluded from live tracking, committed at write time
 
-A field that belongs to a `Unique` group is not eligible for this mechanism. At write time —
-native registration or editor-created create/save — if no explicit value is given, the resolved
-default is written into the content column as an ordinary stored value, exactly as it is today,
-with no live-default resolution afterward. The field never enters the `defaulted` state;
-whatever ends up in the content column, chosen or resolved, is committed and frozen from that
-write onward, the same as any value a user explicitly set.
+A field that belongs to a `Unique` group simply never has its state-table flag set to
+`defaulted` — it stays `touched`, unconditionally, as if a value had always been explicitly
+chosen. At write time, if no explicit value is given, the resolved default is written as the
+explicit value: an ordinary stored value in the content column, exactly as it is today.
+
+Nothing past that single fact is a separate rule — everything else follows mechanically from
+the invariant "Storage" already states ("the content column holds a real value if and only if
+the state table marks that field touched"). The content column always holds a real, committed
+value; hydration never performs live-default resolution for it, because there's nothing
+untouched to resolve; an ordinary query against it already agrees with what hydration returns;
+and the universal nullability this mechanism otherwise imposes never applies to it, because
+it's never `NULL`-and-defaulted. None of these are independent decisions about `Unique`
+fields — they're all just the existing invariant, applied to a flag that happens to always
+read `touched`.
 
 This isn't an awkward carve-out bolted on to dodge a hard case — it costs almost nothing,
 because live-tracking a `Unique` default could only ever have benefited one row per scope in
@@ -202,11 +210,14 @@ per-field choice; it's the universal shape of the mechanism. The only columns th
 reserved-sentinel posture for unrelated reasons ("Global entity identity"/"Uniqueness"); not
 exceptions carved out of this rule, just never subject to it.
 
-A `Unique`-constrained field is the one ordinary content field that isn't subject to this
-either, for a reason internal to this mechanism rather than an unrelated one: since it's
-excluded from live tracking ("`Unique` fields" above), it never ends up `NULL`-and-defaulted,
-so a required `Unique` field's content column keeps a real `NOT NULL` constraint, exactly as it
-would without this mechanism existing at all.
+A `Unique`-constrained field is the one ordinary content field this universal nullability
+doesn't touch, in either direction — for a reason internal to this mechanism rather than an
+unrelated one, unlike `owner`/`owner_field`/`position`/`<field>_count` above. Its state-table
+flag is never `defaulted`, so it's never `NULL`-for-being-defaulted, and its nullability stays
+exactly whatever it already was without this mechanism: `NOT NULL` if required, nullable if
+optional, with `NULL` and a `UNIQUE` index already free to coexist under ordinary SQL semantics
+regardless of anything here — this mechanism neither grants nor takes away a genuine `NULL` as
+an option for it.
 
 This reverses something the current architecture doc currently assumes elsewhere: the
 `NoType` passage ("a well-formed value, not a `NULL` violating a `NOT NULL` column") only
