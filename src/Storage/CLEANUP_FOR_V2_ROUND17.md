@@ -146,40 +146,116 @@ to use it.
 
 **What we want to do.**
 
-- Give every native class a persisted compiled schema, one row per class, parallel in shape to
-  `prototypes.schema` for an editor-created one. `EntityRegistrar::register()`'s existing
-  full-field-tree walk produces this as a byproduct, the same way it already produces the
-  defaulted-instance completeness check and the "who points at shape X" reverse index. The
-  compiled schema records each field's structural shape (name, kind, type or target) and, once
-  `PROPOSAL_FOR_V2_DEFAULT_TRACKING.md` lands, each field's currently-resolved default or pin.
-- Add a strict check at the start of registration. Compare the schema just computed from live
-  code against the persisted schema left by the last successful registration. Block outright,
-  naming the difference, if anything differs without an explicitly-declared fixup for this
-  deploy (a rename mapping, a retype's converter and signature, a reparent, an explicit drop).
-  Only once every difference is accounted for does registration persist the new compiled
-  schema and let the request proceed.
-- Run this check at the start of every request, not as a separate deploy step. There is no
-  long-running process to run it once at boot instead. If the check fails, every request fails
-  the same way, loudly, until the mismatch is fixed. This acts as a maintenance mode without
-  needing a dedicated maintenance-mode feature: the site goes down hard instead of serving one
-  request against a half-migrated schema.
+- Give every native class a row in `prototypes` itself, not a separate, parallel table that
+  happens to look similar. One schema representation for the whole system, not two shapes
+  carrying the same kind of information: the `schema` column holds the exact same
+  `FieldDescriptor[]`-serializable JSON for a native class as it already does for an
+  editor-created one, including each field's currently-resolved default or pin alongside its
+  structural shape (name, kind, type or target) in the same record, never split across two
+  artifacts. Defaults aren't an optional add-on to a class's schema, they're a required part of
+  it: a migration can't run without knowing what an untouched field currently resolves to, so
+  there was never a coherent way to split "structure" from "defaults" into two things that get
+  compared or consumed separately. `EntityRegistrar::register()`'s existing full-field-tree walk
+  produces this row as a byproduct, the same way it already produces the defaulted-instance
+  completeness check and the "who points at shape X" reverse index. `class_exists($identifier)`
+  still is what distinguishes a native identifier from an editor-created one wherever that
+  distinction matters (`PrototypeRegistry` resolution kind, `editorExtensible`, ...); having a
+  `prototypes` row no longer implies "editor-created" the way it always has until now, so any
+  code that was using "has a `prototypes` row" as a stand-in for that test needs to use
+  `class_exists()` explicitly instead.
+- This row is written at registration time and read by the strict check and by migrations. It
+  is never read on the ordinary content-read path for a native identifier, which keeps calling
+  live reflection directly, same as today, so this doesn't add a database round-trip to every
+  native field access — only to the registration step itself, which already has to do
+  comparable work to run the strict check at all.
+- One side benefit worth naming: once native classes have real `prototypes` rows, the existing
+  reverse-index and dangling-reference-auditing machinery (already built for editor-created
+  schemas) can run uniformly across both kinds without any native-specific carve-out, since
+  it's all just reading `prototypes.schema` rows at that point regardless of which kind
+  authored them.
+- On every request, compute the current schema fresh from live code and diff it against the
+  persisted compiled schema left by the last successful registration. Any difference is a
+  candidate for migration, not an immediate failure by itself.
+- Fixups are declared directly in code as typed objects, never a separately generated migration
+  file. One class per operation, each self-describing what it applies to and, where relevant,
+  how to carry old data forward: `ClassRename(oldIdentifier, newIdentifier)`,
+  `ClassReparent(class, newParent, ?migrator)` (migrator optional, falls back to
+  `#[DefaultInstance]` backfill when omitted, same optional-converter shape `FieldRetype`
+  already has, not a new pattern), `FieldRetype(class, fieldName, dataMigrator)` (rejected
+  outright if the migrator's own declared old type doesn't match the field's actual current
+  type, the same self-consistency check `FieldRetypeConverter::from()` already does), and
+  equivalents for add/drop/reparent-removal. `fieldName` always names a field on the class that
+  directly declares it, never a dotted path into an embedding or owning site — propagation to
+  every site that embeds or owns that field is the existing reverse-index mechanism's job, not
+  something the declaration itself has to spell out. These objects are ordinary code, reviewed
+  the same way the rest of the commit is reviewed. There is no separate migration-file
+  generation or review step for native at all.
+- Strict mode (the only mode a production boot path ever runs): a found difference with no
+  matching declared fixup blocks outright, naming the difference, before anything is attempted
+  against the database. A found difference *with* a matching fixup runs that fixup as a
+  migration. The migration validates everything it needs to before issuing a single DDL
+  statement or touching a single row, so it either fully succeeds or is rejected outright,
+  never left partially applied. Only once a migration (or the absence of any difference at all)
+  succeeds does registration persist the newly-computed compiled schema and let the request
+  proceed.
+- Non-strict mode is a development convenience, not a production setting with a flag someone
+  could leave on by mistake. It lives behind a separate bootstrap entry point a local dev
+  command runs, one production's own bootstrap path never calls at all — not a runtime toggle
+  sitting in ordinary config. In this mode, a found difference with no declared fixup is
+  resolved by a fixed set of best-guess rules instead of blocking (the rules themselves are not
+  decided yet, see below).
+- Running this check at the start of every request, rather than as a separate deploy step, is
+  what makes it work at all: there is no long-running process to run it once at boot instead.
+  If strict mode blocks, every request fails the same way, loudly, until the mismatch is fixed
+  by adding the missing declared fixup. Maintenance mode is a separate, optional tool on top of
+  this, not the mechanism that provides the guarantee: an operator can turn it on deliberately
+  while working through a reconciliation, to keep real traffic away from a site that would
+  otherwise be failing every request in the meantime. The guarantee itself comes from strict
+  mode blocking by default, with or without maintenance mode being used.
 - This also answers `PROPOSAL_FOR_V2_DEFAULT_TRACKING.md`'s own open question. A retype's
-  converter, for a field currently tracking a live default, reads its old value off the
+  migrator, for a field currently tracking a live default, reads its old value off the
   persisted compiled schema left by the previous successful registration, never off live code
   that might already be gone. The compiled schema only ever updates after a registration that
   blocked every live request until it succeeded, so there is no window where it gets
   overwritten before a migration gets the chance to use it.
+- The check runs against every native class on every request, not a selective subset —
+  "only check classes touched by a declared fixup" is circular, since the one case this exists
+  to catch is exactly the class with no declared fixup at all. This is affordable without
+  skipping any class: computing each class's live schema via reflection is in-process, no I/O;
+  the expensive part would be comparing that against the database on every single request when
+  the answer is almost always "nothing changed." That comparison runs against a fast cache of
+  the persisted side instead, with the database consulted only to confirm an apparent mismatch
+  before acting on it — this also absorbs a multi-server deploy, where one server's
+  registration already succeeded while another server's local cache hasn't caught up yet: it
+  just finds the database already matches and updates its own cache, no redundant migration
+  attempt. **The one invariant that has to hold exactly: the cache is written only after the
+  database write is confirmed committed, never before and never alongside it.** If a migration
+  fails, nothing commits, so the cache is never touched either — the next request still finds
+  live code disagreeing with a cache that correctly still reflects the old, real state,
+  re-verifies against the database, confirms it genuinely never updated, and blocks again, same
+  as the first failure. Writing the cache speculatively, or in parallel with the database write
+  instead of strictly after it, would let a failed migration look like a successful one to
+  every request after it — silently worse than not caching at all.
 
 **What stands in the way.**
 
-- Bricking every request until a human fixes a mismatch is the point, not a flaw to design
-  around. It turns a would-be silent data-loss bug into a loud, site-wide failure, matching the
-  "reject outright, name the problem" posture this design already applies everywhere else, now
-  applied to deploy-time drift instead of a single registration-time check.
-- This changes what "Migrations and schema mutation" means for native specifically. Today it
-  describes generation-time declarations (a rename mapping, a converter) without describing
-  anything that verifies nothing else slipped through undeclared. This adds that verification
-  as a first-class part of registration, not a tool a developer might remember to run.
+- Bricking every request until a human adds the missing fixup is the point, not a flaw to
+  design around. It turns a would-be silent data-loss bug into a loud, site-wide failure,
+  matching the "reject outright, name the problem" posture this design already applies
+  everywhere else, now applied to deploy-time drift instead of a single registration-time
+  check.
+- This changes what "Migrations and schema mutation" means for native specifically, more than
+  item 3 first assumed. Today's document describes a reviewed, generated migration file as the
+  native mechanism. That step goes away entirely under this plan — the declared-fixup objects
+  *are* the reviewed artifact, reviewed as part of the ordinary commit, with registration itself
+  doing the diffing and the DDL generation that a separate tool used to do.
+- `ARCHITECTURE_V2.md`'s own "Reparenting" section currently has no converter/migrator option at
+  all — backfill is stated as always going through `#[DefaultInstance]`. `ClassReparent`'s
+  optional migrator argument is a real gap in that section, not just a detail of the migrator
+  object's own shape: there's a legitimate case for it (splitting one flat class into base and
+  derived levels, where the newly-inserted level's data should come from the existing row's own
+  fields rather than a fixed class default), and the architecture doc needs its own update to
+  say so, independent of how the migrator object ends up being declared.
 - Editor-created prototypes need none of this. `prototypes.schema` is already a live, persisted
   row, with no code or deploy step involved and no diffing ambiguity, since every editor-created
   mutation is already an explicit, named operation, never inferred. The native/editor split this
@@ -188,20 +264,17 @@ to use it.
 
 **Open questions, not decided yet:**
 
-1. What exactly counts as "this deploy's own explicitly-declared fixups," as an input the
-   strict check reads. Today, a rename mapping and a retype converter are already passed at
-   migration-generation time. Does the check read these straight from the generated migration
-   file, or does a developer separately redeclare them for the check to compare against? Not
-   decided.
-2. Whether the structural half of the compiled schema (field shapes) and the default-value half
-   (each field's currently-resolved default or pin) are one persisted artifact or two. Both come
-   from the same walk, but the default half only matters once
-   `PROPOSAL_FOR_V2_DEFAULT_TRACKING.md` itself lands. Building the structural half first, on
-   its own, is possible either way.
-3. Whether the check runs against every native class on every request, or only against classes
-   actually touched by a pending migration. Checking everything, every request, is the simplest
-   rule and matches "no special-casing" everywhere else in this design, but its per-request cost
-   has not been measured.
-4. Roadmap placement. This changes Phase 1.1/1.2's own registration machinery, not a late phase.
+1. The non-strict mode's own best-guess rules for an undeclared difference (same field name and
+   same type: no-op; same name, different type: probably a retype with no migrator; a field
+   present only in the new code with no sibling removed: probably an add; etc.). Explicitly not
+   decided yet — needs its own pass once the strict-mode mechanism itself is settled.
+2. Where exactly the fast cache of the persisted schema lives (APCu, Redis, something else
+   already in use elsewhere in the stack). The design around it (what gets cached, when it's
+   written, what re-verifies against the database) is settled above — this is purely a choice
+   of backend.
+3. Roadmap placement. This changes Phase 1.1/1.2's own registration machinery, not a late phase.
    Needs deciding at the merge pass whether it lands inside Phase 1 itself or as its own
    sub-phase, alongside wherever `PROPOSAL_FOR_V2_DEFAULT_TRACKING.md`'s own phase gets chosen.
+   Since native classes now get real `prototypes` rows, this also can't land before Phase 6.1
+   introduces that table in the first place — native registration producing its own
+   `prototypes` row has to come after the table exists, not before.
