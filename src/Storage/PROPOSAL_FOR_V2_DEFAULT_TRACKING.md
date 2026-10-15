@@ -73,7 +73,9 @@ new one.
 
 Each level's side table holds one boolean per eligible field declared at that level, same
 "physical shape is a pure function of kind" pattern already used for the level's own content
-table.
+table. No column on this table is ever the target of a `UNIQUE` index, and the table never
+duplicates `owner`/`owner_field` from the content table either — see "`Unique` fields" below
+for why neither is needed.
 
 **Invariant: the content column holds a real value if and only if the state table marks that
 field touched, never otherwise.** Whenever a write's comparison determines a field now equals
@@ -108,7 +110,9 @@ default change takes effect for every untouched row on its very next read, at ze
 the live default inlined as a literal, keyed off the side table's own flag instead of
 `IS NULL` — the same shape `COALESCE` would give a nullable column, just driven by the side
 table. New work for `Query`, not free, but necessary for query results to agree with what
-hydration actually returns.
+hydration actually returns. A `Unique` field needs none of this: it's never eligible for live
+tracking (see "`Unique` fields" below), so its content column always holds a real, committed
+value and an ordinary query against it already agrees with what hydration returns.
 
 ## Determinism is a precondition for participating at all
 
@@ -124,91 +128,68 @@ should derive it deterministically from something already known and stable — t
 id (already assigned with no DB round-trip) plus the item's position, for example — rather
 than true randomness.
 
-## `Unique`: no two claimants in a scope may resolve to the same effective value
+## `EntityChangeRecord` captures the resolved value, never an abstract "set to default" marker
 
-Within one `Unique` scope, no two claimants — a row or item still tracking its own live
-default, or one holding an explicit stored value — may ever resolve to the same effective
-value. Enforcement differs depending on whether every potential claimant in a scope shares one
-common default value, or each has its own — a distinction that follows cardinality, not
-ownership.
-
-**Singular fields** (standalone rows, Shared-referenced rows, and singular Owned
-relationships, all three alike): every claimant in the scope resolves to the *same*
-default — one field, one class default, one scope. A real `UNIQUE` index on the state table's
-own flag column, scoped identically to however the `Unique` group itself is scoped, enforces
-"at most one claimant may be defaulted" directly. Claiming that flag — writing `NULL` content,
-`defaulted` state — requires both of the following, checked atomically in the same write:
-
-1. No other row in the same scope currently holds `defaulted` for this field (the `UNIQUE`
-   index on the state column itself).
-2. No existing *touched* row in that scope already stores a real value equal to today's live
-   default — checked as a locking read (`SELECT ... FOR UPDATE` or equivalent) against the
-   state table's row for that scope, inside the same transaction as the write, not a bare
-   query-then-decide. This has to be locking to stay race-free: a plain unlocked query would
-   be exactly the "look for a duplicate, then write" pattern this design already forbids.
-
-If either check fails, the write is rejected outright — the same refusal any other duplicate
-already gets, naming the collision — the same "fail before, not during" posture held
-everywhere else in this design. No automatic fallback to a different value: resolving one on
-the caller's behalf would mean guessing. (The separate distinctness-check-with-converter
-machinery "Defaulted instances" specifies is for a different moment — a deliberate, reviewed
-schema-mutation backfill where a developer explicitly supplies the converter — not an ordinary
-content write, which has no converter available to it at all. That machinery already has the
-same shape as this rule, though: "the first row can reuse the default, every row after that
-needs the converter to produce something genuinely distinct" is exactly "at most one claimant
-may stay defaulted," already present in the existing migration machinery before any of this.)
-
-Check 2 exists because of a temporal gap, not an instantaneous contradiction: a value can
-never equal its *own* contemporaneous default at the moment it's written (that write would be
-classified defaulted instead, by the same comparison rule) — but a row touched earlier, when
-the default was something else, stays frozen at whatever it chose, and the default can later
-change to match it. A new write claiming defaulted now has to check against that old, frozen
-value, not just against other defaulted claimants. Reading is unaffected by this either way —
-each row resolves its own value correctly regardless of what any other row holds; only writing
-(and the `Unique` check itself) has to account for it.
-
-**`EntityChangeRecord` captures the resolved value for a change, never an abstract "set to
-default" marker.** A revision record is an immutable snapshot of what the entity actually
-showed at that moment; if it stored a marker instead, viewing that same past revision later —
-after the live default has since changed again — would show whatever the *new* default
-currently resolves to, not what was actually there when the revision was made, which isn't a
-historical record at all, it's a live pointer pretending to be one. Whatever builds the record
-from a `WriteEffect` resolves the live default at that moment for any field that ended up
-defaulted, the same "resolved, not raw" rule `RequiredValidator` already follows above.
+A revision record is an immutable snapshot of what the entity actually showed at that moment;
+if it stored a marker instead, viewing that same past revision later — after the live default
+has since changed again — would show whatever the *new* default currently resolves to, not
+what was actually there when the revision was made, which isn't a historical record at all,
+it's a live pointer pretending to be one. Whatever builds the record from a `WriteEffect`
+resolves the live default at that moment for any field that ended up defaulted, the same
+"resolved, not raw" rule `RequiredValidator` already follows above.
 
 Undo needs no separate rule given this: restoring a past value is just another write of
-that recorded, concrete value through this exact same comparison-and-`Unique` path — if the
-restored value happens to equal today's live default, it becomes defaulted; if not, it's
-touched — automatically, with nothing about touched/defaulted state needing to be preserved or
-decided specially for undo.
+that recorded, concrete value through this exact same comparison path — if the restored value
+happens to equal today's live default, it becomes defaulted; if not, it's touched —
+automatically, with nothing about touched/defaulted state needing to be preserved or decided
+specially for undo. This includes `Unique` enforcement: an undo write goes through the same
+validation any ordinary write does, so a restore that would collide gets the same rejection any
+other duplicate write already gets.
 
-This is harmless, not wrong, for singular Owned specifically: a `Unique` group on anything
-Owned is always owner-scoped, never spanning different owners ("Uniqueness"), so there's only
-ever one row per scope regardless — the check simply never finds a second claimant to compare
-against, the same reason the ordinary content-level check "never actually fires" there today.
+## `Unique` fields: excluded from live tracking, committed at write time
 
-**Collection items**: each position resolves to its *own* distinct default value, not a value
-shared across the whole scope, so the state-column index above doesn't apply here — a
-collection's own declared default already has to be internally pairwise-distinct under its own
-`Unique` group before any row exists, checked at registration (native) or save
-(editor-created) ("Defaulted instances"), which rules out sibling-vs-sibling collisions among
-defaulted items entirely. What remains is a defaulted item colliding with a *different*,
-explicitly-touched sibling: an explicit write to one item is checked against every other
-still-defaulted sibling's own resolved value, made race-free by the same serialization any
-write to a collection's own membership already requires — the owning entity's current
-`expectedOperationId` ("Content write path") — not a new index. This is "all the same"
-mechanism regardless of item kind — scalar, value-object, embed, or Owned-reference — the
-check only cares about resolved values, not what produced them.
+A field that belongs to a `Unique` group is not eligible for this mechanism. At write time —
+native registration or editor-created create/save — if no explicit value is given, the resolved
+default is written into the content column as an ordinary stored value, exactly as it is today,
+with no live-default resolution afterward. The field never enters the `defaulted` state;
+whatever ends up in the content column, chosen or resolved, is committed and frozen from that
+write onward, the same as any value a user explicitly set.
 
-Worth noting, not designing around: a `Unique` group declared on a specific subclass's own
-fields, inside a polymorphic Owned collection, only ever compares items that are that exact
-concrete subclass within the same owner's collection — a sibling holding a different subclass
-simply has no row at that level at all. In a typical heterogeneous collection this check often
-finds nothing to compare against, the same structurally-moot shape singular Owned's check has,
-not a gap, just rarely triggered.
+This isn't an awkward carve-out bolted on to dodge a hard case — it costs almost nothing,
+because live-tracking a `Unique` default could only ever have benefited one row per scope in
+the first place: a `UNIQUE` index guarding "at most one claimant may stay defaulted" would mean
+every other member of the scope is already touched and frozen regardless, so a later default
+change could only ever help that single remaining row. What it buys in exchange is real: there
+is no write-time hook that could ever catch a default value change colliding with an
+already-frozen row's own chosen value. Changing a class's default is a code change, not a write
+through `WriteExecutor` — nothing would ever re-run a uniqueness check at the moment a developer
+edits a literal in a `#[DefaultInstance]` method, so a live-tracked `Unique` field could
+silently collide with no write ever happening to reject it. Committing the value at write time,
+as today, closes that gap by construction instead of needing a check that would have to run
+outside of any write at all.
 
-Either way, required vs. optional stops mattering — both get the same uniform treatment, and
-nothing about a field being `Unique`-constrained excludes it from live tracking anymore.
+Ordinary `Unique` enforcement ("Uniqueness") is unaffected and keeps running exactly as it
+already does, against the resolved content column — which, for a `Unique` field, is now always
+a real, committed value, never a live-resolved one, so that check has nothing new to account
+for.
+
+The field still gets the same side-table boolean column as every other eligible field at its
+level, even though it's never set to `defaulted` while the field stays `Unique`-constrained.
+Two reasons: the column already exists, with no migration needed, if the field's `Unique`
+constraint is ever lifted later and it starts participating in live tracking; and it keeps the
+side table's own shape a pure function of the level's declared fields, not of which fields
+currently happen to be `Unique`-constrained — the same "physical shape is a pure function of
+kind" pattern used everywhere else in this design.
+
+No state-table column is ever the target of a `UNIQUE` index, for any field, in any scope — not
+just for `Unique` fields. A `UNIQUE` index on a `Unique` field's own flag column would be
+actively harmful, not merely useless, once that flag is never `true`: every row in a multi-row
+scope holds the same `false`, which the index would reject outright. And since no state-table
+column is ever uniqueness-scoped, the state table never needs to duplicate `owner`/`owner_field`
+from the content table either — that duplication would have existed only to let a `UNIQUE`
+index be scoped per owner, and with no such index anywhere on this table, it serves no purpose.
+The state table's own key is whatever already 1:1-keys it to its content-table row; its only
+other columns are one boolean per eligible field declared at that level.
 
 ## This gives up the database's own `NOT NULL` guarantee, universally, not as an opt-in
 
@@ -220,6 +201,12 @@ per-field choice; it's the universal shape of the mechanism. The only columns th
 `<field>_count` — which were never part of this mechanism at all and keep their existing
 reserved-sentinel posture for unrelated reasons ("Global entity identity"/"Uniqueness"); not
 exceptions carved out of this rule, just never subject to it.
+
+A `Unique`-constrained field is the one ordinary content field that isn't subject to this
+either, for a reason internal to this mechanism rather than an unrelated one: since it's
+excluded from live tracking ("`Unique` fields" above), it never ends up `NULL`-and-defaulted,
+so a required `Unique` field's content column keeps a real `NOT NULL` constraint, exactly as it
+would without this mechanism existing at all.
 
 This reverses something the current architecture doc currently assumes elsewhere: the
 `NoType` passage ("a well-formed value, not a `NULL` violating a `NOT NULL` column") only
