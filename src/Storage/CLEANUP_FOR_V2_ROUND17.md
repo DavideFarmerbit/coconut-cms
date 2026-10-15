@@ -5,7 +5,10 @@
 proposal introduces, a gap already present in the current, already-decided architecture,
 independent of whether that proposal is ever adopted — is resolved. Item 2, surfaced the same
 way but considerably larger in scope, is not yet resolved — recorded here as a direction with
-open sub-questions, not a finished decision. Worked per
+open sub-questions, not a finished decision. Item 3, surfaced while working through that same
+proposal's own retype-capture question, is a pre-existing gap in the native migration pipeline
+itself, independent of whether that proposal is ever adopted. It is also not yet resolved,
+recorded here as a direction with open sub-questions. Worked per
 [[feedback_coconut_cms_development_workflow]].
 
 ## Missing piece
@@ -114,3 +117,91 @@ the first place).
    true unchanged, or does record-folding have any bearing on it? (Current read: unaffected,
    since permission is about who can write a field, not how the write gets logged — but not
    explicitly verified.)
+
+### 3. Native schema changes have no deploy-time safety net against undeclared drift, and no durable record of the old shape or the old default — not yet resolved
+
+**What's wrong.** "Migrations and schema mutation" already says a native rename or retype is
+"passed explicitly... instead of inferred by diffing two snapshots." Nothing actually checks
+this at deploy time. A schema-diffing tool cannot tell a renamed field from a dropped field
+plus an unrelated new field of the same type. If a developer forgets to declare a rename, the
+tool reads it as drop-and-add instead. Data is lost silently, not loudly. Every other
+structural violation in this design fails loudly at the earliest possible point (Embed-of-Embed
+cycles, table-name collisions, defaulted-instance completeness). This one does not.
+
+Separately, neither document says how a deploy relates to a request, or how registration
+relates to running a migration. `EntityRegistrar::register()` runs "at registration time," but
+nothing says when that is. A real deploy can upload new code before its matching migration
+runs. A live request can hit the new code in that gap. The code and the database can disagree
+about a field's shape for the whole time that gap stays open. This risk exists for any native
+retype, with or without touched/defaulted tracking layered on top.
+
+Both gaps surfaced together while working through `PROPOSAL_FOR_V2_DEFAULT_TRACKING.md`'s own
+open question: where does a retype's converter get "the old value" for a field that was only
+ever tracking a live default, once the old resolver method might not survive the same commit
+that changes the field's type. Answering that needs some durable record of the old shape and
+the old default. The deploy-ordering gap above rules out writing that record at ordinary,
+per-request registration time: an ordinary request can run before a human ever triggers the
+matching migration, and would overwrite the one copy of "the old state" before anything gets
+to use it.
+
+**What we want to do.**
+
+- Give every native class a persisted compiled schema, one row per class, parallel in shape to
+  `prototypes.schema` for an editor-created one. `EntityRegistrar::register()`'s existing
+  full-field-tree walk produces this as a byproduct, the same way it already produces the
+  defaulted-instance completeness check and the "who points at shape X" reverse index. The
+  compiled schema records each field's structural shape (name, kind, type or target) and, once
+  `PROPOSAL_FOR_V2_DEFAULT_TRACKING.md` lands, each field's currently-resolved default or pin.
+- Add a strict check at the start of registration. Compare the schema just computed from live
+  code against the persisted schema left by the last successful registration. Block outright,
+  naming the difference, if anything differs without an explicitly-declared fixup for this
+  deploy (a rename mapping, a retype's converter and signature, a reparent, an explicit drop).
+  Only once every difference is accounted for does registration persist the new compiled
+  schema and let the request proceed.
+- Run this check at the start of every request, not as a separate deploy step. There is no
+  long-running process to run it once at boot instead. If the check fails, every request fails
+  the same way, loudly, until the mismatch is fixed. This acts as a maintenance mode without
+  needing a dedicated maintenance-mode feature: the site goes down hard instead of serving one
+  request against a half-migrated schema.
+- This also answers `PROPOSAL_FOR_V2_DEFAULT_TRACKING.md`'s own open question. A retype's
+  converter, for a field currently tracking a live default, reads its old value off the
+  persisted compiled schema left by the previous successful registration, never off live code
+  that might already be gone. The compiled schema only ever updates after a registration that
+  blocked every live request until it succeeded, so there is no window where it gets
+  overwritten before a migration gets the chance to use it.
+
+**What stands in the way.**
+
+- Bricking every request until a human fixes a mismatch is the point, not a flaw to design
+  around. It turns a would-be silent data-loss bug into a loud, site-wide failure, matching the
+  "reject outright, name the problem" posture this design already applies everywhere else, now
+  applied to deploy-time drift instead of a single registration-time check.
+- This changes what "Migrations and schema mutation" means for native specifically. Today it
+  describes generation-time declarations (a rename mapping, a converter) without describing
+  anything that verifies nothing else slipped through undeclared. This adds that verification
+  as a first-class part of registration, not a tool a developer might remember to run.
+- Editor-created prototypes need none of this. `prototypes.schema` is already a live, persisted
+  row, with no code or deploy step involved and no diffing ambiguity, since every editor-created
+  mutation is already an explicit, named operation, never inferred. The native/editor split this
+  introduces is not a new asymmetry. It is the same reviewed-deploy-versus-live-mutation split
+  the rest of the document already organizes itself around.
+
+**Open questions, not decided yet:**
+
+1. What exactly counts as "this deploy's own explicitly-declared fixups," as an input the
+   strict check reads. Today, a rename mapping and a retype converter are already passed at
+   migration-generation time. Does the check read these straight from the generated migration
+   file, or does a developer separately redeclare them for the check to compare against? Not
+   decided.
+2. Whether the structural half of the compiled schema (field shapes) and the default-value half
+   (each field's currently-resolved default or pin) are one persisted artifact or two. Both come
+   from the same walk, but the default half only matters once
+   `PROPOSAL_FOR_V2_DEFAULT_TRACKING.md` itself lands. Building the structural half first, on
+   its own, is possible either way.
+3. Whether the check runs against every native class on every request, or only against classes
+   actually touched by a pending migration. Checking everything, every request, is the simplest
+   rule and matches "no special-casing" everywhere else in this design, but its per-request cost
+   has not been measured.
+4. Roadmap placement. This changes Phase 1.1/1.2's own registration machinery, not a late phase.
+   Needs deciding at the merge pass whether it lands inside Phase 1 itself or as its own
+   sub-phase, alongside wherever `PROPOSAL_FOR_V2_DEFAULT_TRACKING.md`'s own phase gets chosen.
