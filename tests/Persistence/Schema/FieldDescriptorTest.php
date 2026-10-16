@@ -60,12 +60,11 @@ final class FieldDescriptorTest extends TestCase
         self::assertSame('Category', $field->target());
     }
 
-    public function testOwningReferenceStoresTargetAndRequired(): void {
-        $field = FieldDescriptor::owningReference('engine', 'Engine', true);
+    public function testOwningReferenceStoresTarget(): void {
+        $field = FieldDescriptor::owningReference('engine', 'Engine');
 
         self::assertSame(FieldKind::OwningReference, $field->kind());
         self::assertSame('Engine', $field->target());
-        self::assertTrue($field->required());
     }
 
     public function testCollectionStoresItemDescriptor(): void {
@@ -98,14 +97,6 @@ final class FieldDescriptorTest extends TestCase
         $this->expectException(LogicException::class);
 
         $field->target();
-    }
-
-    public function testRequiredOnWrongKindThrows(): void {
-        $field = FieldDescriptor::reference('category', 'Category');
-
-        $this->expectException(LogicException::class);
-
-        $field->required();
     }
 
     public function testItemDescriptorOnWrongKindThrows(): void {

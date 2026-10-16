@@ -19,7 +19,6 @@ final readonly class FieldDescriptor
         private ?ScalarType $scalarType = null,
         private ?string $enumClass = null,
         private ?string $target = null,
-        private bool $required = false,
         private ?self $itemDescriptor = null,
     ) {
     }
@@ -84,12 +83,10 @@ final readonly class FieldDescriptor
      * through the owned entity's own owner/owner_field instead of a foreign key.
      * @param string $name The field's own name.
      * @param string $type The owned shape's identifier.
-     * @param bool $required Whether an absent slot gets backfilled with a defaulted
-     *        instance of $type, rather than staying empty.
      * @return self
      */
-    public static function owningReference(string $name, string $type, bool $required): self {
-        return new self(FieldKind::OwningReference, $name, target: $type, required: $required);
+    public static function owningReference(string $name, string $type): self {
+        return new self(FieldKind::OwningReference, $name, target: $type);
     }
 
     /**
@@ -143,13 +140,6 @@ final readonly class FieldDescriptor
         }
 
         return $this->target;
-    }
-
-    /** Valid for FieldKind::OwningReference only. */
-    public function required(): bool {
-        $this->assertKind(FieldKind::OwningReference);
-
-        return $this->required;
     }
 
     /** Valid for FieldKind::Collection only. */
