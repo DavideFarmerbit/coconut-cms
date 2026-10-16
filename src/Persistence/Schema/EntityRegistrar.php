@@ -71,7 +71,7 @@ final class EntityRegistrar
      */
     private static function resolveParent(ReflectionClass $reflection): ?string {
         $parent = $reflection->getParentClass();
-        if ($parent === false || $parent->getAttributes(Entity::class) === []) {
+        if ($parent === false || !self::isEntity($parent->getName())) {
             return null;
         }
 
@@ -118,11 +118,33 @@ final class EntityRegistrar
         return match (true) {
             $attribute instanceof Scalar => FieldDescriptor::scalar($name, $attribute->type, self::resolveEnumClass($property, $attribute)),
             $attribute instanceof ValueObject => FieldDescriptor::valueObject($name, $attribute->type),
-            $attribute instanceof Embed => FieldDescriptor::embed($name, $attribute->type),
-            $attribute instanceof Reference => FieldDescriptor::reference($name, $attribute->type),
-            $attribute instanceof OwningReference => FieldDescriptor::owningReference($name, $attribute->type),
-            $attribute instanceof Collection => FieldDescriptor::collection($name, self::resolveCollectionItemDescriptor($name, $attribute)),
+            $attribute instanceof Embed => FieldDescriptor::embed($name, self::resolveEntityTarget($attribute->type, $property)),
+            $attribute instanceof Reference => FieldDescriptor::reference($name, self::resolveEntityTarget($attribute->type, $property)),
+            $attribute instanceof OwningReference => FieldDescriptor::owningReference($name, self::resolveEntityTarget($attribute->type, $property)),
+            $attribute instanceof Collection => FieldDescriptor::collection($name, self::resolveCollectionItemDescriptor($name, $attribute, $property)),
         };
+    }
+
+    /**
+     * Every Embed/Reference/OwningReference target is an ordinary #[Entity]-marked
+     * class, used differently at this one field site, never a separate kind of
+     * target in its own right.
+     */
+    private static function resolveEntityTarget(string $target, ReflectionProperty $property): string {
+        if (!class_exists($target) || !self::isEntity($target)) {
+            throw new InvalidArgumentException(sprintf(
+                '%s::$%s targets "%s", which is not a class marked #[Entity].',
+                $property->getDeclaringClass()->getName(),
+                $property->getName(),
+                $target,
+            ));
+        }
+
+        return $target;
+    }
+
+    private static function isEntity(string $class): bool {
+        return (new ReflectionClass($class))->getAttributes(Entity::class) !== [];
     }
 
     /**
@@ -150,15 +172,29 @@ final class EntityRegistrar
         return $type->getName();
     }
 
-    private static function resolveCollectionItemDescriptor(string $name, Collection $attribute): FieldDescriptor {
+    private static function resolveCollectionItemDescriptor(string $name, Collection $attribute, ReflectionProperty $property): FieldDescriptor {
         return match ($attribute->itemKind) {
             FieldKind::Scalar => FieldDescriptor::scalar($name, $attribute->itemScalarType, $attribute->itemEnumClass),
-            FieldKind::ValueObject => FieldDescriptor::valueObject($name, $attribute->itemTarget),
-            FieldKind::Embed => FieldDescriptor::embed($name, $attribute->itemTarget),
-            FieldKind::Reference => FieldDescriptor::reference($name, $attribute->itemTarget),
-            FieldKind::OwningReference => FieldDescriptor::owningReference($name, $attribute->itemTarget),
+            FieldKind::ValueObject => FieldDescriptor::valueObject($name, self::resolveItemTarget($attribute, $property)),
+            FieldKind::Embed => FieldDescriptor::embed($name, self::resolveEntityItemTarget($attribute, $property)),
+            FieldKind::Reference => FieldDescriptor::reference($name, self::resolveEntityItemTarget($attribute, $property)),
+            FieldKind::OwningReference => FieldDescriptor::owningReference($name, self::resolveEntityItemTarget($attribute, $property)),
             FieldKind::Collection => throw new InvalidArgumentException('A Collection item cannot itself be a Collection.'),
         };
+    }
+
+    /** A Collection item target that must also be an #[Entity]-marked class. */
+    private static function resolveEntityItemTarget(Collection $attribute, ReflectionProperty $property): string {
+        return self::resolveEntityTarget(self::resolveItemTarget($attribute, $property), $property);
+    }
+
+    private static function resolveItemTarget(Collection $attribute, ReflectionProperty $property): string {
+        return $attribute->itemTarget ?? throw new InvalidArgumentException(sprintf(
+            '%s::$%s is a Collection of %s items, which needs $itemTarget.',
+            $property->getDeclaringClass()->getName(),
+            $property->getName(),
+            $attribute->itemKind->name,
+        ));
     }
 
     /**

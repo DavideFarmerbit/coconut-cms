@@ -9,6 +9,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\PrototypeValidato
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Unique;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Method\DefaultInstance;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldValidator;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
@@ -165,6 +166,34 @@ final class EntityRegistrarUniqueOnParentField extends EntityRegistrarBase
 
 final class EntityRegistrarNotAnEntity
 {
+}
+
+#[Entity]
+final class EntityRegistrarWithReferenceToNonEntity
+{
+    #[Reference(EntityRegistrarNotAnEntity::class)]
+    private ?object $target;
+}
+
+#[Entity]
+final class EntityRegistrarWithOwningReferenceToNonEntity
+{
+    #[OwningReference(EntityRegistrarNotAnEntity::class)]
+    private ?object $target;
+}
+
+#[Entity]
+final class EntityRegistrarWithEmbedOfNonEntity
+{
+    #[Embed(EntityRegistrarNotAnEntity::class)]
+    private object $target;
+}
+
+#[Entity]
+final class EntityRegistrarWithCollectionItemMissingTarget
+{
+    #[Collection(itemKind: FieldKind::Reference)]
+    private array $items;
 }
 
 class EntityRegistrarPlainBase
@@ -355,6 +384,30 @@ final class EntityRegistrarTest extends TestCase
         $schema = EntityRegistrar::register(EntityRegistrarChildOfPlainBase::class);
 
         self::assertNull($schema->parent);
+    }
+
+    public function testRegisterWithReferenceToNonEntityThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        EntityRegistrar::register(EntityRegistrarWithReferenceToNonEntity::class);
+    }
+
+    public function testRegisterWithOwningReferenceToNonEntityThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        EntityRegistrar::register(EntityRegistrarWithOwningReferenceToNonEntity::class);
+    }
+
+    public function testRegisterWithEmbedOfNonEntityThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        EntityRegistrar::register(EntityRegistrarWithEmbedOfNonEntity::class);
+    }
+
+    public function testRegisterWithCollectionItemMissingTargetThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        EntityRegistrar::register(EntityRegistrarWithCollectionItemMissingTarget::class);
     }
 
     public function testRegisterWithZeroKindAttributesThrows(): void {
