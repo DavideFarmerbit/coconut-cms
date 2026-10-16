@@ -31,6 +31,13 @@ final class SchemaRegistryChild extends SchemaRegistryRoot
 }
 
 #[Entity]
+final class SchemaRegistryOverrideChild extends SchemaRegistryRoot
+{
+    #[Scalar(ScalarType::Text)]
+    private string $name;
+}
+
+#[Entity]
 final class SchemaRegistryEmbedTarget
 {
     #[Scalar(ScalarType::String)]
@@ -42,6 +49,20 @@ final class SchemaRegistryEmbedder
 {
     #[Embed(SchemaRegistryEmbedTarget::class)]
     private object $target;
+}
+
+#[Entity]
+final class SchemaRegistryDeepEmbedMiddle
+{
+    #[Embed(SchemaRegistryEmbedTarget::class)]
+    private object $target;
+}
+
+#[Entity]
+final class SchemaRegistryDeepEmbedOuter
+{
+    #[Embed(SchemaRegistryDeepEmbedMiddle::class)]
+    private object $middle;
 }
 
 #[Entity]
@@ -111,6 +132,22 @@ final class SchemaRegistryTest extends TestCase
         self::assertSame([SchemaRegistryEmbedTarget::class, SchemaRegistryEmbedder::class], $order);
     }
 
+    public function testSortOrdersATransitiveEmbedChainCorrectly(): void {
+        $schemas = [
+            SchemaRegistryDeepEmbedOuter::class => EntityRegistrar::register(SchemaRegistryDeepEmbedOuter::class),
+            SchemaRegistryDeepEmbedMiddle::class => EntityRegistrar::register(SchemaRegistryDeepEmbedMiddle::class),
+            SchemaRegistryEmbedTarget::class => EntityRegistrar::register(SchemaRegistryEmbedTarget::class),
+        ];
+
+        $order = array_keys(SchemaRegistry::sort($schemas));
+
+        self::assertSame([
+            SchemaRegistryEmbedTarget::class,
+            SchemaRegistryDeepEmbedMiddle::class,
+            SchemaRegistryDeepEmbedOuter::class,
+        ], $order);
+    }
+
     public function testSortOrdersCollectionEmbedItemTargetBeforeEmbedder(): void {
         $schemas = [
             SchemaRegistryCollectionEmbedder::class => EntityRegistrar::register(SchemaRegistryCollectionEmbedder::class),
@@ -166,5 +203,40 @@ final class SchemaRegistryTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
 
         SchemaRegistry::sort($schemas);
+    }
+
+    public function testWholeFieldsComposesOwnAndInheritedFields(): void {
+        $sorted = SchemaRegistry::sort([
+            SchemaRegistryChild::class => EntityRegistrar::register(SchemaRegistryChild::class),
+            SchemaRegistryRoot::class => EntityRegistrar::register(SchemaRegistryRoot::class),
+        ]);
+
+        $wholeFields = SchemaRegistry::wholeFields($sorted);
+
+        self::assertSame(['name'], array_keys($wholeFields[SchemaRegistryRoot::class]));
+        self::assertSame(['name', 'extra'], array_keys($wholeFields[SchemaRegistryChild::class]));
+    }
+
+    public function testWholeFieldsLetsAChildsOwnFieldOverrideAnInheritedOne(): void {
+        $sorted = SchemaRegistry::sort([
+            SchemaRegistryOverrideChild::class => EntityRegistrar::register(SchemaRegistryOverrideChild::class),
+            SchemaRegistryRoot::class => EntityRegistrar::register(SchemaRegistryRoot::class),
+        ]);
+
+        $wholeFields = SchemaRegistry::wholeFields($sorted);
+
+        self::assertSame(ScalarType::Text, $wholeFields[SchemaRegistryOverrideChild::class]['name']->scalarType());
+    }
+
+    public function testWholeFieldsLeavesAnEmbedFieldUnexpanded(): void {
+        $sorted = SchemaRegistry::sort([
+            SchemaRegistryEmbedder::class => EntityRegistrar::register(SchemaRegistryEmbedder::class),
+            SchemaRegistryEmbedTarget::class => EntityRegistrar::register(SchemaRegistryEmbedTarget::class),
+        ]);
+
+        $wholeFields = SchemaRegistry::wholeFields($sorted);
+
+        self::assertSame(FieldKind::Embed, $wholeFields[SchemaRegistryEmbedder::class]['target']->kind());
+        self::assertSame(SchemaRegistryEmbedTarget::class, $wholeFields[SchemaRegistryEmbedder::class]['target']->target());
     }
 }
