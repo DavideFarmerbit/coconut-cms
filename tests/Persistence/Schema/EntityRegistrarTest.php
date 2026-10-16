@@ -140,6 +140,22 @@ final class EntityRegistrarDerived extends EntityRegistrarBase
     private string $extra;
 }
 
+#[Entity]
+#[Unique('doesNotExist')]
+final class EntityRegistrarUniqueOnUnknownField
+{
+    #[Scalar(ScalarType::String)]
+    private string $sku;
+}
+
+#[Entity]
+#[Unique('createdAt')]
+final class EntityRegistrarUniqueOnParentField extends EntityRegistrarBase
+{
+    #[Scalar(ScalarType::String)]
+    private string $extra;
+}
+
 final class EntityRegistrarNotAnEntity
 {
 }
@@ -270,6 +286,18 @@ final class EntityRegistrarTest extends TestCase
         self::assertSame([['sku']], $schema->uniqueGroups);
         self::assertCount(1, $schema->prototypeValidators);
         self::assertInstanceOf(EntityRegistrarGreaterThan::class, $schema->prototypeValidators[0]);
+    }
+
+    public function testRegisterWithUniqueOnUnknownFieldThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        EntityRegistrar::register(EntityRegistrarUniqueOnUnknownField::class);
+    }
+
+    public function testRegisterWithUniqueOnParentFieldThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        EntityRegistrar::register(EntityRegistrarUniqueOnParentField::class);
     }
 
     public function testRegisterResolvesDefaultInstanceFromImplicitConstructor(): void {

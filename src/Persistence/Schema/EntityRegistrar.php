@@ -43,7 +43,7 @@ final class EntityRegistrar
             fields: $fields,
             fieldPermissions: self::resolveFieldPermissions($reflection),
             fieldValidators: self::resolveFieldValidators($reflection, $fields),
-            uniqueGroups: self::resolveUniqueGroups($reflection),
+            uniqueGroups: self::resolveUniqueGroups($reflection, $fields),
             prototypeValidators: self::resolvePrototypeValidators($reflection, $fields),
             defaultInstanceFactory: self::resolveDefaultInstanceFactory($reflection),
         );
@@ -200,13 +200,26 @@ final class EntityRegistrar
 
     /**
      * @param ReflectionClass<object> $reflection
+     * @param FieldDescriptor[] $fields
      * @return string[][]
      */
-    private static function resolveUniqueGroups(ReflectionClass $reflection): array {
+    private static function resolveUniqueGroups(ReflectionClass $reflection, array $fields): array {
         $groups = [];
 
         foreach ($reflection->getAttributes(Unique::class) as $attribute) {
-            $groups[] = $attribute->newInstance()->fields;
+            $group = $attribute->newInstance()->fields;
+
+            foreach ($group as $name) {
+                if (!array_key_exists($name, $fields)) {
+                    throw new InvalidArgumentException(sprintf(
+                        '%s declares #[Unique] over "%s", which is not one of its own fields.',
+                        $reflection->getName(),
+                        $name,
+                    ));
+                }
+            }
+
+            $groups[] = $group;
         }
 
         return $groups;
