@@ -38,7 +38,7 @@ final class EntityRegistrar
         return new EntitySchema(
             identifier: $class,
             parent: self::resolveParent($reflection),
-            table: $entity->table,
+            table: $entity->table ?? self::deriveTableName($reflection->getShortName()),
             editorExtensible: $entity->editorExtensible,
             fields: $fields,
             fieldPermissions: self::resolveFieldPermissions($reflection),
@@ -59,6 +59,11 @@ final class EntityRegistrar
         }
 
         return $attributes[0]->newInstance();
+    }
+
+    /** Snake-cases a short class name: Product -> product, BlogPost -> blog_post. */
+    private static function deriveTableName(string $shortClassName): string {
+        return strtolower((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $shortClassName));
     }
 
     /**

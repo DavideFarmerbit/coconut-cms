@@ -97,6 +97,13 @@ final class EntityRegistrarEngine
     private int $horsepower;
 }
 
+#[Entity]
+final class EntityRegistrarBlogPost
+{
+    #[Scalar(ScalarType::String)]
+    private string $title;
+}
+
 #[Entity(table: 'products', editorExtensible: true)]
 #[Unique('sku')]
 #[PrototypeValidator(new EntityRegistrarGreaterThan('endDate', 'startDate'))]
@@ -268,6 +275,12 @@ final class EntityRegistrarTest extends TestCase
         self::assertSame(EntityRegistrarEngine::class, $schema->fields['engine']->target());
         self::assertSame(FieldKind::Collection, $schema->fields['relatedCategories']->kind());
         self::assertSame(EntityRegistrarCategory::class, $schema->fields['relatedCategories']->itemDescriptor()->target());
+    }
+
+    public function testRegisterDerivesTableNameWhenNoneIsGiven(): void {
+        $schema = EntityRegistrar::register(EntityRegistrarBlogPost::class);
+
+        self::assertSame('entity_registrar_blog_post', $schema->table);
     }
 
     public function testRegisterCollectsFieldPermissionsAndValidators(): void {

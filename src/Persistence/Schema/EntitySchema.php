@@ -18,6 +18,8 @@ final readonly class EntitySchema
      * @param class-string $identifier
      * @param class-string|null $parent The CTI parent, or null for a root. Never the
      *        class's PHP parent unless that parent is also #[Entity]-marked.
+     * @param string $table Always the real table name: an explicit #[Entity(table:
+     *        ...)] override, or the derived default when none was given.
      * @param FieldDescriptor[] $fields Keyed by field name.
      * @param array<string, FieldPermission> $fieldPermissions Keyed by field name; a
      *        field absent here carries no restriction.
@@ -29,7 +31,7 @@ final readonly class EntitySchema
     public function __construct(
         public string $identifier,
         public ?string $parent,
-        public ?string $table,
+        public string $table,
         public bool $editorExtensible,
         public array $fields,
         public array $fieldPermissions,
