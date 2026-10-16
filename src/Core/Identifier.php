@@ -2,6 +2,8 @@
 
 namespace XyloIsCoding\CoconutCms\Core;
 
+use InvalidArgumentException;
+
 /**
  * A service identifier: a namespace (who owns/defines the binding — a
  * package name, "app", a mod slug, ...) plus a key (what it is, e.g.
@@ -16,8 +18,12 @@ final readonly class Identifier implements \Stringable
         public string $key,
     ) {
     }
-    
+
     public static function of(string $namespace, string $key): self {
+        if (str_contains($namespace, ':') || str_contains($key, ':')) {
+            throw new InvalidArgumentException('Identifier namespace and key must not contain ":".');
+        }
+
         return new self($namespace, $key);
     }
 

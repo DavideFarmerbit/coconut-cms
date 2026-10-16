@@ -2,6 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Core;
 
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Core\Identifier;
 
@@ -20,5 +21,19 @@ final class IdentifierTest extends TestCase
         $id = Identifier::of('app', 'assets.frontend');
 
         self::assertSame('app:assets.frontend', (string) $id);
+    }
+
+    public function testOfWithColonInNamespaceThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        Identifier::of('app:weird', 'key');
+    }
+
+    public function testOfWithColonInKeyThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        Identifier::of('app', 'weird:key');
     }
 }
