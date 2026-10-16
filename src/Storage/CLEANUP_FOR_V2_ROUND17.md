@@ -8,8 +8,10 @@ way but considerably larger in scope, is not yet resolved — recorded here as a
 open sub-questions, not a finished decision. Item 3, surfaced while working through that same
 proposal's own retype-capture question, is a pre-existing gap in the native migration pipeline
 itself, independent of whether that proposal is ever adopted. It is also not yet resolved,
-recorded here as a direction with open sub-questions. Worked per
-[[feedback_coconut_cms_development_workflow]].
+recorded here as a direction with open sub-questions. Item 4, surfaced while building
+`EntityRegistrar` and tracing through what an Embed target's field tree actually needs to
+support, is resolved (2026-10-16) but not yet folded into `ARCHITECTURE_V2.md` itself. Worked
+per [[feedback_coconut_cms_development_workflow]].
 
 ## Missing piece
 
@@ -46,6 +48,45 @@ architecture (a separate, not-yet-adopted proposal would change that for editor-
 Folded into `ARCHITECTURE_V2.md`'s "Defaulted instances" section (new paragraph immediately
 after the existing across-row distinctness rule) and `ROADMAP_V2.md` Phase 3.3 (new "Done
 when" assertion, proven once) / Phase 3.4 (restated as reused, not reproven).
+
+### 4. An Embed target's field tree was wrongly restricted to scalar/value-object/embed only — resolved (2026-10-16)
+
+"Entity vs. Value Object vs. Embed" restricts an Embed target's own field tree to scalar,
+value-object, and nested-embed fields, excluding `Reference` and `Collection` at any depth,
+citing Doctrine's own embeddables as precedent. The restriction is wrong, not merely stale
+from `OwningReference`'s later Round 9 split (the restriction's own wording never names
+`OwningReference` at all, since it predates that split, but the deeper problem is the whole
+restriction, not just its missing name).
+
+Tracing each excluded kind through this design's own mechanisms, rather than Doctrine's: a
+plain `Reference` was never anchored to an `entities` row in the first place, it's a nullable
+FK column, flattening into the embedding entity's own row exactly like any other
+embed-flattened column, no identity needed. An `OwningReference` resolves `owner` to the
+enclosing entity, walking up through however many embed levels, and `owner_field` to the
+embed-path-prefixed field name, the same disambiguation already used for an ordinary
+flattened column (`billingAddress_city` versus `shippingAddress_city`), not a new mechanism.
+A `Collection`, Owned or not, resolves the same way: a non-entity/Shared collection's
+dedicated child table derives its own name from the field's own embed-path-prefixed name, the
+same derivation a flattened column's own name already gets; an Owned collection's items
+resolve through `entities.owner`/`owner_field` exactly like a singular `OwningReference`
+does, with its own `<field>_count` becoming one more flattened column. Replacing an embedded
+Collection's contents wholesale is not a new operation either, an embed has no identity to
+swap, so it was always going to decompose into ordinary flattened-column writes plus an
+ordinary Collection content-diff, the same diff any non-embedded Collection change already
+runs.
+
+**Resolved: every `FieldKind` is allowed inside an Embed target, no restriction in either
+direction.** Doctrine's own embeddables ban associations because Doctrine's embeddables have
+no equivalent to this design's `entities`-table-backed owner/owner_field resolution to fall
+back on; citing them as precedent never actually held once this design's own mechanisms are
+traced through field by field.
+
+**Not yet folded into `ARCHITECTURE_V2.md`.** "Entity vs. Value Object vs. Embed"'s own
+restriction paragraph and its Doctrine-parity justification need rewriting to state the field
+tree has no kind restriction at all; "References and collections" and "Uniqueness" need a
+pass to confirm every owner/owner_field/table-naming rule they already state generalizes
+through an embed path the same way (it does, by the reasoning above, but neither section
+currently says so explicitly).
 
 ## Open, large in scope
 
