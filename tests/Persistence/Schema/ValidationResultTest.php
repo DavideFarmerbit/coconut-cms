@@ -4,7 +4,7 @@ namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema;
 
 use LogicException;
 use PHPUnit\Framework\TestCase;
-use XyloIsCoding\CoconutCms\Persistence\Schema\ValidationResult;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
 
 final class ValidationResultTest extends TestCase
 {

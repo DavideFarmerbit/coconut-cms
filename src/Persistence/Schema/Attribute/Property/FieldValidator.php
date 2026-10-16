@@ -3,7 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property;
 
 use Attribute;
-use XyloIsCoding\CoconutCms\Persistence\Schema\FieldValidatorRule;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 
 /**
  * Attaches this field's own composable list of validation rules, each already a

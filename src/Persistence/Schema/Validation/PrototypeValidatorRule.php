@@ -1,6 +1,8 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Persistence\Schema;
+namespace XyloIsCoding\CoconutCms\Persistence\Schema\Validation;
+
+use XyloIsCoding\CoconutCms\Persistence\Schema\FieldDescriptor;
 
 /**
  * One cross-field validation rule attachable to a shape through a

@@ -1,6 +1,8 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Persistence\Schema;
+namespace XyloIsCoding\CoconutCms\Persistence\Schema\Validation;
+
+use XyloIsCoding\CoconutCms\Persistence\Schema\FieldDescriptor;
 
 /**
  * One validation rule attachable to a single field through a #[FieldValidator]

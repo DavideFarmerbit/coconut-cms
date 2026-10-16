@@ -12,10 +12,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Method\DefaultInstance;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldValidator;
 use XyloIsCoding\CoconutCms\Persistence\Schema\FieldDescriptor;
-use XyloIsCoding\CoconutCms\Persistence\Schema\FieldValidatorRule;
-use XyloIsCoding\CoconutCms\Persistence\Schema\PrototypeValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\ScalarType;
-use XyloIsCoding\CoconutCms\Persistence\Schema\ValidationResult;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
 
 final class EntityAttributesMaxLength implements FieldValidatorRule
 {

@@ -3,7 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class;
 
 use Attribute;
-use XyloIsCoding\CoconutCms\Persistence\Schema\PrototypeValidatorRule;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 
 /**
  * Attaches this shape's own composable list of cross-field validation rules, each
