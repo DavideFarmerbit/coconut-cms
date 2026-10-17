@@ -118,6 +118,7 @@ final class SchemaRegistryTest extends TestCase
             fieldValidators: [],
             uniqueGroups: [],
             prototypeValidators: [],
+            defaultValues: [],
             defaultInstanceFactory: static fn (): object => new stdClass(),
         );
     }

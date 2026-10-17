@@ -40,8 +40,9 @@ final class EntityRegistrar
         $uniqueGroups = self::resolveUniqueGroups($reflection, $fields);
         $prototypeValidators = self::resolvePrototypeValidators($reflection, $fields);
         $defaultInstanceFactory = self::resolveDefaultInstanceFactory($reflection);
+        $defaultInstance = $defaultInstanceFactory();
 
-        self::assertDefaultInstanceIsInitialized($reflection, $defaultInstanceFactory());
+        self::assertDefaultInstanceIsInitialized($reflection, $defaultInstance);
 
         return new EntitySchema(
             identifier: $class,
@@ -53,6 +54,7 @@ final class EntityRegistrar
             fieldValidators: $fieldValidators,
             uniqueGroups: $uniqueGroups,
             prototypeValidators: $prototypeValidators,
+            defaultValues: self::extractDefaultValues($reflection, $defaultInstance),
             defaultInstanceFactory: $defaultInstanceFactory,
         );
     }
@@ -342,23 +344,13 @@ final class EntityRegistrar
 
     /**
      * Confirms every field this class declares or inherits from an #[Entity]-marked
-     * ancestor is actually readable off its own default instance. A property is only
-     * a field when both hold: its declaring class is marked #[Entity], and it carries
-     * a field-kind attribute itself. A field-kind attribute on a non-#[Entity] class's
-     * property is ignored, same as any other property there: that class carries no
-     * field of its own in the schema tree. Applies the same check to every field
-     * kind: a populated collection, an empty one, a null OwningReference, and a set
-     * Embed object are all equally "initialized".
+     * ancestor is actually readable off its own default instance. Applies the same
+     * check to every field kind: a populated collection, an empty one, a null
+     * OwningReference, and a set Embed object are all equally "initialized".
      * @param ReflectionClass<object> $reflection
      */
     private static function assertDefaultInstanceIsInitialized(ReflectionClass $reflection, object $defaultInstance): void {
-        foreach ($reflection->getProperties() as $property) {
-            // Properties might be inherited from non-entity classes, so we check that the declaring class is
-            // effectively an entity. We also check that the property itself is a field, otherwise we can ignore it.
-            if (!self::isEntity($property->getDeclaringClass()->getName()) || self::fieldKindAttributesOf($property) === []) {
-                continue;
-            }
-
+        foreach (self::entityFields($reflection) as $property) {
             if (!$property->isInitialized($defaultInstance)) {
                 throw new InvalidArgumentException(sprintf(
                     '%s::$%s is not initialized on the default instance.',
@@ -367,6 +359,85 @@ final class EntityRegistrar
                 ));
             }
         }
+    }
+
+    /**
+     * Reads this class's own default instance into plain data, recursing into Embed
+     * and OwningReference values. An Embed value is read through the declared target
+     * class, never a runtime subclass: type erasure. An OwningReference value is read
+     * through its own actual class: polymorphic, so the class itself is recorded
+     * alongside its fields.
+     * @param ReflectionClass<object> $governingClass
+     * @return array<string, mixed>
+     */
+    private static function extractDefaultValues(ReflectionClass $governingClass, object $instance): array {
+        $values = [];
+
+        foreach (self::entityFields($governingClass) as $property) {
+            $attribute = self::fieldKindAttributesOf($property)[0]->newInstance();
+            $values[$property->getName()] = self::extractFieldValue($attribute, $property->getValue($instance));
+        }
+
+        return $values;
+    }
+
+    private static function extractFieldValue(object $attribute, mixed $value): mixed {
+        return match (true) {
+            $attribute instanceof Embed => $value === null ? null : self::extractDefaultValues(new ReflectionClass($attribute->type), $value),
+            $attribute instanceof OwningReference => self::extractOwningReferenceValue($value),
+            $attribute instanceof Collection => self::extractCollectionItems($attribute, $value),
+            default => $value,
+        };
+    }
+
+    /** @return array{class: class-string, fields: array<string, mixed>}|null */
+    private static function extractOwningReferenceValue(?object $value): ?array {
+        if ($value === null) {
+            return null;
+        }
+
+        return [
+            'class' => $value::class,
+            'fields' => self::extractDefaultValues(new ReflectionClass($value::class), $value),
+        ];
+    }
+
+    /** @return mixed[] */
+    private static function extractCollectionItems(Collection $attribute, array $items): array {
+        return array_map(
+            static fn (mixed $item): mixed => match ($attribute->itemKind) {
+                FieldKind::Embed => $item === null ? null : self::extractDefaultValues(new ReflectionClass($attribute->itemTarget), $item),
+                FieldKind::OwningReference => self::extractOwningReferenceValue($item),
+                default => $item,
+            },
+            $items,
+        );
+    }
+
+    /**
+     * Every property this class declares or inherits from an #[Entity]-marked
+     * ancestor, that also carries a field-kind attribute itself. Reflects each
+     * class in the ancestor chain separately rather than calling getProperties()
+     * once on the most-derived class: that single call silently drops a private
+     * property declared by an ancestor, only seeing protected/public ones there.
+     * @param ReflectionClass<object> $reflection
+     * @return ReflectionProperty[]
+     */
+    private static function entityFields(ReflectionClass $reflection): array {
+        if (!self::isEntity($reflection->getName())) {
+            return [];
+        }
+
+        $parent = $reflection->getParentClass();
+        $fields = $parent !== false ? self::entityFields($parent) : [];
+
+        foreach ($reflection->getProperties() as $property) {
+            if ($property->getDeclaringClass()->getName() === $reflection->getName() && self::fieldKindAttributesOf($property) !== []) {
+                $fields[] = $property;
+            }
+        }
+
+        return $fields;
     }
 
     /**

@@ -327,6 +327,67 @@ final class EntityRegistrarWithNonEntityAncestorFieldAttribute extends EntityReg
     private string $own = '';
 }
 
+#[Entity]
+class EntityRegistrarBaseWithUninitializedPrivateField
+{
+    #[Scalar(ScalarType::String)]
+    private string $basePrivate;
+}
+
+#[Entity]
+final class EntityRegistrarChildOfBaseWithUninitializedPrivateField extends EntityRegistrarBaseWithUninitializedPrivateField
+{
+    #[Scalar(ScalarType::String)]
+    private string $own = '';
+}
+
+#[Entity]
+class EntityRegistrarEngineBase
+{
+    #[Scalar(ScalarType::Int)]
+    private int $horsepower = 100;
+}
+
+#[Entity]
+final class EntityRegistrarSportsEngine extends EntityRegistrarEngineBase
+{
+    #[Scalar(ScalarType::Int)]
+    private int $redline = 7000;
+}
+
+#[Entity]
+final class EntityRegistrarCarWithOwningReference
+{
+    #[OwningReference(EntityRegistrarEngineBase::class)]
+    private ?object $engine;
+
+    public function __construct() {
+        $this->engine = new EntityRegistrarSportsEngine();
+    }
+}
+
+#[Entity]
+final class EntityRegistrarCarWithEmbed
+{
+    #[Embed(EntityRegistrarEngineBase::class)]
+    private object $engine;
+
+    public function __construct() {
+        $this->engine = new EntityRegistrarSportsEngine();
+    }
+}
+
+#[Entity]
+final class EntityRegistrarGarage
+{
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: EntityRegistrarEngineBase::class)]
+    private array $engines;
+
+    public function __construct() {
+        $this->engines = [new EntityRegistrarSportsEngine()];
+    }
+}
+
 final class EntityRegistrarTest extends TestCase
 {
     public function testRegisterReflectsEntityAttributeAndFields(): void {
@@ -512,5 +573,46 @@ final class EntityRegistrarTest extends TestCase
         $schema = EntityRegistrar::register(EntityRegistrarWithNonEntityAncestorFieldAttribute::class);
 
         self::assertArrayHasKey('own', $schema->fields);
+    }
+
+    public function testRegisterWithUninitializedPrivateAncestorFieldThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        EntityRegistrar::register(EntityRegistrarChildOfBaseWithUninitializedPrivateField::class);
+    }
+
+    public function testRegisterExtractsScalarDefaultValues(): void {
+        $schema = EntityRegistrar::register(EntityRegistrarProduct::class);
+
+        self::assertSame('', $schema->defaultValues['sku']);
+        self::assertSame(0, $schema->defaultValues['startDate']);
+        self::assertNull($schema->defaultValues['category']);
+        self::assertNull($schema->defaultValues['engine']);
+        self::assertSame([], $schema->defaultValues['relatedCategories']);
+    }
+
+    public function testRegisterExtractsOwningReferenceValuePolymorphically(): void {
+        $schema = EntityRegistrar::register(EntityRegistrarCarWithOwningReference::class);
+
+        self::assertSame(EntityRegistrarSportsEngine::class, $schema->defaultValues['engine']['class']);
+        self::assertSame(
+            ['horsepower' => 100, 'redline' => 7000],
+            $schema->defaultValues['engine']['fields'],
+        );
+    }
+
+    public function testRegisterExtractsEmbedValueWithTypeErasure(): void {
+        $schema = EntityRegistrar::register(EntityRegistrarCarWithEmbed::class);
+
+        self::assertSame(['horsepower' => 100], $schema->defaultValues['engine']);
+    }
+
+    public function testRegisterExtractsCollectionItemsRecursively(): void {
+        $schema = EntityRegistrar::register(EntityRegistrarGarage::class);
+
+        self::assertSame(
+            [['class' => EntityRegistrarSportsEngine::class, 'fields' => ['horsepower' => 100, 'redline' => 7000]]],
+            $schema->defaultValues['engines'],
+        );
     }
 }

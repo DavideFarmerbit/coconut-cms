@@ -27,6 +27,13 @@ final readonly class EntitySchema
      *        name; a field absent here carries no rules.
      * @param string[][] $uniqueGroups Each entry is one group's own field names.
      * @param PrototypeValidatorRule[] $prototypeValidators
+     * @param array<string, mixed> $defaultValues This class's own default instance,
+     *        already read into plain data. A Scalar/ValueObject/Reference entry is
+     *        the raw value. An Embed entry is a nested array of this same shape, or
+     *        null. An OwningReference entry is null, or {class, fields}, fields
+     *        being this same shape for the referenced object's own class. A
+     *        Collection entry is a list of entries, each following the rule for the
+     *        collection's own item kind.
      */
     public function __construct(
         public string $identifier,
@@ -38,6 +45,7 @@ final readonly class EntitySchema
         public array $fieldValidators,
         public array $uniqueGroups,
         public array $prototypeValidators,
+        public array $defaultValues,
         private Closure $defaultInstanceFactory,
     ) {
     }
