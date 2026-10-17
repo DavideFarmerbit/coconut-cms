@@ -113,14 +113,14 @@ final class SchemaRegistry
      * @param array<string, EntitySchema> $sortedSchemas As returned by sort()
      * @return array<string, FieldDescriptor[]> Keyed by schema identifier
      */
-    public static function wholeFields(array $sortedSchemas): array {
-        $wholeFields = [];
+    public static function hierarchyFields(array $sortedSchemas): array {
+        $hierarchyFields = [];
 
         foreach ($sortedSchemas as $identifier => $schema) {
-            $inherited = $schema->parent !== null ? $wholeFields[$schema->parent] : [];
-            $wholeFields[$identifier] = [...$inherited, ...$schema->fields];
+            $inherited = $schema->parent !== null ? $hierarchyFields[$schema->parent] : [];
+            $hierarchyFields[$identifier] = [...$inherited, ...$schema->fields];
         }
 
-        return $wholeFields;
+        return $hierarchyFields;
     }
 }

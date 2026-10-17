@@ -205,38 +205,38 @@ final class SchemaRegistryTest extends TestCase
         SchemaRegistry::sort($schemas);
     }
 
-    public function testWholeFieldsComposesOwnAndInheritedFields(): void {
+    public function testHierarchyFieldsComposesOwnAndInheritedFields(): void {
         $sorted = SchemaRegistry::sort([
             SchemaRegistryChild::class => EntityRegistrar::register(SchemaRegistryChild::class),
             SchemaRegistryRoot::class => EntityRegistrar::register(SchemaRegistryRoot::class),
         ]);
 
-        $wholeFields = SchemaRegistry::wholeFields($sorted);
+        $hierarchyFields = SchemaRegistry::hierarchyFields($sorted);
 
-        self::assertSame(['name'], array_keys($wholeFields[SchemaRegistryRoot::class]));
-        self::assertSame(['name', 'extra'], array_keys($wholeFields[SchemaRegistryChild::class]));
+        self::assertSame(['name'], array_keys($hierarchyFields[SchemaRegistryRoot::class]));
+        self::assertSame(['name', 'extra'], array_keys($hierarchyFields[SchemaRegistryChild::class]));
     }
 
-    public function testWholeFieldsLetsAChildsOwnFieldOverrideAnInheritedOne(): void {
+    public function testHierarchyFieldsLetsAChildsOwnFieldOverrideAnInheritedOne(): void {
         $sorted = SchemaRegistry::sort([
             SchemaRegistryOverrideChild::class => EntityRegistrar::register(SchemaRegistryOverrideChild::class),
             SchemaRegistryRoot::class => EntityRegistrar::register(SchemaRegistryRoot::class),
         ]);
 
-        $wholeFields = SchemaRegistry::wholeFields($sorted);
+        $hierarchyFields = SchemaRegistry::hierarchyFields($sorted);
 
-        self::assertSame(ScalarType::Text, $wholeFields[SchemaRegistryOverrideChild::class]['name']->scalarType());
+        self::assertSame(ScalarType::Text, $hierarchyFields[SchemaRegistryOverrideChild::class]['name']->scalarType());
     }
 
-    public function testWholeFieldsLeavesAnEmbedFieldUnexpanded(): void {
+    public function testHierarchyFieldsLeavesAnEmbedFieldUnexpanded(): void {
         $sorted = SchemaRegistry::sort([
             SchemaRegistryEmbedder::class => EntityRegistrar::register(SchemaRegistryEmbedder::class),
             SchemaRegistryEmbedTarget::class => EntityRegistrar::register(SchemaRegistryEmbedTarget::class),
         ]);
 
-        $wholeFields = SchemaRegistry::wholeFields($sorted);
+        $hierarchyFields = SchemaRegistry::hierarchyFields($sorted);
 
-        self::assertSame(FieldKind::Embed, $wholeFields[SchemaRegistryEmbedder::class]['target']->kind());
-        self::assertSame(SchemaRegistryEmbedTarget::class, $wholeFields[SchemaRegistryEmbedder::class]['target']->target());
+        self::assertSame(FieldKind::Embed, $hierarchyFields[SchemaRegistryEmbedder::class]['target']->kind());
+        self::assertSame(SchemaRegistryEmbedTarget::class, $hierarchyFields[SchemaRegistryEmbedder::class]['target']->target());
     }
 }
