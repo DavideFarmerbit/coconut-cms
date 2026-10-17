@@ -20,28 +20,28 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
 class SchemaRegistryRoot
 {
     #[Scalar(ScalarType::String)]
-    private string $name;
+    private string $name = '';
 }
 
 #[Entity]
 final class SchemaRegistryChild extends SchemaRegistryRoot
 {
     #[Scalar(ScalarType::String)]
-    private string $extra;
+    private string $extra = '';
 }
 
 #[Entity]
 final class SchemaRegistryOverrideChild extends SchemaRegistryRoot
 {
     #[Scalar(ScalarType::Text)]
-    private string $name;
+    private string $name = '';
 }
 
 #[Entity]
 final class SchemaRegistryEmbedTarget
 {
     #[Scalar(ScalarType::String)]
-    private string $value;
+    private string $value = '';
 }
 
 #[Entity]
@@ -49,6 +49,10 @@ final class SchemaRegistryEmbedder
 {
     #[Embed(SchemaRegistryEmbedTarget::class)]
     private object $target;
+
+    public function __construct() {
+        $this->target = new SchemaRegistryEmbedTarget();
+    }
 }
 
 #[Entity]
@@ -56,6 +60,10 @@ final class SchemaRegistryDeepEmbedMiddle
 {
     #[Embed(SchemaRegistryEmbedTarget::class)]
     private object $target;
+
+    public function __construct() {
+        $this->target = new SchemaRegistryEmbedTarget();
+    }
 }
 
 #[Entity]
@@ -63,34 +71,38 @@ final class SchemaRegistryDeepEmbedOuter
 {
     #[Embed(SchemaRegistryDeepEmbedMiddle::class)]
     private object $middle;
+
+    public function __construct() {
+        $this->middle = new SchemaRegistryDeepEmbedMiddle();
+    }
 }
 
 #[Entity]
 final class SchemaRegistryCollectionEmbedder
 {
     #[Collection(itemKind: FieldKind::Embed, itemTarget: SchemaRegistryEmbedTarget::class)]
-    private array $items;
+    private array $items = [];
 }
 
 #[Entity]
 final class SchemaRegistryCycleA
 {
     #[Embed(SchemaRegistryCycleB::class)]
-    private object $b;
+    private ?object $b = null;
 }
 
 #[Entity]
 final class SchemaRegistryCycleB
 {
     #[Embed(SchemaRegistryCycleA::class)]
-    private object $a;
+    private ?object $a = null;
 }
 
 #[Entity]
 final class SchemaRegistryNode
 {
     #[OwningReference(SchemaRegistryNode::class)]
-    private ?object $child;
+    private ?object $child = null;
 }
 
 final class SchemaRegistryTest extends TestCase

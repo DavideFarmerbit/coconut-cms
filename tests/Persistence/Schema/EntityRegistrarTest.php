@@ -33,7 +33,7 @@ enum EntityRegistrarStatus: string
 final class EntityRegistrarWithInferredEnum
 {
     #[Scalar(ScalarType::Enum)]
-    private EntityRegistrarStatus $status;
+    private EntityRegistrarStatus $status = EntityRegistrarStatus::Draft;
 }
 
 #[Entity]
@@ -102,7 +102,7 @@ final class EntityRegistrarEngine
 final class EntityRegistrarBlogPost
 {
     #[Scalar(ScalarType::String)]
-    private string $title;
+    private string $title = '';
 }
 
 #[Entity(table: 'products', editorExtensible: true)]
@@ -111,41 +111,41 @@ final class EntityRegistrarBlogPost
 final class EntityRegistrarProduct
 {
     #[Scalar(ScalarType::String)]
-    private string $sku;
+    private string $sku = '';
 
     #[FieldPermission(write: 'editor')]
     #[FieldValidator(new EntityRegistrarMaxLength(50))]
     #[Scalar(ScalarType::String)]
-    private string $title;
+    private string $title = '';
 
     #[Reference(EntityRegistrarCategory::class)]
-    private ?object $category;
+    private ?object $category = null;
 
     #[OwningReference(EntityRegistrarEngine::class)]
-    private ?object $engine;
+    private ?object $engine = null;
 
     #[Collection(itemKind: FieldKind::Reference, itemTarget: EntityRegistrarCategory::class)]
-    private array $relatedCategories;
+    private array $relatedCategories = [];
 
     #[Scalar(ScalarType::Int)]
-    private int $startDate;
+    private int $startDate = 0;
 
     #[Scalar(ScalarType::Int)]
-    private int $endDate;
+    private int $endDate = 0;
 }
 
 #[Entity]
 class EntityRegistrarBase
 {
     #[Scalar(ScalarType::DateTime)]
-    private string $createdAt;
+    private string $createdAt = '';
 }
 
 #[Entity]
 final class EntityRegistrarDerived extends EntityRegistrarBase
 {
     #[Scalar(ScalarType::String)]
-    private string $extra;
+    private string $extra = '';
 }
 
 #[Entity]
@@ -287,6 +287,44 @@ final class EntityRegistrarBadPrototypeValidator
 {
     #[Scalar(ScalarType::Int)]
     private int $endDate;
+}
+
+#[Entity]
+final class EntityRegistrarWithUninitializedField
+{
+    #[Scalar(ScalarType::String)]
+    private string $name;
+}
+
+#[Entity]
+class EntityRegistrarBaseWithDefault
+{
+    #[Scalar(ScalarType::String)]
+    protected string $inherited = '';
+}
+
+#[Entity]
+final class EntityRegistrarChildLeavingInheritedFieldUninitialized extends EntityRegistrarBaseWithDefault
+{
+    #[Scalar(ScalarType::String)]
+    private string $own = '';
+
+    public function __construct() {
+        unset($this->inherited);
+    }
+}
+
+class EntityRegistrarPlainBaseWithFieldAttribute
+{
+    #[Scalar(ScalarType::String)]
+    private string $notAField;
+}
+
+#[Entity]
+final class EntityRegistrarWithNonEntityAncestorFieldAttribute extends EntityRegistrarPlainBaseWithFieldAttribute
+{
+    #[Scalar(ScalarType::String)]
+    private string $own = '';
 }
 
 final class EntityRegistrarTest extends TestCase
@@ -456,5 +494,23 @@ final class EntityRegistrarTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
 
         EntityRegistrar::register(EntityRegistrarBadPrototypeValidator::class);
+    }
+
+    public function testRegisterWithUninitializedFieldOnDefaultInstanceThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        EntityRegistrar::register(EntityRegistrarWithUninitializedField::class);
+    }
+
+    public function testRegisterWithChildLeavingAnInheritedFieldUninitializedThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        EntityRegistrar::register(EntityRegistrarChildLeavingInheritedFieldUninitialized::class);
+    }
+
+    public function testRegisterIgnoresAFieldAttributeOnANonEntityAncestor(): void {
+        $schema = EntityRegistrar::register(EntityRegistrarWithNonEntityAncestorFieldAttribute::class);
+
+        self::assertArrayHasKey('own', $schema->fields);
     }
 }

@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema;
 
 use Closure;
 use InvalidArgumentException;
+use ReflectionAttribute;
 use ReflectionClass;
 use ReflectionMethod;
 use ReflectionNamedType;
@@ -34,6 +35,13 @@ final class EntityRegistrar
 
         $entity = self::resolveEntityAttribute($reflection);
         $fields = self::resolveFields($reflection);
+        $fieldPermissions = self::resolveFieldPermissions($reflection);
+        $fieldValidators = self::resolveFieldValidators($reflection, $fields);
+        $uniqueGroups = self::resolveUniqueGroups($reflection, $fields);
+        $prototypeValidators = self::resolvePrototypeValidators($reflection, $fields);
+        $defaultInstanceFactory = self::resolveDefaultInstanceFactory($reflection);
+
+        self::assertDefaultInstanceIsInitialized($reflection, $defaultInstanceFactory());
 
         return new EntitySchema(
             identifier: $class,
@@ -41,11 +49,11 @@ final class EntityRegistrar
             table: $entity->table ?? self::deriveTableName($reflection->getShortName()),
             editorExtensible: $entity->editorExtensible,
             fields: $fields,
-            fieldPermissions: self::resolveFieldPermissions($reflection),
-            fieldValidators: self::resolveFieldValidators($reflection, $fields),
-            uniqueGroups: self::resolveUniqueGroups($reflection, $fields),
-            prototypeValidators: self::resolvePrototypeValidators($reflection, $fields),
-            defaultInstanceFactory: self::resolveDefaultInstanceFactory($reflection),
+            fieldPermissions: $fieldPermissions,
+            fieldValidators: $fieldValidators,
+            uniqueGroups: $uniqueGroups,
+            prototypeValidators: $prototypeValidators,
+            defaultInstanceFactory: $defaultInstanceFactory,
         );
     }
 
@@ -95,14 +103,7 @@ final class EntityRegistrar
     private static function resolveFieldDescriptor(ReflectionProperty $property): FieldDescriptor {
         $name = $property->getName();
 
-        $kindAttributes = array_merge(
-            $property->getAttributes(Scalar::class),
-            $property->getAttributes(ValueObject::class),
-            $property->getAttributes(Embed::class),
-            $property->getAttributes(Reference::class),
-            $property->getAttributes(OwningReference::class),
-            $property->getAttributes(Collection::class),
-        );
+        $kindAttributes = self::fieldKindAttributesOf($property);
 
         if (count($kindAttributes) !== 1) {
             throw new InvalidArgumentException(sprintf(
@@ -123,6 +124,21 @@ final class EntityRegistrar
             $attribute instanceof OwningReference => FieldDescriptor::owningReference($name, self::resolveEntityTarget($attribute->type, $property)),
             $attribute instanceof Collection => FieldDescriptor::collection($name, self::resolveCollectionItemDescriptor($name, $attribute, $property)),
         };
+    }
+
+    /** 
+     * Gets all the Field attributes specified for this property
+     * @return ReflectionAttribute<object>[] 
+     */
+    private static function fieldKindAttributesOf(ReflectionProperty $property): array {
+        return array_merge(
+            $property->getAttributes(Scalar::class),
+            $property->getAttributes(ValueObject::class),
+            $property->getAttributes(Embed::class),
+            $property->getAttributes(Reference::class),
+            $property->getAttributes(OwningReference::class),
+            $property->getAttributes(Collection::class),
+        );
     }
 
     /**
@@ -322,6 +338,35 @@ final class EntityRegistrar
         }
 
         return static fn (): object => $reflection->newInstance();
+    }
+
+    /**
+     * Confirms every field this class declares or inherits from an #[Entity]-marked
+     * ancestor is actually readable off its own default instance. A property is only
+     * a field when both hold: its declaring class is marked #[Entity], and it carries
+     * a field-kind attribute itself. A field-kind attribute on a non-#[Entity] class's
+     * property is ignored, same as any other property there: that class carries no
+     * field of its own in the schema tree. Applies the same check to every field
+     * kind: a populated collection, an empty one, a null OwningReference, and a set
+     * Embed object are all equally "initialized".
+     * @param ReflectionClass<object> $reflection
+     */
+    private static function assertDefaultInstanceIsInitialized(ReflectionClass $reflection, object $defaultInstance): void {
+        foreach ($reflection->getProperties() as $property) {
+            // Properties might be inherited from non-entity classes, so we check that the declaring class is
+            // effectively an entity. We also check that the property itself is a field, otherwise we can ignore it.
+            if (!self::isEntity($property->getDeclaringClass()->getName()) || self::fieldKindAttributesOf($property) === []) {
+                continue;
+            }
+
+            if (!$property->isInitialized($defaultInstance)) {
+                throw new InvalidArgumentException(sprintf(
+                    '%s::$%s is not initialized on the default instance.',
+                    $property->getDeclaringClass()->getName(),
+                    $property->getName(),
+                ));
+            }
+        }
     }
 
     /**
