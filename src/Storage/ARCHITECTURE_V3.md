@@ -80,6 +80,15 @@ correctly when that native class changes, with no reverse-dependency index neede
 The check only ever looks at direct dependencies; it never has to search for
 everything that might depend on the thing that changed.
 
+A stale pin is not just a stale value: it can flip whether a field is pinned at
+all. If `Engine`'s own default horsepower is 300, and `AudiEngine` also defaults to
+300, `AudiEngine`'s pin correctly stores nothing for horsepower: it matches the
+baseline. If `Engine`'s default later changes to 100, `AudiEngine`'s dependency
+fingerprint no longer matches, so its schema recompiles, and the pin diff now finds
+a real difference, 300 against the new baseline of 100, and starts storing
+horsepower explicitly. Recompiling on a fingerprint mismatch always means rerunning
+the full pin diff, never reusing a cached pin's shape against a new baseline.
+
 ## Default-value pinning
 
 Every field's value is diffed against a baseline. Only the difference gets stored.
