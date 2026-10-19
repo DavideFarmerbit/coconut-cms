@@ -83,6 +83,24 @@ final class SchemaCompiler
     }
 
     /**
+     * @param array<string, EntityBlueprint> $blueprints
+     * @return array<string, EntityBlueprint>
+     */
+    private function sort(array $blueprints): array {
+        $state = [];
+        $order = [];
+        $path = [];
+
+        foreach (array_keys($blueprints) as $identifier) {
+            if (!isset($state[$identifier])) {
+                $this->visit($identifier, $blueprints, $state, $order, $path);
+            }
+        }
+
+        return $order;
+    }
+
+    /**
      * Adds $identifier to $order only once every dependency it has is already
      * there, so $order stays dependency-ordered. Throws if $identifier isn't in
      * $blueprints and isn't already registered from an earlier compile() call, or
@@ -132,24 +150,6 @@ final class SchemaCompiler
         // Every dependency is already in $order by this point, so appending here
         // keeps the ordering guarantee intact.
         $order[$identifier] = $blueprints[$identifier];
-    }
-
-    /**
-     * @param array<string, EntityBlueprint> $blueprints
-     * @return array<string, EntityBlueprint>
-     */
-    private function sort(array $blueprints): array {
-        $state = [];
-        $order = [];
-        $path = [];
-
-        foreach (array_keys($blueprints) as $identifier) {
-            if (!isset($state[$identifier])) {
-                $this->visit($identifier, $blueprints, $state, $order, $path);
-            }
-        }
-
-        return $order;
     }
 
     /**
