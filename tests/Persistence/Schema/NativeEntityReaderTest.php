@@ -308,6 +308,20 @@ final class EntityRegistrarBadPrototypeValidator
 }
 
 #[Entity]
+final class EntityRegistrarFieldPermissionOnNonField
+{
+    #[FieldPermission(write: 'editor')]
+    private string $notAField = '';
+}
+
+#[Entity]
+final class EntityRegistrarFieldValidatorOnNonField
+{
+    #[FieldValidator(new EntityRegistrarMaxLength(50))]
+    private string $notAField = '';
+}
+
+#[Entity]
 final class EntityRegistrarWithUninitializedField
 {
     #[Scalar(ScalarType::String)]
@@ -575,6 +589,18 @@ final class NativeEntityReaderTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
 
         NativeEntityReader::read(EntityRegistrarBadPrototypeValidator::class);
+    }
+
+    public function testRegisterWithFieldPermissionOnNonFieldPropertyThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        NativeEntityReader::read(EntityRegistrarFieldPermissionOnNonField::class);
+    }
+
+    public function testRegisterWithFieldValidatorOnNonFieldPropertyThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        NativeEntityReader::read(EntityRegistrarFieldValidatorOnNonField::class);
     }
 
     public function testRegisterWithUninitializedFieldOnDefaultInstanceThrows(): void {

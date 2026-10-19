@@ -43,7 +43,7 @@ final class NativeEntityReader
 
         $entity = self::resolveEntityAttribute($reflection);
         $fields = self::resolveFields($reflection);
-        $fieldPermissions = self::resolveFieldPermissions($reflection);
+        $fieldPermissions = self::resolveFieldPermissions($reflection, $fields);
         $fieldValidators = self::resolveFieldValidators($reflection, $fields);
         $uniqueGroups = self::resolveUniqueGroups($reflection, $fields);
         $prototypeValidators = self::resolvePrototypeValidators($reflection, $fields);
@@ -227,14 +227,25 @@ final class NativeEntityReader
     /**
      * @param ReflectionClass<object> $reflection
      */
-    private static function resolveFieldPermissions(ReflectionClass $reflection): FieldPermissionCollection {
+    private static function resolveFieldPermissions(ReflectionClass $reflection, FieldDescriptorCollection $fields): FieldPermissionCollection {
         $permissions = [];
 
         foreach (self::ownProperties($reflection) as $property) {
             $attributes = $property->getAttributes(FieldPermission::class);
-            if ($attributes !== []) {
-                $permissions[$property->getName()] = $attributes[0]->newInstance();
+            if ($attributes === []) {
+                continue;
             }
+
+            $name = FieldName::of($property->getName());
+            if (!$fields->has($name)) {
+                throw new InvalidArgumentException(sprintf(
+                    '%s::$%s carries #[FieldPermission], but is not one of its own fields.',
+                    $reflection->getName(),
+                    $property->getName(),
+                ));
+            }
+
+            $permissions[$property->getName()] = $attributes[0]->newInstance();
         }
 
         return FieldPermissionCollection::fromArray($permissions);
@@ -253,6 +264,14 @@ final class NativeEntityReader
             }
 
             $name = FieldName::of($property->getName());
+            if (!$fields->has($name)) {
+                throw new InvalidArgumentException(sprintf(
+                    '%s::$%s carries #[FieldValidator], but is not one of its own fields.',
+                    $reflection->getName(),
+                    $property->getName(),
+                ));
+            }
+
             $rules = $attributes[0]->newInstance()->rules;
             foreach ($rules as $rule) {
                 $rule->checkUsage($fields->get($name));
