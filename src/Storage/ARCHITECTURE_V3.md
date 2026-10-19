@@ -31,8 +31,8 @@ source requires, is entirely the caller's job, before compile() is ever called.
 editorExtensible, fields, fieldPermissions, fieldValidators, uniqueGroups,
 prototypeValidators. No object factory, no default values of any kind. Those are
 the producers' own concern; the compiler reads them off a blueprint, flattens
-them into actual columns, and writes the result to `SchemaFieldValueStore` (see
-below) rather than ever carrying them on `EntitySchema` itself.
+them into one key per leaf, and writes the result to `SchemaFieldValueStore`
+(see below) rather than ever carrying them on `EntitySchema` itself.
 
 A dependency outside the given batch is resolved by checking `SchemaRegistry`
 (already compiled this request); if it isn't there, that's an error, not a
@@ -113,26 +113,25 @@ than walking the class a second time just for values.
   recorded alongside its fields, as `{class, fields}`.
 - Collection: each item follows the rule for its own item kind, recursively.
 
-## Flattening fields into columns
+## Flattening default values into keys
 
-`ColumnFlattener` turns one class's own fields into the columns that end up on
-its actual table, recursing through Embed with the usual column-name prefixing.
+`SchemaCompiler` walks each class's own default values and writes one key per
+leaf. The key is a `FieldPath`: the path from the class down to that leaf. It is
+not a column of the class. Everything past a `.` lives in another table.
 
-OwningReference and Collection never contribute a column: an OwningReference is
-found through the owned row's own `owner`/`owner_field`, and a Collection's
-items live in their own child table, one row per item. Both come back as
-"external" instead, naming whichever other schema needs its own separate
-tracking, so a migration consumer knows to follow them rather than expecting a
-column that will never exist.
+- Embed: fields joined with `_`. Example: `chassis_engine_piston_diameter`.
+- OwningReference: traversed with `.`. The bare key holds the concrete class,
+  or null. An OwningReference has no value of its own there otherwise, and
+  unlike Embed its class isn't fixed by the schema. Example: `engine` holds the
+  class, `engine.horsepower` and `engine.piston_diameter` hold what the owner
+  set on it.
+- Collection: each item is traversed with `.` and its index. Example:
+  `tags.0`, `wheels.0.size`, `engines.0` (class) and `engines.0.horsepower`.
 
-Resolving an Embed target's own hierarchy fields is an injected lookup, never
-hardcoded to native reflection. `SchemaCompiler` builds that lookup itself, once
-per batch, from its own already-read blueprints, falling back to `SchemaRegistry`
-only for a dependency outside the current batch. A target being editor-created
-is one reason this can't be hardcoded; the other, just as real, is that
-`SchemaCompiler` already read every native class in its own batch once, at the
-top of `compile()` — a hardcoded lookup inside `ColumnFlattener` would read an
-Embed target a second time for no reason.
+Values are written in a second pass, after every schema in the batch is
+registered. Every lookup of a target's fields then goes through
+`SchemaRegistry` and sees this batch's own schemas, never one left over from an
+earlier `compile()` call.
 
 ## One field value store, not two
 

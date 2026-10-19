@@ -14,9 +14,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
  * Turns a batch of already-read blueprints into their final EntitySchemas:
  * orders the batch so a parent or Embed target always comes before whatever
  * depends on it, registers every result with the request's SchemaRegistry, and
- * flattens each one's own default values into columns, written to
- * SchemaFieldValueStore. A dependency outside the given batch is expected to already
- * be registered with the registry, from an earlier compile() call.
+ * writes each one's own default values to SchemaFieldValueStore. A dependency
+ * outside the given batch is expected to already be registered with the
+ * registry, from an earlier compile() call.
  */
 final class SchemaCompiler
 {
@@ -33,11 +33,10 @@ final class SchemaCompiler
      */
     public function compile(array $blueprints): array {
         $order = $this->sort($blueprints);
-        $flattener = new ColumnFlattener(fn (string $target): FieldDescriptorCollection => $this->hierarchyFieldsOf($target, $blueprints));
 
         $schemas = [];
         foreach ($order as $identifier => $blueprint) {
-            $schema = new EntitySchema(
+            $schemas[$identifier] = new EntitySchema(
                 identifier: $blueprint->identifier,
                 parent: $blueprint->parent,
                 table: $blueprint->table,
@@ -49,38 +48,95 @@ final class SchemaCompiler
                 prototypeValidators: $blueprint->prototypeValidators,
             );
 
-            $this->registry->register($schema);
+            $this->registry->register($schemas[$identifier]);
+        }
 
-            $columns = $flattener->flatten($blueprint->fields, $blueprint->defaultValues)['columns'];
-            $this->valueStore->save($identifier, $columns);
-
-            $schemas[$identifier] = $schema;
+        // Only once every schema in this batch is registered: every lookup
+        // below then goes through the registry and sees this batch's own
+        // schemas, never one left over from an earlier compile() call.
+        foreach ($order as $identifier => $blueprint) {
+            $valuesByPath = [];
+            $this->flattenValues($blueprint->fields, $blueprint->defaultValues, '', $valuesByPath);
+            $this->valueStore->save($identifier, $valuesByPath);
         }
 
         return $schemas;
     }
 
+    /*================================================================================================================*/
+    // Value Flattening
+
     /**
-     * $identifier's own fields plus everything it inherits, resolved
-     * transitively all the way up. Reads $blueprints first, since that's this
-     * batch's own, already-read data; falls back to whatever SchemaRegistry
-     * already has.
-     * @param array<string, EntityBlueprint> $blueprints
+     * Writes $values into $valuesByPath, one entry per leaf: an Embed's fields
+     * joined with "_", an OwningReference or a Collection item traversed with ".".
+     * @param array<string, mixed> $values Keyed by FieldName.
+     * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function hierarchyFieldsOf(string $identifier, array $blueprints): FieldDescriptorCollection {
-        if (isset($blueprints[$identifier])) {
-            $fields = $blueprints[$identifier]->fields;
-            $parent = $blueprints[$identifier]->parent;
-        } else {
-            $schema = $this->registry->get($identifier);
-            $fields = $schema->fields;
-            $parent = $schema->parent;
+    private function flattenValues(FieldDescriptorCollection $fields, array $values, string $prefix, array &$valuesByPath): void {
+        foreach ($fields as $name => $field) {
+            $this->flattenValue($field, $values[(string) $name] ?? null, $prefix . $name, $valuesByPath);
         }
-
-        $inherited = $parent !== null ? $this->hierarchyFieldsOf($parent, $blueprints) : FieldDescriptorCollection::empty();
-
-        return $inherited->merge($fields);
     }
+
+    /** 
+     * Dispatch correct 'flatten' method based on field kind.
+     * @param array<string, mixed> $valuesByPath Keyed by FieldPath. 
+     */
+    private function flattenValue(FieldDescriptor $field, mixed $value, string $pathKey, array &$valuesByPath): void {
+        match ($field->kind()) {
+            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $valuesByPath[$pathKey] = $value,
+            FieldKind::Embed => $this->flattenValues($this->hierarchyFieldsOf($field->target()), $value ?? [], $pathKey . '_', $valuesByPath),
+            FieldKind::OwningReference => $this->flattenOwned($value, $pathKey, $valuesByPath),
+            FieldKind::Collection => $this->flattenCollection($field->itemDescriptor(), $value ?? [], $pathKey, $valuesByPath),
+        };
+    }
+
+    /**
+     * The bare key holds the concrete class, or null: an OwningReference has
+     * no value of its own there otherwise, and unlike Embed its class isn't
+     * fixed by the schema.
+     * @param array{class: class-string, fields: array<string, mixed>}|null $value
+     * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
+     */
+    private function flattenOwned(?array $value, string $pathKey, array &$valuesByPath): void {
+        $valuesByPath[$pathKey] = $value['class'] ?? null;
+
+        if ($value !== null) {
+            $this->flattenValues($this->hierarchyFieldsOf($value['class']), $value['fields'], $pathKey . '.', $valuesByPath);
+        }
+    }
+
+    /**
+     * Each item is its own row in a child table, so it's traversed with "."
+     * and its index, never joined into the owner's own columns with "_".
+     * @param mixed[] $items
+     * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
+     */
+    private function flattenCollection(FieldDescriptor $item, array $items, string $pathKey, array &$valuesByPath): void {
+        foreach (array_values($items) as $index => $value) {
+            $itemKey = $pathKey . '.' . $index;
+
+            if ($item->kind() === FieldKind::Embed) {
+                $this->flattenValues($this->hierarchyFieldsOf($item->target()), $value ?? [], $itemKey . '.', $valuesByPath);
+            } else {
+                $this->flattenValue($item, $value, $itemKey, $valuesByPath);
+            }
+        }
+    }
+
+    /** $identifier's own fields plus everything it inherits, all the way up. */
+    private function hierarchyFieldsOf(string $identifier): FieldDescriptorCollection {
+        $schema = $this->registry->get($identifier);
+        $inherited = $schema->parent !== null ? $this->hierarchyFieldsOf($schema->parent) : FieldDescriptorCollection::empty();
+
+        return $inherited->merge($schema->fields);
+    }
+
+    // ~Value Flattening
+    /*================================================================================================================*/
+    
+    /*================================================================================================================*/
+    // Topologial Sorting
 
     /**
      * @param array<string, EntityBlueprint> $blueprints
@@ -178,4 +234,7 @@ final class SchemaCompiler
             default => null,
         };
     }
+
+    // ~Topologial Sorting
+    /*================================================================================================================*/
 }

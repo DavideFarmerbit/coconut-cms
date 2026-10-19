@@ -6,58 +6,8 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\ColumnFlattener;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\ColumnName;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
-
-#[Entity]
-final class ValueStorePiston
-{
-    #[Scalar(ScalarType::Int)]
-    private int $diameter = 42;
-
-    #[Scalar(ScalarType::Int)]
-    private int $stroke = 10;
-}
-
-#[Entity]
-final class ValueStoreEngineWithPiston
-{
-    #[Embed(ValueStorePiston::class)]
-    private object $piston;
-
-    public function __construct() {
-        $this->piston = new ValueStorePiston();
-    }
-}
-
-#[Entity]
-final class ValueStoreChassis
-{
-    #[Embed(ValueStoreEngineWithPiston::class)]
-    private object $engine;
-
-    public function __construct() {
-        $this->engine = new ValueStoreEngineWithPiston();
-    }
-}
-
-#[Entity]
-final class ValueStoreCarThreeDeepEmbed
-{
-    #[Embed(ValueStoreChassis::class)]
-    private object $chassis;
-
-    public function __construct() {
-        $this->chassis = new ValueStoreChassis();
-    }
-}
 
 final class SchemaFieldValueStoreTest extends TestCase
 {
@@ -89,89 +39,23 @@ final class SchemaFieldValueStoreTest extends TestCase
         self::assertSame(['horsepower' => 300, 'name' => 'V8'], $this->store->load('App\\Engine'));
     }
 
-    public function testSaveThenLoadRoundTripsNestedValues(): void {
+    public function testDiffPinpointsExactlyWhichKeyChangedBehindAnOwnedReference(): void {
         $this->store->save('App\\Car', [
-            'engine' => ['horsepower' => 300],
-            'owner' => null,
+            'engine' => 'App\\Engine',
+            'engine.horsepower' => 500,
+            'engine.piston_diameter' => 10,
         ]);
 
-        self::assertSame(
-            ['engine' => ['horsepower' => 300], 'owner' => null],
-            $this->store->load('App\\Car'),
-        );
-    }
-
-    public function testSaveThenLoadRoundTripsEmbedNestedInsideEmbedInsideEmbed(): void {
-        $threeDeepEmbed = [
-            'chassis' => [
-                'engine' => [
-                    'piston' => ['diameter' => 42],
-                ],
-            ],
-        ];
-
-        $this->store->save('App\\Car', $threeDeepEmbed);
-
-        self::assertSame($threeDeepEmbed, $this->store->load('App\\Car'));
-    }
-
-    public function testSaveThenLoadRoundTripsAnOwningReferencesFieldsContainingAnEmbed(): void {
-        $ownedContainingEmbed = [
-            'owner' => [
-                'class' => 'App\\Person',
-                'fields' => [
-                    'home' => ['city' => 'Rome'],
-                ],
-            ],
-        ];
-
-        $this->store->save('App\\Car', $ownedContainingEmbed);
-
-        self::assertSame($ownedContainingEmbed, $this->store->load('App\\Car'));
-    }
-
-    public function testSaveThenLoadRoundTripsAnEmbedContainingAnOwningReference(): void {
-        $embedContainingOwned = [
-            'chassis' => [
-                'battery' => [
-                    'class' => 'App\\LithiumBattery',
-                    'fields' => ['capacity' => 75],
-                ],
-            ],
-        ];
-
-        $this->store->save('App\\Car', $embedContainingOwned);
-
-        self::assertSame($embedContainingOwned, $this->store->load('App\\Car'));
-    }
-
-    public function testDiffOnFlattenedColumnsPinpointsExactlyWhichColumnChangedThreeLevelsDeep(): void {
-        $blueprint = NativeEntityReader::read(ValueStoreCarThreeDeepEmbed::class);
-        $flattener = new ColumnFlattener(static function (string $target): FieldDescriptorCollection {
-            $targetBlueprint = NativeEntityReader::read($target);
-
-            return $targetBlueprint->fields;
-        });
-        $columns = $flattener->flatten($blueprint->fields, $blueprint->defaultValues)['columns'];
-
-        self::assertSame(
-            ['chassis_engine_piston_diameter' => 42, 'chassis_engine_piston_stroke' => 10],
-            $columns,
-        );
-
-        $this->store->save(ValueStoreCarThreeDeepEmbed::class, $columns);
-
-        $withOnlyDiameterChanged = [
-            'chassis_engine_piston_diameter' => 43,
-            'chassis_engine_piston_stroke' => 10,
-        ];
-
-        // Only the column that actually changed is reported: the sibling leaf,
-        // stroke, at the exact same nesting depth, correctly stays untouched.
-        // ColumnName has no identity semantics, so this compares by value.
+        // Only the key that actually changed is reported: the sibling leaf
+        // behind the same owned reference stays untouched. FieldPath has no
+        // identity semantics, so this compares by value.
         self::assertEquals(
-            ['added' => [], 'removed' => [], 'changed' => [ColumnName::of('chassis_engine_piston_diameter')]],
-            $this->store->diff(ValueStoreCarThreeDeepEmbed::class, $withOnlyDiameterChanged),
+            ['added' => [], 'removed' => [], 'changed' => [FieldPath::of('engine.piston_diameter')]],
+            $this->store->diff('App\\Car', [
+                'engine' => 'App\\Engine',
+                'engine.horsepower' => 500,
+                'engine.piston_diameter' => 11,
+            ]),
         );
     }
 
@@ -195,7 +79,7 @@ final class SchemaFieldValueStoreTest extends TestCase
         $this->store->save('App\\Engine', ['horsepower' => 300]);
 
         self::assertEquals(
-            ['added' => [], 'removed' => [], 'changed' => [ColumnName::of('horsepower')]],
+            ['added' => [], 'removed' => [], 'changed' => [FieldPath::of('horsepower')]],
             $this->store->diff('App\\Engine', ['horsepower' => 100]),
         );
     }
@@ -204,7 +88,7 @@ final class SchemaFieldValueStoreTest extends TestCase
         $this->store->save('App\\Engine', ['horsepower' => 300]);
 
         self::assertEquals(
-            ['added' => [ColumnName::of('torque')], 'removed' => [], 'changed' => []],
+            ['added' => [FieldPath::of('torque')], 'removed' => [], 'changed' => []],
             $this->store->diff('App\\Engine', ['horsepower' => 300, 'torque' => 400]),
         );
     }
@@ -213,14 +97,14 @@ final class SchemaFieldValueStoreTest extends TestCase
         $this->store->save('App\\Engine', ['horsepower' => 300, 'torque' => 400]);
 
         self::assertEquals(
-            ['added' => [], 'removed' => [ColumnName::of('torque')], 'changed' => []],
+            ['added' => [], 'removed' => [FieldPath::of('torque')], 'changed' => []],
             $this->store->diff('App\\Engine', ['horsepower' => 300]),
         );
     }
 
     public function testDiffOnAnIdentifierNeverSavedTreatsEveryFieldAsAdded(): void {
         self::assertEquals(
-            ['added' => [ColumnName::of('horsepower')], 'removed' => [], 'changed' => []],
+            ['added' => [FieldPath::of('horsepower')], 'removed' => [], 'changed' => []],
             $this->store->diff('App\\NeverSaved', ['horsepower' => 300]),
         );
     }
@@ -229,7 +113,7 @@ final class SchemaFieldValueStoreTest extends TestCase
         $this->store->save('SpecialEngine', ['horsepower' => 999]);
         $this->store->save('Engine', ['horsepower' => 300]);
 
-        self::assertSame(999, $this->store->resolve(['SpecialEngine', 'Engine'], ColumnName::of('horsepower')));
+        self::assertSame(999, $this->store->resolve(['SpecialEngine', 'Engine'], FieldPath::of('horsepower')));
     }
 
     public function testResolveFallsThroughToALessSpecificScopeWhenTheMostSpecificHasNoValue(): void {
@@ -237,31 +121,31 @@ final class SchemaFieldValueStoreTest extends TestCase
 
         // "QuietEngine" was never saved at all; nothing but the fallback chain
         // itself says it should defer to "Engine".
-        self::assertSame(300, $this->store->resolve(['QuietEngine', 'Engine'], ColumnName::of('horsepower')));
+        self::assertSame(300, $this->store->resolve(['QuietEngine', 'Engine'], FieldPath::of('horsepower')));
     }
 
     public function testResolveKeepsAnExplicitValueIndependentOfWhatALessSpecificScopeLaterReports(): void {
         $this->store->save('SpecialEngine', ['horsepower' => 100]);
         $this->store->save('Engine', ['horsepower' => 100]);
 
-        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], ColumnName::of('horsepower')));
+        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], FieldPath::of('horsepower')));
 
         // Engine's own value changes; SpecialEngine's own explicit row is
         // untouched by that, because it was never a fallback to begin with.
         $this->store->save('Engine', ['horsepower' => 999]);
 
-        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], ColumnName::of('horsepower')));
+        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], FieldPath::of('horsepower')));
     }
 
     public function testResolveSupportsAnOwningFieldSiteFallingThroughToItsTargetType(): void {
         $this->store->save('Engine', ['horsepower' => 100]);
 
-        self::assertSame(100, $this->store->resolve(['AudiCar.engine', 'Engine'], ColumnName::of('horsepower')));
+        self::assertSame(100, $this->store->resolve(['AudiCar.engine', 'Engine'], FieldPath::of('horsepower')));
     }
 
     public function testResolveWithNoScopeHavingAValueThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        $this->store->resolve(['Unknown'], ColumnName::of('horsepower'));
+        $this->store->resolve(['Unknown'], FieldPath::of('horsepower'));
     }
 }

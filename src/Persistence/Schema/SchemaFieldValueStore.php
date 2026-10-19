@@ -6,7 +6,7 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\Types;
 use InvalidArgumentException;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\ColumnName;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPath;
 
 /**
  * Stores and resolves field values for any identifier, native or editor-created
@@ -46,7 +46,10 @@ final class SchemaFieldValueStore
     /**
      * Replaces whatever values this identifier already had with $values, as a
      * single transaction.
-     * @param array<string, mixed> $values
+     * @param array<string, mixed> $values One entry per leaf, keyed by
+     *        FieldPath (as plain strings), never a nested tree: an Embed's
+     *        fields joined with "_", an OwningReference or a Collection item
+     *        traversed with ".", e.g. "engine.piston_diameter".
      */
     public function save(string $identifier, array $values): void {
         $this->connection->transactional(function (Connection $connection) use ($identifier, $values): void {
@@ -62,7 +65,7 @@ final class SchemaFieldValueStore
         });
     }
 
-    /** @return array<string, mixed> */
+    /** @return array<string, mixed> Keyed by FieldPath, same shape save() was given. */
     public function load(string $identifier): array {
         $rows = $this->connection->fetchAllAssociative(
             sprintf('SELECT field_name, value_json FROM %s WHERE identifier = ?', self::TABLE),
@@ -80,7 +83,7 @@ final class SchemaFieldValueStore
     /**
      * Compares $currentValues against whatever was last saved for $identifier.
      * @param array<string, mixed> $currentValues
-     * @return array{added: ColumnName[], removed: ColumnName[], changed: ColumnName[]}
+     * @return array{added: FieldPath[], removed: FieldPath[], changed: FieldPath[]}
      */
     public function diff(string $identifier, array $currentValues): array {
         $stored = $this->load($identifier);
@@ -96,9 +99,9 @@ final class SchemaFieldValueStore
         }
 
         return [
-            'added' => array_map(ColumnName::of(...), array_values($added)),
-            'removed' => array_map(ColumnName::of(...), array_values($removed)),
-            'changed' => array_map(ColumnName::of(...), $changed),
+            'added' => array_map(FieldPath::of(...), array_values($added)),
+            'removed' => array_map(FieldPath::of(...), array_values($removed)),
+            'changed' => array_map(FieldPath::of(...), $changed),
         ];
     }
 
@@ -109,7 +112,7 @@ final class SchemaFieldValueStore
      * the caller's concern, not this store's: it only ever checks what it's told.
      * @param string[] $scopesInOrder
      */
-    public function resolve(array $scopesInOrder, ColumnName $field): mixed {
+    public function resolve(array $scopesInOrder, FieldPath $field): mixed {
         foreach ($scopesInOrder as $scope) {
             $values = $this->load($scope);
             if (array_key_exists((string) $field, $values)) {

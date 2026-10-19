@@ -99,6 +99,64 @@ final class CompilerNode
     private ?object $child = null;
 }
 
+#[Entity]
+final class CompilerPiston
+{
+    #[Scalar(ScalarType::Int)]
+    private int $diameter = 10;
+}
+
+#[Entity]
+class CompilerOwnedEngine
+{
+    #[Scalar(ScalarType::Int)]
+    private int $horsepower;
+
+    #[Embed(CompilerPiston::class)]
+    private object $piston;
+
+    public function __construct(int $horsepower = 300) {
+        $this->horsepower = $horsepower;
+        $this->piston = new CompilerPiston();
+    }
+}
+
+#[Entity]
+final class CompilerSportsEngine extends CompilerOwnedEngine
+{
+    #[Scalar(ScalarType::Int)]
+    private int $boost = 2;
+}
+
+#[Entity]
+final class CompilerOwner
+{
+    #[OwningReference(CompilerOwnedEngine::class)]
+    private ?object $engine;
+
+    public function __construct() {
+        $this->engine = new CompilerSportsEngine(500);
+    }
+}
+
+#[Entity]
+final class CompilerCollectionOwner
+{
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String)]
+    private array $tags = ['a', 'b'];
+
+    #[Collection(itemKind: FieldKind::Embed, itemTarget: CompilerPiston::class)]
+    private array $pistons;
+
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: CompilerOwnedEngine::class)]
+    private array $engines;
+
+    public function __construct() {
+        $this->pistons = [new CompilerPiston()];
+        $this->engines = [new CompilerOwnedEngine(400)];
+    }
+}
+
 final class SchemaCompilerTest extends TestCase
 {
     private SchemaCompiler $compiler;
@@ -205,14 +263,84 @@ final class SchemaCompilerTest extends TestCase
         self::assertTrue($registry->has(CompilerEmbedTarget::class));
     }
 
-    public function testCompileWritesFlattenedColumnsToTheValueStore(): void {
-        $registry = new SchemaRegistry();
+    /** @param class-string[] $classes */
+    private static function compileIntoFreshStore(array $classes): SchemaFieldValueStore {
         $valueStore = new SchemaFieldValueStore(DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]));
         $valueStore->createTable();
-        $compiler = new SchemaCompiler($registry, $valueStore);
+        (new SchemaCompiler(new SchemaRegistry(), $valueStore))->compile(self::blueprintsOf($classes));
 
-        $compiler->compile(self::blueprintsOf([CompilerEmbedTarget::class]));
+        return $valueStore;
+    }
 
-        self::assertSame(['value' => ''], $valueStore->load(CompilerEmbedTarget::class));
+    /**
+     * Sorted by key, so assertions don't depend on the order the database
+     * hands rows back in.
+     * @return array<string, mixed>
+     */
+    private static function loadSorted(SchemaFieldValueStore $valueStore, string $identifier): array {
+        $values = $valueStore->load($identifier);
+        ksort($values, SORT_STRING);
+
+        return $values;
+    }
+
+    public function testCompileWritesAClassOwnScalarValues(): void {
+        $valueStore = self::compileIntoFreshStore([CompilerEmbedTarget::class]);
+
+        self::assertSame(['value' => ''], self::loadSorted($valueStore, CompilerEmbedTarget::class));
+    }
+
+    public function testCompileJoinsAnEmbedsFieldsWithAnUnderscore(): void {
+        $valueStore = self::compileIntoFreshStore([CompilerEmbedder::class, CompilerEmbedTarget::class]);
+
+        self::assertSame(['target_value' => ''], self::loadSorted($valueStore, CompilerEmbedder::class));
+    }
+
+    public function testCompileStoresANullOwningReferenceAsANullClass(): void {
+        $valueStore = self::compileIntoFreshStore([CompilerNode::class]);
+
+        self::assertSame(['child' => null], self::loadSorted($valueStore, CompilerNode::class));
+    }
+
+    public function testCompileTraversesAnOwningReferenceWithADot(): void {
+        $valueStore = self::compileIntoFreshStore([
+            CompilerOwner::class,
+            CompilerOwnedEngine::class,
+            CompilerSportsEngine::class,
+            CompilerPiston::class,
+        ]);
+
+        // The bare key holds the concrete class, here a subclass of the
+        // declared target, and everything the owner's default instance set on
+        // it hangs off that key, its own Embed still joined with "_".
+        self::assertSame([
+            'engine' => CompilerSportsEngine::class,
+            'engine.boost' => 2,
+            'engine.horsepower' => 500,
+            'engine.piston_diameter' => 10,
+        ], self::loadSorted($valueStore, CompilerOwner::class));
+
+        // The engine's own class-level defaults are untouched by the owner's.
+        self::assertSame(
+            ['horsepower' => 300, 'piston_diameter' => 10],
+            self::loadSorted($valueStore, CompilerOwnedEngine::class),
+        );
+    }
+
+    public function testCompileTraversesCollectionItemsWithADotAndTheirIndex(): void {
+        $valueStore = self::compileIntoFreshStore([
+            CompilerCollectionOwner::class,
+            CompilerOwnedEngine::class,
+            CompilerPiston::class,
+        ]);
+
+        self::assertSame([
+            'engines.0' => CompilerOwnedEngine::class,
+            'engines.0.horsepower' => 400,
+            'engines.0.piston_diameter' => 10,
+            'pistons.0.diameter' => 10,
+            'tags.0' => 'a',
+            'tags.1' => 'b',
+        ], self::loadSorted($valueStore, CompilerCollectionOwner::class));
     }
 }
