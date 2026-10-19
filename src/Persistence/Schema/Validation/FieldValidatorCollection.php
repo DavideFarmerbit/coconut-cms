@@ -11,6 +11,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
  * Every field's own FieldValidatorRules, keyed by FieldName. A field absent
  * here carries no rules, so get() returns an empty array for it rather than
  * throwing: that absence is a meaningful default, not an error.
+ * Immutable: with() returns a new collection rather than changing this one.
  * @implements IteratorAggregate<FieldName, FieldValidatorRule[]>
  */
 final readonly class FieldValidatorCollection implements IteratorAggregate, Countable
@@ -27,6 +28,14 @@ final readonly class FieldValidatorCollection implements IteratorAggregate, Coun
 
     /** @param array<string, FieldValidatorRule[]> $validators */
     public static function fromArray(array $validators): self {
+        return new self($validators);
+    }
+
+    /** @param FieldValidatorRule[] $rules */
+    public function with(FieldName $name, array $rules): self {
+        $validators = $this->validators;
+        $validators[(string) $name] = $rules;
+
         return new self($validators);
     }
 

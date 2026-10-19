@@ -11,6 +11,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
  * Every field-level permission override an entity declares, keyed by FieldName.
  * A field absent here carries no restriction, so get() returns null for it
  * rather than throwing: that absence is a meaningful default, not an error.
+ * Immutable: with() returns a new collection rather than changing this one.
  * @implements IteratorAggregate<FieldName, FieldPermission>
  */
 final readonly class FieldPermissionCollection implements IteratorAggregate, Countable
@@ -27,6 +28,13 @@ final readonly class FieldPermissionCollection implements IteratorAggregate, Cou
 
     /** @param array<string, FieldPermission> $permissions */
     public static function fromArray(array $permissions): self {
+        return new self($permissions);
+    }
+
+    public function with(FieldName $name, FieldPermission $permission): self {
+        $permissions = $this->permissions;
+        $permissions[(string) $name] = $permission;
+
         return new self($permissions);
     }
 

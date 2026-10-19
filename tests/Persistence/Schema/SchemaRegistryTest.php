@@ -9,6 +9,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
+use function Sodium\add;
 
 final class SchemaRegistryTest extends TestCase
 {

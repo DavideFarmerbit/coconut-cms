@@ -252,9 +252,10 @@ final class NativeEntityReader
                 continue;
             }
 
+            $name = FieldName::of($property->getName());
             $rules = $attributes[0]->newInstance()->rules;
             foreach ($rules as $rule) {
-                $rule->checkUsage($fields->get(FieldName::of($property->getName())));
+                $rule->checkUsage($fields->get($name));
             }
 
             $validators[$property->getName()] = $rules;
