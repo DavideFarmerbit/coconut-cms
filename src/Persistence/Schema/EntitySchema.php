@@ -2,16 +2,16 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Schema;
 
-use Closure;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 
 /**
- * Everything EntityRegistrar discovers about one native class: its own declared
- * fields and every attribute attached to it or to them. Holds only this class's own
- * fields, not an ancestor's.
+ * Everything the compiler resolved about one class's shape, native or
+ * editor-created, and the only form of it that's actually persisted. Holds only
+ * this class's own fields, not an ancestor's. Carries no default values and no way
+ * to build an instance: those are a producer's own concern, never this one's.
  */
 final readonly class EntitySchema
 {
@@ -28,13 +28,6 @@ final readonly class EntitySchema
      *        name; a field absent here carries no rules.
      * @param string[][] $uniqueGroups Each entry is one group's own field names.
      * @param PrototypeValidatorRule[] $prototypeValidators
-     * @param array<string, mixed> $defaultValues This class's own default instance,
-     *        already read into plain data. A Scalar/ValueObject/Reference entry is
-     *        the raw value. An Embed entry is a nested array of this same shape, or
-     *        null. An OwningReference entry is null, or {class, fields}, fields
-     *        being this same shape for the referenced object's own class. A
-     *        Collection entry is a list of entries, each following the rule for the
-     *        collection's own item kind.
      */
     public function __construct(
         public string $identifier,
@@ -46,13 +39,6 @@ final readonly class EntitySchema
         public array $fieldValidators,
         public array $uniqueGroups,
         public array $prototypeValidators,
-        public array $defaultValues,
-        private Closure $defaultInstanceFactory,
     ) {
-    }
-
-    /** Builds this class's own defaulted instance. */
-    public function defaultInstance(): object {
-        return ($this->defaultInstanceFactory)();
     }
 }

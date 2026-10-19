@@ -4,17 +4,18 @@ namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Schema;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
-use XyloIsCoding\CoconutCms\Persistence\Schema\EntityRegistrar;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\ColumnFlattener;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
-use XyloIsCoding\CoconutCms\Persistence\Schema\NativeSchemaColumnFlattener;
-use XyloIsCoding\CoconutCms\Persistence\Schema\NativeSchemaSnapshotStore;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
+use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
 
 #[Entity]
-final class SnapshotStorePiston
+final class ValueStorePiston
 {
     #[Scalar(ScalarType::Int)]
     private int $diameter = 42;
@@ -24,42 +25,42 @@ final class SnapshotStorePiston
 }
 
 #[Entity]
-final class SnapshotStoreEngineWithPiston
+final class ValueStoreEngineWithPiston
 {
-    #[Embed(SnapshotStorePiston::class)]
+    #[Embed(ValueStorePiston::class)]
     private object $piston;
 
     public function __construct() {
-        $this->piston = new SnapshotStorePiston();
+        $this->piston = new ValueStorePiston();
     }
 }
 
 #[Entity]
-final class SnapshotStoreChassis
+final class ValueStoreChassis
 {
-    #[Embed(SnapshotStoreEngineWithPiston::class)]
+    #[Embed(ValueStoreEngineWithPiston::class)]
     private object $engine;
 
     public function __construct() {
-        $this->engine = new SnapshotStoreEngineWithPiston();
+        $this->engine = new ValueStoreEngineWithPiston();
     }
 }
 
 #[Entity]
-final class SnapshotStoreCarThreeDeepEmbed
+final class ValueStoreCarThreeDeepEmbed
 {
-    #[Embed(SnapshotStoreChassis::class)]
+    #[Embed(ValueStoreChassis::class)]
     private object $chassis;
 
     public function __construct() {
-        $this->chassis = new SnapshotStoreChassis();
+        $this->chassis = new ValueStoreChassis();
     }
 }
 
-final class NativeSchemaSnapshotStoreTest extends TestCase
+final class SchemaFieldValueStoreTest extends TestCase
 {
     private Connection $connection;
-    private NativeSchemaSnapshotStore $store;
+    private SchemaFieldValueStore $store;
 
     protected function setUp(): void {
         $this->connection = DriverManager::getConnection([
@@ -70,7 +71,7 @@ final class NativeSchemaSnapshotStoreTest extends TestCase
             'dbname' => 'local',
         ]);
 
-        $this->store = new NativeSchemaSnapshotStore($this->connection);
+        $this->store = new SchemaFieldValueStore($this->connection);
         $this->store->dropTableIfExists();
         $this->store->createTable();
     }
@@ -143,15 +144,15 @@ final class NativeSchemaSnapshotStoreTest extends TestCase
     }
 
     public function testDiffOnFlattenedColumnsPinpointsExactlyWhichColumnChangedThreeLevelsDeep(): void {
-        $schema = EntityRegistrar::register(SnapshotStoreCarThreeDeepEmbed::class);
-        $columns = NativeSchemaColumnFlattener::flatten($schema->fields, $schema->defaultValues)['columns'];
+        $blueprint = NativeEntityReader::read(ValueStoreCarThreeDeepEmbed::class);
+        $columns = ColumnFlattener::forNative()->flatten($blueprint->fields, $blueprint->defaultValues)['columns'];
 
         self::assertSame(
             ['chassis_engine_piston_diameter' => 42, 'chassis_engine_piston_stroke' => 10],
             $columns,
         );
 
-        $this->store->save(SnapshotStoreCarThreeDeepEmbed::class, $columns);
+        $this->store->save(ValueStoreCarThreeDeepEmbed::class, $columns);
 
         $withOnlyDiameterChanged = [
             'chassis_engine_piston_diameter' => 43,
@@ -162,7 +163,7 @@ final class NativeSchemaSnapshotStoreTest extends TestCase
         // stroke, at the exact same nesting depth, correctly stays untouched.
         self::assertSame(
             ['added' => [], 'removed' => [], 'changed' => ['chassis_engine_piston_diameter']],
-            $this->store->diff(SnapshotStoreCarThreeDeepEmbed::class, $withOnlyDiameterChanged),
+            $this->store->diff(ValueStoreCarThreeDeepEmbed::class, $withOnlyDiameterChanged),
         );
     }
 
@@ -214,5 +215,45 @@ final class NativeSchemaSnapshotStoreTest extends TestCase
             ['added' => ['horsepower'], 'removed' => [], 'changed' => []],
             $this->store->diff('App\\NeverSaved', ['horsepower' => 300]),
         );
+    }
+
+    public function testResolveReturnsTheMostSpecificScopesExplicitValue(): void {
+        $this->store->save('SpecialEngine', ['horsepower' => 999]);
+        $this->store->save('Engine', ['horsepower' => 300]);
+
+        self::assertSame(999, $this->store->resolve(['SpecialEngine', 'Engine'], 'horsepower'));
+    }
+
+    public function testResolveFallsThroughToALessSpecificScopeWhenTheMostSpecificHasNoValue(): void {
+        $this->store->save('Engine', ['horsepower' => 300]);
+
+        // "QuietEngine" was never saved at all; nothing but the fallback chain
+        // itself says it should defer to "Engine".
+        self::assertSame(300, $this->store->resolve(['QuietEngine', 'Engine'], 'horsepower'));
+    }
+
+    public function testResolveKeepsAnExplicitValueIndependentOfWhatALessSpecificScopeLaterReports(): void {
+        $this->store->save('SpecialEngine', ['horsepower' => 100]);
+        $this->store->save('Engine', ['horsepower' => 100]);
+
+        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], 'horsepower'));
+
+        // Engine's own value changes; SpecialEngine's own explicit row is
+        // untouched by that, because it was never a fallback to begin with.
+        $this->store->save('Engine', ['horsepower' => 999]);
+
+        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], 'horsepower'));
+    }
+
+    public function testResolveSupportsAnOwningFieldSiteFallingThroughToItsTargetType(): void {
+        $this->store->save('Engine', ['horsepower' => 100]);
+
+        self::assertSame(100, $this->store->resolve(['AudiCar.engine', 'Engine'], 'horsepower'));
+    }
+
+    public function testResolveWithNoScopeHavingAValueThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        $this->store->resolve(['Unknown'], 'horsepower');
     }
 }

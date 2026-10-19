@@ -1,8 +1,7 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Persistence\Schema;
+namespace XyloIsCoding\CoconutCms\Persistence\Schema\Native;
 
-use Closure;
 use InvalidArgumentException;
 use ReflectionAttribute;
 use ReflectionClass;
@@ -21,19 +20,21 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReferenc
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 
 /**
- * Reflects a native class's attributes into an EntitySchema.
+ * Reflects a native class's attributes into an EntityBlueprint, the
+ * compiler's raw input for that one class.
  */
-final class EntityRegistrar
+final class NativeEntityReader
 {
     /**
      * @param class-string $class
      */
-    public static function register(string $class): EntitySchema {
+    public static function read(string $class): EntityBlueprint {
         $reflection = new ReflectionClass($class);
 
         $entity = self::resolveEntityAttribute($reflection);
@@ -42,12 +43,11 @@ final class EntityRegistrar
         $fieldValidators = self::resolveFieldValidators($reflection, $fields);
         $uniqueGroups = self::resolveUniqueGroups($reflection, $fields);
         $prototypeValidators = self::resolvePrototypeValidators($reflection, $fields);
-        $defaultInstanceFactory = self::resolveDefaultInstanceFactory($reflection);
-        $defaultInstance = $defaultInstanceFactory();
+        $defaultInstance = self::buildDefaultInstance($reflection);
 
         self::assertDefaultInstanceIsInitialized($reflection, $defaultInstance);
 
-        return new EntitySchema(
+        return new EntityBlueprint(
             identifier: $class,
             parent: self::resolveParent($reflection),
             table: $entity->table ?? self::deriveTableName($reflection->getShortName()),
@@ -58,7 +58,6 @@ final class EntityRegistrar
             uniqueGroups: $uniqueGroups,
             prototypeValidators: $prototypeValidators,
             defaultValues: self::extractDefaultValues($reflection, $defaultInstance),
-            defaultInstanceFactory: $defaultInstanceFactory,
         );
     }
 
@@ -80,15 +79,19 @@ final class EntityRegistrar
     }
 
     /**
+     * The nearest #[Entity]-marked ancestor, skipping over any non-#[Entity]
+     * class in between: such a class contributes no field of its own, but it
+     * doesn't break the chain to whatever real entity is still further up.
      * @param ReflectionClass<object> $reflection
      */
     private static function resolveParent(ReflectionClass $reflection): ?string {
-        $parent = $reflection->getParentClass();
-        if ($parent === false || !self::isEntity($parent->getName())) {
-            return null;
+        for ($current = $reflection->getParentClass(); $current !== false; $current = $current->getParentClass()) {
+            if (self::isEntity($current->getName())) {
+                return $current->getName();
+            }
         }
 
-        return $parent->getName();
+        return null;
     }
 
     /**
@@ -131,9 +134,9 @@ final class EntityRegistrar
         };
     }
 
-    /** 
+    /**
      * Gets all the Field attributes specified for this property
-     * @return ReflectionAttribute<object>[] 
+     * @return ReflectionAttribute<object>[]
      */
     private static function fieldKindAttributesOf(ReflectionProperty $property): array {
         return array_merge(
@@ -238,7 +241,7 @@ final class EntityRegistrar
     /**
      * @param ReflectionClass<object> $reflection
      * @param FieldDescriptor[] $fields
-     * @return array<string, Validation\FieldValidatorRule[]>
+     * @return array<string, \XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule[]>
      */
     private static function resolveFieldValidators(ReflectionClass $reflection, array $fields): array {
         $validators = [];
@@ -290,7 +293,7 @@ final class EntityRegistrar
     /**
      * @param ReflectionClass<object> $reflection
      * @param FieldDescriptor[] $fields
-     * @return Validation\PrototypeValidatorRule[]
+     * @return \XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule[]
      */
     private static function resolvePrototypeValidators(ReflectionClass $reflection, array $fields): array {
         $rules = [];
@@ -306,9 +309,11 @@ final class EntityRegistrar
     }
 
     /**
+     * Builds one throwaway default instance, used only to read default values off
+     * of; never kept or exposed.
      * @param ReflectionClass<object> $reflection
      */
-    private static function resolveDefaultInstanceFactory(ReflectionClass $reflection): Closure {
+    private static function buildDefaultInstance(ReflectionClass $reflection): object {
         $markedMethods = array_values(array_filter(
             $reflection->getMethods(),
             static fn (ReflectionMethod $method): bool => $method->getAttributes(DefaultInstance::class) !== [],
@@ -331,7 +336,7 @@ final class EntityRegistrar
                 ));
             }
 
-            return static fn (): object => $method->invoke(null);
+            return $method->invoke(null);
         }
 
         $constructor = $reflection->getConstructor();
@@ -342,7 +347,7 @@ final class EntityRegistrar
             ));
         }
 
-        return static fn (): object => $reflection->newInstance();
+        return $reflection->newInstance();
     }
 
     /**
@@ -418,21 +423,25 @@ final class EntityRegistrar
     }
 
     /**
-     * Every property this class declares or inherits from an #[Entity]-marked
-     * ancestor, that also carries a field-kind attribute itself. Reflects each
-     * class in the ancestor chain separately rather than calling getProperties()
-     * once on the most-derived class: that single call silently drops a private
-     * property declared by an ancestor, only seeing protected/public ones there.
+     * Every property this class declares or inherits, through any number of
+     * #[Entity]-marked or plain ancestors alike, that belongs to an
+     * #[Entity]-marked class and carries a field-kind attribute itself. Always
+     * climbs the full PHP ancestor chain: a non-#[Entity] class contributes no
+     * field of its own, but doesn't stop the walk from reaching a real entity
+     * further up past it. Reflects each class in the chain separately rather
+     * than calling getProperties() once on the most-derived class: that single
+     * call silently drops a private property declared by an ancestor, only
+     * seeing protected/public ones there.
      * @param ReflectionClass<object> $reflection
      * @return ReflectionProperty[]
      */
     private static function entityFields(ReflectionClass $reflection): array {
-        if (!self::isEntity($reflection->getName())) {
-            return [];
-        }
-
         $parent = $reflection->getParentClass();
         $fields = $parent !== false ? self::entityFields($parent) : [];
+
+        if (!self::isEntity($reflection->getName())) {
+            return $fields;
+        }
 
         foreach ($reflection->getProperties() as $property) {
             if ($property->getDeclaringClass()->getName() === $reflection->getName() && self::fieldKindAttributesOf($property) !== []) {

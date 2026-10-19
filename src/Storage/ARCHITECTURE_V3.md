@@ -13,25 +13,34 @@ apply, until this document grows to cover them too.
 ## Three stages
 
 A native PHP class and an editor-created entity both produce the same data shape:
-field descriptors, permissions, validators, unique groups, and default values. Two
-separate producers build this shape, one per source. A third stage, the compiler,
-consumes it.
-
-The compiler does every cross-cutting computation: dependency resolution, cycle
-detection, the default-value pin diff, and OwningReference target validation. It
-outputs the final `EntitySchema`.
+field descriptors, permissions, validators, unique groups, and dense default
+values. Two separate producers build this shared `EntityBlueprint`, one per
+source; for native, that's `NativeEntityReader`. A third stage, the compiler
+(`SchemaCompiler`), consumes it, taking a batch of identifiers at once rather
+than one at a time: dependency resolution, cycle detection, and registering
+every result with the request's `SchemaRegistry`.
 
 `EntitySchema` holds only what gets persisted: identifier, parent, table,
 editorExtensible, fields, fieldPermissions, fieldValidators, uniqueGroups,
-prototypeValidators, and the pinned (sparse) default values. No object factory. No
-dense, unpinned default values. Those exist only as the producers' intermediate
-output, never in the final schema.
+prototypeValidators. No object factory, no default values of any kind. Those are
+the producers' own concern; the compiler reads them off a blueprint, flattens
+them into actual columns, and writes the result to `SchemaFieldValueStore` (see
+below) rather than ever carrying them on `EntitySchema` itself.
 
-*Not yet implemented: the current `EntityRegistrar`/`EntitySchema` code still
-carries `defaultInstanceFactory` and dense `defaultValues` directly. Both need to
-move into an intermediate shape once the compiler stage exists.*
+A dependency outside the given batch is resolved by checking `SchemaRegistry`
+(already compiled this request); if it isn't there, that's an error, not a
+trigger to compile it on the caller's behalf. Whatever gathers a batch (a
+hot-path recompile for native, an admin save for editor) is responsible for
+including everything it depends on.
 
 ## The registry is a query, not a batch
+
+*Not yet implemented: the current `SchemaRegistry` is a plain in-memory
+`register()`/`has()`/`get()` cache, nothing more. `SchemaCompiler` is the only
+thing that ever populates it, and a dependency missing from both the current
+batch and the registry is an error, never a trigger to recursively compile it.
+The querying/fingerprint behavior below is the intended shape once a persisted
+`EntitySchema` store exists to query against; it isn't live yet.*
 
 Schemas are not computed all at once. `SchemaRegistry` exposes a per-identifier
 query: resolve one schema, recursively resolving whatever it depends on along the
@@ -80,32 +89,55 @@ correctly when that native class changes, with no reverse-dependency index neede
 The check only ever looks at direct dependencies; it never has to search for
 everything that might depend on the thing that changed.
 
-A stale pin is not just a stale value: it can flip whether a field is pinned at
-all. If `Engine`'s own default horsepower is 300, and `AudiEngine` also defaults to
-300, `AudiEngine`'s pin correctly stores nothing for horsepower: it matches the
-baseline. If `Engine`'s default later changes to 100, `AudiEngine`'s dependency
-fingerprint no longer matches, so its schema recompiles, and the pin diff now finds
-a real difference, 300 against the new baseline of 100, and starts storing
-horsepower explicitly. Recompiling on a fingerprint mismatch always means rerunning
-the full pin diff, never reusing a cached pin's shape against a new baseline.
+## Reading a native class's default values into plain data
 
-## Default-value pinning
+`NativeEntityReader` reads a native class's default instance into plain,
+dense data in the same reflection pass that builds its field descriptors, rather
+than walking the class a second time just for values.
 
-Every field's value is diffed against a baseline. Only the difference gets stored.
-
-- A field declared at this schema's own level has no baseline: always store it.
-- A field inherited from a parent schema: compare against the parent schema's own
-  value for the same field. Store only if different.
-- Scalar, ValueObject, Reference: the raw value, never recursed into. Reference is
-  never recursed into at all, since it doesn't own what it points to.
-- Embed: recurse into the embedded object's own fields, read through the *declared*
-  target class, never the runtime object's actual class. Type erasure: a subclass
-  assigned there only contributes the declared class's own fields.
+- Scalar, ValueObject, Reference: the raw value, never recursed into. Reference
+  carries no recursion either way, since it doesn't own what it points to.
+- Embed: recurse into the embedded object's own fields, read through the
+  *declared* target class, never the runtime object's actual class. Type
+  erasure: a subclass assigned there only contributes the declared class's own
+  fields.
 - OwningReference: recurse into the referenced object's own fields, read through
-  its *actual* concrete class. Polymorphic: the concrete class itself is recorded
-  alongside the diff. If the concrete class differs from the baseline's, there is no
-  comparable baseline for the fields; diff against the new class's own intrinsic
-  default instead, and always store the field.
-- Collection: compared as a whole against the baseline collection, never diffed
-  per item. Any difference, in size or in any item, stores the entire collection.
-  Items inside, when stored, still use the rules above individually.
+  its *actual* concrete class. Polymorphic: the concrete class itself is
+  recorded alongside its fields, as `{class, fields}`.
+- Collection: each item follows the rule for its own item kind, recursively.
+
+## Flattening fields into columns
+
+`ColumnFlattener` turns one class's own fields into the columns that end up on
+its actual table, recursing through Embed with the usual column-name prefixing.
+
+OwningReference and Collection never contribute a column: an OwningReference is
+found through the owned row's own `owner`/`owner_field`, and a Collection's
+items live in their own child table, one row per item. Both come back as
+"external" instead, naming whichever other schema needs its own separate
+tracking, so a migration consumer knows to follow them rather than expecting a
+column that will never exist.
+
+Resolving an Embed target's own hierarchy fields is an injected lookup, never
+hardcoded to native reflection, since the target could turn out to be
+editor-created.
+
+## One field value store, not two
+
+Native and editor-created identifiers need the exact same two things: "what's
+the effective value of this field right now," and "what did it last resolve to,
+so a migration can detect drift." Building two separate mechanisms for this (one
+reflection-backed, one override-table-backed) was a mistake made earlier in this
+round and corrected: `SchemaFieldValueStore` is the one mechanism for both.
+
+- `save($identifier, $values)` / `load($identifier)`: a plain `(identifier,
+  field) -> value` store, written by the compiler for native (after flattening
+  a freshly-read blueprint) and directly by an admin save for editor-created.
+- `diff($identifier, $currentValues)`: added/removed/changed against whatever
+  was last saved, column for column, not "something in this subtree differs."
+- `resolve($scopesInOrder, $field)`: the first explicit value found, checking
+  scopes from most to least specific. Building that order — an owning field
+  site before its target type, a type before its own parent type — is the
+  caller's job, using `EntitySchema`/`FieldDescriptor` to know the chain; the
+  store itself never special-cases native vs. editor-created, or type-extends-
+  type vs. field-owns-type. It only ever checks what it's told, in order.

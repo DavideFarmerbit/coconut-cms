@@ -1,6 +1,6 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema;
+namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Compiler;
 
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
@@ -8,10 +8,46 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
-use XyloIsCoding\CoconutCms\Persistence\Schema\EntityRegistrar;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\ColumnFlattener;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
-use XyloIsCoding\CoconutCms\Persistence\Schema\NativeSchemaColumnFlattener;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
+
+#[Entity]
+class FlattenerEngineBase
+{
+    #[Scalar(ScalarType::Int)]
+    private int $horsepower = 100;
+}
+
+#[Entity]
+final class FlattenerSportsEngine extends FlattenerEngineBase
+{
+    #[Scalar(ScalarType::Int)]
+    private int $redline = 7000;
+}
+
+#[Entity]
+final class FlattenerCarWithOwningReference
+{
+    #[OwningReference(FlattenerEngineBase::class)]
+    private ?object $engine;
+
+    public function __construct() {
+        $this->engine = new FlattenerSportsEngine();
+    }
+}
+
+#[Entity]
+final class FlattenerCarWithEmbed
+{
+    #[Embed(FlattenerEngineBase::class)]
+    private object $engine;
+
+    public function __construct() {
+        $this->engine = new FlattenerSportsEngine();
+    }
+}
 
 #[Entity]
 final class FlattenerPiston
@@ -61,6 +97,20 @@ final class FlattenerProductWithTags
 }
 
 #[Entity]
+final class FlattenerGarage
+{
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: FlattenerEngineBase::class)]
+    private array $engines = [];
+}
+
+#[Entity]
+final class FlattenerGarageOfEmbeddedPistons
+{
+    #[Collection(itemKind: FieldKind::Embed, itemTarget: FlattenerPiston::class)]
+    private array $pistons = [];
+}
+
+#[Entity]
 final class FlattenerBattery
 {
     #[Scalar(ScalarType::Int)]
@@ -89,86 +139,94 @@ final class FlattenerCarEmbedContainingOwned
     }
 }
 
-#[Entity]
-final class FlattenerGarageOfEmbeddedPistons
+final class ColumnFlattenerTest extends TestCase
 {
-    #[Collection(itemKind: FieldKind::Embed, itemTarget: FlattenerPiston::class)]
-    private array $pistons = [];
-}
+    private ColumnFlattener $flattener;
 
-final class NativeSchemaColumnFlattenerTest extends TestCase
-{
+    protected function setUp(): void {
+        $this->flattener = ColumnFlattener::forNative();
+    }
+
     public function testFlattenMapsAPlainScalarFieldDirectlyToAColumn(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarEngineBase::class);
+        $blueprint = NativeEntityReader::read(FlattenerEngineBase::class);
 
-        $result = NativeSchemaColumnFlattener::flatten($schema->fields, $schema->defaultValues);
+        $result = $this->flattener->flatten($blueprint->fields, $blueprint->defaultValues);
 
         self::assertSame(['horsepower' => 100], $result['columns']);
         self::assertSame([], $result['external']);
     }
 
     public function testFlattenExcludesAnOwningReferenceFromColumnsAndRecordsItsConcreteClass(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarCarWithOwningReference::class);
+        $blueprint = NativeEntityReader::read(FlattenerCarWithOwningReference::class);
 
-        $result = NativeSchemaColumnFlattener::flatten($schema->fields, $schema->defaultValues);
+        $result = $this->flattener->flatten($blueprint->fields, $blueprint->defaultValues);
 
         self::assertSame([], $result['columns']);
-        self::assertSame(['engine' => EntityRegistrarSportsEngine::class], $result['external']);
+        self::assertSame(['engine' => FlattenerSportsEngine::class], $result['external']);
     }
 
     public function testFlattenAppliesTypeErasureWhenFlatteningAnEmbedsFields(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarCarWithEmbed::class);
+        $blueprint = NativeEntityReader::read(FlattenerCarWithEmbed::class);
 
-        $result = NativeSchemaColumnFlattener::flatten($schema->fields, $schema->defaultValues);
+        $result = $this->flattener->flatten($blueprint->fields, $blueprint->defaultValues);
 
-        // EntityRegistrarSportsEngine's own "redline" field never shows up: the Embed
-        // is declared against EntityRegistrarEngineBase, so only its own fields flatten.
+        // FlattenerSportsEngine's own "redline" field never shows up: the Embed is
+        // declared against FlattenerEngineBase, so only its own fields flatten.
         self::assertSame(['engine_horsepower' => 100], $result['columns']);
         self::assertSame([], $result['external']);
     }
 
     public function testFlattenRecursesThroughEmbedOfEmbedOfEmbed(): void {
-        $schema = EntityRegistrar::register(FlattenerCarThreeDeepEmbed::class);
+        $blueprint = NativeEntityReader::read(FlattenerCarThreeDeepEmbed::class);
 
-        $result = NativeSchemaColumnFlattener::flatten($schema->fields, $schema->defaultValues);
+        $result = $this->flattener->flatten($blueprint->fields, $blueprint->defaultValues);
 
         self::assertSame(['chassis_engine_piston_diameter' => 42], $result['columns']);
         self::assertSame([], $result['external']);
     }
 
     public function testFlattenExcludesACollectionOfScalarsAndNamesItsItemKind(): void {
-        $schema = EntityRegistrar::register(FlattenerProductWithTags::class);
+        $blueprint = NativeEntityReader::read(FlattenerProductWithTags::class);
 
-        $result = NativeSchemaColumnFlattener::flatten($schema->fields, $schema->defaultValues);
+        $result = $this->flattener->flatten($blueprint->fields, $blueprint->defaultValues);
 
         self::assertSame([], $result['columns']);
         self::assertSame(['tags' => 'Scalar'], $result['external']);
     }
 
     public function testFlattenExcludesACollectionOfOwningReferencesAndNamesItsItemTarget(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarGarage::class);
+        $blueprint = NativeEntityReader::read(FlattenerGarage::class);
 
-        $result = NativeSchemaColumnFlattener::flatten($schema->fields, $schema->defaultValues);
+        $result = $this->flattener->flatten($blueprint->fields, $blueprint->defaultValues);
 
         self::assertSame([], $result['columns']);
-        self::assertSame(['engines' => EntityRegistrarEngineBase::class], $result['external']);
+        self::assertSame(['engines' => FlattenerEngineBase::class], $result['external']);
     }
 
     public function testFlattenExcludesACollectionOfEmbedsAndNamesItsItemTarget(): void {
-        $schema = EntityRegistrar::register(FlattenerGarageOfEmbeddedPistons::class);
+        $blueprint = NativeEntityReader::read(FlattenerGarageOfEmbeddedPistons::class);
 
-        $result = NativeSchemaColumnFlattener::flatten($schema->fields, $schema->defaultValues);
+        $result = $this->flattener->flatten($blueprint->fields, $blueprint->defaultValues);
 
         self::assertSame([], $result['columns']);
         self::assertSame(['pistons' => FlattenerPiston::class], $result['external']);
     }
 
     public function testFlattenFindsAnOwningReferenceNestedInsideAnEmbedAtItsPrefixedPath(): void {
-        $schema = EntityRegistrar::register(FlattenerCarEmbedContainingOwned::class);
+        $blueprint = NativeEntityReader::read(FlattenerCarEmbedContainingOwned::class);
 
-        $result = NativeSchemaColumnFlattener::flatten($schema->fields, $schema->defaultValues);
+        $result = $this->flattener->flatten($blueprint->fields, $blueprint->defaultValues);
 
         self::assertSame([], $result['columns']);
         self::assertSame(['chassis_battery' => FlattenerBattery::class], $result['external']);
+    }
+
+    public function testFlattenUsesTheInjectedLookupRatherThanAssumingNative(): void {
+        $customLookup = new ColumnFlattener(static fn (string $target): array => NativeEntityReader::read($target)->fields);
+
+        $blueprint = NativeEntityReader::read(FlattenerCarWithEmbed::class);
+        $result = $customLookup->flatten($blueprint->fields, $blueprint->defaultValues);
+
+        self::assertSame(['engine_horsepower' => 100], $result['columns']);
     }
 }

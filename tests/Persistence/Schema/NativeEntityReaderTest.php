@@ -15,7 +15,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldValidator
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
-use XyloIsCoding\CoconutCms\Persistence\Schema\EntityRegistrar;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
@@ -206,6 +206,24 @@ final class EntityRegistrarChildOfPlainBase extends EntityRegistrarPlainBase
 }
 
 #[Entity]
+class EntityRegistrarGrandparent
+{
+    #[Scalar(ScalarType::String)]
+    private string $createdAt = '';
+}
+
+class EntityRegistrarNonEntityMiddle extends EntityRegistrarGrandparent
+{
+}
+
+#[Entity]
+final class EntityRegistrarChildPastNonEntityMiddle extends EntityRegistrarNonEntityMiddle
+{
+    #[Scalar(ScalarType::String)]
+    private string $own = '';
+}
+
+#[Entity]
 final class EntityRegistrarZeroKindAttributes
 {
     private string $broken;
@@ -388,231 +406,233 @@ final class EntityRegistrarGarage
     }
 }
 
-final class EntityRegistrarTest extends TestCase
+final class NativeEntityReaderTest extends TestCase
 {
     public function testRegisterReflectsEntityAttributeAndFields(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarProduct::class);
+        $blueprint = NativeEntityReader::read(EntityRegistrarProduct::class);
 
-        self::assertSame(EntityRegistrarProduct::class, $schema->identifier);
-        self::assertNull($schema->parent);
-        self::assertSame('products', $schema->table);
-        self::assertTrue($schema->editorExtensible);
+        self::assertSame(EntityRegistrarProduct::class, $blueprint->identifier);
+        self::assertNull($blueprint->parent);
+        self::assertSame('products', $blueprint->table);
+        self::assertTrue($blueprint->editorExtensible);
 
-        self::assertSame(ScalarType::String, $schema->fields['sku']->scalarType());
-        self::assertSame(EntityRegistrarCategory::class, $schema->fields['category']->target());
-        self::assertSame(EntityRegistrarEngine::class, $schema->fields['engine']->target());
-        self::assertSame(FieldKind::Collection, $schema->fields['relatedCategories']->kind());
-        self::assertSame(EntityRegistrarCategory::class, $schema->fields['relatedCategories']->itemDescriptor()->target());
+        self::assertSame(ScalarType::String, $blueprint->fields['sku']->scalarType());
+        self::assertSame(EntityRegistrarCategory::class, $blueprint->fields['category']->target());
+        self::assertSame(EntityRegistrarEngine::class, $blueprint->fields['engine']->target());
+        self::assertSame(FieldKind::Collection, $blueprint->fields['relatedCategories']->kind());
+        self::assertSame(EntityRegistrarCategory::class, $blueprint->fields['relatedCategories']->itemDescriptor()->target());
     }
 
     public function testRegisterDerivesTableNameWhenNoneIsGiven(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarBlogPost::class);
+        $blueprint = NativeEntityReader::read(EntityRegistrarBlogPost::class);
 
-        self::assertSame('entity_registrar_blog_post', $schema->table);
+        self::assertSame('entity_registrar_blog_post', $blueprint->table);
     }
 
     public function testRegisterCollectsFieldPermissionsAndValidators(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarProduct::class);
+        $blueprint = NativeEntityReader::read(EntityRegistrarProduct::class);
 
-        self::assertArrayNotHasKey('sku', $schema->fieldPermissions);
-        self::assertSame('editor', $schema->fieldPermissions['title']->write);
+        self::assertArrayNotHasKey('sku', $blueprint->fieldPermissions);
+        self::assertSame('editor', $blueprint->fieldPermissions['title']->write);
 
-        self::assertCount(1, $schema->fieldValidators['title']);
-        self::assertInstanceOf(EntityRegistrarMaxLength::class, $schema->fieldValidators['title'][0]);
+        self::assertCount(1, $blueprint->fieldValidators['title']);
+        self::assertInstanceOf(EntityRegistrarMaxLength::class, $blueprint->fieldValidators['title'][0]);
     }
 
     public function testRegisterCollectsUniqueGroupsAndPrototypeValidators(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarProduct::class);
+        $blueprint = NativeEntityReader::read(EntityRegistrarProduct::class);
 
-        self::assertSame([['sku']], $schema->uniqueGroups);
-        self::assertCount(1, $schema->prototypeValidators);
-        self::assertInstanceOf(EntityRegistrarGreaterThan::class, $schema->prototypeValidators[0]);
+        self::assertSame([['sku']], $blueprint->uniqueGroups);
+        self::assertCount(1, $blueprint->prototypeValidators);
+        self::assertInstanceOf(EntityRegistrarGreaterThan::class, $blueprint->prototypeValidators[0]);
     }
 
     public function testRegisterWithUniqueOnUnknownFieldThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarUniqueOnUnknownField::class);
+        NativeEntityReader::read(EntityRegistrarUniqueOnUnknownField::class);
     }
 
     public function testRegisterWithUniqueOnParentFieldThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarUniqueOnParentField::class);
+        NativeEntityReader::read(EntityRegistrarUniqueOnParentField::class);
     }
 
-    public function testRegisterResolvesDefaultInstanceFromImplicitConstructor(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarProduct::class);
+    public function testRegisterResolvesDefaultValuesFromMarkedMethod(): void {
+        $blueprint = NativeEntityReader::read(EntityRegistrarWithDefaultFactory::class);
 
-        self::assertInstanceOf(EntityRegistrarProduct::class, $schema->defaultInstance());
-    }
-
-    public function testRegisterResolvesDefaultInstanceFromMarkedMethod(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarWithDefaultFactory::class);
-
-        self::assertSame(42, $schema->defaultInstance()->value);
+        self::assertSame(42, $blueprint->defaultValues['value']);
     }
 
     public function testRegisterResolvesParentWhenItIsAnEntity(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarDerived::class);
+        $blueprint = NativeEntityReader::read(EntityRegistrarDerived::class);
 
-        self::assertSame(EntityRegistrarBase::class, $schema->parent);
-        self::assertArrayHasKey('extra', $schema->fields);
-        self::assertArrayNotHasKey('createdAt', $schema->fields);
+        self::assertSame(EntityRegistrarBase::class, $blueprint->parent);
+        self::assertArrayHasKey('extra', $blueprint->fields);
+        self::assertArrayNotHasKey('createdAt', $blueprint->fields);
     }
 
     public function testRegisterInfersEnumClassFromThePropertysOwnType(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarWithInferredEnum::class);
+        $blueprint = NativeEntityReader::read(EntityRegistrarWithInferredEnum::class);
 
-        self::assertSame(EntityRegistrarStatus::class, $schema->fields['status']->enumClass());
+        self::assertSame(EntityRegistrarStatus::class, $blueprint->fields['status']->enumClass());
     }
 
     public function testRegisterWithUninferableEnumClassThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarWithUninferableEnum::class);
+        NativeEntityReader::read(EntityRegistrarWithUninferableEnum::class);
     }
 
     public function testRegisterWithoutEntityAttributeThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarNotAnEntity::class);
+        NativeEntityReader::read(EntityRegistrarNotAnEntity::class);
     }
 
     public function testRegisterWithNonEntityParentTreatsItAsRoot(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarChildOfPlainBase::class);
+        $blueprint = NativeEntityReader::read(EntityRegistrarChildOfPlainBase::class);
 
-        self::assertNull($schema->parent);
+        self::assertNull($blueprint->parent);
+    }
+
+    public function testRegisterSkipsPastANonEntityAncestorToFindARealEntityFurtherUp(): void {
+        $blueprint = NativeEntityReader::read(EntityRegistrarChildPastNonEntityMiddle::class);
+
+        self::assertSame(EntityRegistrarGrandparent::class, $blueprint->parent);
+        self::assertSame(['own'], array_keys($blueprint->fields));
+        self::assertSame(['createdAt', 'own'], array_keys($blueprint->defaultValues));
     }
 
     public function testRegisterWithReferenceToNonEntityThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarWithReferenceToNonEntity::class);
+        NativeEntityReader::read(EntityRegistrarWithReferenceToNonEntity::class);
     }
 
     public function testRegisterWithOwningReferenceToNonEntityThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarWithOwningReferenceToNonEntity::class);
+        NativeEntityReader::read(EntityRegistrarWithOwningReferenceToNonEntity::class);
     }
 
     public function testRegisterWithEmbedOfNonEntityThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarWithEmbedOfNonEntity::class);
+        NativeEntityReader::read(EntityRegistrarWithEmbedOfNonEntity::class);
     }
 
     public function testRegisterWithCollectionItemMissingTargetThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarWithCollectionItemMissingTarget::class);
+        NativeEntityReader::read(EntityRegistrarWithCollectionItemMissingTarget::class);
     }
 
     public function testRegisterWithZeroKindAttributesThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarZeroKindAttributes::class);
+        NativeEntityReader::read(EntityRegistrarZeroKindAttributes::class);
     }
 
     public function testRegisterWithTwoKindAttributesThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarTwoKindAttributes::class);
+        NativeEntityReader::read(EntityRegistrarTwoKindAttributes::class);
     }
 
     public function testRegisterWithNonStaticDefaultInstanceThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarDefaultInstanceNotStatic::class);
+        NativeEntityReader::read(EntityRegistrarDefaultInstanceNotStatic::class);
     }
 
     public function testRegisterWithParameterizedDefaultInstanceThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarDefaultInstanceWithParams::class);
+        NativeEntityReader::read(EntityRegistrarDefaultInstanceWithParams::class);
     }
 
     public function testRegisterWithTwoDefaultInstancesThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarTwoDefaultInstances::class);
+        NativeEntityReader::read(EntityRegistrarTwoDefaultInstances::class);
     }
 
     public function testRegisterWithNoDefaultInstanceOptionThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarNoDefaultInstance::class);
+        NativeEntityReader::read(EntityRegistrarNoDefaultInstance::class);
     }
 
     public function testRegisterRunsFieldValidatorCheckUsage(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarBadFieldValidator::class);
+        NativeEntityReader::read(EntityRegistrarBadFieldValidator::class);
     }
 
     public function testRegisterRunsPrototypeValidatorCheckUsage(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarBadPrototypeValidator::class);
+        NativeEntityReader::read(EntityRegistrarBadPrototypeValidator::class);
     }
 
     public function testRegisterWithUninitializedFieldOnDefaultInstanceThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarWithUninitializedField::class);
+        NativeEntityReader::read(EntityRegistrarWithUninitializedField::class);
     }
 
     public function testRegisterWithChildLeavingAnInheritedFieldUninitializedThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarChildLeavingInheritedFieldUninitialized::class);
+        NativeEntityReader::read(EntityRegistrarChildLeavingInheritedFieldUninitialized::class);
     }
 
     public function testRegisterIgnoresAFieldAttributeOnANonEntityAncestor(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarWithNonEntityAncestorFieldAttribute::class);
+        $blueprint = NativeEntityReader::read(EntityRegistrarWithNonEntityAncestorFieldAttribute::class);
 
-        self::assertArrayHasKey('own', $schema->fields);
+        self::assertArrayHasKey('own', $blueprint->fields);
     }
 
     public function testRegisterWithUninitializedPrivateAncestorFieldThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        EntityRegistrar::register(EntityRegistrarChildOfBaseWithUninitializedPrivateField::class);
+        NativeEntityReader::read(EntityRegistrarChildOfBaseWithUninitializedPrivateField::class);
     }
 
     public function testRegisterExtractsScalarDefaultValues(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarProduct::class);
+        $blueprint = NativeEntityReader::read(EntityRegistrarProduct::class);
 
-        self::assertSame('', $schema->defaultValues['sku']);
-        self::assertSame(0, $schema->defaultValues['startDate']);
-        self::assertNull($schema->defaultValues['category']);
-        self::assertNull($schema->defaultValues['engine']);
-        self::assertSame([], $schema->defaultValues['relatedCategories']);
+        self::assertSame('', $blueprint->defaultValues['sku']);
+        self::assertSame(0, $blueprint->defaultValues['startDate']);
+        self::assertNull($blueprint->defaultValues['category']);
+        self::assertNull($blueprint->defaultValues['engine']);
+        self::assertSame([], $blueprint->defaultValues['relatedCategories']);
     }
 
     public function testRegisterExtractsOwningReferenceValuePolymorphically(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarCarWithOwningReference::class);
+        $blueprint = NativeEntityReader::read(EntityRegistrarCarWithOwningReference::class);
 
-        self::assertSame(EntityRegistrarSportsEngine::class, $schema->defaultValues['engine']['class']);
+        self::assertSame(EntityRegistrarSportsEngine::class, $blueprint->defaultValues['engine']['class']);
         self::assertSame(
             ['horsepower' => 100, 'redline' => 7000],
-            $schema->defaultValues['engine']['fields'],
+            $blueprint->defaultValues['engine']['fields'],
         );
     }
 
     public function testRegisterExtractsEmbedValueWithTypeErasure(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarCarWithEmbed::class);
+        $blueprint = NativeEntityReader::read(EntityRegistrarCarWithEmbed::class);
 
-        self::assertSame(['horsepower' => 100], $schema->defaultValues['engine']);
+        self::assertSame(['horsepower' => 100], $blueprint->defaultValues['engine']);
     }
 
     public function testRegisterExtractsCollectionItemsRecursively(): void {
-        $schema = EntityRegistrar::register(EntityRegistrarGarage::class);
+        $blueprint = NativeEntityReader::read(EntityRegistrarGarage::class);
 
         self::assertSame(
             [['class' => EntityRegistrarSportsEngine::class, 'fields' => ['horsepower' => 100, 'redline' => 7000]]],
-            $schema->defaultValues['engines'],
+            $blueprint->defaultValues['engines'],
         );
     }
 }
