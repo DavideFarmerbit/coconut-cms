@@ -34,6 +34,8 @@ final class ColumnFlattener
      * @param array<string, mixed> $defaultValues This class's own default values; may
      *        carry extra keys beyond $fields, ignored.
      * @return array{columns: array<string, mixed>, external: array<string, string>}
+     *         Both keyed by ColumnName, stored as plain strings: PHP can't key a
+     *         native array by an object.
      */
     public function flatten(FieldDescriptorCollection $fields, array $defaultValues, string $prefix = ''): array {
         $columns = [];
@@ -55,9 +57,10 @@ final class ColumnFlattener
     }
 
     /**
-     * @param array<string, mixed>|null $value
-     * @param array<string, mixed> $columns
-     * @param array<string, string> $external
+     * @param array<string, mixed>|null $value The embedded target's own slice of $defaultValues, 
+     *        keyed by its FieldName.
+     * @param array<string, mixed> $columns Keyed by ColumnName.
+     * @param array<string, string> $external Keyed by ColumnName.
      */
     private function mergeEmbed(string $target, ?array $value, string $prefix, array &$columns, array &$external): void {
         $nested = $this->flatten(($this->hierarchyFieldsOf)($target), $value ?? [], $prefix);

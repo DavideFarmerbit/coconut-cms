@@ -6,7 +6,7 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\Types;
 use InvalidArgumentException;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\ColumnName;
 
 /**
  * Stores and resolves field values for any identifier, native or editor-created
@@ -80,7 +80,7 @@ final class SchemaFieldValueStore
     /**
      * Compares $currentValues against whatever was last saved for $identifier.
      * @param array<string, mixed> $currentValues
-     * @return array{added: FieldName[], removed: FieldName[], changed: FieldName[]}
+     * @return array{added: ColumnName[], removed: ColumnName[], changed: ColumnName[]}
      */
     public function diff(string $identifier, array $currentValues): array {
         $stored = $this->load($identifier);
@@ -96,9 +96,9 @@ final class SchemaFieldValueStore
         }
 
         return [
-            'added' => array_map(FieldName::of(...), array_values($added)),
-            'removed' => array_map(FieldName::of(...), array_values($removed)),
-            'changed' => array_map(FieldName::of(...), $changed),
+            'added' => array_map(ColumnName::of(...), array_values($added)),
+            'removed' => array_map(ColumnName::of(...), array_values($removed)),
+            'changed' => array_map(ColumnName::of(...), $changed),
         ];
     }
 
@@ -109,7 +109,7 @@ final class SchemaFieldValueStore
      * the caller's concern, not this store's: it only ever checks what it's told.
      * @param string[] $scopesInOrder
      */
-    public function resolve(array $scopesInOrder, FieldName $field): mixed {
+    public function resolve(array $scopesInOrder, ColumnName $field): mixed {
         foreach ($scopesInOrder as $scope) {
             $values = $this->load($scope);
             if (array_key_exists((string) $field, $values)) {

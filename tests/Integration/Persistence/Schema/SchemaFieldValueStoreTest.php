@@ -11,7 +11,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\ColumnFlattener;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\ColumnName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
@@ -168,9 +168,9 @@ final class SchemaFieldValueStoreTest extends TestCase
 
         // Only the column that actually changed is reported: the sibling leaf,
         // stroke, at the exact same nesting depth, correctly stays untouched.
-        // FieldName has no identity semantics, so this compares by value.
+        // ColumnName has no identity semantics, so this compares by value.
         self::assertEquals(
-            ['added' => [], 'removed' => [], 'changed' => [FieldName::of('chassis_engine_piston_diameter')]],
+            ['added' => [], 'removed' => [], 'changed' => [ColumnName::of('chassis_engine_piston_diameter')]],
             $this->store->diff(ValueStoreCarThreeDeepEmbed::class, $withOnlyDiameterChanged),
         );
     }
@@ -195,7 +195,7 @@ final class SchemaFieldValueStoreTest extends TestCase
         $this->store->save('App\\Engine', ['horsepower' => 300]);
 
         self::assertEquals(
-            ['added' => [], 'removed' => [], 'changed' => [FieldName::of('horsepower')]],
+            ['added' => [], 'removed' => [], 'changed' => [ColumnName::of('horsepower')]],
             $this->store->diff('App\\Engine', ['horsepower' => 100]),
         );
     }
@@ -204,7 +204,7 @@ final class SchemaFieldValueStoreTest extends TestCase
         $this->store->save('App\\Engine', ['horsepower' => 300]);
 
         self::assertEquals(
-            ['added' => [FieldName::of('torque')], 'removed' => [], 'changed' => []],
+            ['added' => [ColumnName::of('torque')], 'removed' => [], 'changed' => []],
             $this->store->diff('App\\Engine', ['horsepower' => 300, 'torque' => 400]),
         );
     }
@@ -213,14 +213,14 @@ final class SchemaFieldValueStoreTest extends TestCase
         $this->store->save('App\\Engine', ['horsepower' => 300, 'torque' => 400]);
 
         self::assertEquals(
-            ['added' => [], 'removed' => [FieldName::of('torque')], 'changed' => []],
+            ['added' => [], 'removed' => [ColumnName::of('torque')], 'changed' => []],
             $this->store->diff('App\\Engine', ['horsepower' => 300]),
         );
     }
 
     public function testDiffOnAnIdentifierNeverSavedTreatsEveryFieldAsAdded(): void {
         self::assertEquals(
-            ['added' => [FieldName::of('horsepower')], 'removed' => [], 'changed' => []],
+            ['added' => [ColumnName::of('horsepower')], 'removed' => [], 'changed' => []],
             $this->store->diff('App\\NeverSaved', ['horsepower' => 300]),
         );
     }
@@ -229,7 +229,7 @@ final class SchemaFieldValueStoreTest extends TestCase
         $this->store->save('SpecialEngine', ['horsepower' => 999]);
         $this->store->save('Engine', ['horsepower' => 300]);
 
-        self::assertSame(999, $this->store->resolve(['SpecialEngine', 'Engine'], FieldName::of('horsepower')));
+        self::assertSame(999, $this->store->resolve(['SpecialEngine', 'Engine'], ColumnName::of('horsepower')));
     }
 
     public function testResolveFallsThroughToALessSpecificScopeWhenTheMostSpecificHasNoValue(): void {
@@ -237,31 +237,31 @@ final class SchemaFieldValueStoreTest extends TestCase
 
         // "QuietEngine" was never saved at all; nothing but the fallback chain
         // itself says it should defer to "Engine".
-        self::assertSame(300, $this->store->resolve(['QuietEngine', 'Engine'], FieldName::of('horsepower')));
+        self::assertSame(300, $this->store->resolve(['QuietEngine', 'Engine'], ColumnName::of('horsepower')));
     }
 
     public function testResolveKeepsAnExplicitValueIndependentOfWhatALessSpecificScopeLaterReports(): void {
         $this->store->save('SpecialEngine', ['horsepower' => 100]);
         $this->store->save('Engine', ['horsepower' => 100]);
 
-        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], FieldName::of('horsepower')));
+        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], ColumnName::of('horsepower')));
 
         // Engine's own value changes; SpecialEngine's own explicit row is
         // untouched by that, because it was never a fallback to begin with.
         $this->store->save('Engine', ['horsepower' => 999]);
 
-        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], FieldName::of('horsepower')));
+        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], ColumnName::of('horsepower')));
     }
 
     public function testResolveSupportsAnOwningFieldSiteFallingThroughToItsTargetType(): void {
         $this->store->save('Engine', ['horsepower' => 100]);
 
-        self::assertSame(100, $this->store->resolve(['AudiCar.engine', 'Engine'], FieldName::of('horsepower')));
+        self::assertSame(100, $this->store->resolve(['AudiCar.engine', 'Engine'], ColumnName::of('horsepower')));
     }
 
     public function testResolveWithNoScopeHavingAValueThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        $this->store->resolve(['Unknown'], FieldName::of('horsepower'));
+        $this->store->resolve(['Unknown'], ColumnName::of('horsepower'));
     }
 }
