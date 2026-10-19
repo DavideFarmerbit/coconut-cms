@@ -145,7 +145,12 @@ final class SchemaFieldValueStoreTest extends TestCase
 
     public function testDiffOnFlattenedColumnsPinpointsExactlyWhichColumnChangedThreeLevelsDeep(): void {
         $blueprint = NativeEntityReader::read(ValueStoreCarThreeDeepEmbed::class);
-        $columns = ColumnFlattener::forNative()->flatten($blueprint->fields, $blueprint->defaultValues)['columns'];
+        $flattener = new ColumnFlattener(static function (string $target): array {
+            $targetBlueprint = NativeEntityReader::read($target);
+
+            return $targetBlueprint->fields;
+        });
+        $columns = $flattener->flatten($blueprint->fields, $blueprint->defaultValues)['columns'];
 
         self::assertSame(
             ['chassis_engine_piston_diameter' => 42, 'chassis_engine_piston_stroke' => 10],

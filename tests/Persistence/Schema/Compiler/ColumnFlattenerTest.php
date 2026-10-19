@@ -144,7 +144,19 @@ final class ColumnFlattenerTest extends TestCase
     private ColumnFlattener $flattener;
 
     protected function setUp(): void {
-        $this->flattener = ColumnFlattener::forNative();
+        // This test exercises ColumnFlattener in isolation, so it supplies its
+        // own lookup rather than relying on SchemaCompiler's batch-aware one:
+        // every fixture class here reads cleanly through NativeEntityReader on
+        // its own, with no batch to share reads against.
+        $this->flattener = new ColumnFlattener(self::hierarchyFieldsOf(...));
+    }
+
+    /** @return array<string, \XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor> */
+    private static function hierarchyFieldsOf(string $target): array {
+        $blueprint = NativeEntityReader::read($target);
+        $inherited = $blueprint->parent !== null ? self::hierarchyFieldsOf($blueprint->parent) : [];
+
+        return [...$inherited, ...$blueprint->fields];
     }
 
     public function testFlattenMapsAPlainScalarFieldDirectlyToAColumn(): void {
@@ -221,12 +233,4 @@ final class ColumnFlattenerTest extends TestCase
         self::assertSame(['chassis_battery' => FlattenerBattery::class], $result['external']);
     }
 
-    public function testFlattenUsesTheInjectedLookupRatherThanAssumingNative(): void {
-        $customLookup = new ColumnFlattener(static fn (string $target): array => NativeEntityReader::read($target)->fields);
-
-        $blueprint = NativeEntityReader::read(FlattenerCarWithEmbed::class);
-        $result = $customLookup->flatten($blueprint->fields, $blueprint->defaultValues);
-
-        self::assertSame(['engine_horsepower' => 100], $result['columns']);
-    }
 }

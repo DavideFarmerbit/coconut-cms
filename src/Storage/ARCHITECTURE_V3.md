@@ -16,9 +16,16 @@ A native PHP class and an editor-created entity both produce the same data shape
 field descriptors, permissions, validators, unique groups, and dense default
 values. Two separate producers build this shared `EntityBlueprint`, one per
 source; for native, that's `NativeEntityReader`. A third stage, the compiler
-(`SchemaCompiler`), consumes it, taking a batch of identifiers at once rather
+(`SchemaCompiler`), consumes a batch of already-built blueprints at once rather
 than one at a time: dependency resolution, cycle detection, and registering
 every result with the request's `SchemaRegistry`.
+
+`SchemaCompiler::compile()` takes blueprints, never identifiers: it has no way
+to turn a bare identifier into a blueprint for every source, since a native one
+can always be read via reflection but an editor-created one can't be found
+without going to wherever its data actually lives, which the compiler itself
+has no business knowing about. Building the blueprint, by whatever means the
+source requires, is entirely the caller's job, before compile() is ever called.
 
 `EntitySchema` holds only what gets persisted: identifier, parent, table,
 editorExtensible, fields, fieldPermissions, fieldValidators, uniqueGroups,
@@ -119,8 +126,13 @@ tracking, so a migration consumer knows to follow them rather than expecting a
 column that will never exist.
 
 Resolving an Embed target's own hierarchy fields is an injected lookup, never
-hardcoded to native reflection, since the target could turn out to be
-editor-created.
+hardcoded to native reflection. `SchemaCompiler` builds that lookup itself, once
+per batch, from its own already-read blueprints, falling back to `SchemaRegistry`
+only for a dependency outside the current batch. A target being editor-created
+is one reason this can't be hardcoded; the other, just as real, is that
+`SchemaCompiler` already read every native class in its own batch once, at the
+top of `compile()` — a hardcoded lookup inside `ColumnFlattener` would read an
+Embed target a second time for no reason.
 
 ## One field value store, not two
 

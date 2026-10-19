@@ -23,6 +23,9 @@ final class SchemaRegistry
         return array_key_exists($identifier, $this->schemas);
     }
 
+    /**
+     * @throws InvalidArgumentException if the schema is not registered.
+     */
     public function get(string $identifier): EntitySchema {
         return $this->schemas[$identifier] ?? throw new InvalidArgumentException(sprintf(
             '"%s" has not been compiled this request.',

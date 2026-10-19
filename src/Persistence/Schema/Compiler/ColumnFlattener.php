@@ -5,7 +5,6 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Compiler;
 use Closure;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 
 /**
  * Flattens one class's own fields into the columns that end up on its actual
@@ -17,8 +16,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
  * used, naming whichever other schema needs its own separate tracking.
  *
  * Resolving an Embed target's own hierarchy fields is injected rather than
- * hardcoded, since the target could turn out to be native or editor-created and
- * this class has no business knowing which.
+ * hardcoded: the caller already has every blueprint/schema in its own working
+ * set (the current batch, or the registry for anything compiled earlier), native
+ * or editor-created alike, so this class never re-reads a class that's already
+ * been read, and never needs to know or care which source produced it.
  */
 final class ColumnFlattener
 {
@@ -26,18 +27,6 @@ final class ColumnFlattener
     public function __construct(
         private readonly Closure $hierarchyFieldsOf,
     ) {
-    }
-
-    public static function forNative(): self {
-        return new self(self::nativeHierarchyFieldsOf(...));
-    }
-
-    /** @return array<string, FieldDescriptor> */
-    private static function nativeHierarchyFieldsOf(string $target): array {
-        $blueprint = NativeEntityReader::read($target);
-        $inherited = $blueprint->parent !== null ? self::nativeHierarchyFieldsOf($blueprint->parent) : [];
-
-        return [...$inherited, ...$blueprint->fields];
     }
 
     /**

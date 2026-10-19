@@ -10,10 +10,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\ColumnFlattener;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\SchemaCompiler;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
 
@@ -111,27 +111,43 @@ final class SchemaCompilerTest extends TestCase
         $valueStore = new SchemaFieldValueStore(DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]));
         $valueStore->createTable();
 
-        return new SchemaCompiler($registry, $valueStore, ColumnFlattener::forNative());
+        return new SchemaCompiler($registry, $valueStore);
+    }
+
+    /**
+     * Stands in for whatever a real caller does before handing a batch to
+     * compile(): reading each native class's own blueprint. compile() itself
+     * never does this.
+     * @param class-string[] $classes
+     * @return array<string, \XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint>
+     */
+    private static function blueprintsOf(array $classes): array {
+        $blueprints = [];
+        foreach ($classes as $class) {
+            $blueprints[$class] = NativeEntityReader::read($class);
+        }
+
+        return $blueprints;
     }
 
     public function testCompileOrdersParentBeforeChild(): void {
-        $order = array_keys($this->compiler->compile([CompilerChild::class, CompilerRoot::class]));
+        $order = array_keys($this->compiler->compile(self::blueprintsOf([CompilerChild::class, CompilerRoot::class])));
 
         self::assertSame([CompilerRoot::class, CompilerChild::class], $order);
     }
 
     public function testCompileOrdersEmbedTargetBeforeEmbedder(): void {
-        $order = array_keys($this->compiler->compile([CompilerEmbedder::class, CompilerEmbedTarget::class]));
+        $order = array_keys($this->compiler->compile(self::blueprintsOf([CompilerEmbedder::class, CompilerEmbedTarget::class])));
 
         self::assertSame([CompilerEmbedTarget::class, CompilerEmbedder::class], $order);
     }
 
     public function testCompileOrdersATransitiveEmbedChainCorrectly(): void {
-        $order = array_keys($this->compiler->compile([
+        $order = array_keys($this->compiler->compile(self::blueprintsOf([
             CompilerDeepEmbedOuter::class,
             CompilerDeepEmbedMiddle::class,
             CompilerEmbedTarget::class,
-        ]));
+        ])));
 
         self::assertSame([
             CompilerEmbedTarget::class,
@@ -141,13 +157,13 @@ final class SchemaCompilerTest extends TestCase
     }
 
     public function testCompileOrdersCollectionEmbedItemTargetBeforeEmbedder(): void {
-        $order = array_keys($this->compiler->compile([CompilerCollectionEmbedder::class, CompilerEmbedTarget::class]));
+        $order = array_keys($this->compiler->compile(self::blueprintsOf([CompilerCollectionEmbedder::class, CompilerEmbedTarget::class])));
 
         self::assertSame([CompilerEmbedTarget::class, CompilerCollectionEmbedder::class], $order);
     }
 
     public function testCompileLeavesASelfReferencingOwningReferenceAlone(): void {
-        $order = array_keys($this->compiler->compile([CompilerNode::class]));
+        $order = array_keys($this->compiler->compile(self::blueprintsOf([CompilerNode::class])));
 
         self::assertSame([CompilerNode::class], $order);
     }
@@ -155,27 +171,27 @@ final class SchemaCompilerTest extends TestCase
     public function testCompileWithMissingParentThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        $this->compiler->compile([CompilerChild::class]);
+        $this->compiler->compile(self::blueprintsOf([CompilerChild::class]));
     }
 
     public function testCompileWithMissingEmbedTargetThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        $this->compiler->compile([CompilerEmbedder::class]);
+        $this->compiler->compile(self::blueprintsOf([CompilerEmbedder::class]));
     }
 
     public function testCompileWithEmbedCycleThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        $this->compiler->compile([CompilerCycleA::class, CompilerCycleB::class]);
+        $this->compiler->compile(self::blueprintsOf([CompilerCycleA::class, CompilerCycleB::class]));
     }
 
     public function testCompileResolvesADependencyAlreadyRegisteredFromAnEarlierCompileCall(): void {
-        $this->compiler->compile([CompilerRoot::class]);
+        $this->compiler->compile(self::blueprintsOf([CompilerRoot::class]));
 
         // CompilerRoot isn't in this second batch at all, but it's already
         // registered from the first compile() call, so this must not throw.
-        $schemas = $this->compiler->compile([CompilerChild::class]);
+        $schemas = $this->compiler->compile(self::blueprintsOf([CompilerChild::class]));
 
         self::assertSame([CompilerChild::class], array_keys($schemas));
     }
@@ -184,7 +200,7 @@ final class SchemaCompilerTest extends TestCase
         $registry = new SchemaRegistry();
         $compiler = self::newCompiler($registry);
 
-        $compiler->compile([CompilerEmbedTarget::class]);
+        $compiler->compile(self::blueprintsOf([CompilerEmbedTarget::class]));
 
         self::assertTrue($registry->has(CompilerEmbedTarget::class));
     }
@@ -193,9 +209,9 @@ final class SchemaCompilerTest extends TestCase
         $registry = new SchemaRegistry();
         $valueStore = new SchemaFieldValueStore(DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]));
         $valueStore->createTable();
-        $compiler = new SchemaCompiler($registry, $valueStore, ColumnFlattener::forNative());
+        $compiler = new SchemaCompiler($registry, $valueStore);
 
-        $compiler->compile([CompilerEmbedTarget::class]);
+        $compiler->compile(self::blueprintsOf([CompilerEmbedTarget::class]));
 
         self::assertSame(['value' => ''], $valueStore->load(CompilerEmbedTarget::class));
     }

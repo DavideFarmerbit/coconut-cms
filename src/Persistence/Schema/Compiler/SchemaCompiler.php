@@ -6,40 +6,33 @@ use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
 
 /**
- * Turns a batch of native class identifiers into their final EntitySchemas:
- * reads each one's own blueprint, orders the batch so a parent or Embed target
- * always comes before whatever depends on it, registers every result with the
- * request's SchemaRegistry, and flattens each one's own default values into
- * columns, written to SchemaFieldValueStore. A dependency outside the given
- * batch is expected to already be registered there, from an earlier compile()
- * call this request; it is never compiled on this call's behalf.
+ * Turns a batch of already-read blueprints into their final EntitySchemas:
+ * orders the batch so a parent or Embed target always comes before whatever
+ * depends on it, registers every result with the request's SchemaRegistry, and
+ * flattens each one's own default values into columns, written to
+ * SchemaFieldValueStore. A dependency outside the given batch is expected to already
+ * be registered with the registry, from an earlier compile() call.
  */
 final class SchemaCompiler
 {
     public function __construct(
         private readonly SchemaRegistry $registry,
         private readonly SchemaFieldValueStore $valueStore,
-        private readonly ColumnFlattener $flattener,
     ) {
     }
 
     /**
-     * @param class-string[] $identifiers
+     * @param array<string, EntityBlueprint> $blueprints Keyed by identifier.
      * @return array<string, EntitySchema> Keyed by identifier, one entry per
-     *         $identifiers, in no particular order.
+     *         $blueprints, in no particular order.
      */
-    public function compile(array $identifiers): array {
-        $blueprints = [];
-        foreach ($identifiers as $identifier) {
-            $blueprints[$identifier] = NativeEntityReader::read($identifier);
-        }
-
+    public function compile(array $blueprints): array {
         $order = $this->sort($blueprints);
+        $flattener = new ColumnFlattener(fn (string $target): array => $this->hierarchyFieldsOf($target, $blueprints));
 
         $schemas = [];
         foreach ($order as $identifier => $blueprint) {
@@ -57,13 +50,36 @@ final class SchemaCompiler
 
             $this->registry->register($schema);
 
-            $columns = $this->flattener->flatten($blueprint->fields, $blueprint->defaultValues)['columns'];
+            $columns = $flattener->flatten($blueprint->fields, $blueprint->defaultValues)['columns'];
             $this->valueStore->save($identifier, $columns);
 
             $schemas[$identifier] = $schema;
         }
 
         return $schemas;
+    }
+
+    /**
+     * $identifier's own fields plus everything it inherits, resolved
+     * transitively all the way up. Reads $blueprints first, since that's this
+     * batch's own, already-read data; falls back to whatever SchemaRegistry
+     * already has.
+     * @param array<string, EntityBlueprint> $blueprints
+     * @return array<string, FieldDescriptor>
+     */
+    private function hierarchyFieldsOf(string $identifier, array $blueprints): array {
+        if (isset($blueprints[$identifier])) {
+            $fields = $blueprints[$identifier]->fields;
+            $parent = $blueprints[$identifier]->parent;
+        } else {
+            $schema = $this->registry->get($identifier);
+            $fields = $schema->fields;
+            $parent = $schema->parent;
+        }
+
+        $inherited = $parent !== null ? $this->hierarchyFieldsOf($parent, $blueprints) : [];
+
+        return [...$inherited, ...$fields];
     }
 
     /**
