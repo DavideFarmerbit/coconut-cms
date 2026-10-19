@@ -6,6 +6,7 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\Types;
 use InvalidArgumentException;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 
 /**
  * Stores and resolves field values for any identifier, native or editor-created
@@ -79,13 +80,13 @@ final class SchemaFieldValueStore
     /**
      * Compares $currentValues against whatever was last saved for $identifier.
      * @param array<string, mixed> $currentValues
-     * @return array{added: string[], removed: string[], changed: string[]}
+     * @return array{added: FieldName[], removed: FieldName[], changed: FieldName[]}
      */
     public function diff(string $identifier, array $currentValues): array {
         $stored = $this->load($identifier);
 
-        $added = array_values(array_diff(array_keys($currentValues), array_keys($stored)));
-        $removed = array_values(array_diff(array_keys($stored), array_keys($currentValues)));
+        $added = array_diff(array_keys($currentValues), array_keys($stored));
+        $removed = array_diff(array_keys($stored), array_keys($currentValues));
 
         $changed = [];
         foreach ($currentValues as $field => $value) {
@@ -94,7 +95,11 @@ final class SchemaFieldValueStore
             }
         }
 
-        return ['added' => $added, 'removed' => $removed, 'changed' => $changed];
+        return [
+            'added' => array_map(FieldName::of(...), array_values($added)),
+            'removed' => array_map(FieldName::of(...), array_values($removed)),
+            'changed' => array_map(FieldName::of(...), $changed),
+        ];
     }
 
     /**
@@ -104,11 +109,11 @@ final class SchemaFieldValueStore
      * the caller's concern, not this store's: it only ever checks what it's told.
      * @param string[] $scopesInOrder
      */
-    public function resolve(array $scopesInOrder, string $field): mixed {
+    public function resolve(array $scopesInOrder, FieldName $field): mixed {
         foreach ($scopesInOrder as $scope) {
             $values = $this->load($scope);
-            if (array_key_exists($field, $values)) {
-                return $values[$field];
+            if (array_key_exists((string) $field, $values)) {
+                return $values[(string) $field];
             }
         }
 
