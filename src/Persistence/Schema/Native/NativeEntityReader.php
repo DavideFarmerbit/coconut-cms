@@ -15,6 +15,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Method\DefaultInstance;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermission;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldValidator;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
@@ -22,8 +23,11 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 
 /**
  * Reflects a native class's attributes into an EntityBlueprint, the
@@ -96,16 +100,15 @@ final class NativeEntityReader
 
     /**
      * @param ReflectionClass<object> $reflection
-     * @return FieldDescriptor[]
      */
-    private static function resolveFields(ReflectionClass $reflection): array {
+    private static function resolveFields(ReflectionClass $reflection): FieldDescriptorCollection {
         $fields = [];
 
         foreach (self::ownProperties($reflection) as $property) {
             $fields[$property->getName()] = self::resolveFieldDescriptor($property);
         }
 
-        return $fields;
+        return FieldDescriptorCollection::fromArray($fields);
     }
 
     private static function resolveFieldDescriptor(ReflectionProperty $property): FieldDescriptor {
@@ -223,9 +226,8 @@ final class NativeEntityReader
 
     /**
      * @param ReflectionClass<object> $reflection
-     * @return array<string, FieldPermission>
      */
-    private static function resolveFieldPermissions(ReflectionClass $reflection): array {
+    private static function resolveFieldPermissions(ReflectionClass $reflection): FieldPermissionCollection {
         $permissions = [];
 
         foreach (self::ownProperties($reflection) as $property) {
@@ -235,15 +237,13 @@ final class NativeEntityReader
             }
         }
 
-        return $permissions;
+        return FieldPermissionCollection::fromArray($permissions);
     }
 
     /**
      * @param ReflectionClass<object> $reflection
-     * @param FieldDescriptor[] $fields
-     * @return array<string, \XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule[]>
      */
-    private static function resolveFieldValidators(ReflectionClass $reflection, array $fields): array {
+    private static function resolveFieldValidators(ReflectionClass $reflection, FieldDescriptorCollection $fields): FieldValidatorCollection {
         $validators = [];
 
         foreach (self::ownProperties($reflection) as $property) {
@@ -254,28 +254,27 @@ final class NativeEntityReader
 
             $rules = $attributes[0]->newInstance()->rules;
             foreach ($rules as $rule) {
-                $rule->checkUsage($fields[$property->getName()]);
+                $rule->checkUsage($fields->get(FieldName::of($property->getName())));
             }
 
             $validators[$property->getName()] = $rules;
         }
 
-        return $validators;
+        return FieldValidatorCollection::fromArray($validators);
     }
 
     /**
      * @param ReflectionClass<object> $reflection
-     * @param FieldDescriptor[] $fields
      * @return string[][]
      */
-    private static function resolveUniqueGroups(ReflectionClass $reflection, array $fields): array {
+    private static function resolveUniqueGroups(ReflectionClass $reflection, FieldDescriptorCollection $fields): array {
         $groups = [];
 
         foreach ($reflection->getAttributes(Unique::class) as $attribute) {
             $group = $attribute->newInstance()->fields;
 
             foreach ($group as $name) {
-                if (!array_key_exists($name, $fields)) {
+                if (!$fields->has(FieldName::of($name))) {
                     throw new InvalidArgumentException(sprintf(
                         '%s declares #[Unique] over "%s", which is not one of its own fields.',
                         $reflection->getName(),
@@ -292,10 +291,9 @@ final class NativeEntityReader
 
     /**
      * @param ReflectionClass<object> $reflection
-     * @param FieldDescriptor[] $fields
      * @return \XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule[]
      */
-    private static function resolvePrototypeValidators(ReflectionClass $reflection, array $fields): array {
+    private static function resolvePrototypeValidators(ReflectionClass $reflection, FieldDescriptorCollection $fields): array {
         $rules = [];
 
         foreach ($reflection->getAttributes(PrototypeValidator::class) as $attribute) {

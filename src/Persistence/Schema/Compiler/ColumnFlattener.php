@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Compiler;
 
 use Closure;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 
 /**
@@ -23,24 +24,23 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
  */
 final class ColumnFlattener
 {
-    /** @param Closure(class-string): array<string, FieldDescriptor> $hierarchyFieldsOf */
+    /** @param Closure(class-string): FieldDescriptorCollection $hierarchyFieldsOf */
     public function __construct(
         private readonly Closure $hierarchyFieldsOf,
     ) {
     }
 
     /**
-     * @param array<string, FieldDescriptor> $fields
      * @param array<string, mixed> $defaultValues This class's own default values; may
      *        carry extra keys beyond $fields, ignored.
      * @return array{columns: array<string, mixed>, external: array<string, string>}
      */
-    public function flatten(array $fields, array $defaultValues, string $prefix = ''): array {
+    public function flatten(FieldDescriptorCollection $fields, array $defaultValues, string $prefix = ''): array {
         $columns = [];
         $external = [];
 
         foreach ($fields as $name => $field) {
-            $value = $defaultValues[$name] ?? null;
+            $value = $defaultValues[(string) $name] ?? null;
             $columnName = $prefix . $name;
 
             match ($field->kind()) {

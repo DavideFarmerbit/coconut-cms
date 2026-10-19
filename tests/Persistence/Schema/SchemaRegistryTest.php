@@ -4,8 +4,11 @@ namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 
 final class SchemaRegistryTest extends TestCase
 {
@@ -15,9 +18,9 @@ final class SchemaRegistryTest extends TestCase
             parent: null,
             table: 'whatever',
             editorExtensible: false,
-            fields: [],
-            fieldPermissions: [],
-            fieldValidators: [],
+            fields: FieldDescriptorCollection::empty(),
+            fieldPermissions: FieldPermissionCollection::empty(),
+            fieldValidators: FieldValidatorCollection::empty(),
             uniqueGroups: [],
             prototypeValidators: [],
         );

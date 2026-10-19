@@ -9,6 +9,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\ColumnFlattener;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
@@ -151,12 +152,13 @@ final class ColumnFlattenerTest extends TestCase
         $this->flattener = new ColumnFlattener(self::hierarchyFieldsOf(...));
     }
 
-    /** @return array<string, \XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor> */
-    private static function hierarchyFieldsOf(string $target): array {
+    private static function hierarchyFieldsOf(string $target): FieldDescriptorCollection {
         $blueprint = NativeEntityReader::read($target);
-        $inherited = $blueprint->parent !== null ? self::hierarchyFieldsOf($blueprint->parent) : [];
+        $inherited = $blueprint->parent !== null
+            ? self::hierarchyFieldsOf($blueprint->parent)
+            : FieldDescriptorCollection::empty();
 
-        return [...$inherited, ...$blueprint->fields];
+        return $inherited->merge($blueprint->fields);
     }
 
     public function testFlattenMapsAPlainScalarFieldDirectlyToAColumn(): void {

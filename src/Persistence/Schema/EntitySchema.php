@@ -2,9 +2,9 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Schema;
 
-use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermission;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermissionCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 
 /**
@@ -21,11 +21,6 @@ final readonly class EntitySchema
      *        class's PHP parent unless that parent is also #[Entity]-marked.
      * @param string $table Always the real table name: an explicit #[Entity(table:
      *        ...)] override, or the derived default when none was given.
-     * @param FieldDescriptor[] $fields Keyed by field name.
-     * @param array<string, FieldPermission> $fieldPermissions Keyed by field name; a
-     *        field absent here carries no restriction.
-     * @param array<string, FieldValidatorRule[]> $fieldValidators Keyed by field
-     *        name; a field absent here carries no rules.
      * @param string[][] $uniqueGroups Each entry is one group's own field names.
      * @param PrototypeValidatorRule[] $prototypeValidators
      */
@@ -34,9 +29,9 @@ final readonly class EntitySchema
         public ?string $parent,
         public string $table,
         public bool $editorExtensible,
-        public array $fields,
-        public array $fieldPermissions,
-        public array $fieldValidators,
+        public FieldDescriptorCollection $fields,
+        public FieldPermissionCollection $fieldPermissions,
+        public FieldValidatorCollection $fieldValidators,
         public array $uniqueGroups,
         public array $prototypeValidators,
     ) {

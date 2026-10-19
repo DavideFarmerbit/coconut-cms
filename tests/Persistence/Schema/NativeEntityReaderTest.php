@@ -17,7 +17,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
@@ -69,11 +71,9 @@ final class EntityRegistrarGreaterThan implements PrototypeValidatorRule
     ) {
     }
 
-    public function checkUsage(array $fields): void {
-        $names = array_map(static fn (FieldDescriptor $field): string => $field->name(), $fields);
-
+    public function checkUsage(FieldDescriptorCollection $fields): void {
         foreach ([$this->greaterField, $this->lesserField] as $name) {
-            if (!in_array($name, $names, true)) {
+            if (!$fields->has(FieldName::of($name))) {
                 throw new InvalidArgumentException(sprintf('Unknown field "%s".', $name));
             }
         }
@@ -416,11 +416,11 @@ final class NativeEntityReaderTest extends TestCase
         self::assertSame('products', $blueprint->table);
         self::assertTrue($blueprint->editorExtensible);
 
-        self::assertSame(ScalarType::String, $blueprint->fields['sku']->scalarType());
-        self::assertSame(EntityRegistrarCategory::class, $blueprint->fields['category']->target());
-        self::assertSame(EntityRegistrarEngine::class, $blueprint->fields['engine']->target());
-        self::assertSame(FieldKind::Collection, $blueprint->fields['relatedCategories']->kind());
-        self::assertSame(EntityRegistrarCategory::class, $blueprint->fields['relatedCategories']->itemDescriptor()->target());
+        self::assertSame(ScalarType::String, $blueprint->fields->get(FieldName::of('sku'))->scalarType());
+        self::assertSame(EntityRegistrarCategory::class, $blueprint->fields->get(FieldName::of('category'))->target());
+        self::assertSame(EntityRegistrarEngine::class, $blueprint->fields->get(FieldName::of('engine'))->target());
+        self::assertSame(FieldKind::Collection, $blueprint->fields->get(FieldName::of('relatedCategories'))->kind());
+        self::assertSame(EntityRegistrarCategory::class, $blueprint->fields->get(FieldName::of('relatedCategories'))->itemDescriptor()->target());
     }
 
     public function testRegisterDerivesTableNameWhenNoneIsGiven(): void {
@@ -432,11 +432,11 @@ final class NativeEntityReaderTest extends TestCase
     public function testRegisterCollectsFieldPermissionsAndValidators(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarProduct::class);
 
-        self::assertArrayNotHasKey('sku', $blueprint->fieldPermissions);
-        self::assertSame('editor', $blueprint->fieldPermissions['title']->write);
+        self::assertFalse($blueprint->fieldPermissions->has(FieldName::of('sku')));
+        self::assertSame('editor', $blueprint->fieldPermissions->get(FieldName::of('title'))->write);
 
-        self::assertCount(1, $blueprint->fieldValidators['title']);
-        self::assertInstanceOf(EntityRegistrarMaxLength::class, $blueprint->fieldValidators['title'][0]);
+        self::assertCount(1, $blueprint->fieldValidators->get(FieldName::of('title')));
+        self::assertInstanceOf(EntityRegistrarMaxLength::class, $blueprint->fieldValidators->get(FieldName::of('title'))[0]);
     }
 
     public function testRegisterCollectsUniqueGroupsAndPrototypeValidators(): void {
@@ -469,14 +469,14 @@ final class NativeEntityReaderTest extends TestCase
         $blueprint = NativeEntityReader::read(EntityRegistrarDerived::class);
 
         self::assertSame(EntityRegistrarBase::class, $blueprint->parent);
-        self::assertArrayHasKey('extra', $blueprint->fields);
-        self::assertArrayNotHasKey('createdAt', $blueprint->fields);
+        self::assertTrue($blueprint->fields->has(FieldName::of('extra')));
+        self::assertFalse($blueprint->fields->has(FieldName::of('createdAt')));
     }
 
     public function testRegisterInfersEnumClassFromThePropertysOwnType(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarWithInferredEnum::class);
 
-        self::assertSame(EntityRegistrarStatus::class, $blueprint->fields['status']->enumClass());
+        self::assertSame(EntityRegistrarStatus::class, $blueprint->fields->get(FieldName::of('status'))->enumClass());
     }
 
     public function testRegisterWithUninferableEnumClassThrows(): void {
@@ -501,7 +501,7 @@ final class NativeEntityReaderTest extends TestCase
         $blueprint = NativeEntityReader::read(EntityRegistrarChildPastNonEntityMiddle::class);
 
         self::assertSame(EntityRegistrarGrandparent::class, $blueprint->parent);
-        self::assertSame(['own'], array_keys($blueprint->fields));
+        self::assertSame(['own'], array_map('strval', $blueprint->fields->names()));
         self::assertSame(['createdAt', 'own'], array_keys($blueprint->defaultValues));
     }
 
@@ -592,7 +592,7 @@ final class NativeEntityReaderTest extends TestCase
     public function testRegisterIgnoresAFieldAttributeOnANonEntityAncestor(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarWithNonEntityAncestorFieldAttribute::class);
 
-        self::assertArrayHasKey('own', $blueprint->fields);
+        self::assertTrue($blueprint->fields->has(FieldName::of('own')));
     }
 
     public function testRegisterWithUninitializedPrivateAncestorFieldThrows(): void {

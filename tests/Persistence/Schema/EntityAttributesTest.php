@@ -12,6 +12,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Method\DefaultInstance;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldValidator;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
@@ -43,11 +45,9 @@ final class EntityAttributesGreaterThan implements PrototypeValidatorRule
     ) {
     }
 
-    public function checkUsage(array $fields): void {
-        $names = array_map(static fn (FieldDescriptor $field): string => $field->name(), $fields);
-
+    public function checkUsage(FieldDescriptorCollection $fields): void {
         foreach ([$this->greaterField, $this->lesserField] as $name) {
-            if (!in_array($name, $names, true)) {
+            if (!$fields->has(FieldName::of($name))) {
                 throw new InvalidArgumentException(sprintf('Unknown field "%s".', $name));
             }
         }
@@ -171,10 +171,10 @@ final class EntityAttributesTest extends TestCase
     public function testPrototypeValidatorRuleAcceptsKnownFieldNames(): void {
         $rule = new EntityAttributesGreaterThan('endDate', 'startDate');
 
-        $rule->checkUsage([
-            FieldDescriptor::scalar('startDate', ScalarType::Int),
-            FieldDescriptor::scalar('endDate', ScalarType::Int),
-        ]);
+        $rule->checkUsage(FieldDescriptorCollection::fromArray([
+            'startDate' => FieldDescriptor::scalar('startDate', ScalarType::Int),
+            'endDate' => FieldDescriptor::scalar('endDate', ScalarType::Int),
+        ]));
 
         self::assertTrue($rule->validate(new EntityAttributesSubject())->isValid());
     }
@@ -184,10 +184,10 @@ final class EntityAttributesTest extends TestCase
 
         $this->expectException(InvalidArgumentException::class);
 
-        $rule->checkUsage([
-            FieldDescriptor::scalar('startDate', ScalarType::Int),
-            FieldDescriptor::scalar('endDate', ScalarType::Int),
-        ]);
+        $rule->checkUsage(FieldDescriptorCollection::fromArray([
+            'startDate' => FieldDescriptor::scalar('startDate', ScalarType::Int),
+            'endDate' => FieldDescriptor::scalar('endDate', ScalarType::Int),
+        ]));
     }
 
     public function testPrototypeValidatorRuleValidateFailsWhenOrderIsWrong(): void {

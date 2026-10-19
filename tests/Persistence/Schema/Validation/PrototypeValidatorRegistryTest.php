@@ -5,13 +5,14 @@ namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Validation;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use XyloIsCoding\CoconutCms\Core\Identifier;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
 
 final class PrototypeValidatorRegistryTestRule implements PrototypeValidatorRule
 {
-    public function checkUsage(array $fields): void {
+    public function checkUsage(FieldDescriptorCollection $fields): void {
     }
 
     public function validate(object $entity): ValidationResult {

@@ -10,6 +10,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\ColumnFlattener;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
@@ -145,7 +146,7 @@ final class SchemaFieldValueStoreTest extends TestCase
 
     public function testDiffOnFlattenedColumnsPinpointsExactlyWhichColumnChangedThreeLevelsDeep(): void {
         $blueprint = NativeEntityReader::read(ValueStoreCarThreeDeepEmbed::class);
-        $flattener = new ColumnFlattener(static function (string $target): array {
+        $flattener = new ColumnFlattener(static function (string $target): FieldDescriptorCollection {
             $targetBlueprint = NativeEntityReader::read($target);
 
             return $targetBlueprint->fields;

@@ -2,7 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Validation;
 
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 
 /**
  * One cross-field validation rule attachable to a shape through a
@@ -16,9 +16,8 @@ interface PrototypeValidatorRule
      * example that a field name it references actually exists. Called at
      * registration time, before any row is read or written. Throws when the
      * configuration is invalid.
-     * @param FieldDescriptor[] $fields
      */
-    public function checkUsage(array $fields): void;
+    public function checkUsage(FieldDescriptorCollection $fields): void;
 
     /**
      * Validates the whole candidate entity.

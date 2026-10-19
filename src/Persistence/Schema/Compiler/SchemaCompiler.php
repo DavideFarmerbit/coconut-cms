@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Compiler;
 use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
@@ -32,7 +33,7 @@ final class SchemaCompiler
      */
     public function compile(array $blueprints): array {
         $order = $this->sort($blueprints);
-        $flattener = new ColumnFlattener(fn (string $target): array => $this->hierarchyFieldsOf($target, $blueprints));
+        $flattener = new ColumnFlattener(fn (string $target): FieldDescriptorCollection => $this->hierarchyFieldsOf($target, $blueprints));
 
         $schemas = [];
         foreach ($order as $identifier => $blueprint) {
@@ -65,9 +66,8 @@ final class SchemaCompiler
      * batch's own, already-read data; falls back to whatever SchemaRegistry
      * already has.
      * @param array<string, EntityBlueprint> $blueprints
-     * @return array<string, FieldDescriptor>
      */
-    private function hierarchyFieldsOf(string $identifier, array $blueprints): array {
+    private function hierarchyFieldsOf(string $identifier, array $blueprints): FieldDescriptorCollection {
         if (isset($blueprints[$identifier])) {
             $fields = $blueprints[$identifier]->fields;
             $parent = $blueprints[$identifier]->parent;
@@ -77,9 +77,9 @@ final class SchemaCompiler
             $parent = $schema->parent;
         }
 
-        $inherited = $parent !== null ? $this->hierarchyFieldsOf($parent, $blueprints) : [];
+        $inherited = $parent !== null ? $this->hierarchyFieldsOf($parent, $blueprints) : FieldDescriptorCollection::empty();
 
-        return [...$inherited, ...$fields];
+        return $inherited->merge($fields);
     }
 
     /**
