@@ -390,6 +390,9 @@ final class NativeEntityReader
         }
     }
 
+    /*================================================================================================================*/
+    // Default Values Extraction
+
     /**
      * Reads this class's own default instance into plain data, recursing into Embed
      * and OwningReference values. An Embed value is read through the declared target
@@ -442,6 +445,9 @@ final class NativeEntityReader
             $items,
         );
     }
+
+    // ~Default Values Extraction
+    /*================================================================================================================*/
 
     /**
      * Every property this class declares or inherits, through any number of
