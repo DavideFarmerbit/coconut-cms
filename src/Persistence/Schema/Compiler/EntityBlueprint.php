@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Compiler;
 
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 
@@ -24,7 +25,7 @@ final readonly class EntityBlueprint
      *        class's PHP parent unless that parent is also #[Entity]-marked.
      * @param string $table Always the real table name: an explicit #[Entity(table:
      *        ...)] override, or the derived default when none was given.
-     * @param string[][] $uniqueGroups Each entry is one group's own field names.
+     * @param FieldName[][] $uniqueGroups Each entry is one group's own field names.
      * @param PrototypeValidatorRule[] $prototypeValidators
      * @param array<string, mixed> $defaultValues This class's own default instance,
      *        already read into plain data keyed by FieldName. A Scalar/ValueObject/Reference 

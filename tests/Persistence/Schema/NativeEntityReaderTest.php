@@ -442,7 +442,7 @@ final class NativeEntityReaderTest extends TestCase
     public function testRegisterCollectsUniqueGroupsAndPrototypeValidators(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarProduct::class);
 
-        self::assertSame([['sku']], $blueprint->uniqueGroups);
+        self::assertEquals([[FieldName::of('sku')]], $blueprint->uniqueGroups);
         self::assertCount(1, $blueprint->prototypeValidators);
         self::assertInstanceOf(EntityRegistrarGreaterThan::class, $blueprint->prototypeValidators[0]);
     }

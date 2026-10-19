@@ -265,22 +265,25 @@ final class NativeEntityReader
 
     /**
      * @param ReflectionClass<object> $reflection
-     * @return string[][]
+     * @return FieldName[][]
      */
     private static function resolveUniqueGroups(ReflectionClass $reflection, FieldDescriptorCollection $fields): array {
         $groups = [];
 
         foreach ($reflection->getAttributes(Unique::class) as $attribute) {
-            $group = $attribute->newInstance()->fields;
+            $group = [];
 
-            foreach ($group as $name) {
-                if (!$fields->has(FieldName::of($name))) {
+            foreach ($attribute->newInstance()->fields as $name) {
+                $fieldName = FieldName::of($name);
+                if (!$fields->has($fieldName)) {
                     throw new InvalidArgumentException(sprintf(
                         '%s declares #[Unique] over "%s", which is not one of its own fields.',
                         $reflection->getName(),
                         $name,
                     ));
                 }
+
+                $group[] = $fieldName;
             }
 
             $groups[] = $group;
