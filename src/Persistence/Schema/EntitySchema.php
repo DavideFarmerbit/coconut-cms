@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema;
 
 use Closure;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermission;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 

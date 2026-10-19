@@ -5,7 +5,7 @@ namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Validation;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use XyloIsCoding\CoconutCms\Core\Identifier;
-use XyloIsCoding\CoconutCms\Persistence\Schema\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;

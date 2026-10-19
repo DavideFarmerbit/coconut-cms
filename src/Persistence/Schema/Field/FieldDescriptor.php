@@ -1,6 +1,6 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Persistence\Schema;
+namespace XyloIsCoding\CoconutCms\Persistence\Schema\Field;
 
 use InvalidArgumentException;
 use LogicException;

@@ -10,8 +10,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReferenc
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
-use XyloIsCoding\CoconutCms\Persistence\Schema\FieldKind;
-use XyloIsCoding\CoconutCms\Persistence\Schema\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 
 final class FieldAttributesSubject
 {

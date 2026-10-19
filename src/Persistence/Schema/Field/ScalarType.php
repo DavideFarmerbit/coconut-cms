@@ -1,6 +1,6 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Persistence\Schema;
+namespace XyloIsCoding\CoconutCms\Persistence\Schema\Field;
 
 /**
  * The primitive types a Scalar field can hold. Every case has a framework-provided

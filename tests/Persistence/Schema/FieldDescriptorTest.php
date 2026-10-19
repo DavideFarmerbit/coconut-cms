@@ -5,9 +5,9 @@ namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema;
 use InvalidArgumentException;
 use LogicException;
 use PHPUnit\Framework\TestCase;
-use XyloIsCoding\CoconutCms\Persistence\Schema\FieldDescriptor;
-use XyloIsCoding\CoconutCms\Persistence\Schema\FieldKind;
-use XyloIsCoding\CoconutCms\Persistence\Schema\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 
 final class FieldDescriptorTest extends TestCase
 {

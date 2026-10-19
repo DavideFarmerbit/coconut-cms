@@ -3,7 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property;
 
 use Attribute;
-use XyloIsCoding\CoconutCms\Persistence\Schema\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 
 /**
  * Marks a native property as a Scalar field: a built-in primitive value.

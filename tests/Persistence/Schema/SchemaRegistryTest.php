@@ -12,8 +12,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReferenc
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntityRegistrar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
-use XyloIsCoding\CoconutCms\Persistence\Schema\FieldKind;
-use XyloIsCoding\CoconutCms\Persistence\Schema\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
 
 #[Entity]

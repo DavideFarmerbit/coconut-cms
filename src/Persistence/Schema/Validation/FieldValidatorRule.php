@@ -2,7 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Validation;
 
-use XyloIsCoding\CoconutCms\Persistence\Schema\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 
 /**
  * One validation rule attachable to a single field through a #[FieldValidator]

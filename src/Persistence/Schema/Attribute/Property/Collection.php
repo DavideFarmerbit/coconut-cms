@@ -3,8 +3,8 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property;
 
 use Attribute;
-use XyloIsCoding\CoconutCms\Persistence\Schema\FieldKind;
-use XyloIsCoding\CoconutCms\Persistence\Schema\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 
 /**
  * Marks a native property as a Collection field: an ordered collection of items of one

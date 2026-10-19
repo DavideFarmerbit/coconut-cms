@@ -1,6 +1,6 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Persistence\Schema;
+namespace XyloIsCoding\CoconutCms\Persistence\Schema\Field;
 
 /**
  * The six field kinds a FieldDescriptor can represent. Mirrors the six native

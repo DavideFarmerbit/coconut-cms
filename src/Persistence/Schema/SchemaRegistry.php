@@ -3,6 +3,8 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Schema;
 
 use InvalidArgumentException;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 
 /**
  * Collects every produced EntitySchema and orders them so a parent or Embed target

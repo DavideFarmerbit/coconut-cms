@@ -9,9 +9,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntityRegistrar;
-use XyloIsCoding\CoconutCms\Persistence\Schema\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\NativeSchemaColumnFlattener;
-use XyloIsCoding\CoconutCms\Persistence\Schema\ScalarType;
 
 #[Entity]
 final class FlattenerPiston

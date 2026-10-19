@@ -2,6 +2,9 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Schema;
 
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+
 /**
  * Flattens one native class's own fields into the columns that end up on its
  * actual table, recursing through Embed with the usual column-name prefixing.

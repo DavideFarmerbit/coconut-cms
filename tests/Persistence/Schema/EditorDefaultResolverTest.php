@@ -7,7 +7,7 @@ use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EditorDefaultResolver;
-use XyloIsCoding\CoconutCms\Persistence\Schema\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 
 #[Entity]
 final class EditorDefaultResolverLowPoweredEngine
