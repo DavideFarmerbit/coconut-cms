@@ -27,8 +27,8 @@ final readonly class EntityBlueprint
      * @param string[][] $uniqueGroups Each entry is one group's own field names.
      * @param PrototypeValidatorRule[] $prototypeValidators
      * @param array<string, mixed> $defaultValues This class's own default instance,
-     *        already read into plain data. A Scalar/ValueObject/Reference entry is
-     *        the raw value. An Embed entry is a nested array of this same shape, or
+     *        already read into plain data keyed by FieldName. A Scalar/ValueObject/Reference 
+     *        entry is the raw value. An Embed entry is a nested array of this same shape, or
      *        null. An OwningReference entry is null, or {class, fields}, fields
      *        being this same shape for the referenced object's own class. A
      *        Collection entry is a list of entries, each following the rule for the

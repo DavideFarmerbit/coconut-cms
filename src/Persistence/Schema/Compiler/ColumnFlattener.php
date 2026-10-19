@@ -31,7 +31,7 @@ final class ColumnFlattener
     }
 
     /**
-     * @param array<string, mixed> $defaultValues This class's own default values; may
+     * @param array<string, mixed> $defaultValues This class's own default values keyed by FieldName; may
      *        carry extra keys beyond $fields, ignored.
      * @return array{columns: array<string, mixed>, external: array<string, string>}
      *         Both keyed by ColumnName, stored as plain strings: PHP can't key a
