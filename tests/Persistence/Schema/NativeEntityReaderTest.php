@@ -23,6 +23,12 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
+use XyloIsCoding\CoconutCms\Persistence\Schema\UniqueGroup;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\CollectionNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\LeafNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\ObjectNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\OwnedNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
@@ -483,6 +489,11 @@ final class EntityRegistrarReferenceTypedAsUnion
 
 final class NativeEntityReaderTest extends TestCase
 {
+    /** The plain value a blueprint's default instance holds at $field. */
+    private static function leafAt(EntityBlueprint $blueprint, string $field): mixed {
+        return LeafNode::valueOf($blueprint->defaultValues->get(FieldName::of($field)));
+    }
+
     public function testRegisterReflectsEntityAttributeAndFields(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarProduct::class);
 
@@ -517,7 +528,7 @@ final class NativeEntityReaderTest extends TestCase
     public function testRegisterCollectsUniqueGroupsAndPrototypeValidators(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarProduct::class);
 
-        self::assertEquals([[FieldName::of('sku')]], $blueprint->uniqueGroups);
+        self::assertEquals([UniqueGroup::of(FieldName::of('sku'))], $blueprint->uniqueGroups);
         self::assertCount(1, $blueprint->prototypeValidators);
         self::assertInstanceOf(EntityRegistrarGreaterThan::class, $blueprint->prototypeValidators[0]);
     }
@@ -537,7 +548,7 @@ final class NativeEntityReaderTest extends TestCase
     public function testRegisterResolvesDefaultValuesFromMarkedMethod(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarWithDefaultFactory::class);
 
-        self::assertSame(42, $blueprint->defaultValues['value']);
+        self::assertSame(42, self::leafAt($blueprint, 'value'));
     }
 
     public function testRegisterResolvesParentWhenItIsAnEntity(): void {
@@ -577,7 +588,7 @@ final class NativeEntityReaderTest extends TestCase
 
         self::assertSame(EntityRegistrarGrandparent::class, $blueprint->parent);
         self::assertSame(['own'], array_map('strval', $blueprint->fields->names()));
-        self::assertSame(['createdAt', 'own'], array_keys($blueprint->defaultValues));
+        self::assertSame(['createdAt', 'own'], array_map('strval', $blueprint->defaultValues->names()));
     }
 
     public function testRegisterWithReferenceToNonEntityThrows(): void {
@@ -650,9 +661,12 @@ final class NativeEntityReaderTest extends TestCase
     public function testRegisterReadsAValueObjectsDefaultAsTheStringItStoresAs(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarPriced::class);
 
-        self::assertSame('10 EUR', $blueprint->defaultValues['price']);
-        self::assertNull($blueprint->defaultValues['discount']);
-        self::assertSame(['8 EUR', '9 EUR'], $blueprint->defaultValues['history']);
+        self::assertSame('10 EUR', self::leafAt($blueprint, 'price'));
+        self::assertNull(self::leafAt($blueprint, 'discount'));
+        self::assertEquals(
+            new CollectionNode([new LeafNode('8 EUR'), new LeafNode('9 EUR')]),
+            $blueprint->defaultValues->get(FieldName::of('history')),
+        );
     }
 
     public function testRegisterWithAValueObjectNotImplementingStorableValueThrows(): void {
@@ -727,35 +741,35 @@ final class NativeEntityReaderTest extends TestCase
     public function testRegisterExtractsScalarDefaultValues(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarProduct::class);
 
-        self::assertSame('', $blueprint->defaultValues['sku']);
-        self::assertSame(0, $blueprint->defaultValues['startDate']);
-        self::assertNull($blueprint->defaultValues['category']);
-        self::assertNull($blueprint->defaultValues['engine']);
-        self::assertSame([], $blueprint->defaultValues['relatedCategories']);
+        self::assertSame('', self::leafAt($blueprint, 'sku'));
+        self::assertSame(0, self::leafAt($blueprint, 'startDate'));
+        self::assertNull(self::leafAt($blueprint, 'category'));
+        // An OwningReference holding nothing is no node at all, not a LeafNode.
+        self::assertNull($blueprint->defaultValues->get(FieldName::of('engine')));
+        self::assertEquals(new CollectionNode([]), $blueprint->defaultValues->get(FieldName::of('relatedCategories')));
     }
 
     public function testRegisterExtractsOwningReferenceValuePolymorphically(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarCarWithOwningReference::class);
 
-        self::assertSame(EntityRegistrarSportsEngine::class, $blueprint->defaultValues['engine']['class']);
-        self::assertSame(
-            ['horsepower' => 100, 'redline' => 7000],
-            $blueprint->defaultValues['engine']['fields'],
+        self::assertEquals(
+            new OwnedNode(EntityRegistrarSportsEngine::class, ObjectNode::fromArray(['horsepower' => new LeafNode(100), 'redline' => new LeafNode(7000)])),
+            $blueprint->defaultValues->get(FieldName::of('engine')),
         );
     }
 
     public function testRegisterExtractsEmbedValueWithTypeErasure(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarCarWithEmbed::class);
 
-        self::assertSame(['horsepower' => 100], $blueprint->defaultValues['engine']);
+        self::assertEquals(ObjectNode::fromArray(['horsepower' => new LeafNode(100)]), $blueprint->defaultValues->get(FieldName::of('engine')));
     }
 
     public function testRegisterExtractsCollectionItemsRecursively(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarGarage::class);
 
-        self::assertSame(
-            [['class' => EntityRegistrarSportsEngine::class, 'fields' => ['horsepower' => 100, 'redline' => 7000]]],
-            $blueprint->defaultValues['engines'],
+        self::assertEquals(
+            new CollectionNode([new OwnedNode(EntityRegistrarSportsEngine::class, ObjectNode::fromArray(['horsepower' => new LeafNode(100), 'redline' => new LeafNode(7000)]))]),
+            $blueprint->defaultValues->get(FieldName::of('engines')),
         );
     }
 }

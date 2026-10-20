@@ -29,6 +29,12 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\UniqueGroup;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\CollectionNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\LeafNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\ObjectNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\OwnedNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\ValueNode;
 
 /**
  * Reflects a native class's attributes into an EntityBlueprint, the
@@ -320,7 +326,7 @@ final class NativeEntityReader
 
     /**
      * @param ReflectionClass<object> $reflection
-     * @return FieldName[][]
+     * @return list<UniqueGroup>
      */
     private static function resolveUniqueGroups(ReflectionClass $reflection, FieldDescriptorCollection $fields): array {
         $groups = [];
@@ -341,7 +347,7 @@ final class NativeEntityReader
                 $group[] = $fieldName;
             }
 
-            $groups[] = $group;
+            $groups[] = UniqueGroup::of(...$group);
         }
 
         return $groups;
@@ -429,59 +435,53 @@ final class NativeEntityReader
     // Default Values Extraction
 
     /**
-     * Reads this class's own default instance into plain data, recursing into Embed
+     * Reads this class's own default instance into a tree of ValueNodes, recursing into Embed
      * and OwningReference values. An Embed value is read through the declared target
      * class, never a runtime subclass: type erasure. An OwningReference value is read
      * through its own actual class: polymorphic, so the class itself is recorded
      * alongside its fields.
      * @param ReflectionClass<object> $governingClass
-     * @return array<string, mixed>
      */
-    private static function extractDefaultValues(ReflectionClass $governingClass, object $instance): array {
-        $values = [];
+    private static function extractDefaultValues(ReflectionClass $governingClass, object $instance): ObjectNode {
+        $values = ObjectNode::empty();
 
         foreach (self::entityFields($governingClass) as $property) {
             $attribute = self::fieldKindAttributesOf($property)[0]->newInstance();
-            $values[$property->getName()] = self::extractFieldValue($attribute, $property, $property->getValue($instance));
+            $values = $values->with(FieldName::of($property->getName()), self::extractFieldValue($attribute, $property, $property->getValue($instance)));
         }
 
         return $values;
     }
 
     /** A ValueObject is read as the string it stores as, never as the object itself. */
-    private static function extractFieldValue(object $attribute, ReflectionProperty $property, mixed $value): mixed {
+    private static function extractFieldValue(object $attribute, ReflectionProperty $property, mixed $value): ?ValueNode {
         return match (true) {
             $attribute instanceof Embed => $value === null ? null : self::extractDefaultValues(new ReflectionClass(self::declaredClassOf($property)), $value),
-            $attribute instanceof ValueObject => $value?->toStorage(),
+            $attribute instanceof ValueObject => new LeafNode($value?->toStorage()),
             $attribute instanceof OwningReference => self::extractOwningReferenceValue($value),
             $attribute instanceof Collection => self::extractCollectionItems($attribute, $value),
-            default => $value,
+            default => new LeafNode($value),
         };
     }
 
-    /** @return array{class: class-string, fields: array<string, mixed>}|null */
-    private static function extractOwningReferenceValue(?object $value): ?array {
+    private static function extractOwningReferenceValue(?object $value): ?OwnedNode {
         if ($value === null) {
             return null;
         }
 
-        return [
-            'class' => $value::class,
-            'fields' => self::extractDefaultValues(new ReflectionClass($value::class), $value),
-        ];
+        return new OwnedNode($value::class, self::extractDefaultValues(new ReflectionClass($value::class), $value));
     }
 
-    /** @return mixed[] */
-    private static function extractCollectionItems(Collection $attribute, array $items): array {
-        return array_map(
-            static fn (mixed $item): mixed => match ($attribute->itemKind) {
+    private static function extractCollectionItems(Collection $attribute, array $items): CollectionNode {
+        return new CollectionNode(array_map(
+            static fn (mixed $item): ?ValueNode => match ($attribute->itemKind) {
                 FieldKind::Embed => $item === null ? null : self::extractDefaultValues(new ReflectionClass($attribute->itemTarget), $item),
                 FieldKind::OwningReference => self::extractOwningReferenceValue($item),
-                FieldKind::ValueObject => $item?->toStorage(),
-                default => $item,
+                FieldKind::ValueObject => new LeafNode($item?->toStorage()),
+                default => new LeafNode($item),
             },
             $items,
-        );
+        ));
     }
 
     // ~Default Values Extraction

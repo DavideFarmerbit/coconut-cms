@@ -72,6 +72,30 @@ final class FieldPathTest extends TestCase
         self::assertSame('diameter', (string) $piston->tail());
     }
 
+    public function testAppendJoinsTwoPaths(): void {
+        $engine = FieldPath::fromString('engines.0');
+
+        self::assertSame('engines.0.piston:diameter', (string) $engine->append(FieldPath::TRAVERSE, FieldPath::fromString('piston:diameter')));
+        self::assertSame('chassis:engine.horsepower', (string) FieldPath::fromString('chassis')->append(FieldPath::EMBED, FieldPath::fromString('engine.horsepower')));
+    }
+
+    public function testAppendRejectsAnIndexAfterAnEmbed(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        FieldPath::fromString('chassis')->append(FieldPath::EMBED, FieldPath::fromString('0.x'));
+    }
+
+    public function testStartsWithMatchesWholeSegmentsAndSeparators(): void {
+        $path = FieldPath::fromString('engines.0.piston:diameter');
+
+        self::assertTrue($path->startsWith(FieldPath::fromString('engines')));
+        self::assertTrue($path->startsWith(FieldPath::fromString('engines.0.piston')));
+        self::assertTrue($path->startsWith($path));
+        self::assertFalse($path->startsWith(FieldPath::fromString('engine')));
+        self::assertFalse($path->startsWith(FieldPath::fromString('engines.0:piston')));
+        self::assertFalse(FieldPath::fromString('engines')->startsWith($path));
+    }
+
     /** @return array<string, array{string}> */
     public static function invalidPaths(): array {
         return [

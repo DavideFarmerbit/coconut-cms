@@ -10,10 +10,17 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPath;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldValues;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldValuesBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Schema\FieldValueResolver;
 use XyloIsCoding\CoconutCms\Persistence\Schema\NoFieldValueException;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaLookup;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\CollectionNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\LeafNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\ObjectNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\OwnedNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\ValueNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
 
 /**
@@ -68,8 +75,9 @@ final class SchemaCompiler
         // included. For a class in this batch, these are its effective values.
         $denseByIdentifier = [];
         foreach ($order as $identifier => $blueprint) {
-            $denseByIdentifier[$identifier] = [];
-            $this->flattenValues($lookup->hierarchyFieldsOf($identifier), $blueprint->defaultValues, FieldPath::of(...), $lookup, $denseByIdentifier[$identifier]);
+            $dense = new FieldValuesBuilder();
+            $this->flattenValues($lookup->hierarchyFieldsOf($identifier), $blueprint->defaultValues, FieldPath::of(...), $lookup, $dense);
+            $denseByIdentifier[$identifier] = $dense->build();
         }
 
         // We only want to store values that differ from what FieldValueResolver would otherwise already resolve to.
@@ -78,8 +86,9 @@ final class SchemaCompiler
         $resolver = $this->resolver->withBatch($schemas, $denseByIdentifier);
         $sparseByIdentifier = [];
         foreach ($order as $identifier => $blueprint) {
-            $sparseByIdentifier[$identifier] = [];
-            $this->keepValues($identifier, $lookup->hierarchyFieldsOf($identifier), $blueprint->defaultValues, FieldPath::of(...), $lookup, $resolver, $denseByIdentifier[$identifier], $sparseByIdentifier[$identifier]);
+            $sparse = new FieldValuesBuilder();
+            $this->keepValues($identifier, $lookup->hierarchyFieldsOf($identifier), $blueprint->defaultValues, FieldPath::of(...), $lookup, $resolver, $denseByIdentifier[$identifier], $sparse);
+            $sparseByIdentifier[$identifier] = $sparse->build();
         }
 
         // Commit. The store goes first: it's the only step that can still
@@ -98,28 +107,25 @@ final class SchemaCompiler
     /**
      * Writes $values into $valuesByPath, one entry per leaf: an Embed's fields
      * joined with ":", an OwningReference or a Collection item traversed with ".".
-     * @param array<string, mixed> $values Keyed by FieldName.
      * @param Closure(FieldName): FieldPath $pathOf Turns one of $fields' names into its full path.
      * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
-     * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenValues(FieldDescriptorCollection $fields, array $values, Closure $pathOf, SchemaLookup $schemas, array &$valuesByPath): void {
+    private function flattenValues(FieldDescriptorCollection $fields, ObjectNode $values, Closure $pathOf, SchemaLookup $schemas, FieldValuesBuilder $valuesByPath): void {
         foreach ($fields as $name => $field) {
-            $this->flattenValue($field, $values[(string) $name] ?? null, $pathOf($name), $schemas, $valuesByPath);
+            $this->flattenValue($field, $values->find($name), $pathOf($name), $schemas, $valuesByPath);
         }
     }
 
     /**
      * Dispatch correct 'flatten' method based on field kind.
      * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
-     * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenValue(FieldDescriptor $field, mixed $value, FieldPath $path, SchemaLookup $schemas, array &$valuesByPath): void {
+    private function flattenValue(FieldDescriptor $field, ?ValueNode $value, FieldPath $path, SchemaLookup $schemas, FieldValuesBuilder $valuesByPath): void {
         match ($field->kind()) {
-            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $valuesByPath[(string) $path] = $value,
-            FieldKind::Embed => $this->flattenValues($schemas->hierarchyFieldsOf($field->target()), $value ?? [], $path->embed(...), $schemas, $valuesByPath),
-            FieldKind::OwningReference => $this->flattenOwned($field, $value, $path, $schemas, $valuesByPath),
-            FieldKind::Collection => $this->flattenCollection($field->itemDescriptor(), $value ?? [], $path, $schemas, $valuesByPath),
+            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $valuesByPath->set($path, LeafNode::valueOf($value)),
+            FieldKind::Embed => $this->flattenValues($schemas->hierarchyFieldsOf($field->target()), ObjectNode::from($value) ?? ObjectNode::empty(), $path->embed(...), $schemas, $valuesByPath),
+            FieldKind::OwningReference => $this->flattenOwned($field, OwnedNode::from($value), $path, $schemas, $valuesByPath),
+            FieldKind::Collection => $this->flattenCollection($field->itemDescriptor(), CollectionNode::from($value)?->items ?? [], $path, $schemas, $valuesByPath),
         };
     }
 
@@ -127,16 +133,14 @@ final class SchemaCompiler
      * The bare path holds the concrete class, or null: an OwningReference has
      * no value of its own there otherwise, and unlike Embed its class isn't
      * fixed by the schema.
-     * @param array{class: class-string, fields: array<string, mixed>}|null $value
      * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
-     * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenOwned(FieldDescriptor $field, ?array $value, FieldPath $path, SchemaLookup $schemas, array &$valuesByPath): void {
-        $valuesByPath[(string) $path] = $value['class'] ?? null;
+    private function flattenOwned(FieldDescriptor $field, ?OwnedNode $value, FieldPath $path, SchemaLookup $schemas, FieldValuesBuilder $valuesByPath): void {
+        $valuesByPath->set($path, $value?->class);
 
         if ($value !== null) {
-            $this->assertIsOrExtends($value['class'], $field->target(), $path, $schemas);
-            $this->flattenValues($schemas->hierarchyFieldsOf($value['class']), $value['fields'], $path->traverse(...), $schemas, $valuesByPath);
+            $this->assertIsOrExtends($value->class, $field->target(), $path, $schemas);
+            $this->flattenValues($schemas->hierarchyFieldsOf($value->class), $value->fields, $path->traverse(...), $schemas, $valuesByPath);
         }
     }
 
@@ -174,18 +178,17 @@ final class SchemaCompiler
      * there otherwise, and without it nothing would say how many items exist.
      * Each item is its own row in a child table, so it's traversed with "."
      * and its index, never embedded into the owner with ":".
-     * @param mixed[] $items
+     * @param list<ValueNode|null> $items
      * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
-     * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenCollection(FieldDescriptor $item, array $items, FieldPath $path, SchemaLookup $schemas, array &$valuesByPath): void {
-        $valuesByPath[(string) $path] = count($items);
+    private function flattenCollection(FieldDescriptor $item, array $items, FieldPath $path, SchemaLookup $schemas, FieldValuesBuilder $valuesByPath): void {
+        $valuesByPath->set($path, count($items));
 
         foreach (array_values($items) as $index => $value) {
             $itemPath = $path->traverse($index);
 
             if ($item->kind() === FieldKind::Embed) {
-                $this->flattenValues($schemas->hierarchyFieldsOf($item->target()), $value ?? [], $itemPath->traverse(...), $schemas, $valuesByPath);
+                $this->flattenValues($schemas->hierarchyFieldsOf($item->target()), ObjectNode::from($value) ?? ObjectNode::empty(), $itemPath->traverse(...), $schemas, $valuesByPath);
             } else {
                 $this->flattenValue($item, $value, $itemPath, $schemas, $valuesByPath);
             }
@@ -202,46 +205,41 @@ final class SchemaCompiler
      * Writes into $kept only what $identifier's own values change: a value is
      * kept when nothing else would supply it, or what would differs. Walks the
      * same shape flattenValues() does.
-     * @param array<string, mixed> $values Keyed by FieldName.
      * @param Closure(FieldName): FieldPath $pathOf Turns one of $fields' names into its full path.
      * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
-     * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
-     * @param array<string, mixed> $kept Keyed by FieldPath.
+     * @param FieldValues $dense $identifier's own full values.
      */
-    private function keepValues(string $identifier, FieldDescriptorCollection $fields, array $values, Closure $pathOf, SchemaLookup $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
+    private function keepValues(string $identifier, FieldDescriptorCollection $fields, ObjectNode $values, Closure $pathOf, SchemaLookup $schemas, FieldValueResolver $resolver, FieldValues $dense, FieldValuesBuilder $kept): void {
         foreach ($fields as $name => $field) {
-            $this->keepValue($identifier, $field, $values[(string) $name] ?? null, $pathOf($name), $schemas, $resolver, $dense, $kept);
+            $this->keepValue($identifier, $field, $values->find($name), $pathOf($name), $schemas, $resolver, $dense, $kept);
         }
     }
 
     /**
      * Dispatch correct 'keep' method based on field kind.
      * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
-     * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
-     * @param array<string, mixed> $kept Keyed by FieldPath.
+     * @param FieldValues $dense $identifier's own full values.
      */
-    private function keepValue(string $identifier, FieldDescriptor $field, mixed $value, FieldPath $path, SchemaLookup $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
+    private function keepValue(string $identifier, FieldDescriptor $field, ?ValueNode $value, FieldPath $path, SchemaLookup $schemas, FieldValueResolver $resolver, FieldValues $dense, FieldValuesBuilder $kept): void {
         match ($field->kind()) {
-            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $this->keepIfDiffers($identifier, $path, $value, $resolver, $kept),
-            FieldKind::Embed => $this->keepValues($identifier, $schemas->hierarchyFieldsOf($field->target()), $value ?? [], $path->embed(...), $schemas, $resolver, $dense, $kept),
-            FieldKind::OwningReference => $this->keepOwned($identifier, $value, $path, $schemas, $resolver, $dense, $kept),
-            FieldKind::Collection => $this->keepCollection($identifier, $field->itemDescriptor(), $value ?? [], $path, $schemas, $resolver, $dense, $kept),
+            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $this->keepIfDiffers($identifier, $path, LeafNode::valueOf($value), $resolver, $kept),
+            FieldKind::Embed => $this->keepValues($identifier, $schemas->hierarchyFieldsOf($field->target()), ObjectNode::from($value) ?? ObjectNode::empty(), $path->embed(...), $schemas, $resolver, $dense, $kept),
+            FieldKind::OwningReference => $this->keepOwned($identifier, OwnedNode::from($value), $path, $schemas, $resolver, $dense, $kept),
+            FieldKind::Collection => $this->keepCollection($identifier, $field->itemDescriptor(), CollectionNode::from($value)?->items ?? [], $path, $schemas, $resolver, $dense, $kept),
         };
     }
 
     /**
      * The class it holds is kept or not like any other value; so is each of
      * its fields, against what the class would supply on its own.
-     * @param array{class: class-string, fields: array<string, mixed>}|null $value
      * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
-     * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
-     * @param array<string, mixed> $kept Keyed by FieldPath.
+     * @param FieldValues $dense $identifier's own full values.
      */
-    private function keepOwned(string $identifier, ?array $value, FieldPath $path, SchemaLookup $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
-        $this->keepIfDiffers($identifier, $path, $value['class'] ?? null, $resolver, $kept);
+    private function keepOwned(string $identifier, ?OwnedNode $value, FieldPath $path, SchemaLookup $schemas, FieldValueResolver $resolver, FieldValues $dense, FieldValuesBuilder $kept): void {
+        $this->keepIfDiffers($identifier, $path, $value?->class, $resolver, $kept);
 
         if ($value !== null) {
-            $this->keepValues($identifier, $schemas->hierarchyFieldsOf($value['class']), $value['fields'], $path->traverse(...), $schemas, $resolver, $dense, $kept);
+            $this->keepValues($identifier, $schemas->hierarchyFieldsOf($value->class), $value->fields, $path->traverse(...), $schemas, $resolver, $dense, $kept);
         }
     }
 
@@ -250,25 +248,24 @@ final class SchemaCompiler
      * differs from the collection it would otherwise resolve to; otherwise
      * nothing of it is. Within a kept item, each of its own fields is still
      * kept only when it differs from what the item's class would supply.
-     * @param mixed[] $items
+     * @param list<ValueNode|null> $items
      * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
-     * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
-     * @param array<string, mixed> $kept Keyed by FieldPath.
+     * @param FieldValues $dense $identifier's own full values.
      */
-    private function keepCollection(string $identifier, FieldDescriptor $item, array $items, FieldPath $path, SchemaLookup $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
+    private function keepCollection(string $identifier, FieldDescriptor $item, array $items, FieldPath $path, SchemaLookup $schemas, FieldValueResolver $resolver, FieldValues $dense, FieldValuesBuilder $kept): void {
         if (!$this->collectionDiffers($identifier, $path, $resolver, $dense)) {
             return;
         }
 
-        $kept[(string) $path] = count($items);
+        $kept->set($path, count($items));
 
         foreach (array_values($items) as $index => $value) {
             $itemPath = $path->traverse($index);
 
             match ($item->kind()) {
-                FieldKind::Embed => $this->keepValues($identifier, $schemas->hierarchyFieldsOf($item->target()), $value ?? [], $itemPath->traverse(...), $schemas, $resolver, $dense, $kept),
-                FieldKind::OwningReference => $this->keepOwnedItem($identifier, $value, $itemPath, $schemas, $resolver, $dense, $kept),
-                default => $kept[(string) $itemPath] = $value,
+                FieldKind::Embed => $this->keepValues($identifier, $schemas->hierarchyFieldsOf($item->target()), ObjectNode::from($value) ?? ObjectNode::empty(), $itemPath->traverse(...), $schemas, $resolver, $dense, $kept),
+                FieldKind::OwningReference => $this->keepOwnedItem($identifier, OwnedNode::from($value), $itemPath, $schemas, $resolver, $dense, $kept),
+                default => $kept->set($itemPath, LeafNode::valueOf($value)),
             };
         }
     }
@@ -276,37 +273,29 @@ final class SchemaCompiler
     /**
      * Like keepOwned(), except the class is always kept: an item belongs to a
      * kept collection, which has nothing else to supply it.
-     * @param array{class: class-string, fields: array<string, mixed>}|null $value
      * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
-     * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
-     * @param array<string, mixed> $kept Keyed by FieldPath.
+     * @param FieldValues $dense $identifier's own full values.
      */
-    private function keepOwnedItem(string $identifier, ?array $value, FieldPath $itemPath, SchemaLookup $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
-        $kept[(string) $itemPath] = $value['class'] ?? null;
+    private function keepOwnedItem(string $identifier, ?OwnedNode $value, FieldPath $itemPath, SchemaLookup $schemas, FieldValueResolver $resolver, FieldValues $dense, FieldValuesBuilder $kept): void {
+        $kept->set($itemPath, $value?->class);
 
         if ($value !== null) {
-            $this->keepValues($identifier, $schemas->hierarchyFieldsOf($value['class']), $value['fields'], $itemPath->traverse(...), $schemas, $resolver, $dense, $kept);
+            $this->keepValues($identifier, $schemas->hierarchyFieldsOf($value->class), $value->fields, $itemPath->traverse(...), $schemas, $resolver, $dense, $kept);
         }
     }
 
     /**
      * Whether the collection at $path, count and every item, differs from the
      * one $identifier would resolve to without it.
-     * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
+     * @param FieldValues $dense $identifier's own full values.
      */
-    private function collectionDiffers(string $identifier, FieldPath $path, FieldValueResolver $resolver, array $dense): bool {
-        $key = (string) $path;
-
+    private function collectionDiffers(string $identifier, FieldPath $path, FieldValueResolver $resolver, FieldValues $dense): bool {
         // $dense lists a collection's count before its items, so a different
         // count is caught before an item past the other collection's end is
         // ever looked up.
-        foreach ($dense as $denseKey => $value) {
-            if ($denseKey !== $key && !str_starts_with($denseKey, $key . FieldPath::TRAVERSE)) {
-                continue;
-            }
-
+        foreach ($dense->under($path) as $densePath => $value) {
             try {
-                $fallback = $resolver->resolveWithoutSubtree($identifier, FieldPath::fromString($denseKey), $path);
+                $fallback = $resolver->resolveWithoutSubtree($identifier, $densePath, $path);
             } catch (InvalidArgumentException) {
                 // Nothing to fall back to, or an item whose class the other
                 // collection's doesn't share: either way, not the same.
@@ -321,18 +310,17 @@ final class SchemaCompiler
         return false;
     }
 
-    /** @param array<string, mixed> $kept Keyed by FieldPath. */
-    private function keepIfDiffers(string $identifier, FieldPath $path, mixed $value, FieldValueResolver $resolver, array &$kept): void {
+    private function keepIfDiffers(string $identifier, FieldPath $path, mixed $value, FieldValueResolver $resolver, FieldValuesBuilder $kept): void {
         try {
             $fallback = $resolver->resolveFallback($identifier, $path);
         } catch (NoFieldValueException) {
-            $kept[(string) $path] = $value;
+            $kept->set($path, $value);
 
             return;
         }
 
         if ($fallback !== $value) {
-            $kept[(string) $path] = $value;
+            $kept->set($path, $value);
         }
     }
 

@@ -20,6 +20,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\LeafNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\ObjectNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Value\OwnedNode;
 
 #[Entity]
 class CompilerRoot
@@ -348,7 +351,7 @@ final class SchemaCompilerTest extends TestCase
             fieldValidators: $original->fieldValidators,
             uniqueGroups: $original->uniqueGroups,
             prototypeValidators: $original->prototypeValidators,
-            defaultValues: ['engine' => ['class' => CompilerPiston::class, 'fields' => ['diameter' => 10]]],
+            defaultValues: ObjectNode::fromArray(['engine' => new OwnedNode(CompilerPiston::class, ObjectNode::fromArray(['diameter' => new LeafNode(10)]))]),
         );
 
         return $blueprints;
@@ -444,7 +447,7 @@ final class SchemaCompilerTest extends TestCase
      * @return array<string, mixed>
      */
     private static function loadSorted(SchemaFieldValueStore $valueStore, string $identifier): array {
-        $values = $valueStore->load($identifier);
+        $values = $valueStore->load($identifier)->toArray();
         ksort($values, SORT_STRING);
 
         return $values;
@@ -659,7 +662,7 @@ final class SchemaCompilerTest extends TestCase
 
         self::assertFalse($registry->has(CompilerPiston::class));
         self::assertFalse($registry->has(CompilerOwnedEngine::class));
-        self::assertSame([], $valueStore->load(CompilerPiston::class));
-        self::assertSame([], $valueStore->load(CompilerOwnedEngine::class));
+        self::assertSame([], $valueStore->load(CompilerPiston::class)->toArray());
+        self::assertSame([], $valueStore->load(CompilerOwnedEngine::class)->toArray());
     }
 }

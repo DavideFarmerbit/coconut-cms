@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
 
 final class SchemaFieldValueStoreCacheTest extends TestCase
@@ -24,41 +25,41 @@ final class SchemaFieldValueStoreCacheTest extends TestCase
     }
 
     public function testLoadRemembersWhatItLoaded(): void {
-        $this->store->save('Engine', ['horsepower' => 300]);
+        $this->store->save('Engine', FieldValues::fromArray(['horsepower' => 300]));
         $this->store->load('Engine');
 
         $this->writeBehindTheStoresBack('Engine', 'horsepower', 999);
 
         // Not reloaded: the first load is remembered.
-        self::assertSame(['horsepower' => 300], $this->store->load('Engine'));
+        self::assertSame(['horsepower' => 300], $this->store->load('Engine')->toArray());
     }
 
     public function testSaveForgetsWhatItOverwrites(): void {
-        $this->store->save('Engine', ['horsepower' => 300]);
+        $this->store->save('Engine', FieldValues::fromArray(['horsepower' => 300]));
         $this->store->load('Engine');
 
-        $this->store->save('Engine', ['horsepower' => 500]);
+        $this->store->save('Engine', FieldValues::fromArray(['horsepower' => 500]));
 
-        self::assertSame(['horsepower' => 500], $this->store->load('Engine'));
+        self::assertSame(['horsepower' => 500], $this->store->load('Engine')->toArray());
     }
 
     public function testSaveAllForgetsOnlyWhatItOverwrites(): void {
-        $this->store->saveAll(['Engine' => ['horsepower' => 300], 'Piston' => ['diameter' => 10]]);
+        $this->store->saveAll(['Engine' => FieldValues::fromArray(['horsepower' => 300]), 'Piston' => FieldValues::fromArray(['diameter' => 10])]);
         $this->store->load('Engine');
         $this->store->load('Piston');
         $this->writeBehindTheStoresBack('Piston', 'diameter', 99);
 
-        $this->store->saveAll(['Engine' => ['horsepower' => 500]]);
+        $this->store->saveAll(['Engine' => FieldValues::fromArray(['horsepower' => 500])]);
 
-        self::assertSame(['horsepower' => 500], $this->store->load('Engine'));
-        self::assertSame(['diameter' => 10], $this->store->load('Piston'));
+        self::assertSame(['horsepower' => 500], $this->store->load('Engine')->toArray());
+        self::assertSame(['diameter' => 10], $this->store->load('Piston')->toArray());
     }
 
     public function testAnIdentifierWithNothingStoredIsRememberedToo(): void {
-        self::assertSame([], $this->store->load('Engine'));
+        self::assertSame([], $this->store->load('Engine')->toArray());
 
         $this->connection->insert('schema_field_values', ['identifier' => 'Engine', 'field_name' => 'horsepower', 'value_json' => '300']);
 
-        self::assertSame([], $this->store->load('Engine'));
+        self::assertSame([], $this->store->load('Engine')->toArray());
     }
 }

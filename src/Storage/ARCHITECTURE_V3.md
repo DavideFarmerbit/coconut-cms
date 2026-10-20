@@ -114,18 +114,28 @@ A value object class implements `StorableValue`: `toStorage()` gives the one
 string it's stored as, plain or JSON, and `fromStorage()` rebuilds it. Two
 value objects are equal when they store as the same string.
 
-- Scalar, Reference: the raw value, never recursed into. Reference carries no
-  recursion either way, since it doesn't own what it points to.
-- ValueObject: the string `toStorage()` gives, never the object itself, or
-  null. Everything after the reader only ever sees that string.
-- Embed: recurse into the embedded object's own fields, read through the
+The result is a tree of `ValueNode`s, rooted at the blueprint's `defaultValues`,
+an `ObjectNode` of every field the class declares or inherits. An Embed or
+OwningReference holding nothing is null in a node's place; a leaf holding
+null is a `LeafNode` holding null. Each node class has a `from()` that rejects
+any other kind of node, so a malformed blueprint fails instead of being
+misread.
+
+- Scalar, Reference: a `LeafNode` of the raw value, never recursed into.
+  Reference carries no recursion either way, since it doesn't own what it
+  points to.
+- ValueObject: a `LeafNode` of the string `toStorage()` gives, never the object
+  itself, or of null. Everything after the reader only ever sees that string.
+- Embed: an `ObjectNode` of the embedded object's own fields, read through the
   *declared* target class, never the runtime object's actual class. Type
   erasure: a subclass assigned there only contributes the declared class's own
   fields.
-- OwningReference: recurse into the referenced object's own fields, read through
-  its *actual* concrete class. Polymorphic: the concrete class itself is
-  recorded alongside its fields, as `{class, fields}`.
-- Collection: each item follows the rule for its own item kind, recursively.
+- OwningReference: an `OwnedNode` of the referenced object's concrete class and
+  an `ObjectNode` of its own fields, read through that *actual* class.
+  Polymorphic: the class is recorded because it can be any subclass of the
+  declared target.
+- Collection: a `CollectionNode` of its items, each following the rule for its
+  own item kind, recursively.
 
 ## Flattening default values into keys
 
@@ -169,7 +179,8 @@ reflection-backed, one override-table-backed) was a mistake made earlier in this
 round and corrected: `SchemaFieldValueStore` is the one mechanism for both.
 
 - `save($identifier, $values)` / `saveAll()` / `load($identifier)`: a plain
-  `(identifier, FieldPath) -> value` store, written by the compiler for native
+  `(identifier, FieldPath) -> value` store, one `FieldValues` per identifier
+  (built with a `FieldValuesBuilder`, immutable once built), written by the compiler for native
   and directly by an admin save for editor-created. It knows nothing about
   schemas. It remembers what it loaded for the rest of the request, and
   forgets whatever a save overwrites, so resolving through many sources
@@ -177,6 +188,7 @@ round and corrected: `SchemaFieldValueStore` is the one mechanism for both.
   seen: something else writing to the table mid-request isn't.
 - `diff($identifier, $currentValues)`: added/removed/changed against whatever
   was last saved, path for path, not "something in this subtree differs."
+  It returns a `FieldValuesDiff`.
 
 ## Resolving a value
 
@@ -185,7 +197,8 @@ value. It needs schemas, so it lives outside the store, which only reads and
 writes rows. It is not a repository concern either: the compiler, migrations
 and the editor all need the same answer.
 
-It works through sources: (identifier, key prefix) pairs, checked in order.
+It works through sources (`ValueSource`): (identifier, key prefix) pairs, checked
+in order.
 The first source holding the key wins. A stored null is a value, not a miss.
 An identifier's own sources are itself, then each of its parents, with no
 prefix. Each step down the path extends them:
@@ -205,6 +218,8 @@ parents, then `horsepower` in the class `engine` holds, then in that class's
 parents. Nothing left to try: throw `NoFieldValueException`.
 
 Two more entry points serve the compiler:
+(each works through a `ValueExclusion`: one identifier's one path, or subtree,
+skipped while walking the sources)
 - `resolveFallback($identifier, $path)`: what `resolve()` would give if
   `$identifier` held nothing at `$path`. Everything else it holds still
   counts, e.g. the class its OwningReference holds.

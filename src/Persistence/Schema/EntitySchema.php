@@ -4,7 +4,6 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema;
 
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 
@@ -22,7 +21,7 @@ final readonly class EntitySchema
      *        class's PHP parent unless that parent is also #[Entity]-marked.
      * @param string $table Always the real table name: an explicit #[Entity(table:
      *        ...)] override, or the derived default when none was given.
-     * @param FieldName[][] $uniqueGroups Each entry is one group's own field names.
+     * @param list<UniqueGroup> $uniqueGroups
      * @param PrototypeValidatorRule[] $prototypeValidators
      */
     public function __construct(

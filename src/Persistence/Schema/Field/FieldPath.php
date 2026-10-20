@@ -83,6 +83,35 @@ final readonly class FieldPath implements Stringable
         return new self([...$this->segments, $segment], [...$this->joins, self::TRAVERSE]);
     }
 
+    /** This path, then $rest, joined by $join: EMBED or TRAVERSE. */
+    public function append(string $join, self $rest): self {
+        if ($join !== self::EMBED && $join !== self::TRAVERSE) {
+            throw new InvalidArgumentException(sprintf('"%s" is not a field path separator.', $join));
+        }
+
+        if ($join === self::EMBED && is_int($rest->segments[0])) {
+            throw new InvalidArgumentException(sprintf('An index can only follow "%s".', self::TRAVERSE));
+        }
+
+        return new self([...$this->segments, ...$rest->segments], [...$this->joins, $join, ...$rest->joins]);
+    }
+
+    /** Whether this path is $prefix itself or lies somewhere under it. */
+    public function startsWith(self $prefix): bool {
+        $length = count($prefix->segments);
+        if ($length > count($this->segments)) {
+            return false;
+        }
+
+        for ($i = 0; $i < $length; $i++) {
+            if ((string) $this->segments[$i] !== (string) $prefix->segments[$i]) {
+                return false;
+            }
+        }
+
+        return array_slice($this->joins, 0, $length - 1) === $prefix->joins;
+    }
+
     /** The first segment. */
     public function head(): FieldName|int {
         return $this->segments[0];

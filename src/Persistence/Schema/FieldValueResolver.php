@@ -7,15 +7,15 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPath;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldValues;
 
 /**
  * Finds the effective value of one FieldPath on one identifier, native or
  * editor-created alike.
  *
- * Works through sources: (identifier, key prefix) pairs, checked in order,
- * the first one holding the key winning. An identifier's own sources are
- * itself and its parents, with no prefix. Each step down the path extends
- * them:
+ * Works through ValueSources, checked in order, the first one holding the key
+ * winning. An identifier's own sources are itself and its parents, with no
+ * prefix. Each step down the path extends them:
  * - Embed: the same sources under "field:", then the target's own sources.
  * - OwningReference: the same sources under "field.", then the own sources of
  *   whatever class the field holds, itself resolved from the same sources.
@@ -30,8 +30,8 @@ final class FieldValueResolver
 
     /**
      * @param array<string, EntitySchema> $batchSchemas Read ahead of the registry.
-     * @param array<string, array<string, mixed>> $batchValues Read ahead of the
-     *        store, keyed by identifier, then by FieldPath.
+     * @param array<string, FieldValues> $batchValues Read ahead of the store,
+     *        keyed by identifier.
      */
     public function __construct(
         private readonly SchemaRegistry $registry,
@@ -43,10 +43,10 @@ final class FieldValueResolver
     }
 
     /**
-     * Makes this resolver read $schemas and $valuesByIdentifier ahead of the
+     * This resolver, reading $schemas and $valuesByIdentifier ahead of the
      * registry and the store: for a batch being compiled, not committed yet.
      * @param array<string, EntitySchema> $schemas
-     * @param array<string, array<string, mixed>> $valuesByIdentifier
+     * @param array<string, FieldValues> $valuesByIdentifier
      */
     public function withBatch(array $schemas, array $valuesByIdentifier): self {
         return new self($this->registry, $this->store, $schemas, $valuesByIdentifier);
@@ -63,9 +63,7 @@ final class FieldValueResolver
      * OwningReference holds, for instance, when $path goes through it.
      */
     public function resolveFallback(string $identifier, FieldPath $path): mixed {
-        $excluded = ['identifier' => $identifier, 'key' => (string) $path, 'subtree' => false];
-
-        return $this->resolveOn($this->chainOf($identifier), $identifier, $path, $excluded);
+        return $this->resolveOn($this->chainOf($identifier), $identifier, $path, ValueExclusion::at($identifier, $path));
     }
 
     /**
@@ -74,20 +72,17 @@ final class FieldValueResolver
      * whole collection gone.
      */
     public function resolveWithoutSubtree(string $identifier, FieldPath $path, FieldPath $subtree): mixed {
-        $excluded = ['identifier' => $identifier, 'key' => (string) $subtree, 'subtree' => true];
-
-        return $this->resolveOn($this->chainOf($identifier), $identifier, $path, $excluded);
+        return $this->resolveOn($this->chainOf($identifier), $identifier, $path, ValueExclusion::under($identifier, $subtree));
     }
 
     /**
-     * @param list<array{string, string}> $sources (identifier, key prefix) pairs, in order.
+     * @param list<ValueSource> $sources In order.
      * @param string $class Whose fields $path's head is one of.
-     * @param array{identifier: string, key: string, subtree: bool}|null $excluded
      */
-    private function resolveOn(array $sources, string $class, FieldPath $path, ?array $excluded): mixed {
+    private function resolveOn(array $sources, string $class, FieldPath $path, ?ValueExclusion $excluded): mixed {
         $head = $path->head();
         $field = $this->fieldOf($class, $head, $path);
-        $key = (string) $head;
+        $key = FieldPath::of($head);
 
         return match ($field->kind()) {
             FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $path->tail() === null
@@ -101,34 +96,27 @@ final class FieldValueResolver
         };
     }
 
-    /**
-     * @param list<array{string, string}> $sources
-     * @param array{identifier: string, key: string, subtree: bool}|null $excluded
-     */
-    private function resolveThroughEmbed(array $sources, string $key, string $target, FieldPath $rest, ?array $excluded): mixed {
-        return $this->resolveOn([...$this->prefixed($sources, $key . FieldPath::EMBED), ...$this->chainOf($target)], $target, $rest, $excluded);
+    /** @param list<ValueSource> $sources */
+    private function resolveThroughEmbed(array $sources, FieldPath $key, string $target, FieldPath $rest, ?ValueExclusion $excluded): mixed {
+        return $this->resolveOn([...$this->under($sources, $key, FieldPath::EMBED), ...$this->chainOf($target)], $target, $rest, $excluded);
     }
 
     /**
      * $rest is taken already checked, so a malformed path is reported as such
      * before anything gets looked up.
-     * @param list<array{string, string}> $sources
-     * @param array{identifier: string, key: string, subtree: bool}|null $excluded
+     * @param list<ValueSource> $sources
      */
-    private function resolveThroughOwned(array $sources, string $key, FieldPath $rest, ?array $excluded, string $class, FieldPath $path): mixed {
+    private function resolveThroughOwned(array $sources, FieldPath $key, FieldPath $rest, ?ValueExclusion $excluded, string $class, FieldPath $path): mixed {
         $held = $this->firstValue($sources, $key, $excluded, $class, $path);
         if ($held === null) {
             throw new NoFieldValueException(sprintf('Cannot resolve "%s" on "%s": "%s" holds nothing.', $path, $class, $key));
         }
 
-        return $this->resolveOn([...$this->prefixed($sources, $key . FieldPath::TRAVERSE), ...$this->chainOf($held)], $held, $rest, $excluded);
+        return $this->resolveOn([...$this->under($sources, $key, FieldPath::TRAVERSE), ...$this->chainOf($held)], $held, $rest, $excluded);
     }
 
-    /**
-     * @param list<array{string, string}> $sources
-     * @param array{identifier: string, key: string, subtree: bool}|null $excluded
-     */
-    private function resolveThroughCollection(array $sources, string $key, FieldDescriptor $item, string $class, FieldPath $path, ?array $excluded): mixed {
+    /** @param list<ValueSource> $sources */
+    private function resolveThroughCollection(array $sources, FieldPath $key, FieldDescriptor $item, string $class, FieldPath $path, ?ValueExclusion $excluded): mixed {
         $index = null;
         $rest = null;
         if ($path->tail() !== null) {
@@ -149,8 +137,7 @@ final class FieldValueResolver
             throw $this->noValue($class, $path);
         }
 
-        [$ownerIdentifier, $prefix] = $owner;
-        $count = $this->valuesOf($ownerIdentifier)[$prefix . $key];
+        $count = $this->valuesOf($owner->identifier)->get($owner->pathOf($key));
         if ($index === null) {
             return $count;
         }
@@ -159,88 +146,66 @@ final class FieldValueResolver
             throw $this->invalidPath($class, $path, sprintf('"%s" has only %d item(s)', $key, $count));
         }
 
-        $itemKey = $key . FieldPath::TRAVERSE . $index;
-        $ownerOnly = [[$ownerIdentifier, $prefix]];
+        $itemKey = $key->traverse($index);
 
         if ($rest === null) {
-            return $this->firstValue($ownerOnly, $itemKey, $excluded, $class, $path);
+            return $this->firstValue([$owner], $itemKey, $excluded, $class, $path);
         }
 
         return $item->kind() === FieldKind::Embed
-            ? $this->resolveOn([...$this->prefixed($ownerOnly, $itemKey . FieldPath::TRAVERSE), ...$this->chainOf($item->target())], $item->target(), $rest, $excluded)
-            : $this->resolveThroughOwned($ownerOnly, $itemKey, $rest, $excluded, $class, $path);
+            ? $this->resolveOn([$owner->under($itemKey, FieldPath::TRAVERSE), ...$this->chainOf($item->target())], $item->target(), $rest, $excluded)
+            : $this->resolveThroughOwned([$owner], $itemKey, $rest, $excluded, $class, $path);
     }
 
     /**
      * The value of the first source holding $key.
-     * @param list<array{string, string}> $sources
-     * @param array{identifier: string, key: string, subtree: bool}|null $excluded
+     * @param list<ValueSource> $sources
      */
-    private function firstValue(array $sources, string $key, ?array $excluded, string $class, FieldPath $path): mixed {
+    private function firstValue(array $sources, FieldPath $key, ?ValueExclusion $excluded, string $class, FieldPath $path): mixed {
         $source = $this->firstSourceHolding($sources, $key, $excluded);
         if ($source === null) {
             throw $this->noValue($class, $path);
         }
 
-        [$identifier, $prefix] = $source;
-
-        return $this->valuesOf($identifier)[$prefix . $key];
+        return $this->valuesOf($source->identifier)->get($source->pathOf($key));
     }
 
-    /**
-     * @param list<array{string, string}> $sources
-     * @param array{identifier: string, key: string, subtree: bool}|null $excluded
-     * @return array{string, string}|null
-     */
-    private function firstSourceHolding(array $sources, string $key, ?array $excluded): ?array {
-        foreach ($sources as [$identifier, $prefix]) {
-            $fullKey = $prefix . $key;
-            if ($this->isExcluded($identifier, $fullKey, $excluded) || !array_key_exists($fullKey, $this->valuesOf($identifier))) {
+    /** @param list<ValueSource> $sources */
+    private function firstSourceHolding(array $sources, FieldPath $key, ?ValueExclusion $excluded): ?ValueSource {
+        foreach ($sources as $source) {
+            $fullPath = $source->pathOf($key);
+            if ($excluded?->covers($source->identifier, $fullPath) || !$this->valuesOf($source->identifier)->has($fullPath)) {
                 continue;
             }
 
-            return [$identifier, $prefix];
+            return $source;
         }
 
         return null;
     }
 
-    /** @param array{identifier: string, key: string, subtree: bool}|null $excluded */
-    private function isExcluded(string $identifier, string $fullKey, ?array $excluded): bool {
-        if ($excluded === null || $identifier !== $excluded['identifier']) {
-            return false;
-        }
-
-        return $fullKey === $excluded['key']
-            || ($excluded['subtree'] && (
-                str_starts_with($fullKey, $excluded['key'] . FieldPath::TRAVERSE)
-                || str_starts_with($fullKey, $excluded['key'] . FieldPath::EMBED)
-            ));
-    }
-
     /**
-     * @param list<array{string, string}> $sources
-     * @return list<array{string, string}>
+     * @param list<ValueSource> $sources
+     * @return list<ValueSource>
      */
-    private function prefixed(array $sources, string $addition): array {
-        return array_map(static fn (array $source): array => [$source[0], $source[1] . $addition], $sources);
+    private function under(array $sources, FieldPath $key, string $join): array {
+        return array_map(static fn (ValueSource $source): ValueSource => $source->under($key, $join), $sources);
     }
 
     /**
      * $identifier and each of its parents, with no prefix.
-     * @return list<array{string, string}>
+     * @return list<ValueSource>
      */
     private function chainOf(string $identifier): array {
         $chain = [];
         for ($current = $identifier; $current !== null; $current = $this->schemas->get($current)->parent) {
-            $chain[] = [$current, ''];
+            $chain[] = ValueSource::of($current);
         }
 
         return $chain;
     }
 
-    /** @return array<string, mixed> */
-    private function valuesOf(string $identifier): array {
+    private function valuesOf(string $identifier): FieldValues {
         return $this->batchValues[$identifier] ?? $this->store->load($identifier);
     }
 

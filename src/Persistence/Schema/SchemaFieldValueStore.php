@@ -5,6 +5,9 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\Types;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldValues;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldValuesBuilder;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldValuesDiff;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPath;
 
 /**
@@ -24,7 +27,7 @@ final class SchemaFieldValueStore
 {
     private const TABLE = 'schema_field_values';
 
-    /** @var array<string, array<string, mixed>> Keyed by identifier, then by FieldPath. */
+    /** @var array<string, FieldValues> Keyed by identifier. */
     private array $loaded = [];
 
     public function __construct(
@@ -55,20 +58,15 @@ final class SchemaFieldValueStore
     /**
      * Replaces whatever values this identifier already had with $values, as a
      * single transaction.
-     * @param array<string, mixed> $values One entry per leaf, keyed by
-     *        FieldPath (as plain strings), never a nested tree: an Embed's
-     *        fields joined with ":", an OwningReference or a Collection item
-     *        traversed with ".", e.g. "engine.piston:diameter".
      */
-    public function save(string $identifier, array $values): void {
+    public function save(string $identifier, FieldValues $values): void {
         $this->saveAll([$identifier => $values]);
     }
 
     /**
      * save() for several identifiers at once, as a single transaction: either
      * every identifier's values are replaced, or none are.
-     * @param array<string, array<string, mixed>> $valuesByIdentifier Each entry
-     *        shaped like save()'s $values.
+     * @param array<string, FieldValues> $valuesByIdentifier Keyed by identifier.
      */
     public function saveAll(array $valuesByIdentifier): void {
         // Forgotten first, so even a write that fails part-way leaves nothing
@@ -81,10 +79,10 @@ final class SchemaFieldValueStore
             foreach ($valuesByIdentifier as $identifier => $values) {
                 $connection->delete(self::TABLE, ['identifier' => $identifier]);
 
-                foreach ($values as $field => $value) {
+                foreach ($values->toArray() as $path => $value) {
                     $connection->insert(self::TABLE, [
                         'identifier' => $identifier,
-                        'field_name' => $field,
+                        'field_name' => $path,
                         'value_json' => json_encode($value),
                     ]);
                 }
@@ -92,8 +90,7 @@ final class SchemaFieldValueStore
         });
     }
 
-    /** @return array<string, mixed> Keyed by FieldPath, same shape save() was given. */
-    public function load(string $identifier): array {
+    public function load(string $identifier): FieldValues {
         if (array_key_exists($identifier, $this->loaded)) {
             return $this->loaded[$identifier];
         }
@@ -103,36 +100,16 @@ final class SchemaFieldValueStore
             [$identifier],
         );
 
-        $values = [];
+        $values = new FieldValuesBuilder();
         foreach ($rows as $row) {
-            $values[$row['field_name']] = json_decode($row['value_json'], true);
+            $values->set(FieldPath::fromString($row['field_name']), json_decode($row['value_json'], true));
         }
 
-        return $this->loaded[$identifier] = $values;
+        return $this->loaded[$identifier] = $values->build();
     }
 
-    /**
-     * Compares $currentValues against whatever was last saved for $identifier.
-     * @param array<string, mixed> $currentValues
-     * @return array{added: FieldPath[], removed: FieldPath[], changed: FieldPath[]}
-     */
-    public function diff(string $identifier, array $currentValues): array {
-        $stored = $this->load($identifier);
-
-        $added = array_diff(array_keys($currentValues), array_keys($stored));
-        $removed = array_diff(array_keys($stored), array_keys($currentValues));
-
-        $changed = [];
-        foreach ($currentValues as $field => $value) {
-            if (array_key_exists($field, $stored) && $stored[$field] !== $value) {
-                $changed[] = $field;
-            }
-        }
-
-        return [
-            'added' => array_map(FieldPath::fromString(...), array_values($added)),
-            'removed' => array_map(FieldPath::fromString(...), array_values($removed)),
-            'changed' => array_map(FieldPath::fromString(...), $changed),
-        ];
+    /** $currentValues compared against whatever was last saved for $identifier. */
+    public function diff(string $identifier, FieldValues $currentValues): FieldValuesDiff {
+        return FieldValuesDiff::between($this->load($identifier), $currentValues);
     }
 }
