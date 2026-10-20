@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Field;
 
 use InvalidArgumentException;
 use Stringable;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 
 /**
  * One field's own name within an entity's declared shape. Never contains

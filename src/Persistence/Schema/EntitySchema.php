@@ -2,8 +2,8 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Schema;
 
-use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 

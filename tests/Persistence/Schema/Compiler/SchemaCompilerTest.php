@@ -12,17 +12,17 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReferenc
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\LeafNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\ObjectNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\OwnedNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\SchemaCompiler;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
-use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
-use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Value\LeafNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Value\ObjectNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Value\OwnedNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
 
 #[Entity]
 class CompilerRoot

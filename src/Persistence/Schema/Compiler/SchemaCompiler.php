@@ -4,24 +4,24 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Compiler;
 
 use Closure;
 use InvalidArgumentException;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\CollectionNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\LeafNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\ObjectNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\OwnedNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\ValueNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPath;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldValues;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldValuesBuilder;
-use XyloIsCoding\CoconutCms\Persistence\Schema\FieldValueResolver;
-use XyloIsCoding\CoconutCms\Persistence\Schema\NoFieldValueException;
-use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
-use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaLookup;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Value\CollectionNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Value\LeafNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Value\ObjectNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Value\OwnedNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Value\ValueNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Resolver\FieldValueResolver;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Resolver\NoFieldValueException;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValuesBuilder;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
 
 /**
  * Turns a batch of already-read blueprints into their final EntitySchemas:

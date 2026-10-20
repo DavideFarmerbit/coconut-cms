@@ -15,26 +15,26 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Method\DefaultInstance;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermission;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldValidator;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\CollectionNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\LeafNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\ObjectNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\OwnedNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\ValueNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\UniqueGroup;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Value\CollectionNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Value\LeafNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Value\ObjectNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Value\OwnedNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Value\ValueNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 
 /**
  * Reflects a native class's attributes into an EntityBlueprint, the
