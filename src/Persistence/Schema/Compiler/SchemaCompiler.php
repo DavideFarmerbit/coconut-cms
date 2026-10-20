@@ -10,6 +10,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPath;
+use XyloIsCoding\CoconutCms\Persistence\Schema\FieldValueResolver;
+use XyloIsCoding\CoconutCms\Persistence\Schema\NoFieldValueException;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
 
@@ -17,16 +19,20 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
  * Turns a batch of already-read blueprints into their final EntitySchemas:
  * orders the batch so a parent or Embed target always comes before whatever
  * depends on it, registers every result with the request's SchemaRegistry, and
- * writes each one's own default values to SchemaFieldValueStore. A dependency
+ * writes to SchemaFieldValueStore only the default values each one changes
+ * from what it would otherwise resolve to. A dependency
  * outside the given batch is expected to already be registered with the
  * registry, from an earlier compile() call.
  */
 final class SchemaCompiler
 {
+    private readonly FieldValueResolver $resolver;
+
     public function __construct(
         private readonly SchemaRegistry $registry,
         private readonly SchemaFieldValueStore $valueStore,
     ) {
+        $this->resolver = new FieldValueResolver($registry, $valueStore);
     }
 
     /**
@@ -55,16 +61,27 @@ final class SchemaCompiler
             );
         }
 
-        $valuesByIdentifier = [];
+        // Every value each class's default instance holds, inherited fields
+        // included. For a class in this batch, these are its effective values.
+        $denseByIdentifier = [];
         foreach ($order as $identifier => $blueprint) {
-            $valuesByPath = [];
-            $this->flattenValues($blueprint->fields, $blueprint->defaultValues, FieldPath::of(...), $schemas, $valuesByPath);
-            $valuesByIdentifier[$identifier] = $valuesByPath;
+            $denseByIdentifier[$identifier] = [];
+            $this->flattenValues($this->hierarchyFieldsOf($identifier, $schemas), $blueprint->defaultValues, FieldPath::of(...), $schemas, $denseByIdentifier[$identifier]);
+        }
+
+        // Only what differs from what it would resolve to anyway gets stored.
+        // Fallbacks read this batch's own schemas and full values ahead of the
+        // registry and the store, since neither is committed yet.
+        $resolver = $this->resolver->withBatch($schemas, $denseByIdentifier);
+        $sparseByIdentifier = [];
+        foreach ($order as $identifier => $blueprint) {
+            $sparseByIdentifier[$identifier] = [];
+            $this->keepValues($identifier, $this->hierarchyFieldsOf($identifier, $schemas), $blueprint->defaultValues, FieldPath::of(...), $schemas, $resolver, $denseByIdentifier[$identifier], $sparseByIdentifier[$identifier]);
         }
 
         // Commit. The store goes first: it's the only step that can still
         // fail, and registering can't, so a failed write registers nothing.
-        $this->valueStore->saveAll($valuesByIdentifier);
+        $this->valueStore->saveAll($sparseByIdentifier);
         foreach ($schemas as $schema) {
             $this->registry->register($schema);
         }
@@ -194,6 +211,150 @@ final class SchemaCompiler
     }
 
     // ~Value Flattening
+    /*================================================================================================================*/
+
+    /*================================================================================================================*/
+    // Sparse Values
+
+    /**
+     * Writes into $kept only what $identifier's own values change: a value is
+     * kept when nothing else would supply it, or what would differs. Walks the
+     * same shape flattenValues() does.
+     * @param array<string, mixed> $values Keyed by FieldName.
+     * @param Closure(FieldName): FieldPath $pathOf Turns one of $fields' names into its full path.
+     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
+     * @param array<string, mixed> $kept Keyed by FieldPath.
+     */
+    private function keepValues(string $identifier, FieldDescriptorCollection $fields, array $values, Closure $pathOf, array $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
+        foreach ($fields as $name => $field) {
+            $this->keepValue($identifier, $field, $values[(string) $name] ?? null, $pathOf($name), $schemas, $resolver, $dense, $kept);
+        }
+    }
+
+    /**
+     * Dispatch correct 'keep' method based on field kind.
+     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
+     * @param array<string, mixed> $kept Keyed by FieldPath.
+     */
+    private function keepValue(string $identifier, FieldDescriptor $field, mixed $value, FieldPath $path, array $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
+        match ($field->kind()) {
+            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $this->keepIfDiffers($identifier, $path, $value, $resolver, $kept),
+            FieldKind::Embed => $this->keepValues($identifier, $this->hierarchyFieldsOf($field->target(), $schemas), $value ?? [], $path->embed(...), $schemas, $resolver, $dense, $kept),
+            FieldKind::OwningReference => $this->keepOwned($identifier, $value, $path, $schemas, $resolver, $dense, $kept),
+            FieldKind::Collection => $this->keepCollection($identifier, $field->itemDescriptor(), $value ?? [], $path, $schemas, $resolver, $dense, $kept),
+        };
+    }
+
+    /**
+     * The class it holds is kept or not like any other value; so is each of
+     * its fields, against what the class would supply on its own.
+     * @param array{class: class-string, fields: array<string, mixed>}|null $value
+     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
+     * @param array<string, mixed> $kept Keyed by FieldPath.
+     */
+    private function keepOwned(string $identifier, ?array $value, FieldPath $path, array $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
+        $this->keepIfDiffers($identifier, $path, $value['class'] ?? null, $resolver, $kept);
+
+        if ($value !== null) {
+            $this->keepValues($identifier, $this->hierarchyFieldsOf($value['class'], $schemas), $value['fields'], $path->traverse(...), $schemas, $resolver, $dense, $kept);
+        }
+    }
+
+    /**
+     * All or nothing: kept whole, count and every item, when anything about it
+     * differs from the collection it would otherwise resolve to; otherwise
+     * nothing of it is. Within a kept item, each of its own fields is still
+     * kept only when it differs from what the item's class would supply.
+     * @param mixed[] $items
+     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
+     * @param array<string, mixed> $kept Keyed by FieldPath.
+     */
+    private function keepCollection(string $identifier, FieldDescriptor $item, array $items, FieldPath $path, array $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
+        if (!$this->collectionDiffers($identifier, $path, $resolver, $dense)) {
+            return;
+        }
+
+        $kept[(string) $path] = count($items);
+
+        foreach (array_values($items) as $index => $value) {
+            $itemPath = $path->traverse($index);
+
+            match ($item->kind()) {
+                FieldKind::Embed => $this->keepValues($identifier, $this->hierarchyFieldsOf($item->target(), $schemas), $value ?? [], $itemPath->traverse(...), $schemas, $resolver, $dense, $kept),
+                FieldKind::OwningReference => $this->keepOwnedItem($identifier, $value, $itemPath, $schemas, $resolver, $dense, $kept),
+                default => $kept[(string) $itemPath] = $value,
+            };
+        }
+    }
+
+    /**
+     * Like keepOwned(), except the class is always kept: an item belongs to a
+     * kept collection, which has nothing else to supply it.
+     * @param array{class: class-string, fields: array<string, mixed>}|null $value
+     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
+     * @param array<string, mixed> $kept Keyed by FieldPath.
+     */
+    private function keepOwnedItem(string $identifier, ?array $value, FieldPath $itemPath, array $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
+        $kept[(string) $itemPath] = $value['class'] ?? null;
+
+        if ($value !== null) {
+            $this->keepValues($identifier, $this->hierarchyFieldsOf($value['class'], $schemas), $value['fields'], $itemPath->traverse(...), $schemas, $resolver, $dense, $kept);
+        }
+    }
+
+    /**
+     * Whether the collection at $path, count and every item, differs from the
+     * one $identifier would resolve to without it.
+     * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
+     */
+    private function collectionDiffers(string $identifier, FieldPath $path, FieldValueResolver $resolver, array $dense): bool {
+        $key = (string) $path;
+
+        // $dense lists a collection's count before its items, so a different
+        // count is caught before an item past the other collection's end is
+        // ever looked up.
+        foreach ($dense as $denseKey => $value) {
+            if ($denseKey !== $key && !str_starts_with($denseKey, $key . FieldPath::TRAVERSE)) {
+                continue;
+            }
+
+            try {
+                $fallback = $resolver->resolveWithoutSubtree($identifier, FieldPath::fromString($denseKey), $path);
+            } catch (InvalidArgumentException) {
+                // Nothing to fall back to, or an item whose class the other
+                // collection's doesn't share: either way, not the same.
+                return true;
+            }
+
+            if ($fallback !== $value) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $kept Keyed by FieldPath. */
+    private function keepIfDiffers(string $identifier, FieldPath $path, mixed $value, FieldValueResolver $resolver, array &$kept): void {
+        try {
+            $fallback = $resolver->resolveFallback($identifier, $path);
+        } catch (NoFieldValueException) {
+            $kept[(string) $path] = $value;
+
+            return;
+        }
+
+        if ($fallback !== $value) {
+            $kept[(string) $path] = $value;
+        }
+    }
+
+    // ~Sparse Values
     /*================================================================================================================*/
     
     /*================================================================================================================*/

@@ -72,7 +72,7 @@ final class ResolverAudiCar extends ResolverCar
 }
 
 #[Entity]
-final class ResolverGarage
+class ResolverGarage
 {
     #[Collection(itemKind: FieldKind::Embed, itemTarget: ResolverPiston::class)]
     private array $pistons = [];
@@ -82,6 +82,11 @@ final class ResolverGarage
 
     #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String)]
     private array $tags = [];
+}
+
+#[Entity]
+final class ResolverBigGarage extends ResolverGarage
+{
 }
 
 /**
@@ -104,6 +109,7 @@ final class FieldValueResolverTest extends TestCase
             ResolverCar::class,
             ResolverAudiCar::class,
             ResolverGarage::class,
+            ResolverBigGarage::class,
         ] as $class) {
             $blueprint = NativeEntityReader::read($class);
             $registry->register(new EntitySchema(
@@ -236,6 +242,53 @@ final class FieldValueResolverTest extends TestCase
         $this->expectExceptionMessageMatches('/has only 1 item/');
 
         $this->resolve(ResolverGarage::class, 'pistons.1.diameter');
+    }
+
+    public function testACollectionTheChildStoresNeverFallsBackToTheParentsItems(): void {
+        $this->store->save(ResolverGarage::class, ['pistons' => 2, 'pistons.0.diameter' => 99]);
+        $this->store->save(ResolverBigGarage::class, ['pistons' => 1]);
+        $this->store->save(ResolverPiston::class, ['diameter' => 10]);
+
+        // ResolverBigGarage owns its collection: item 0 falls back to
+        // ResolverPiston, never to ResolverGarage's own item 0.
+        self::assertSame(1, $this->resolve(ResolverBigGarage::class, 'pistons'));
+        self::assertSame(10, $this->resolve(ResolverBigGarage::class, 'pistons.0.diameter'));
+    }
+
+    public function testACollectionTheChildDoesNotStoreIsInheritedWhole(): void {
+        $this->store->save(ResolverGarage::class, ['pistons' => 2, 'pistons.0.diameter' => 99]);
+        $this->store->save(ResolverPiston::class, ['diameter' => 10]);
+
+        self::assertSame(2, $this->resolve(ResolverBigGarage::class, 'pistons'));
+        self::assertSame(99, $this->resolve(ResolverBigGarage::class, 'pistons.0.diameter'));
+        self::assertSame(10, $this->resolve(ResolverBigGarage::class, 'pistons.1.diameter'));
+    }
+
+    public function testResolveFallbackSkipsOnlyThatKey(): void {
+        $this->store->save(ResolverCar::class, ['engine' => ResolverSportsEngine::class, 'engine.horsepower' => 500]);
+        $this->store->save(ResolverEngine::class, ['horsepower' => 300]);
+
+        // The class ResolverCar holds still counts; only its own horsepower
+        // override is skipped.
+        self::assertSame(300, $this->resolver->resolveFallback(ResolverCar::class, FieldPath::fromString('engine.horsepower')));
+    }
+
+    public function testResolveWithoutSubtreeSkipsTheWholeCollection(): void {
+        $this->store->save(ResolverGarage::class, ['pistons' => 2, 'pistons.0.diameter' => 99]);
+        $this->store->save(ResolverBigGarage::class, ['pistons' => 1, 'pistons.0.diameter' => 12]);
+
+        $pistons = FieldPath::fromString('pistons');
+
+        self::assertSame(2, $this->resolver->resolveWithoutSubtree(ResolverBigGarage::class, $pistons, $pistons));
+        self::assertSame(99, $this->resolver->resolveWithoutSubtree(ResolverBigGarage::class, FieldPath::fromString('pistons.0.diameter'), $pistons));
+    }
+
+    public function testAResolverWithABatchReadsTheBatchAheadOfTheStore(): void {
+        $this->store->save(ResolverEngine::class, ['horsepower' => 300]);
+
+        $batched = $this->resolver->withBatch([], [ResolverEngine::class => ['horsepower' => 1]]);
+
+        self::assertSame(1, $batched->resolve(ResolverEngine::class, FieldPath::fromString('horsepower')));
     }
 
     public function testAStoredNullIsAValueNotAMiss(): void {

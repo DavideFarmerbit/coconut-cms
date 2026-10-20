@@ -104,7 +104,22 @@ final class CompilerNode
 final class CompilerPiston
 {
     #[Scalar(ScalarType::Int)]
-    private int $diameter = 10;
+    private int $diameter;
+
+    public function __construct(int $diameter = 10) {
+        $this->diameter = $diameter;
+    }
+}
+
+#[Entity]
+final class CompilerWidePistonHolder
+{
+    #[Embed(CompilerPiston::class)]
+    private object $piston;
+
+    public function __construct() {
+        $this->piston = new CompilerPiston(12);
+    }
 }
 
 #[Entity]
@@ -127,6 +142,34 @@ final class CompilerSportsEngine extends CompilerOwnedEngine
 {
     #[Scalar(ScalarType::Int)]
     private int $boost = 2;
+}
+
+#[Entity]
+final class CompilerTunedEngine extends CompilerOwnedEngine
+{
+    public function __construct() {
+        parent::__construct(450);
+    }
+}
+
+#[Entity]
+class CompilerTagged
+{
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String)]
+    protected array $tags = ['a'];
+}
+
+#[Entity]
+final class CompilerSameTags extends CompilerTagged
+{
+}
+
+#[Entity]
+final class CompilerMoreTags extends CompilerTagged
+{
+    public function __construct() {
+        $this->tags = ['a', 'b'];
+    }
 }
 
 #[Entity]
@@ -344,10 +387,44 @@ final class SchemaCompilerTest extends TestCase
         self::assertSame(['value' => ''], self::loadSorted($valueStore, CompilerEmbedTarget::class));
     }
 
-    public function testCompileJoinsAnEmbedsFieldsWithAColon(): void {
+    public function testCompileStoresNothingForAnEmbedEqualToItsTarget(): void {
         $valueStore = self::compileIntoFreshStore([CompilerEmbedder::class, CompilerEmbedTarget::class]);
 
-        self::assertSame(['target:value' => ''], self::loadSorted($valueStore, CompilerEmbedder::class));
+        self::assertSame([], self::loadSorted($valueStore, CompilerEmbedder::class));
+    }
+
+    public function testCompileStoresAnEmbedFieldThatDiffersFromItsTarget(): void {
+        $valueStore = self::compileIntoFreshStore([CompilerWidePistonHolder::class, CompilerPiston::class]);
+
+        self::assertSame(['piston:diameter' => 12], self::loadSorted($valueStore, CompilerWidePistonHolder::class));
+    }
+
+    public function testCompileStoresNothingAChildInheritsUnchanged(): void {
+        $valueStore = self::compileIntoFreshStore([CompilerSportsEngine::class, CompilerOwnedEngine::class, CompilerPiston::class]);
+
+        // horsepower and piston:diameter equal CompilerOwnedEngine's own.
+        self::assertSame(['boost' => 2], self::loadSorted($valueStore, CompilerSportsEngine::class));
+    }
+
+    public function testCompileStoresAnInheritedFieldTheChildChanges(): void {
+        $valueStore = self::compileIntoFreshStore([CompilerTunedEngine::class, CompilerOwnedEngine::class, CompilerPiston::class]);
+
+        self::assertSame(['horsepower' => 450], self::loadSorted($valueStore, CompilerTunedEngine::class));
+    }
+
+    public function testCompileFallsBackToWhatAnEarlierCompileStored(): void {
+        $registry = new SchemaRegistry();
+        $valueStore = new SchemaFieldValueStore(DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]));
+        $valueStore->createTable();
+        $compiler = new SchemaCompiler($registry, $valueStore);
+
+        $compiler->compile(self::blueprintsOf([CompilerOwnedEngine::class, CompilerPiston::class]));
+        // The parent isn't in this batch: its values come from the store,
+        // already sparse, and resolve through to CompilerPiston's own.
+        $compiler->compile(self::blueprintsOf([CompilerSportsEngine::class, CompilerTunedEngine::class]));
+
+        self::assertSame(['boost' => 2], self::loadSorted($valueStore, CompilerSportsEngine::class));
+        self::assertSame(['horsepower' => 450], self::loadSorted($valueStore, CompilerTunedEngine::class));
     }
 
     public function testCompileStoresANullOwningReferenceAsANullClass(): void {
@@ -365,20 +442,17 @@ final class SchemaCompilerTest extends TestCase
         ]);
 
         // The bare key holds the concrete class, here a subclass of the
-        // declared target, and everything the owner's default instance set on
-        // it hangs off that key, its own Embed still joined with ":".
+        // declared target. Of what the owner set on it, only what differs from
+        // CompilerSportsEngine's own values is kept: boost and the piston's
+        // diameter match it, horsepower doesn't.
         self::assertSame([
             'engine' => CompilerSportsEngine::class,
-            'engine.boost' => 2,
             'engine.horsepower' => 500,
-            'engine.piston:diameter' => 10,
         ], self::loadSorted($valueStore, CompilerOwner::class));
 
-        // The engine's own class-level defaults are untouched by the owner's.
-        self::assertSame(
-            ['horsepower' => 300, 'piston:diameter' => 10],
-            self::loadSorted($valueStore, CompilerOwnedEngine::class),
-        );
+        // The engine's own defaults are untouched by the owner's. Its piston's
+        // diameter matches CompilerPiston's own, so it isn't kept either.
+        self::assertSame(['horsepower' => 300], self::loadSorted($valueStore, CompilerOwnedEngine::class));
     }
 
     public function testCompileTraversesCollectionItemsWithADotAndTheirIndex(): void {
@@ -388,18 +462,36 @@ final class SchemaCompilerTest extends TestCase
             CompilerPiston::class,
         ]);
 
-        // Each bare collection path holds its item count.
+        // Each bare collection path holds its item count. Nothing to fall back
+        // to on a root, so every collection is kept whole; within an item,
+        // only what differs from the item's own class is: engine 0's
+        // horsepower, not either piston diameter.
         self::assertSame([
             'engines' => 1,
             'engines.0' => CompilerOwnedEngine::class,
             'engines.0.horsepower' => 400,
-            'engines.0.piston:diameter' => 10,
             'pistons' => 1,
-            'pistons.0.diameter' => 10,
             'tags' => 2,
             'tags.0' => 'a',
             'tags.1' => 'b',
         ], self::loadSorted($valueStore, CompilerCollectionOwner::class));
+    }
+
+    public function testCompileStoresNothingOfACollectionAChildInheritsUnchanged(): void {
+        $valueStore = self::compileIntoFreshStore([CompilerTagged::class, CompilerSameTags::class]);
+
+        self::assertSame([], self::loadSorted($valueStore, CompilerSameTags::class));
+    }
+
+    public function testCompileStoresAChangedCollectionWhole(): void {
+        $valueStore = self::compileIntoFreshStore([CompilerTagged::class, CompilerMoreTags::class]);
+
+        // Item 0 equals the parent's item 0, but the collection differs, so
+        // it's kept whole.
+        self::assertSame(
+            ['tags' => 2, 'tags.0' => 'a', 'tags.1' => 'b'],
+            self::loadSorted($valueStore, CompilerMoreTags::class),
+        );
     }
 
     public function testCompileWithAbsentOwningReferenceTargetThrows(): void {

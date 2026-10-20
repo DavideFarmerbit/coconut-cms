@@ -115,9 +115,10 @@ than walking the class a second time just for values.
 
 ## Flattening default values into keys
 
-`SchemaCompiler` walks each class's own default values and writes one key per
-leaf. The key is a `FieldPath`: the path from the class down to that leaf. It is
-not a column of the class. Everything past a `.` lives in another table.
+`SchemaCompiler` walks each class's default values and gives each leaf one key.
+The key is a `FieldPath`: the path from the class down to that leaf. It is not
+a column of the class. Everything past a `.` lives in another table. Only the
+keys whose value isn't defaulted get stored (see below).
 
 - Embed: fields joined with `:`. Example: `chassis:engine:piston:diameter`.
 - OwningReference: traversed with `.`. The bare key holds the concrete class,
@@ -166,16 +167,48 @@ value. It needs schemas, so it lives outside the store, which only reads and
 writes rows. It is not a repository concern either: the compiler, migrations
 and the editor all need the same answer.
 
-1. Check `$identifier` and each of its parents for the path exactly as stored.
-   The first hit wins. A stored null is a value, not a miss.
-2. Otherwise, fall back through the path's first field:
-   - Embed: resolve the rest of the path on the Embed's target.
-   - OwningReference: resolve the bare field first, which holds the class, then
-     resolve the rest of the path on that class.
-   - Collection item: the index must be below the count the bare collection
-     path resolves to. Then an Embed item falls back to the item target, and
-     an owned item falls back through the class its own bare path holds.
-3. Nothing left to try: throw.
+It works through sources: (identifier, key prefix) pairs, checked in order.
+The first source holding the key wins. A stored null is a value, not a miss.
+An identifier's own sources are itself, then each of its parents, with no
+prefix. Each step down the path extends them:
 
-So for `Car` and `engine.horsepower`, the order is: `Car`, then Car's parents,
-then the class `engine` holds, then that class's parents.
+- Embed: the same sources under `field:`, then the target's own sources.
+- OwningReference: first resolve the bare field from the same sources, which
+  gives the class it holds. Then the same sources under `field.`, then that
+  class's own sources.
+- Collection: the first source holding the bare field owns the collection; its
+  value is the item count, and an index must be below it. An item's sources
+  are only that owner under `field.index.`, then the item class's own sources:
+  an Embed item's target, or the class an owned item holds. Never another
+  source's items, so a collection is never inherited item by item.
+
+So for `Car` and `engine.horsepower`: `engine.horsepower` in Car, then in Car's
+parents, then `horsepower` in the class `engine` holds, then in that class's
+parents. Nothing left to try: throw `NoFieldValueException`.
+
+Two more entry points serve the compiler:
+- `resolveFallback($identifier, $path)`: what `resolve()` would give if
+  `$identifier` held nothing at `$path`. Everything else it holds still
+  counts, e.g. the class its OwningReference holds.
+- `resolveWithoutSubtree($identifier, $path, $subtree)`: the same, with
+  nothing held at `$subtree` or under it: a collection's item, with the whole
+  collection gone.
+
+`withBatch($schemas, $values)` gives a resolver that reads a batch ahead of the
+registry and the store, for a batch being compiled and not committed yet.
+
+## Storing only what isn't defaulted
+
+`SchemaCompiler` stores a value only when it differs from what resolving it
+would give anyway. Otherwise a class would pin every inherited value, and never
+follow a later change to its parent, its Embed targets, or the classes it owns.
+
+1. Flatten every class's full default values, inherited fields included. For a
+   class in the batch, these are its effective values.
+2. With a resolver over the batch, keep each value only if
+   `resolveFallback()` gives something different, or nothing at all. A root
+   class's own fields always have nothing to fall back to, so they're kept.
+3. Collections are all or nothing. If the count or any item differs from the
+   collection `resolveWithoutSubtree()` gives, the collection is kept whole:
+   count, every item's class, every scalar item. Within an item, each of its
+   own fields is still kept only if it differs from the item's own class.
