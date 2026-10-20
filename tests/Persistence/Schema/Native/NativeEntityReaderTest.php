@@ -64,6 +64,14 @@ final class EntityRegistrarMaxLength implements FieldValidatorRule
         }
     }
 
+    public function toStorage(): array {
+        return ['max' => $this->max];
+    }
+
+    public static function fromStorage(array $stored): static {
+        return new static($stored['max']);
+    }
+
     public function validate(mixed $value): ValidationResult {
         return strlen((string) $value) > $this->max
             ? ValidationResult::invalid(sprintf('must be at most %d characters', $this->max))
@@ -85,6 +93,14 @@ final class EntityRegistrarGreaterThan implements PrototypeValidatorRule
                 throw new InvalidArgumentException(sprintf('Unknown field "%s".', $name));
             }
         }
+    }
+
+    public function toStorage(): array {
+        return ['greaterField' => $this->greaterField, 'lesserField' => $this->lesserField];
+    }
+
+    public static function fromStorage(array $stored): static {
+        return new static($stored['greaterField'], $stored['lesserField']);
     }
 
     public function validate(object $entity): ValidationResult {

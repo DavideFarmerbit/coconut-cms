@@ -1,0 +1,119 @@
+<?php
+
+namespace XyloIsCoding\CoconutCms\Persistence\Schema\Registry;
+
+use Closure;
+use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Schema\Table;
+use Doctrine\DBAL\Types\Types;
+use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
+
+/**
+ * Persists compiled schemas, one row each: the schema as JSON, its own
+ * fingerprint, and the fingerprints of everything it was compiled against.
+ * A schema is always read whole, never queried by parts.
+ *
+ * Remembers what it loaded for the rest of the request, misses included, and
+ * forgets whatever a save overwrites, the same way SchemaFieldValueStore does.
+ */
+final class SchemaStore
+{
+    private const TABLE = 'entity_schemas';
+
+    /** @var array<string, StoredSchema|null> Keyed by identifier. */
+    private array $loaded = [];
+
+    public function __construct(
+        private readonly Connection $connection,
+        private readonly EntitySchemaCodec $codec,
+    ) {
+    }
+
+    public function createTable(): void {
+        $table = new Table(self::TABLE);
+        $table->addColumn('identifier', Types::STRING, ['length' => 255]);
+        $table->addColumn('schema_json', Types::TEXT);
+        $table->addColumn('fingerprint', Types::STRING, ['length' => 64]);
+        $table->addColumn('dependencies_json', Types::TEXT);
+        $table->setPrimaryKey(['identifier']);
+
+        $this->connection->createSchemaManager()->createTable($table);
+        $this->loaded = [];
+    }
+
+    public function dropTableIfExists(): void {
+        $schemaManager = $this->connection->createSchemaManager();
+        if ($schemaManager->tablesExist([self::TABLE])) {
+            $schemaManager->dropTable(self::TABLE);
+        }
+
+        $this->loaded = [];
+    }
+
+    /**
+     * Runs $work in one transaction on this store's connection: how the
+     * compiler commits schemas and values together. Atomic across both only
+     * when SchemaFieldValueStore uses the same connection.
+     * @template T
+     * @param Closure(): T $work
+     * @return T
+     */
+    public function transactional(Closure $work): mixed {
+        return $this->connection->transactional(static fn (): mixed => $work());
+    }
+
+    /**
+     * Replaces whatever was stored for each of $schemas' identifiers, as one
+     * transaction.
+     * @param list<StoredSchema> $schemas
+     */
+    public function saveAll(array $schemas): void {
+        // Forgotten first, so even a write that fails part-way leaves nothing
+        // remembered that the database might no longer hold.
+        foreach ($schemas as $stored) {
+            unset($this->loaded[$stored->schema->identifier]);
+        }
+
+        $this->connection->transactional(function (Connection $connection) use ($schemas): void {
+            foreach ($schemas as $stored) {
+                $connection->delete(self::TABLE, ['identifier' => $stored->schema->identifier]);
+                $connection->insert(self::TABLE, [
+                    'identifier' => $stored->schema->identifier,
+                    'schema_json' => json_encode($this->codec->encode($stored->schema)),
+                    'fingerprint' => $stored->fingerprint,
+                    'dependencies_json' => json_encode($stored->dependencies),
+                ]);
+            }
+        });
+    }
+
+    /** Null when nothing is stored for $identifier. */
+    public function load(string $identifier): ?StoredSchema {
+        if (array_key_exists($identifier, $this->loaded)) {
+            return $this->loaded[$identifier];
+        }
+
+        $row = $this->connection->fetchAssociative(
+            sprintf('SELECT schema_json, fingerprint, dependencies_json FROM %s WHERE identifier = ?', self::TABLE),
+            [$identifier],
+        );
+
+        return $this->loaded[$identifier] = $row === false ? null : new StoredSchema(
+            $this->codec->decode(json_decode($row['schema_json'], true)),
+            $row['fingerprint'],
+            json_decode($row['dependencies_json'], true),
+        );
+    }
+
+    /**
+     * $schema's own fingerprint, given the values stored for it: changes
+     * whenever either does, and only then. Never includes a dependency's.
+     */
+    public function fingerprintOf(EntitySchema $schema, FieldValues $values): string {
+        $byPath = $values->toArray();
+        ksort($byPath, SORT_STRING);
+
+        return hash('sha256', json_encode([$this->codec->encode($schema), $byPath]));
+    }
+}

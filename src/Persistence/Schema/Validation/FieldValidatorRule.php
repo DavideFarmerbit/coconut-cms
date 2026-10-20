@@ -21,4 +21,15 @@ interface FieldValidatorRule
      * Validates one field's own resolved value.
      */
     public function validate(mixed $value): ValidationResult;
+
+    /**
+     * This rule's own configuration as plain data, whatever its constructor
+     * needs: what a stored schema keeps, and what fromStorage() rebuilds the
+     * rule from.
+     * @return array<string, mixed>
+     */
+    public function toStorage(): array;
+
+    /** @param array<string, mixed> $stored What toStorage() produced. */
+    public static function fromStorage(array $stored): static;
 }

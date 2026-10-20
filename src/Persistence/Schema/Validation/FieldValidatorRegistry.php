@@ -31,6 +31,20 @@ final class FieldValidatorRegistry
         $this->rules[$key] = $ruleClass;
     }
 
+    /**
+     * The identifier $ruleClass was registered under: how a stored schema names
+     * a rule, so renaming or moving the class doesn't break what's stored.
+     * @param class-string<FieldValidatorRule> $ruleClass
+     */
+    public function identifierOf(string $ruleClass): Identifier {
+        $key = array_search($ruleClass, $this->rules, true);
+        if ($key === false) {
+            throw new RuntimeException("\"{$ruleClass}\" was never registered, so it has no identifier to be stored under.");
+        }
+
+        return Identifier::fromString($key);
+    }
+
     /** @return class-string<FieldValidatorRule> */
     public function resolve(Identifier $id): string {
         $key = (string) $id;

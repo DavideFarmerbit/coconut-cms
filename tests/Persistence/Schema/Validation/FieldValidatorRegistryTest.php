@@ -15,6 +15,14 @@ final class FieldValidatorRegistryTestRule implements FieldValidatorRule
     public function checkUsage(FieldDescriptor $field): void {
     }
 
+    public function toStorage(): array {
+        return [];
+    }
+
+    public static function fromStorage(array $stored): static {
+        return new static();
+    }
+
     public function validate(mixed $value): ValidationResult {
         return ValidationResult::valid();
     }
@@ -26,6 +34,20 @@ final class FieldValidatorRegistryTestNotARule
 
 final class FieldValidatorRegistryTest extends TestCase
 {
+    public function testIdentifierOfReturnsWhatTheClassWasRegisteredUnder(): void {
+        $registry = new FieldValidatorRegistry();
+        $id = Identifier::of('app', 'required');
+        $registry->register($id, FieldValidatorRegistryTestRule::class);
+
+        self::assertEquals($id, $registry->identifierOf(FieldValidatorRegistryTestRule::class));
+    }
+
+    public function testIdentifierOfAClassNeverRegisteredThrows(): void {
+        $this->expectException(RuntimeException::class);
+
+        (new FieldValidatorRegistry())->identifierOf(FieldValidatorRegistryTestRule::class);
+    }
+
     public function testResolveReturnsTheRegisteredClass(): void {
         $registry = new FieldValidatorRegistry();
         $id = Identifier::of('app', 'required');

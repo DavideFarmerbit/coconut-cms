@@ -27,6 +27,16 @@ final readonly class Identifier implements \Stringable
         return new self($namespace, $key);
     }
 
+    /** Parses what __toString() produced: "namespace:key". */
+    public static function fromString(string $identifier): self {
+        $parts = explode(':', $identifier);
+        if (count($parts) !== 2) {
+            throw new InvalidArgumentException(sprintf('"%s" is not a "namespace:key" identifier.', $identifier));
+        }
+
+        return self::of($parts[0], $parts[1]);
+    }
+
     public function __toString(): string
     {
         return "{$this->namespace}:{$this->key}";

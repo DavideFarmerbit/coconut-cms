@@ -2,7 +2,6 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Compiler;
 
-use Doctrine\DBAL\DriverManager;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
@@ -21,8 +20,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Schema\InMemorySchemaStores;
 
 #[Entity]
 class CompilerRoot
@@ -307,14 +306,7 @@ final class SchemaCompilerTest extends TestCase
     private SchemaCompiler $compiler;
 
     protected function setUp(): void {
-        $this->compiler = self::newCompiler(new SchemaRegistry());
-    }
-
-    private static function newCompiler(SchemaRegistry $registry): SchemaCompiler {
-        $valueStore = new SchemaFieldValueStore(DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]));
-        $valueStore->createTable();
-
-        return new SchemaCompiler($registry, $valueStore);
+        $this->compiler = (new InMemorySchemaStores())->compiler();
     }
 
     /**
@@ -424,8 +416,9 @@ final class SchemaCompilerTest extends TestCase
     }
 
     public function testCompileRegistersEveryCompiledSchemaWithTheRegistry(): void {
-        $registry = new SchemaRegistry();
-        $compiler = self::newCompiler($registry);
+        $stores = new InMemorySchemaStores();
+        $registry = $stores->registry;
+        $compiler = $stores->compiler();
 
         $compiler->compile(self::blueprintsOf([CompilerEmbedTarget::class]));
 
@@ -434,11 +427,10 @@ final class SchemaCompilerTest extends TestCase
 
     /** @param class-string[] $classes */
     private static function compileIntoFreshStore(array $classes): SchemaFieldValueStore {
-        $valueStore = new SchemaFieldValueStore(DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]));
-        $valueStore->createTable();
-        (new SchemaCompiler(new SchemaRegistry(), $valueStore))->compile(self::blueprintsOf($classes));
+        $stores = new InMemorySchemaStores();
+        $stores->compiler()->compile(self::blueprintsOf($classes));
 
-        return $valueStore;
+        return $stores->values;
     }
 
     /**
@@ -485,10 +477,10 @@ final class SchemaCompilerTest extends TestCase
     }
 
     public function testCompileFallsBackToWhatAnEarlierCompileStored(): void {
-        $registry = new SchemaRegistry();
-        $valueStore = new SchemaFieldValueStore(DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]));
-        $valueStore->createTable();
-        $compiler = new SchemaCompiler($registry, $valueStore);
+        $stores = new InMemorySchemaStores();
+        $registry = $stores->registry;
+        $valueStore = $stores->values;
+        $compiler = $stores->compiler();
 
         $compiler->compile(self::blueprintsOf([CompilerOwnedEngine::class, CompilerPiston::class]));
         // The parent isn't in this batch: its values come from the store,
@@ -550,10 +542,10 @@ final class SchemaCompilerTest extends TestCase
     }
 
     public function testCompileComparesAValueObjectByTheStringItStoresAs(): void {
-        $registry = new SchemaRegistry();
-        $valueStore = new SchemaFieldValueStore(DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]));
-        $valueStore->createTable();
-        $compiler = new SchemaCompiler($registry, $valueStore);
+        $stores = new InMemorySchemaStores();
+        $registry = $stores->registry;
+        $valueStore = $stores->values;
+        $compiler = $stores->compiler();
 
         $compiler->compile(self::blueprintsOf([CompilerPriced::class]));
         // The parent's price now comes back from the store, as a string: an
@@ -641,10 +633,10 @@ final class SchemaCompilerTest extends TestCase
     }
 
     public function testCompileThatFailsPartWayLeavesTheRegistryAndTheStoreUntouched(): void {
-        $registry = new SchemaRegistry();
-        $valueStore = new SchemaFieldValueStore(DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]));
-        $valueStore->createTable();
-        $compiler = new SchemaCompiler($registry, $valueStore);
+        $stores = new InMemorySchemaStores();
+        $registry = $stores->registry;
+        $valueStore = $stores->values;
+        $compiler = $stores->compiler();
 
         // CompilerPiston and CompilerOwnedEngine are fine on their own; only
         // CompilerOwnerOfUnrelatedClass fails, and only while its values are

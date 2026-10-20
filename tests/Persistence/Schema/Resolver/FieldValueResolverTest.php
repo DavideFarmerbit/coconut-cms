@@ -2,7 +2,6 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Resolver;
 
-use Doctrine\DBAL\DriverManager;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -15,11 +14,11 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Resolver\FieldValueResolver;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Schema\InMemorySchemaStores;
 
 #[Entity]
 final class ResolverPiston
@@ -101,7 +100,8 @@ final class FieldValueResolverTest extends TestCase
     private FieldValueResolver $resolver;
 
     protected function setUp(): void {
-        $registry = new SchemaRegistry();
+        $stores = new InMemorySchemaStores();
+        $registry = $stores->registry;
         foreach ([
             ResolverPiston::class,
             ResolverEngine::class,
@@ -126,8 +126,7 @@ final class FieldValueResolverTest extends TestCase
             ));
         }
 
-        $this->store = new SchemaFieldValueStore(DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]));
-        $this->store->createTable();
+        $this->store = $stores->values;
         $this->resolver = new FieldValueResolver($registry, $this->store);
     }
 

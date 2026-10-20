@@ -11,8 +11,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Schema\InMemorySchemaStores;
 
 final class SchemaLookupTest extends TestCase
 {
@@ -37,7 +37,7 @@ final class SchemaLookupTest extends TestCase
     }
 
     public function testTheBatchWinsOverAnOlderRegistration(): void {
-        $registry = new SchemaRegistry();
+        $registry = (new InMemorySchemaStores())->registry;
         $registry->register(self::schema('Engine', null, ['old']));
         $fresh = self::schema('Engine', null, ['horsepower']);
 
@@ -47,7 +47,7 @@ final class SchemaLookupTest extends TestCase
     }
 
     public function testFallsBackToTheRegistryForAnythingOutsideTheBatch(): void {
-        $registry = new SchemaRegistry();
+        $registry = (new InMemorySchemaStores())->registry;
         $registered = self::schema('Piston', null, ['diameter']);
         $registry->register($registered);
 
@@ -62,11 +62,11 @@ final class SchemaLookupTest extends TestCase
     public function testGetOnAnUnknownIdentifierThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        (new SchemaLookup(new SchemaRegistry()))->get('Wheel');
+        (new SchemaLookup((new InMemorySchemaStores())->registry))->get('Wheel');
     }
 
     public function testHierarchyFieldsWalkParentsAcrossTheBatchAndTheRegistry(): void {
-        $registry = new SchemaRegistry();
+        $registry = (new InMemorySchemaStores())->registry;
         $registry->register(self::schema('Engine', null, ['horsepower']));
 
         $lookup = new SchemaLookup($registry, ['SportsEngine' => self::schema('SportsEngine', 'Engine', ['boost'])]);

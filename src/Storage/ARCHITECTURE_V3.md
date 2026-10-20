@@ -35,32 +35,26 @@ them into one key per leaf, and writes the result to `SchemaFieldValueStore`
 (see below) rather than ever carrying them on `EntitySchema` itself.
 
 A dependency outside the given batch is resolved by checking `SchemaRegistry`
-(already compiled this request); if it isn't there, that's an error, not a
+(already compiled, this request or an earlier one, and stored); if it isn't there, that's an error, not a
 trigger to compile it on the caller's behalf. Whatever gathers a batch (a
 hot-path recompile for native, an admin save for editor) is responsible for
 including everything it depends on.
 
-## The registry is a query, not a batch
+## The registry: memory first, then the store
 
-*Not yet implemented: the current `SchemaRegistry` is a plain in-memory
-`register()`/`has()`/`get()` cache, nothing more. `SchemaCompiler` is the only
-thing that ever populates it, and a dependency missing from both the current
-batch and the registry is an error, never a trigger to recursively compile it.
-The querying/fingerprint behavior below is the intended shape once a persisted
-`EntitySchema` store exists to query against; it isn't live yet.*
+`SchemaRegistry::get()` returns the schema already in memory this request.
+Otherwise it loads it from `SchemaStore`. Otherwise it throws. It never
+compiles: the compiler only ever takes blueprints, and only a producer builds
+those. `SchemaCompiler` registers every schema it commits, so the rest of the
+request is served from memory.
 
-Schemas are not computed all at once. `SchemaRegistry` exposes a per-identifier
-query: resolve one schema, recursively resolving whatever it depends on along the
-way.
-
-Resolving `X`'s dependencies means calling the same query again for its parent,
-every Embed target, and every concrete class recorded under an OwningReference
-value. The query doesn't care whether a dependency turns out to be native or
-editor-created; it always gets back a compiled `EntitySchema`.
-
-Cycle detection tracks what's currently being resolved on the current call stack,
-the same three-state (visiting/visited) rule as a batch topological sort, just
-driven by recursion instead of a loop over a precomputed set.
+`SchemaStore` keeps one row per schema: the schema as JSON (through
+`EntitySchemaCodec`), its own fingerprint, and the fingerprints of everything it
+was compiled against. A schema is always read whole, so it's never split into
+columns. A validator rule is stored as the identifier its class was registered
+under, plus its own `toStorage()` configuration: renaming or moving a rule
+class doesn't break what's stored. A compile writes schemas and values in one
+transaction, as long as both stores share a connection.
 
 ## Compilation happens at different moments per source
 
@@ -80,21 +74,33 @@ Either way, the database always holds the last compiled, persisted `EntitySchema
 for every identifier. Live recompilation from source only happens to detect or
 resolve drift, never as part of an ordinary read.
 
-## Dependency fingerprints protect against stale caches
+## Dependency fingerprints catch stale schemas
 
-Every compiled schema records the fingerprint of each dependency it was built
-against: a native dependency's declaring file's mtime/hash, or an editor-created
-dependency's own version/`updated_at` column.
+A schema's fingerprint hashes its own encoded schema and its own stored values,
+never a dependency's. It changes whenever either changes, and only then.
 
-`SchemaRegistry::get()` validates these fingerprints before trusting a cache hit.
-If a dependency's current fingerprint doesn't match what was recorded, the schema
-is stale, regardless of whether it was ever directly edited. Recompile it the same
-way as any other miss.
+Every stored schema also records the fingerprint of each schema it depends on,
+transitively: its parent, its Embed targets, its Reference and OwningReference
+targets, every class its default values actually hold, and everything those
+depend on in turn. `SchemaRegistry::get()` compares each one against the
+dependency's current stored fingerprint. Any mismatch throws
+`StaleSchemaException`, naming the dependency. The registry can't recompile, so
+whoever gathers batches has to.
 
-This is why an editor-created entity that embeds a native class gets invalidated
-correctly when that native class changes, with no reverse-dependency index needed.
-The check only ever looks at direct dependencies; it never has to search for
-everything that might depend on the thing that changed.
+Values don't go stale this way: they're resolved live. What does go stale is
+what compiling decided. Which values were stored depends on what they'd
+otherwise resolve to. A table's columns depend on its Embed targets' fields.
+The checks on OwningReference classes depend on those classes' hierarchies.
+
+The dependencies are recorded flat rather than as hashes nested inside hashes,
+because OwningReferences can form cycles, and a nested hash can't be computed
+around one. Recording them flat still catches a change several levels down: a
+leaf records its grandparent directly, even when the parent in between stores
+nothing of its own.
+
+Fingerprints are about compiled results. Noticing that a native class's PHP
+file changed, so that it needs compiling at all, is a separate hot-path check
+(see above; not yet implemented).
 
 ## Reading a native class's default values into plain data
 

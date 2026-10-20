@@ -15,6 +15,14 @@ final class PrototypeValidatorRegistryTestRule implements PrototypeValidatorRule
     public function checkUsage(FieldDescriptorCollection $fields): void {
     }
 
+    public function toStorage(): array {
+        return [];
+    }
+
+    public static function fromStorage(array $stored): static {
+        return new static();
+    }
+
     public function validate(object $entity): ValidationResult {
         return ValidationResult::valid();
     }
@@ -26,6 +34,20 @@ final class PrototypeValidatorRegistryTestNotARule
 
 final class PrototypeValidatorRegistryTest extends TestCase
 {
+    public function testIdentifierOfReturnsWhatTheClassWasRegisteredUnder(): void {
+        $registry = new PrototypeValidatorRegistry();
+        $id = Identifier::of('app', 'required');
+        $registry->register($id, PrototypeValidatorRegistryTestRule::class);
+
+        self::assertEquals($id, $registry->identifierOf(PrototypeValidatorRegistryTestRule::class));
+    }
+
+    public function testIdentifierOfAClassNeverRegisteredThrows(): void {
+        $this->expectException(RuntimeException::class);
+
+        (new PrototypeValidatorRegistry())->identifierOf(PrototypeValidatorRegistryTestRule::class);
+    }
+
     public function testResolveReturnsTheRegisteredClass(): void {
         $registry = new PrototypeValidatorRegistry();
         $id = Identifier::of('app', 'endDateAfterStartDate');

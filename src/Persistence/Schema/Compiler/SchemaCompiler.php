@@ -16,6 +16,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaStore;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\StoredSchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Resolver\FieldValueResolver;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Resolver\NoFieldValueException;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
@@ -39,6 +41,7 @@ final class SchemaCompiler
     public function __construct(
         private readonly SchemaRegistry $registry,
         private readonly SchemaFieldValueStore $valueStore,
+        private readonly SchemaStore $schemaStore,
     ) {
         $this->resolver = new FieldValueResolver($registry, $valueStore);
     }
@@ -91,9 +94,30 @@ final class SchemaCompiler
             $sparseByIdentifier[$identifier] = $sparse->build();
         }
 
-        // Commit. The store goes first: it's the only step that can still
-        // fail, and registering can't, so a failed write registers nothing.
-        $this->valueStore->saveAll($sparseByIdentifier);
+        // Each schema's own fingerprint, then the fingerprint of every schema it
+        // depends on, directly or through others: what a later load checks to
+        // know whether it's gone stale.
+        $fingerprints = [];
+        foreach ($schemas as $identifier => $schema) {
+            $fingerprints[$identifier] = $this->schemaStore->fingerprintOf($schema, $sparseByIdentifier[$identifier]);
+        }
+
+        $stored = [];
+        foreach ($schemas as $identifier => $schema) {
+            $dependencies = [];
+            foreach ($this->transitiveDependenciesOf($identifier, $blueprints) as $dependency) {
+                $dependencies[$dependency] = $fingerprints[$dependency] ?? $this->storedOrThrow($dependency)->fingerprint;
+            }
+
+            $stored[] = new StoredSchema($schema, $fingerprints[$identifier], $dependencies);
+        }
+
+        // Commit: schemas and values in one transaction, then the registry.
+        // Registering can't fail, so a failed write registers nothing.
+        $this->schemaStore->transactional(function () use ($sparseByIdentifier, $stored): void {
+            $this->valueStore->saveAll($sparseByIdentifier);
+            $this->schemaStore->saveAll($stored);
+        });
         foreach ($schemas as $schema) {
             $this->registry->register($schema);
         }
@@ -153,7 +177,7 @@ final class SchemaCompiler
     private function assertIsOrExtends(string $class, string $target, FieldPath $path, SchemaLookup $schemas): void {
         if (!$schemas->has($class)) {
             throw new InvalidArgumentException(sprintf(
-                '"%s" holds a "%s", which was neither given to compile() nor already compiled this request.',
+                '"%s" holds a "%s", which was neither given to compile() nor compiled before.',
                 $path,
                 $class,
             ));
@@ -362,13 +386,13 @@ final class SchemaCompiler
     private function visit(string $identifier, array $blueprints, array &$state, array &$order, array &$path): void {
         if (!isset($blueprints[$identifier])) {
             if ($this->registry->has($identifier)) {
-                // Already compiled in an earlier batch this request: its own
-                // dependencies were already satisfied then, nothing more to check.
+                // Compiled and stored by an earlier batch: its own dependencies
+                // were already satisfied then, nothing more to check.
                 return;
             }
 
             throw new InvalidArgumentException(sprintf(
-                '"%s" is referenced as a parent or Embed target but was neither given to compile() nor already compiled this request.',
+                '"%s" is referenced as a parent or Embed target but was neither given to compile() nor compiled before.',
                 $identifier,
             ));
         }
@@ -398,7 +422,7 @@ final class SchemaCompiler
         foreach ($this->weakDependenciesOf($blueprints[$identifier]) as $dependency) {
             if (!isset($blueprints[$dependency]) && !$this->registry->has($dependency)) {
                 throw new InvalidArgumentException(sprintf(
-                    '"%s" is referenced as a Reference or OwningReference target by "%s" but was neither given to compile() nor already compiled this request.',
+                    '"%s" is referenced as a Reference or OwningReference target by "%s" but was neither given to compile() nor compiled before.',
                     $dependency,
                     $identifier,
                 ));
@@ -468,5 +492,89 @@ final class SchemaCompiler
     }
 
     // ~Topologial Sorting
+    /*================================================================================================================*/
+
+    /*================================================================================================================*/
+    // Fingerprinting
+
+    /**
+     * Every identifier $identifier depends on, directly or through others,
+     * never $identifier itself. Walks with a visited set, so a cycle of
+     * OwningReferences ends instead of looping.
+     * @param array<string, EntityBlueprint> $blueprints
+     * @return list<string>
+     */
+    private function transitiveDependenciesOf(string $identifier, array $blueprints): array {
+        $found = [];
+        $queue = $this->directDependenciesOf($identifier, $blueprints);
+
+        while ($queue !== []) {
+            $dependency = array_shift($queue);
+            if ($dependency === $identifier || isset($found[$dependency])) {
+                continue;
+            }
+
+            $found[$dependency] = true;
+            array_push($queue, ...$this->directDependenciesOf($dependency, $blueprints));
+        }
+
+        return array_keys($found);
+    }
+
+    /**
+     * For a blueprint in this batch: its parent, Embed targets, Reference and
+     * OwningReference targets, and every class its default values actually
+     * hold. For anything else: whatever it was stored with, already transitive.
+     * @param array<string, EntityBlueprint> $blueprints
+     * @return list<string>
+     */
+    private function directDependenciesOf(string $identifier, array $blueprints): array {
+        if (!isset($blueprints[$identifier])) {
+            return array_keys($this->storedOrThrow($identifier)->dependencies);
+        }
+
+        $blueprint = $blueprints[$identifier];
+
+        return array_values(array_unique([
+            ...$this->dependenciesOf($blueprint),
+            ...$this->weakDependenciesOf($blueprint),
+            ...$this->heldClassesIn($blueprint->defaultValues),
+        ]));
+    }
+
+    /**
+     * Every concrete class an OwnedNode anywhere under $node holds: a subclass
+     * of the declared target is a dependency the schema alone doesn't name.
+     * @return list<string>
+     */
+    private function heldClassesIn(?ValueNode $node): array {
+        $classes = [];
+
+        if ($node instanceof OwnedNode) {
+            $classes[] = $node->class;
+            $node = $node->fields;
+        }
+
+        if ($node instanceof ObjectNode) {
+            foreach ($node as $value) {
+                array_push($classes, ...$this->heldClassesIn($value));
+            }
+        } elseif ($node instanceof CollectionNode) {
+            foreach ($node->items as $item) {
+                array_push($classes, ...$this->heldClassesIn($item));
+            }
+        }
+
+        return $classes;
+    }
+
+    private function storedOrThrow(string $identifier): StoredSchema {
+        return $this->schemaStore->load($identifier) ?? throw new InvalidArgumentException(sprintf(
+            '"%s" is depended on but was never stored.',
+            $identifier,
+        ));
+    }
+
+    // ~Fingerprinting
     /*================================================================================================================*/
 }

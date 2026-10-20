@@ -6,31 +6,52 @@ use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 
 /**
- * Holds every EntitySchema the compiler has already produced this request, so
- * asking for the same identifier twice never recompiles it. Carries no
- * compilation logic of its own: SchemaCompiler is the only thing that ever puts a
- * schema in here.
+ * Finds a compiled EntitySchema by identifier: the one already in memory this
+ * request, otherwise the one SchemaStore holds, otherwise nothing. Never
+ * compiles: SchemaCompiler is the only thing that ever produces a schema, and
+ * registers it here once it's committed.
  */
 final class SchemaRegistry
 {
     /** @var array<string, EntitySchema> */
     private array $schemas = [];
 
+    public function __construct(
+        private readonly SchemaStore $store,
+    ) {
+    }
+
+    /** For a schema just committed: from now on, served from memory. */
     public function register(EntitySchema $schema): void {
         $this->schemas[$schema->identifier] = $schema;
     }
 
+    /** True for a stored schema even when it's stale: get() is what checks that. */
     public function has(string $identifier): bool {
-        return array_key_exists($identifier, $this->schemas);
+        return array_key_exists($identifier, $this->schemas) || $this->store->load($identifier) !== null;
     }
 
     /**
-     * @throws InvalidArgumentException if the schema is not registered.
+     * @throws InvalidArgumentException When nothing is stored for $identifier.
+     * @throws StaleSchemaException When a stored schema was compiled against a
+     *         dependency that has changed since.
      */
     public function get(string $identifier): EntitySchema {
-        return $this->schemas[$identifier] ?? throw new InvalidArgumentException(sprintf(
-            '"%s" has not been compiled this request.',
+        if (isset($this->schemas[$identifier])) {
+            return $this->schemas[$identifier];
+        }
+
+        $stored = $this->store->load($identifier) ?? throw new InvalidArgumentException(sprintf(
+            '"%s" has never been compiled.',
             $identifier,
         ));
+
+        foreach ($stored->dependencies as $dependency => $fingerprint) {
+            if ($this->store->load($dependency)?->fingerprint !== $fingerprint) {
+                throw new StaleSchemaException($identifier, $dependency);
+            }
+        }
+
+        return $this->schemas[$identifier] = $stored->schema;
     }
 }

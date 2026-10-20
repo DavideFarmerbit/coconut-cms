@@ -36,4 +36,18 @@ final class IdentifierTest extends TestCase
 
         Identifier::of('app', 'weird:key');
     }
+
+    public function testFromStringRoundTripsToString(): void
+    {
+        $identifier = Identifier::of('coconut', 'max-length');
+
+        self::assertEquals($identifier, Identifier::fromString((string) $identifier));
+    }
+
+    public function testFromStringWithoutExactlyOneColonThrows(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        Identifier::fromString('no-colon');
+    }
 }
