@@ -14,10 +14,18 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPath;
  * identifier's values get written here by the compiler, an editor-created
  * one's by whatever saved it. Knows nothing about schemas: finding a value's
  * effective value through parents and targets is FieldValueResolver's job.
+ *
+ * Remembers what it loaded for the rest of the request, so resolving a value
+ * through many sources doesn't reload the same rows. Every write goes through
+ * here and forgets what it overwrites, so what it remembers is never stale
+ * for anything written through this same instance.
  */
 final class SchemaFieldValueStore
 {
     private const TABLE = 'schema_field_values';
+
+    /** @var array<string, array<string, mixed>> Keyed by identifier, then by FieldPath. */
+    private array $loaded = [];
 
     public function __construct(
         private readonly Connection $connection,
@@ -32,6 +40,7 @@ final class SchemaFieldValueStore
         $table->setPrimaryKey(['identifier', 'field_name']);
 
         $this->connection->createSchemaManager()->createTable($table);
+        $this->loaded = [];
     }
 
     public function dropTableIfExists(): void {
@@ -39,6 +48,8 @@ final class SchemaFieldValueStore
         if ($schemaManager->tablesExist([self::TABLE])) {
             $schemaManager->dropTable(self::TABLE);
         }
+
+        $this->loaded = [];
     }
 
     /**
@@ -60,6 +71,12 @@ final class SchemaFieldValueStore
      *        shaped like save()'s $values.
      */
     public function saveAll(array $valuesByIdentifier): void {
+        // Forgotten first, so even a write that fails part-way leaves nothing
+        // remembered that the database might no longer hold.
+        foreach (array_keys($valuesByIdentifier) as $identifier) {
+            unset($this->loaded[$identifier]);
+        }
+
         $this->connection->transactional(function (Connection $connection) use ($valuesByIdentifier): void {
             foreach ($valuesByIdentifier as $identifier => $values) {
                 $connection->delete(self::TABLE, ['identifier' => $identifier]);
@@ -77,6 +94,10 @@ final class SchemaFieldValueStore
 
     /** @return array<string, mixed> Keyed by FieldPath, same shape save() was given. */
     public function load(string $identifier): array {
+        if (array_key_exists($identifier, $this->loaded)) {
+            return $this->loaded[$identifier];
+        }
+
         $rows = $this->connection->fetchAllAssociative(
             sprintf('SELECT field_name, value_json FROM %s WHERE identifier = ?', self::TABLE),
             [$identifier],
@@ -87,7 +108,7 @@ final class SchemaFieldValueStore
             $values[$row['field_name']] = json_decode($row['value_json'], true);
         }
 
-        return $values;
+        return $this->loaded[$identifier] = $values;
     }
 
     /**

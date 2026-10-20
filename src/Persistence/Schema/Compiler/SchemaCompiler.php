@@ -13,6 +13,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\FieldValueResolver;
 use XyloIsCoding\CoconutCms\Persistence\Schema\NoFieldValueException;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
 
 /**
@@ -61,22 +62,24 @@ final class SchemaCompiler
             );
         }
 
+        $lookup = new SchemaLookup($this->registry, $schemas);
+
         // Every value each class's default instance holds, inherited fields
         // included. For a class in this batch, these are its effective values.
         $denseByIdentifier = [];
         foreach ($order as $identifier => $blueprint) {
             $denseByIdentifier[$identifier] = [];
-            $this->flattenValues($this->hierarchyFieldsOf($identifier, $schemas), $blueprint->defaultValues, FieldPath::of(...), $schemas, $denseByIdentifier[$identifier]);
+            $this->flattenValues($lookup->hierarchyFieldsOf($identifier), $blueprint->defaultValues, FieldPath::of(...), $lookup, $denseByIdentifier[$identifier]);
         }
 
-        // Only what differs from what it would resolve to anyway gets stored.
-        // Fallbacks read this batch's own schemas and full values ahead of the
-        // registry and the store, since neither is committed yet.
+        // We only want to store values that differ from what FieldValueResolver would otherwise already resolve to.
+        // This batch's own schemas and values take priority over the registry and the store:
+        // they're the new versions, and  neither is committed yet.
         $resolver = $this->resolver->withBatch($schemas, $denseByIdentifier);
         $sparseByIdentifier = [];
         foreach ($order as $identifier => $blueprint) {
             $sparseByIdentifier[$identifier] = [];
-            $this->keepValues($identifier, $this->hierarchyFieldsOf($identifier, $schemas), $blueprint->defaultValues, FieldPath::of(...), $schemas, $resolver, $denseByIdentifier[$identifier], $sparseByIdentifier[$identifier]);
+            $this->keepValues($identifier, $lookup->hierarchyFieldsOf($identifier), $blueprint->defaultValues, FieldPath::of(...), $lookup, $resolver, $denseByIdentifier[$identifier], $sparseByIdentifier[$identifier]);
         }
 
         // Commit. The store goes first: it's the only step that can still
@@ -97,10 +100,10 @@ final class SchemaCompiler
      * joined with ":", an OwningReference or a Collection item traversed with ".".
      * @param array<string, mixed> $values Keyed by FieldName.
      * @param Closure(FieldName): FieldPath $pathOf Turns one of $fields' names into its full path.
-     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
      * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenValues(FieldDescriptorCollection $fields, array $values, Closure $pathOf, array $schemas, array &$valuesByPath): void {
+    private function flattenValues(FieldDescriptorCollection $fields, array $values, Closure $pathOf, SchemaLookup $schemas, array &$valuesByPath): void {
         foreach ($fields as $name => $field) {
             $this->flattenValue($field, $values[(string) $name] ?? null, $pathOf($name), $schemas, $valuesByPath);
         }
@@ -108,13 +111,13 @@ final class SchemaCompiler
 
     /**
      * Dispatch correct 'flatten' method based on field kind.
-     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
      * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenValue(FieldDescriptor $field, mixed $value, FieldPath $path, array $schemas, array &$valuesByPath): void {
+    private function flattenValue(FieldDescriptor $field, mixed $value, FieldPath $path, SchemaLookup $schemas, array &$valuesByPath): void {
         match ($field->kind()) {
             FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $valuesByPath[(string) $path] = $value,
-            FieldKind::Embed => $this->flattenValues($this->hierarchyFieldsOf($field->target(), $schemas), $value ?? [], $path->embed(...), $schemas, $valuesByPath),
+            FieldKind::Embed => $this->flattenValues($schemas->hierarchyFieldsOf($field->target()), $value ?? [], $path->embed(...), $schemas, $valuesByPath),
             FieldKind::OwningReference => $this->flattenOwned($field, $value, $path, $schemas, $valuesByPath),
             FieldKind::Collection => $this->flattenCollection($field->itemDescriptor(), $value ?? [], $path, $schemas, $valuesByPath),
         };
@@ -125,15 +128,15 @@ final class SchemaCompiler
      * no value of its own there otherwise, and unlike Embed its class isn't
      * fixed by the schema.
      * @param array{class: class-string, fields: array<string, mixed>}|null $value
-     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
      * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenOwned(FieldDescriptor $field, ?array $value, FieldPath $path, array $schemas, array &$valuesByPath): void {
+    private function flattenOwned(FieldDescriptor $field, ?array $value, FieldPath $path, SchemaLookup $schemas, array &$valuesByPath): void {
         $valuesByPath[(string) $path] = $value['class'] ?? null;
 
         if ($value !== null) {
             $this->assertIsOrExtends($value['class'], $field->target(), $path, $schemas);
-            $this->flattenValues($this->hierarchyFieldsOf($value['class'], $schemas), $value['fields'], $path->traverse(...), $schemas, $valuesByPath);
+            $this->flattenValues($schemas->hierarchyFieldsOf($value['class']), $value['fields'], $path->traverse(...), $schemas, $valuesByPath);
         }
     }
 
@@ -141,10 +144,10 @@ final class SchemaCompiler
      * Throws unless $class exists and is $target or one of its descendants.
      * Walks parents through the schemas rather than using is_a(), since an
      * editor-created identifier isn't a PHP class.
-     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
      */
-    private function assertIsOrExtends(string $class, string $target, FieldPath $path, array $schemas): void {
-        if (!isset($schemas[$class]) && !$this->registry->has($class)) {
+    private function assertIsOrExtends(string $class, string $target, FieldPath $path, SchemaLookup $schemas): void {
+        if (!$schemas->has($class)) {
             throw new InvalidArgumentException(sprintf(
                 '"%s" holds a "%s", which was neither given to compile() nor already compiled this request.',
                 $path,
@@ -152,7 +155,7 @@ final class SchemaCompiler
             ));
         }
 
-        for ($current = $class; $current !== null; $current = $this->schemaOf($current, $schemas)->parent) {
+        for ($current = $class; $current !== null; $current = $schemas->get($current)->parent) {
             if ($current === $target) {
                 return;
             }
@@ -172,42 +175,21 @@ final class SchemaCompiler
      * Each item is its own row in a child table, so it's traversed with "."
      * and its index, never embedded into the owner with ":".
      * @param mixed[] $items
-     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
      * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenCollection(FieldDescriptor $item, array $items, FieldPath $path, array $schemas, array &$valuesByPath): void {
+    private function flattenCollection(FieldDescriptor $item, array $items, FieldPath $path, SchemaLookup $schemas, array &$valuesByPath): void {
         $valuesByPath[(string) $path] = count($items);
 
         foreach (array_values($items) as $index => $value) {
             $itemPath = $path->traverse($index);
 
             if ($item->kind() === FieldKind::Embed) {
-                $this->flattenValues($this->hierarchyFieldsOf($item->target(), $schemas), $value ?? [], $itemPath->traverse(...), $schemas, $valuesByPath);
+                $this->flattenValues($schemas->hierarchyFieldsOf($item->target()), $value ?? [], $itemPath->traverse(...), $schemas, $valuesByPath);
             } else {
                 $this->flattenValue($item, $value, $itemPath, $schemas, $valuesByPath);
             }
         }
-    }
-
-    /**
-     * $identifier's own fields plus everything it inherits, all the way up.
-     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
-     */
-    private function hierarchyFieldsOf(string $identifier, array $schemas): FieldDescriptorCollection {
-        $schema = $this->schemaOf($identifier, $schemas);
-        $inherited = $schema->parent !== null ? $this->hierarchyFieldsOf($schema->parent, $schemas) : FieldDescriptorCollection::empty();
-
-        return $inherited->merge($schema->fields);
-    }
-
-    /**
-     * This batch's own schema for $identifier if it has one, the registry's
-     * otherwise: the batch always wins, so a schema being recompiled is never
-     * read from an older registration.
-     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
-     */
-    private function schemaOf(string $identifier, array $schemas): EntitySchema {
-        return $schemas[$identifier] ?? $this->registry->get($identifier);
     }
 
     // ~Value Flattening
@@ -222,11 +204,11 @@ final class SchemaCompiler
      * same shape flattenValues() does.
      * @param array<string, mixed> $values Keyed by FieldName.
      * @param Closure(FieldName): FieldPath $pathOf Turns one of $fields' names into its full path.
-     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
      * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
      * @param array<string, mixed> $kept Keyed by FieldPath.
      */
-    private function keepValues(string $identifier, FieldDescriptorCollection $fields, array $values, Closure $pathOf, array $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
+    private function keepValues(string $identifier, FieldDescriptorCollection $fields, array $values, Closure $pathOf, SchemaLookup $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
         foreach ($fields as $name => $field) {
             $this->keepValue($identifier, $field, $values[(string) $name] ?? null, $pathOf($name), $schemas, $resolver, $dense, $kept);
         }
@@ -234,14 +216,14 @@ final class SchemaCompiler
 
     /**
      * Dispatch correct 'keep' method based on field kind.
-     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
      * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
      * @param array<string, mixed> $kept Keyed by FieldPath.
      */
-    private function keepValue(string $identifier, FieldDescriptor $field, mixed $value, FieldPath $path, array $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
+    private function keepValue(string $identifier, FieldDescriptor $field, mixed $value, FieldPath $path, SchemaLookup $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
         match ($field->kind()) {
             FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $this->keepIfDiffers($identifier, $path, $value, $resolver, $kept),
-            FieldKind::Embed => $this->keepValues($identifier, $this->hierarchyFieldsOf($field->target(), $schemas), $value ?? [], $path->embed(...), $schemas, $resolver, $dense, $kept),
+            FieldKind::Embed => $this->keepValues($identifier, $schemas->hierarchyFieldsOf($field->target()), $value ?? [], $path->embed(...), $schemas, $resolver, $dense, $kept),
             FieldKind::OwningReference => $this->keepOwned($identifier, $value, $path, $schemas, $resolver, $dense, $kept),
             FieldKind::Collection => $this->keepCollection($identifier, $field->itemDescriptor(), $value ?? [], $path, $schemas, $resolver, $dense, $kept),
         };
@@ -251,15 +233,15 @@ final class SchemaCompiler
      * The class it holds is kept or not like any other value; so is each of
      * its fields, against what the class would supply on its own.
      * @param array{class: class-string, fields: array<string, mixed>}|null $value
-     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
      * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
      * @param array<string, mixed> $kept Keyed by FieldPath.
      */
-    private function keepOwned(string $identifier, ?array $value, FieldPath $path, array $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
+    private function keepOwned(string $identifier, ?array $value, FieldPath $path, SchemaLookup $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
         $this->keepIfDiffers($identifier, $path, $value['class'] ?? null, $resolver, $kept);
 
         if ($value !== null) {
-            $this->keepValues($identifier, $this->hierarchyFieldsOf($value['class'], $schemas), $value['fields'], $path->traverse(...), $schemas, $resolver, $dense, $kept);
+            $this->keepValues($identifier, $schemas->hierarchyFieldsOf($value['class']), $value['fields'], $path->traverse(...), $schemas, $resolver, $dense, $kept);
         }
     }
 
@@ -269,11 +251,11 @@ final class SchemaCompiler
      * nothing of it is. Within a kept item, each of its own fields is still
      * kept only when it differs from what the item's class would supply.
      * @param mixed[] $items
-     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
      * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
      * @param array<string, mixed> $kept Keyed by FieldPath.
      */
-    private function keepCollection(string $identifier, FieldDescriptor $item, array $items, FieldPath $path, array $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
+    private function keepCollection(string $identifier, FieldDescriptor $item, array $items, FieldPath $path, SchemaLookup $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
         if (!$this->collectionDiffers($identifier, $path, $resolver, $dense)) {
             return;
         }
@@ -284,7 +266,7 @@ final class SchemaCompiler
             $itemPath = $path->traverse($index);
 
             match ($item->kind()) {
-                FieldKind::Embed => $this->keepValues($identifier, $this->hierarchyFieldsOf($item->target(), $schemas), $value ?? [], $itemPath->traverse(...), $schemas, $resolver, $dense, $kept),
+                FieldKind::Embed => $this->keepValues($identifier, $schemas->hierarchyFieldsOf($item->target()), $value ?? [], $itemPath->traverse(...), $schemas, $resolver, $dense, $kept),
                 FieldKind::OwningReference => $this->keepOwnedItem($identifier, $value, $itemPath, $schemas, $resolver, $dense, $kept),
                 default => $kept[(string) $itemPath] = $value,
             };
@@ -295,15 +277,15 @@ final class SchemaCompiler
      * Like keepOwned(), except the class is always kept: an item belongs to a
      * kept collection, which has nothing else to supply it.
      * @param array{class: class-string, fields: array<string, mixed>}|null $value
-     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
      * @param array<string, mixed> $dense $identifier's own full values, keyed by FieldPath.
      * @param array<string, mixed> $kept Keyed by FieldPath.
      */
-    private function keepOwnedItem(string $identifier, ?array $value, FieldPath $itemPath, array $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
+    private function keepOwnedItem(string $identifier, ?array $value, FieldPath $itemPath, SchemaLookup $schemas, FieldValueResolver $resolver, array $dense, array &$kept): void {
         $kept[(string) $itemPath] = $value['class'] ?? null;
 
         if ($value !== null) {
-            $this->keepValues($identifier, $this->hierarchyFieldsOf($value['class'], $schemas), $value['fields'], $itemPath->traverse(...), $schemas, $resolver, $dense, $kept);
+            $this->keepValues($identifier, $schemas->hierarchyFieldsOf($value['class']), $value['fields'], $itemPath->traverse(...), $schemas, $resolver, $dense, $kept);
         }
     }
 

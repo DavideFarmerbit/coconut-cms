@@ -154,7 +154,8 @@ it's derived from the path (not yet implemented: nothing needs it yet).
 `compile()` computes first and commits last. It builds every schema and every
 value, and runs every check, without touching `SchemaRegistry` or
 `SchemaFieldValueStore`. A lookup of a target's fields reads the batch's own
-schemas first, and the registry only for something outside the batch. So a
+schemas first, and the registry only for something outside the batch. That
+rule lives in `SchemaLookup`, shared by the compiler and the resolver. So a
 schema being recompiled is never read from an older registration. Only when
 everything has passed does it commit: all values in one transaction, then all
 schemas into the registry. A failure at any point leaves both untouched.
@@ -170,7 +171,10 @@ round and corrected: `SchemaFieldValueStore` is the one mechanism for both.
 - `save($identifier, $values)` / `saveAll()` / `load($identifier)`: a plain
   `(identifier, FieldPath) -> value` store, written by the compiler for native
   and directly by an admin save for editor-created. It knows nothing about
-  schemas.
+  schemas. It remembers what it loaded for the rest of the request, and
+  forgets whatever a save overwrites, so resolving through many sources
+  doesn't reload the same rows. Only writes through the same instance are
+  seen: something else writing to the table mid-request isn't.
 - `diff($identifier, $currentValues)`: added/removed/changed against whatever
   was last saved, path for path, not "something in this subtree differs."
 

@@ -4,7 +4,6 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema;
 
 use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPath;
@@ -27,6 +26,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPath;
  */
 final class FieldValueResolver
 {
+    private readonly SchemaLookup $schemas;
+
     /**
      * @param array<string, EntitySchema> $batchSchemas Read ahead of the registry.
      * @param array<string, array<string, mixed>> $batchValues Read ahead of the
@@ -35,13 +36,14 @@ final class FieldValueResolver
     public function __construct(
         private readonly SchemaRegistry $registry,
         private readonly SchemaFieldValueStore $store,
-        private readonly array $batchSchemas = [],
+        array $batchSchemas = [],
         private readonly array $batchValues = [],
     ) {
+        $this->schemas = new SchemaLookup($registry, $batchSchemas);
     }
 
     /**
-     * This resolver, reading $schemas and $valuesByIdentifier ahead of the
+     * Makes this resolver read $schemas and $valuesByIdentifier ahead of the
      * registry and the store: for a batch being compiled, not committed yet.
      * @param array<string, EntitySchema> $schemas
      * @param array<string, array<string, mixed>> $valuesByIdentifier
@@ -230,7 +232,7 @@ final class FieldValueResolver
      */
     private function chainOf(string $identifier): array {
         $chain = [];
-        for ($current = $identifier; $current !== null; $current = $this->schemaOf($current)->parent) {
+        for ($current = $identifier; $current !== null; $current = $this->schemas->get($current)->parent) {
             $chain[] = [$current, ''];
         }
 
@@ -240,10 +242,6 @@ final class FieldValueResolver
     /** @return array<string, mixed> */
     private function valuesOf(string $identifier): array {
         return $this->batchValues[$identifier] ?? $this->store->load($identifier);
-    }
-
-    private function schemaOf(string $identifier): EntitySchema {
-        return $this->batchSchemas[$identifier] ?? $this->registry->get($identifier);
     }
 
     /** $path's tail, after checking $path's head joins to it with $join. */
@@ -256,20 +254,12 @@ final class FieldValueResolver
     }
 
     private function fieldOf(string $class, FieldName|int $head, FieldPath $path): FieldDescriptor {
-        $fields = $this->hierarchyFieldsOf($class);
+        $fields = $this->schemas->hierarchyFieldsOf($class);
         if (!$head instanceof FieldName || !$fields->has($head)) {
             throw $this->invalidPath($class, $path, sprintf('"%s" has no field "%s"', $class, $head));
         }
 
         return $fields->get($head);
-    }
-
-    /** $identifier's own fields plus everything it inherits, all the way up. */
-    private function hierarchyFieldsOf(string $identifier): FieldDescriptorCollection {
-        $schema = $this->schemaOf($identifier);
-        $inherited = $schema->parent !== null ? $this->hierarchyFieldsOf($schema->parent) : FieldDescriptorCollection::empty();
-
-        return $inherited->merge($schema->fields);
     }
 
     private function noValue(string $class, FieldPath $path): NoFieldValueException {
