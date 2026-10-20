@@ -2,11 +2,14 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Compiler;
 
+use Closure;
 use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
 
@@ -55,7 +58,7 @@ final class SchemaCompiler
         $valuesByIdentifier = [];
         foreach ($order as $identifier => $blueprint) {
             $valuesByPath = [];
-            $this->flattenValues($blueprint->fields, $blueprint->defaultValues, '', $schemas, $valuesByPath);
+            $this->flattenValues($blueprint->fields, $blueprint->defaultValues, FieldPath::of(...), $schemas, $valuesByPath);
             $valuesByIdentifier[$identifier] = $valuesByPath;
         }
 
@@ -74,14 +77,15 @@ final class SchemaCompiler
 
     /**
      * Writes $values into $valuesByPath, one entry per leaf: an Embed's fields
-     * joined with "_", an OwningReference or a Collection item traversed with ".".
+     * joined with ":", an OwningReference or a Collection item traversed with ".".
      * @param array<string, mixed> $values Keyed by FieldName.
+     * @param Closure(FieldName): FieldPath $pathOf Turns one of $fields' names into its full path.
      * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
      * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenValues(FieldDescriptorCollection $fields, array $values, string $prefix, array $schemas, array &$valuesByPath): void {
+    private function flattenValues(FieldDescriptorCollection $fields, array $values, Closure $pathOf, array $schemas, array &$valuesByPath): void {
         foreach ($fields as $name => $field) {
-            $this->flattenValue($field, $values[(string) $name] ?? null, $prefix . $name, $schemas, $valuesByPath);
+            $this->flattenValue($field, $values[(string) $name] ?? null, $pathOf($name), $schemas, $valuesByPath);
         }
     }
 
@@ -90,29 +94,29 @@ final class SchemaCompiler
      * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
      * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenValue(FieldDescriptor $field, mixed $value, string $pathKey, array $schemas, array &$valuesByPath): void {
+    private function flattenValue(FieldDescriptor $field, mixed $value, FieldPath $path, array $schemas, array &$valuesByPath): void {
         match ($field->kind()) {
-            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $valuesByPath[$pathKey] = $value,
-            FieldKind::Embed => $this->flattenValues($this->hierarchyFieldsOf($field->target(), $schemas), $value ?? [], $pathKey . '_', $schemas, $valuesByPath),
-            FieldKind::OwningReference => $this->flattenOwned($field, $value, $pathKey, $schemas, $valuesByPath),
-            FieldKind::Collection => $this->flattenCollection($field->itemDescriptor(), $value ?? [], $pathKey, $schemas, $valuesByPath),
+            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $valuesByPath[(string) $path] = $value,
+            FieldKind::Embed => $this->flattenValues($this->hierarchyFieldsOf($field->target(), $schemas), $value ?? [], $path->embed(...), $schemas, $valuesByPath),
+            FieldKind::OwningReference => $this->flattenOwned($field, $value, $path, $schemas, $valuesByPath),
+            FieldKind::Collection => $this->flattenCollection($field->itemDescriptor(), $value ?? [], $path, $schemas, $valuesByPath),
         };
     }
 
     /**
-     * The bare key holds the concrete class, or null: an OwningReference has
+     * The bare path holds the concrete class, or null: an OwningReference has
      * no value of its own there otherwise, and unlike Embed its class isn't
      * fixed by the schema.
      * @param array{class: class-string, fields: array<string, mixed>}|null $value
      * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
      * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenOwned(FieldDescriptor $field, ?array $value, string $pathKey, array $schemas, array &$valuesByPath): void {
-        $valuesByPath[$pathKey] = $value['class'] ?? null;
+    private function flattenOwned(FieldDescriptor $field, ?array $value, FieldPath $path, array $schemas, array &$valuesByPath): void {
+        $valuesByPath[(string) $path] = $value['class'] ?? null;
 
         if ($value !== null) {
-            $this->assertIsOrExtends($value['class'], $field->target(), $pathKey, $schemas);
-            $this->flattenValues($this->hierarchyFieldsOf($value['class'], $schemas), $value['fields'], $pathKey . '.', $schemas, $valuesByPath);
+            $this->assertIsOrExtends($value['class'], $field->target(), $path, $schemas);
+            $this->flattenValues($this->hierarchyFieldsOf($value['class'], $schemas), $value['fields'], $path->traverse(...), $schemas, $valuesByPath);
         }
     }
 
@@ -122,11 +126,11 @@ final class SchemaCompiler
      * editor-created identifier isn't a PHP class.
      * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
      */
-    private function assertIsOrExtends(string $class, string $target, string $pathKey, array $schemas): void {
+    private function assertIsOrExtends(string $class, string $target, FieldPath $path, array $schemas): void {
         if (!isset($schemas[$class]) && !$this->registry->has($class)) {
             throw new InvalidArgumentException(sprintf(
                 '"%s" holds a "%s", which was neither given to compile() nor already compiled this request.',
-                $pathKey,
+                $path,
                 $class,
             ));
         }
@@ -139,7 +143,7 @@ final class SchemaCompiler
 
         throw new InvalidArgumentException(sprintf(
             '"%s" holds a "%s", which is neither "%s" nor one of its descendants.',
-            $pathKey,
+            $path,
             $class,
             $target,
         ));
@@ -147,19 +151,19 @@ final class SchemaCompiler
 
     /**
      * Each item is its own row in a child table, so it's traversed with "."
-     * and its index, never joined into the owner's own columns with "_".
+     * and its index, never embedded into the owner with ":".
      * @param mixed[] $items
      * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
      * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenCollection(FieldDescriptor $item, array $items, string $pathKey, array $schemas, array &$valuesByPath): void {
+    private function flattenCollection(FieldDescriptor $item, array $items, FieldPath $path, array $schemas, array &$valuesByPath): void {
         foreach (array_values($items) as $index => $value) {
-            $itemKey = $pathKey . '.' . $index;
+            $itemPath = $path->traverse($index);
 
             if ($item->kind() === FieldKind::Embed) {
-                $this->flattenValues($this->hierarchyFieldsOf($item->target(), $schemas), $value ?? [], $itemKey . '.', $schemas, $valuesByPath);
+                $this->flattenValues($this->hierarchyFieldsOf($item->target(), $schemas), $value ?? [], $itemPath->traverse(...), $schemas, $valuesByPath);
             } else {
-                $this->flattenValue($item, $value, $itemKey, $schemas, $valuesByPath);
+                $this->flattenValue($item, $value, $itemPath, $schemas, $valuesByPath);
             }
         }
     }

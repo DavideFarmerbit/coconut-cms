@@ -43,18 +43,18 @@ final class SchemaFieldValueStoreTest extends TestCase
         $this->store->save('App\\Car', [
             'engine' => 'App\\Engine',
             'engine.horsepower' => 500,
-            'engine.piston_diameter' => 10,
+            'engine.piston:diameter' => 10,
         ]);
 
         // Only the key that actually changed is reported: the sibling leaf
         // behind the same owned reference stays untouched. FieldPath has no
         // identity semantics, so this compares by value.
         self::assertEquals(
-            ['added' => [], 'removed' => [], 'changed' => [FieldPath::of('engine.piston_diameter')]],
+            ['added' => [], 'removed' => [], 'changed' => [FieldPath::fromString('engine.piston:diameter')]],
             $this->store->diff('App\\Car', [
                 'engine' => 'App\\Engine',
                 'engine.horsepower' => 500,
-                'engine.piston_diameter' => 11,
+                'engine.piston:diameter' => 11,
             ]),
         );
     }
@@ -79,7 +79,7 @@ final class SchemaFieldValueStoreTest extends TestCase
         $this->store->save('App\\Engine', ['horsepower' => 300]);
 
         self::assertEquals(
-            ['added' => [], 'removed' => [], 'changed' => [FieldPath::of('horsepower')]],
+            ['added' => [], 'removed' => [], 'changed' => [FieldPath::fromString('horsepower')]],
             $this->store->diff('App\\Engine', ['horsepower' => 100]),
         );
     }
@@ -88,7 +88,7 @@ final class SchemaFieldValueStoreTest extends TestCase
         $this->store->save('App\\Engine', ['horsepower' => 300]);
 
         self::assertEquals(
-            ['added' => [FieldPath::of('torque')], 'removed' => [], 'changed' => []],
+            ['added' => [FieldPath::fromString('torque')], 'removed' => [], 'changed' => []],
             $this->store->diff('App\\Engine', ['horsepower' => 300, 'torque' => 400]),
         );
     }
@@ -97,14 +97,14 @@ final class SchemaFieldValueStoreTest extends TestCase
         $this->store->save('App\\Engine', ['horsepower' => 300, 'torque' => 400]);
 
         self::assertEquals(
-            ['added' => [], 'removed' => [FieldPath::of('torque')], 'changed' => []],
+            ['added' => [], 'removed' => [FieldPath::fromString('torque')], 'changed' => []],
             $this->store->diff('App\\Engine', ['horsepower' => 300]),
         );
     }
 
     public function testDiffOnAnIdentifierNeverSavedTreatsEveryFieldAsAdded(): void {
         self::assertEquals(
-            ['added' => [FieldPath::of('horsepower')], 'removed' => [], 'changed' => []],
+            ['added' => [FieldPath::fromString('horsepower')], 'removed' => [], 'changed' => []],
             $this->store->diff('App\\NeverSaved', ['horsepower' => 300]),
         );
     }
@@ -113,7 +113,7 @@ final class SchemaFieldValueStoreTest extends TestCase
         $this->store->save('SpecialEngine', ['horsepower' => 999]);
         $this->store->save('Engine', ['horsepower' => 300]);
 
-        self::assertSame(999, $this->store->resolve(['SpecialEngine', 'Engine'], FieldPath::of('horsepower')));
+        self::assertSame(999, $this->store->resolve(['SpecialEngine', 'Engine'], FieldPath::fromString('horsepower')));
     }
 
     public function testResolveFallsThroughToALessSpecificScopeWhenTheMostSpecificHasNoValue(): void {
@@ -121,31 +121,31 @@ final class SchemaFieldValueStoreTest extends TestCase
 
         // "QuietEngine" was never saved at all; nothing but the fallback chain
         // itself says it should defer to "Engine".
-        self::assertSame(300, $this->store->resolve(['QuietEngine', 'Engine'], FieldPath::of('horsepower')));
+        self::assertSame(300, $this->store->resolve(['QuietEngine', 'Engine'], FieldPath::fromString('horsepower')));
     }
 
     public function testResolveKeepsAnExplicitValueIndependentOfWhatALessSpecificScopeLaterReports(): void {
         $this->store->save('SpecialEngine', ['horsepower' => 100]);
         $this->store->save('Engine', ['horsepower' => 100]);
 
-        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], FieldPath::of('horsepower')));
+        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], FieldPath::fromString('horsepower')));
 
         // Engine's own value changes; SpecialEngine's own explicit row is
         // untouched by that, because it was never a fallback to begin with.
         $this->store->save('Engine', ['horsepower' => 999]);
 
-        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], FieldPath::of('horsepower')));
+        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], FieldPath::fromString('horsepower')));
     }
 
     public function testResolveSupportsAnOwningFieldSiteFallingThroughToItsTargetType(): void {
         $this->store->save('Engine', ['horsepower' => 100]);
 
-        self::assertSame(100, $this->store->resolve(['AudiCar.engine', 'Engine'], FieldPath::of('horsepower')));
+        self::assertSame(100, $this->store->resolve(['AudiCar.engine', 'Engine'], FieldPath::fromString('horsepower')));
     }
 
     public function testResolveWithNoScopeHavingAValueThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        $this->store->resolve(['Unknown'], FieldPath::of('horsepower'));
+        $this->store->resolve(['Unknown'], FieldPath::fromString('horsepower'));
     }
 }

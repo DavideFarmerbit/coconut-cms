@@ -344,10 +344,10 @@ final class SchemaCompilerTest extends TestCase
         self::assertSame(['value' => ''], self::loadSorted($valueStore, CompilerEmbedTarget::class));
     }
 
-    public function testCompileJoinsAnEmbedsFieldsWithAnUnderscore(): void {
+    public function testCompileJoinsAnEmbedsFieldsWithAColon(): void {
         $valueStore = self::compileIntoFreshStore([CompilerEmbedder::class, CompilerEmbedTarget::class]);
 
-        self::assertSame(['target_value' => ''], self::loadSorted($valueStore, CompilerEmbedder::class));
+        self::assertSame(['target:value' => ''], self::loadSorted($valueStore, CompilerEmbedder::class));
     }
 
     public function testCompileStoresANullOwningReferenceAsANullClass(): void {
@@ -366,17 +366,17 @@ final class SchemaCompilerTest extends TestCase
 
         // The bare key holds the concrete class, here a subclass of the
         // declared target, and everything the owner's default instance set on
-        // it hangs off that key, its own Embed still joined with "_".
+        // it hangs off that key, its own Embed still joined with ":".
         self::assertSame([
             'engine' => CompilerSportsEngine::class,
             'engine.boost' => 2,
             'engine.horsepower' => 500,
-            'engine.piston_diameter' => 10,
+            'engine.piston:diameter' => 10,
         ], self::loadSorted($valueStore, CompilerOwner::class));
 
         // The engine's own class-level defaults are untouched by the owner's.
         self::assertSame(
-            ['horsepower' => 300, 'piston_diameter' => 10],
+            ['horsepower' => 300, 'piston:diameter' => 10],
             self::loadSorted($valueStore, CompilerOwnedEngine::class),
         );
     }
@@ -391,7 +391,7 @@ final class SchemaCompilerTest extends TestCase
         self::assertSame([
             'engines.0' => CompilerOwnedEngine::class,
             'engines.0.horsepower' => 400,
-            'engines.0.piston_diameter' => 10,
+            'engines.0.piston:diameter' => 10,
             'pistons.0.diameter' => 10,
             'tags.0' => 'a',
             'tags.1' => 'b',

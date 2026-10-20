@@ -119,14 +119,21 @@ than walking the class a second time just for values.
 leaf. The key is a `FieldPath`: the path from the class down to that leaf. It is
 not a column of the class. Everything past a `.` lives in another table.
 
-- Embed: fields joined with `_`. Example: `chassis_engine_piston_diameter`.
+- Embed: fields joined with `:`. Example: `chassis:engine:piston:diameter`.
 - OwningReference: traversed with `.`. The bare key holds the concrete class,
   or null. An OwningReference has no value of its own there otherwise, and
   unlike Embed its class isn't fixed by the schema. Example: `engine` holds the
-  class, `engine.horsepower` and `engine.piston_diameter` hold what the owner
+  class, `engine.horsepower` and `engine.piston:diameter` hold what the owner
   set on it.
 - Collection: each item is traversed with `.` and its index. Example:
   `tags.0`, `wheels.0.size`, `engines.0` (class) and `engines.0.horsepower`.
+
+`FieldPath` is built segment by segment, never by joining strings. Its string
+form is what gets stored. A `FieldName` never contains `:` or `.` and is never
+all digits, so a stored key parses back into a `FieldPath` without the schema.
+The separators are the storage format's own, not real column names: `_` would
+be ambiguous, since field names contain it. When a real column name is needed,
+it's derived from the path (not yet implemented: nothing needs it yet).
 
 `compile()` computes first and commits last. It builds every schema and every
 value, and runs every check, without touching `SchemaRegistry` or

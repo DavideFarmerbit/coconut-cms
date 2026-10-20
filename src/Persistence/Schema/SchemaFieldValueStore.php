@@ -48,8 +48,8 @@ final class SchemaFieldValueStore
      * single transaction.
      * @param array<string, mixed> $values One entry per leaf, keyed by
      *        FieldPath (as plain strings), never a nested tree: an Embed's
-     *        fields joined with "_", an OwningReference or a Collection item
-     *        traversed with ".", e.g. "engine.piston_diameter".
+     *        fields joined with ":", an OwningReference or a Collection item
+     *        traversed with ".", e.g. "engine.piston:diameter".
      */
     public function save(string $identifier, array $values): void {
         $this->saveAll([$identifier => $values]);
@@ -111,9 +111,9 @@ final class SchemaFieldValueStore
         }
 
         return [
-            'added' => array_map(FieldPath::of(...), array_values($added)),
-            'removed' => array_map(FieldPath::of(...), array_values($removed)),
-            'changed' => array_map(FieldPath::of(...), $changed),
+            'added' => array_map(FieldPath::fromString(...), array_values($added)),
+            'removed' => array_map(FieldPath::fromString(...), array_values($removed)),
+            'changed' => array_map(FieldPath::fromString(...), $changed),
         ];
     }
 
