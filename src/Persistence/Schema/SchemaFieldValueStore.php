@@ -5,17 +5,15 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\Types;
-use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPath;
 
 /**
- * Stores and resolves field values for any identifier, native or editor-created
- * alike: there's no separate mechanism per source, because the requirement is
- * the same either way. A native identifier's values get written here by the
- * compiler, read off reflection once and never re-read live on every resolve().
- * An editor-created identifier's values get written here directly, by whatever
- * saved it. Either way, resolving a value and diffing against what was last
- * written work the same way, over the same table.
+ * Stores field values for any identifier, native or editor-created alike, as
+ * plain (identifier, FieldPath) -> value rows: there's no separate mechanism
+ * per source, because the requirement is the same either way. A native
+ * identifier's values get written here by the compiler, an editor-created
+ * one's by whatever saved it. Knows nothing about schemas: finding a value's
+ * effective value through parents and targets is FieldValueResolver's job.
  */
 final class SchemaFieldValueStore
 {
@@ -115,27 +113,5 @@ final class SchemaFieldValueStore
             'removed' => array_map(FieldPath::fromString(...), array_values($removed)),
             'changed' => array_map(FieldPath::fromString(...), $changed),
         ];
-    }
-
-    /**
-     * Returns the first explicit value found for $field, checking $scopesInOrder
-     * from most to least specific. Building that order (an owning field site
-     * before its target type, a type before its own parent type, and so on) is
-     * the caller's concern, not this store's: it only ever checks what it's told.
-     * @param string[] $scopesInOrder
-     */
-    public function resolve(array $scopesInOrder, FieldPath $field): mixed {
-        foreach ($scopesInOrder as $scope) {
-            $values = $this->load($scope);
-            if (array_key_exists((string) $field, $values)) {
-                return $values[(string) $field];
-            }
-        }
-
-        throw new InvalidArgumentException(sprintf(
-            'None of [%s] has an explicit value for "%s".',
-            implode(', ', $scopesInOrder),
-            $field,
-        ));
     }
 }

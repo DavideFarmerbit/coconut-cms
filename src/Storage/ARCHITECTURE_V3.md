@@ -151,14 +151,29 @@ so a migration can detect drift." Building two separate mechanisms for this (one
 reflection-backed, one override-table-backed) was a mistake made earlier in this
 round and corrected: `SchemaFieldValueStore` is the one mechanism for both.
 
-- `save($identifier, $values)` / `load($identifier)`: a plain `(identifier,
-  field) -> value` store, written by the compiler for native (after flattening
-  a freshly-read blueprint) and directly by an admin save for editor-created.
+- `save($identifier, $values)` / `saveAll()` / `load($identifier)`: a plain
+  `(identifier, FieldPath) -> value` store, written by the compiler for native
+  and directly by an admin save for editor-created. It knows nothing about
+  schemas.
 - `diff($identifier, $currentValues)`: added/removed/changed against whatever
-  was last saved, column for column, not "something in this subtree differs."
-- `resolve($scopesInOrder, $field)`: the first explicit value found, checking
-  scopes from most to least specific. Building that order — an owning field
-  site before its target type, a type before its own parent type — is the
-  caller's job, using `EntitySchema`/`FieldDescriptor` to know the chain; the
-  store itself never special-cases native vs. editor-created, or type-extends-
-  type vs. field-owns-type. It only ever checks what it's told, in order.
+  was last saved, path for path, not "something in this subtree differs."
+
+## Resolving a value
+
+`FieldValueResolver::resolve($identifier, $path)` finds a path's effective
+value. It needs schemas, so it lives outside the store, which only reads and
+writes rows. It is not a repository concern either: the compiler, migrations
+and the editor all need the same answer.
+
+1. Check `$identifier` and each of its parents for the path exactly as stored.
+   The first hit wins. A stored null is a value, not a miss.
+2. Otherwise, fall back through the path's first field:
+   - Embed: resolve the rest of the path on the Embed's target.
+   - OwningReference: resolve the bare field first, which holds the class, then
+     resolve the rest of the path on that class.
+   - Collection item: an Embed item falls back to the item target; an owned
+     item falls back through the class its own bare path holds.
+3. Nothing left to try: throw.
+
+So for `Car` and `engine.horsepower`, the order is: `Car`, then Car's parents,
+then the class `engine` holds, then that class's parents.

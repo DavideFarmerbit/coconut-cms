@@ -4,7 +4,6 @@ namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Schema;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
-use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
@@ -107,45 +106,5 @@ final class SchemaFieldValueStoreTest extends TestCase
             ['added' => [FieldPath::fromString('horsepower')], 'removed' => [], 'changed' => []],
             $this->store->diff('App\\NeverSaved', ['horsepower' => 300]),
         );
-    }
-
-    public function testResolveReturnsTheMostSpecificScopesExplicitValue(): void {
-        $this->store->save('SpecialEngine', ['horsepower' => 999]);
-        $this->store->save('Engine', ['horsepower' => 300]);
-
-        self::assertSame(999, $this->store->resolve(['SpecialEngine', 'Engine'], FieldPath::fromString('horsepower')));
-    }
-
-    public function testResolveFallsThroughToALessSpecificScopeWhenTheMostSpecificHasNoValue(): void {
-        $this->store->save('Engine', ['horsepower' => 300]);
-
-        // "QuietEngine" was never saved at all; nothing but the fallback chain
-        // itself says it should defer to "Engine".
-        self::assertSame(300, $this->store->resolve(['QuietEngine', 'Engine'], FieldPath::fromString('horsepower')));
-    }
-
-    public function testResolveKeepsAnExplicitValueIndependentOfWhatALessSpecificScopeLaterReports(): void {
-        $this->store->save('SpecialEngine', ['horsepower' => 100]);
-        $this->store->save('Engine', ['horsepower' => 100]);
-
-        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], FieldPath::fromString('horsepower')));
-
-        // Engine's own value changes; SpecialEngine's own explicit row is
-        // untouched by that, because it was never a fallback to begin with.
-        $this->store->save('Engine', ['horsepower' => 999]);
-
-        self::assertSame(100, $this->store->resolve(['SpecialEngine', 'Engine'], FieldPath::fromString('horsepower')));
-    }
-
-    public function testResolveSupportsAnOwningFieldSiteFallingThroughToItsTargetType(): void {
-        $this->store->save('Engine', ['horsepower' => 100]);
-
-        self::assertSame(100, $this->store->resolve(['AudiCar.engine', 'Engine'], FieldPath::fromString('horsepower')));
-    }
-
-    public function testResolveWithNoScopeHavingAValueThrows(): void {
-        $this->expectException(InvalidArgumentException::class);
-
-        $this->store->resolve(['Unknown'], FieldPath::fromString('horsepower'));
     }
 }
