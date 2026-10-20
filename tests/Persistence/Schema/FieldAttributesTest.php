@@ -21,16 +21,16 @@ final class FieldAttributesSubject
     #[Scalar(ScalarType::Enum, FieldAttributesStatus::class)]
     private FieldAttributesStatus $status;
 
-    #[ValueObject('Money')]
+    #[ValueObject]
     private string $price;
 
-    #[Embed('Address')]
+    #[Embed]
     private object $billingAddress;
 
-    #[Reference('Category')]
+    #[Reference]
     private ?object $category;
 
-    #[OwningReference('Engine')]
+    #[OwningReference]
     private ?object $engine;
 
     #[Collection(itemKind: FieldKind::Reference, itemTarget: 'Tag')]
@@ -65,20 +65,12 @@ final class FieldAttributesTest extends TestCase
         self::assertSame(FieldAttributesStatus::class, $attribute->enumClass);
     }
 
-    public function testValueObjectAttributeReflectsType(): void {
-        self::assertSame('Money', $this->attributeOf('price')->type);
-    }
-
-    public function testEmbedAttributeReflectsType(): void {
-        self::assertSame('Address', $this->attributeOf('billingAddress')->type);
-    }
-
-    public function testReferenceAttributeReflectsType(): void {
-        self::assertSame('Category', $this->attributeOf('category')->type);
-    }
-
-    public function testOwningReferenceAttributeReflectsType(): void {
-        self::assertSame('Engine', $this->attributeOf('engine')->type);
+    /** Their target is the property's own declared type, never an argument. */
+    public function testTargetInferringAttributesTakeNoArguments(): void {
+        self::assertInstanceOf(ValueObject::class, $this->attributeOf('price'));
+        self::assertInstanceOf(Embed::class, $this->attributeOf('billingAddress'));
+        self::assertInstanceOf(Reference::class, $this->attributeOf('category'));
+        self::assertInstanceOf(OwningReference::class, $this->attributeOf('engine'));
     }
 
     public function testCollectionAttributeReflectsFlattenedItemParams(): void {

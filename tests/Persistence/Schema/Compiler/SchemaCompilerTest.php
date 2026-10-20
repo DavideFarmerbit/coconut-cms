@@ -11,9 +11,12 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\SchemaCompiler;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaRegistry;
@@ -42,8 +45,8 @@ final class CompilerEmbedTarget
 #[Entity]
 final class CompilerEmbedder
 {
-    #[Embed(CompilerEmbedTarget::class)]
-    private object $target;
+    #[Embed]
+    private CompilerEmbedTarget $target;
 
     public function __construct() {
         $this->target = new CompilerEmbedTarget();
@@ -53,8 +56,8 @@ final class CompilerEmbedder
 #[Entity]
 final class CompilerDeepEmbedMiddle
 {
-    #[Embed(CompilerEmbedTarget::class)]
-    private object $target;
+    #[Embed]
+    private CompilerEmbedTarget $target;
 
     public function __construct() {
         $this->target = new CompilerEmbedTarget();
@@ -64,8 +67,8 @@ final class CompilerDeepEmbedMiddle
 #[Entity]
 final class CompilerDeepEmbedOuter
 {
-    #[Embed(CompilerDeepEmbedMiddle::class)]
-    private object $middle;
+    #[Embed]
+    private CompilerDeepEmbedMiddle $middle;
 
     public function __construct() {
         $this->middle = new CompilerDeepEmbedMiddle();
@@ -82,22 +85,22 @@ final class CompilerCollectionEmbedder
 #[Entity]
 final class CompilerCycleA
 {
-    #[Embed(CompilerCycleB::class)]
-    private ?object $b = null;
+    #[Embed]
+    private ?CompilerCycleB $b = null;
 }
 
 #[Entity]
 final class CompilerCycleB
 {
-    #[Embed(CompilerCycleA::class)]
-    private ?object $a = null;
+    #[Embed]
+    private ?CompilerCycleA $a = null;
 }
 
 #[Entity]
 final class CompilerNode
 {
-    #[OwningReference(CompilerNode::class)]
-    private ?object $child = null;
+    #[OwningReference]
+    private ?CompilerNode $child = null;
 }
 
 #[Entity]
@@ -114,8 +117,8 @@ final class CompilerPiston
 #[Entity]
 final class CompilerWidePistonHolder
 {
-    #[Embed(CompilerPiston::class)]
-    private object $piston;
+    #[Embed]
+    private CompilerPiston $piston;
 
     public function __construct() {
         $this->piston = new CompilerPiston(12);
@@ -128,8 +131,8 @@ class CompilerOwnedEngine
     #[Scalar(ScalarType::Int)]
     private int $horsepower;
 
-    #[Embed(CompilerPiston::class)]
-    private object $piston;
+    #[Embed]
+    private CompilerPiston $piston;
 
     public function __construct(int $horsepower = 300) {
         $this->horsepower = $horsepower;
@@ -175,8 +178,8 @@ final class CompilerMoreTags extends CompilerTagged
 #[Entity]
 final class CompilerOwner
 {
-    #[OwningReference(CompilerOwnedEngine::class)]
-    private ?object $engine;
+    #[OwningReference]
+    private ?CompilerOwnedEngine $engine;
 
     public function __construct() {
         $this->engine = new CompilerSportsEngine(500);
@@ -204,8 +207,8 @@ final class CompilerCollectionOwner
 #[Entity]
 final class CompilerOwnerOfAbsentTarget
 {
-    #[OwningReference(CompilerPiston::class)]
-    private ?object $piston = null;
+    #[OwningReference]
+    private ?CompilerPiston $piston = null;
 }
 
 #[Entity]
@@ -218,8 +221,8 @@ final class CompilerCollectionOwnerOfAbsentTarget
 #[Entity]
 final class CompilerReferrerOfAbsentTarget
 {
-    #[Reference(CompilerPiston::class)]
-    private ?object $piston = null;
+    #[Reference]
+    private ?CompilerPiston $piston = null;
 }
 
 #[Entity]
@@ -232,25 +235,67 @@ final class CompilerCollectionReferrerOfAbsentTarget
 #[Entity]
 final class CompilerOwningCycleA
 {
-    #[OwningReference(CompilerOwningCycleB::class)]
-    private ?object $b = null;
+    #[OwningReference]
+    private ?CompilerOwningCycleB $b = null;
 }
 
 #[Entity]
 final class CompilerOwningCycleB
 {
-    #[OwningReference(CompilerOwningCycleA::class)]
-    private ?object $a = null;
+    #[OwningReference]
+    private ?CompilerOwningCycleA $a = null;
 }
 
 #[Entity]
 final class CompilerOwnerOfUnrelatedClass
 {
-    #[OwningReference(CompilerOwnedEngine::class)]
-    private ?object $engine;
+    /**
+     * Holds nothing here: PHP's own property type wouldn't let a native class
+     * hold anything but a CompilerOwnedEngine. Tests swap in an unrelated class
+     * through holdingUnrelatedClass(), the way an editor-created blueprint,
+     * with no property type to stop it, could carry one.
+     */
+    #[OwningReference]
+    private ?CompilerOwnedEngine $engine = null;
+}
+
+final class CompilerMoney implements StorableValue
+{
+    public function __construct(
+        private readonly string $amount,
+    ) {
+    }
+
+    public function toStorage(): string {
+        return $this->amount;
+    }
+
+    public static function fromStorage(string $stored): static {
+        return new static($stored);
+    }
+}
+
+#[Entity]
+class CompilerPriced
+{
+    #[ValueObject]
+    protected CompilerMoney $price;
 
     public function __construct() {
-        $this->engine = new CompilerPiston();
+        $this->price = new CompilerMoney('10 EUR');
+    }
+}
+
+#[Entity]
+final class CompilerSamePrice extends CompilerPriced
+{
+}
+
+#[Entity]
+final class CompilerDiscounted extends CompilerPriced
+{
+    public function __construct() {
+        $this->price = new CompilerMoney('8 EUR');
     }
 }
 
@@ -281,6 +326,30 @@ final class SchemaCompilerTest extends TestCase
         foreach ($classes as $class) {
             $blueprints[$class] = NativeEntityReader::read($class);
         }
+
+        return $blueprints;
+    }
+
+    /**
+     * $blueprints, with CompilerOwnerOfUnrelatedClass's engine holding a
+     * CompilerPiston: outside its declared target's hierarchy.
+     * @param array<string, EntityBlueprint> $blueprints
+     * @return array<string, EntityBlueprint>
+     */
+    private static function holdingUnrelatedClass(array $blueprints): array {
+        $original = $blueprints[CompilerOwnerOfUnrelatedClass::class];
+        $blueprints[CompilerOwnerOfUnrelatedClass::class] = new EntityBlueprint(
+            identifier: $original->identifier,
+            parent: $original->parent,
+            table: $original->table,
+            editorExtensible: $original->editorExtensible,
+            fields: $original->fields,
+            fieldPermissions: $original->fieldPermissions,
+            fieldValidators: $original->fieldValidators,
+            uniqueGroups: $original->uniqueGroups,
+            prototypeValidators: $original->prototypeValidators,
+            defaultValues: ['engine' => ['class' => CompilerPiston::class, 'fields' => ['diameter' => 10]]],
+        );
 
         return $blueprints;
     }
@@ -477,6 +546,22 @@ final class SchemaCompilerTest extends TestCase
         ], self::loadSorted($valueStore, CompilerCollectionOwner::class));
     }
 
+    public function testCompileComparesAValueObjectByTheStringItStoresAs(): void {
+        $registry = new SchemaRegistry();
+        $valueStore = new SchemaFieldValueStore(DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]));
+        $valueStore->createTable();
+        $compiler = new SchemaCompiler($registry, $valueStore);
+
+        $compiler->compile(self::blueprintsOf([CompilerPriced::class]));
+        // The parent's price now comes back from the store, as a string: an
+        // equal value object must still compare equal to it.
+        $compiler->compile(self::blueprintsOf([CompilerSamePrice::class, CompilerDiscounted::class]));
+
+        self::assertSame(['price' => '10 EUR'], self::loadSorted($valueStore, CompilerPriced::class));
+        self::assertSame([], self::loadSorted($valueStore, CompilerSamePrice::class));
+        self::assertSame(['price' => '8 EUR'], self::loadSorted($valueStore, CompilerDiscounted::class));
+    }
+
     public function testCompileStoresNothingOfACollectionAChildInheritsUnchanged(): void {
         $valueStore = self::compileIntoFreshStore([CompilerTagged::class, CompilerSameTags::class]);
 
@@ -545,11 +630,11 @@ final class SchemaCompilerTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessageMatches('/nor one of its descendants/');
 
-        $this->compiler->compile(self::blueprintsOf([
+        $this->compiler->compile(self::holdingUnrelatedClass(self::blueprintsOf([
             CompilerOwnerOfUnrelatedClass::class,
             CompilerOwnedEngine::class,
             CompilerPiston::class,
-        ]));
+        ])));
     }
 
     public function testCompileThatFailsPartWayLeavesTheRegistryAndTheStoreUntouched(): void {
@@ -563,11 +648,11 @@ final class SchemaCompilerTest extends TestCase
         // being computed. Listed last so it's also processed last, after the
         // other two have already been computed.
         try {
-            $compiler->compile(self::blueprintsOf([
+            $compiler->compile(self::holdingUnrelatedClass(self::blueprintsOf([
                 CompilerPiston::class,
                 CompilerOwnedEngine::class,
                 CompilerOwnerOfUnrelatedClass::class,
-            ]));
+            ])));
             self::fail('compile() should have thrown.');
         } catch (InvalidArgumentException) {
         }

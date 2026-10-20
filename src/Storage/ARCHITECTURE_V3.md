@@ -102,8 +102,22 @@ everything that might depend on the thing that changed.
 dense data in the same reflection pass that builds its field descriptors, rather
 than walking the class a second time just for values.
 
-- Scalar, ValueObject, Reference: the raw value, never recursed into. Reference
-  carries no recursion either way, since it doesn't own what it points to.
+An Embed, Reference, OwningReference or ValueObject field's target is the
+property's own declared type, never an attribute argument. It must be a single
+class, nullable or not: `object`, a builtin or a union is rejected. A wrong
+target can't be declared at all, since PHP itself enforces the property type.
+A Collection still names its `itemTarget`: `array` says nothing about its
+items. Editor-created fields have no property, so their descriptors carry the
+target explicitly.
+
+A value object class implements `StorableValue`: `toStorage()` gives the one
+string it's stored as, plain or JSON, and `fromStorage()` rebuilds it. Two
+value objects are equal when they store as the same string.
+
+- Scalar, Reference: the raw value, never recursed into. Reference carries no
+  recursion either way, since it doesn't own what it points to.
+- ValueObject: the string `toStorage()` gives, never the object itself, or
+  null. Everything after the reader only ever sees that string.
 - Embed: recurse into the embedded object's own fields, read through the
   *declared* target class, never the runtime object's actual class. Type
   erasure: a subclass assigned there only contributes the declared class's own

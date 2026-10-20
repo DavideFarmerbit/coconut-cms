@@ -33,8 +33,8 @@ class ResolverEngine
     #[Scalar(ScalarType::Int)]
     private int $horsepower = 300;
 
-    #[Embed(ResolverPiston::class)]
-    private object $piston;
+    #[Embed]
+    private ResolverPiston $piston;
 
     public function __construct() {
         $this->piston = new ResolverPiston();
@@ -51,8 +51,8 @@ final class ResolverSportsEngine extends ResolverEngine
 #[Entity]
 final class ResolverChassis
 {
-    #[Embed(ResolverEngine::class)]
-    private object $engine;
+    #[Embed]
+    private ResolverEngine $engine;
 
     public function __construct() {
         $this->engine = new ResolverEngine();
@@ -62,8 +62,8 @@ final class ResolverChassis
 #[Entity]
 class ResolverCar
 {
-    #[OwningReference(ResolverEngine::class)]
-    private ?object $engine = null;
+    #[OwningReference]
+    private ?ResolverEngine $engine = null;
 }
 
 #[Entity]

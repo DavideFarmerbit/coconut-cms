@@ -15,12 +15,14 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldValidator
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
@@ -118,11 +120,11 @@ final class EntityRegistrarProduct
     #[Scalar(ScalarType::String)]
     private string $title = '';
 
-    #[Reference(EntityRegistrarCategory::class)]
-    private ?object $category = null;
+    #[Reference]
+    private ?EntityRegistrarCategory $category = null;
 
-    #[OwningReference(EntityRegistrarEngine::class)]
-    private ?object $engine = null;
+    #[OwningReference]
+    private ?EntityRegistrarEngine $engine = null;
 
     #[Collection(itemKind: FieldKind::Reference, itemTarget: EntityRegistrarCategory::class)]
     private array $relatedCategories = [];
@@ -171,22 +173,22 @@ final class EntityRegistrarNotAnEntity
 #[Entity]
 final class EntityRegistrarWithReferenceToNonEntity
 {
-    #[Reference(EntityRegistrarNotAnEntity::class)]
-    private ?object $target;
+    #[Reference]
+    private ?EntityRegistrarNotAnEntity $target;
 }
 
 #[Entity]
 final class EntityRegistrarWithOwningReferenceToNonEntity
 {
-    #[OwningReference(EntityRegistrarNotAnEntity::class)]
-    private ?object $target;
+    #[OwningReference]
+    private ?EntityRegistrarNotAnEntity $target;
 }
 
 #[Entity]
 final class EntityRegistrarWithEmbedOfNonEntity
 {
-    #[Embed(EntityRegistrarNotAnEntity::class)]
-    private object $target;
+    #[Embed]
+    private EntityRegistrarNotAnEntity $target;
 }
 
 #[Entity]
@@ -233,7 +235,7 @@ final class EntityRegistrarZeroKindAttributes
 final class EntityRegistrarTwoKindAttributes
 {
     #[Scalar(ScalarType::String)]
-    #[Reference(EntityRegistrarCategory::class)]
+    #[Reference]
     private string $broken;
 }
 
@@ -390,8 +392,8 @@ final class EntityRegistrarSportsEngine extends EntityRegistrarEngineBase
 #[Entity]
 final class EntityRegistrarCarWithOwningReference
 {
-    #[OwningReference(EntityRegistrarEngineBase::class)]
-    private ?object $engine;
+    #[OwningReference]
+    private ?EntityRegistrarEngineBase $engine;
 
     public function __construct() {
         $this->engine = new EntityRegistrarSportsEngine();
@@ -401,8 +403,8 @@ final class EntityRegistrarCarWithOwningReference
 #[Entity]
 final class EntityRegistrarCarWithEmbed
 {
-    #[Embed(EntityRegistrarEngineBase::class)]
-    private object $engine;
+    #[Embed]
+    private EntityRegistrarEngineBase $engine;
 
     public function __construct() {
         $this->engine = new EntityRegistrarSportsEngine();
@@ -418,6 +420,65 @@ final class EntityRegistrarGarage
     public function __construct() {
         $this->engines = [new EntityRegistrarSportsEngine()];
     }
+}
+
+final class EntityRegistrarMoney implements StorableValue
+{
+    public function __construct(
+        private readonly string $amount,
+    ) {
+    }
+
+    public function toStorage(): string {
+        return $this->amount;
+    }
+
+    public static function fromStorage(string $stored): static {
+        return new static($stored);
+    }
+}
+
+#[Entity]
+final class EntityRegistrarPriced
+{
+    #[ValueObject]
+    private EntityRegistrarMoney $price;
+
+    #[ValueObject]
+    private ?EntityRegistrarMoney $discount = null;
+
+    #[Collection(itemKind: FieldKind::ValueObject, itemTarget: EntityRegistrarMoney::class)]
+    private array $history;
+
+    public function __construct() {
+        $this->price = new EntityRegistrarMoney('10 EUR');
+        $this->history = [new EntityRegistrarMoney('8 EUR'), new EntityRegistrarMoney('9 EUR')];
+    }
+}
+
+final class EntityRegistrarNotStorable
+{
+}
+
+#[Entity]
+final class EntityRegistrarValueObjectNotStorable
+{
+    #[ValueObject]
+    private ?EntityRegistrarNotStorable $value = null;
+}
+
+#[Entity]
+final class EntityRegistrarEmbedTypedAsObject
+{
+    #[Embed]
+    private ?object $target = null;
+}
+
+#[Entity]
+final class EntityRegistrarReferenceTypedAsUnion
+{
+    #[Reference]
+    private EntityRegistrarCategory|EntityRegistrarEngine|null $target = null;
 }
 
 final class NativeEntityReaderTest extends TestCase
@@ -577,6 +638,42 @@ final class NativeEntityReaderTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
 
         NativeEntityReader::read(EntityRegistrarNoDefaultInstance::class);
+    }
+
+    public function testRegisterInfersAValueObjectsClassFromItsDeclaredType(): void {
+        $blueprint = NativeEntityReader::read(EntityRegistrarPriced::class);
+
+        self::assertSame(EntityRegistrarMoney::class, $blueprint->fields->get(FieldName::of('price'))->target());
+        self::assertSame(EntityRegistrarMoney::class, $blueprint->fields->get(FieldName::of('history'))->itemDescriptor()->target());
+    }
+
+    public function testRegisterReadsAValueObjectsDefaultAsTheStringItStoresAs(): void {
+        $blueprint = NativeEntityReader::read(EntityRegistrarPriced::class);
+
+        self::assertSame('10 EUR', $blueprint->defaultValues['price']);
+        self::assertNull($blueprint->defaultValues['discount']);
+        self::assertSame(['8 EUR', '9 EUR'], $blueprint->defaultValues['history']);
+    }
+
+    public function testRegisterWithAValueObjectNotImplementingStorableValueThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/does not implement/');
+
+        NativeEntityReader::read(EntityRegistrarValueObjectNotStorable::class);
+    }
+
+    public function testRegisterWithAnInferredTargetTypedAsObjectThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/must be declared as a single class/');
+
+        NativeEntityReader::read(EntityRegistrarEmbedTypedAsObject::class);
+    }
+
+    public function testRegisterWithAnInferredTargetTypedAsAUnionThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/must be declared as a single class/');
+
+        NativeEntityReader::read(EntityRegistrarReferenceTypedAsUnion::class);
     }
 
     public function testRegisterRunsFieldValidatorCheckUsage(): void {

@@ -27,6 +27,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 
 /**
@@ -129,14 +130,33 @@ final class NativeEntityReader
 
         return match (true) {
             $attribute instanceof Scalar => FieldDescriptor::scalar($name, $attribute->type, self::resolveEnumClass($property, $attribute)),
-            $attribute instanceof ValueObject => FieldDescriptor::valueObject($name, $attribute->type),
-            $attribute instanceof Embed => FieldDescriptor::embed($name, self::resolveEntityTarget($attribute->type, $property)),
-            $attribute instanceof Reference => FieldDescriptor::reference($name, self::resolveEntityTarget($attribute->type, $property)),
-            $attribute instanceof OwningReference => FieldDescriptor::owningReference($name, self::resolveEntityTarget($attribute->type, $property)),
+            $attribute instanceof ValueObject => FieldDescriptor::valueObject($name, self::resolveValueObjectClass(self::declaredClassOf($property), $property)),
+            $attribute instanceof Embed => FieldDescriptor::embed($name, self::resolveEntityTarget(self::declaredClassOf($property), $property)),
+            $attribute instanceof Reference => FieldDescriptor::reference($name, self::resolveEntityTarget(self::declaredClassOf($property), $property)),
+            $attribute instanceof OwningReference => FieldDescriptor::owningReference($name, self::resolveEntityTarget(self::declaredClassOf($property), $property)),
             $attribute instanceof Collection => FieldDescriptor::collection($name, self::resolveCollectionItemDescriptor($name, $attribute, $property)),
         };
     }
 
+    /**
+     * The single class $property is declared as, nullable or not: where an
+     * Embed, Reference, OwningReference or ValueObject field's target comes
+     * from, rather than from its attribute.
+     */
+    private static function declaredClassOf(ReflectionProperty $property): string {
+        $type = $property->getType();
+        if (!$type instanceof ReflectionNamedType || $type->isBuiltin()) {
+            throw new InvalidArgumentException(sprintf(
+                '%s::$%s must be declared as a single class, which is its target; found "%s".',
+                $property->getDeclaringClass()->getName(),
+                $property->getName(),
+                $type ?? 'no type',
+            ));
+        }
+
+        return $type->getName();
+    }
+    
     /**
      * Gets all the Field attributes specified for this property
      * @return ReflectionAttribute<object>[]
@@ -174,6 +194,21 @@ final class NativeEntityReader
         return (new ReflectionClass($class))->getAttributes(Entity::class) !== [];
     }
 
+    /** A value object class must store and rebuild itself. */
+    private static function resolveValueObjectClass(string $class, ReflectionProperty $property): string {
+        if (!is_subclass_of($class, StorableValue::class)) {
+            throw new InvalidArgumentException(sprintf(
+                '%s::$%s is a ValueObject of "%s", which does not implement %s.',
+                $property->getDeclaringClass()->getName(),
+                $property->getName(),
+                $class,
+                StorableValue::class,
+            ));
+        }
+
+        return $class;
+    }
+
     /**
      * A singular Scalar::Enum field doesn't need $enumClass stated on the attribute;
      * it's read off the property's own declared type instead.
@@ -202,7 +237,7 @@ final class NativeEntityReader
     private static function resolveCollectionItemDescriptor(string $name, Collection $attribute, ReflectionProperty $property): FieldDescriptor {
         return match ($attribute->itemKind) {
             FieldKind::Scalar => FieldDescriptor::scalar($name, $attribute->itemScalarType, $attribute->itemEnumClass),
-            FieldKind::ValueObject => FieldDescriptor::valueObject($name, self::resolveItemTarget($attribute, $property)),
+            FieldKind::ValueObject => FieldDescriptor::valueObject($name, self::resolveValueObjectClass(self::resolveItemTarget($attribute, $property), $property)),
             FieldKind::Embed => FieldDescriptor::embed($name, self::resolveEntityItemTarget($attribute, $property)),
             FieldKind::Reference => FieldDescriptor::reference($name, self::resolveEntityItemTarget($attribute, $property)),
             FieldKind::OwningReference => FieldDescriptor::owningReference($name, self::resolveEntityItemTarget($attribute, $property)),
@@ -407,15 +442,17 @@ final class NativeEntityReader
 
         foreach (self::entityFields($governingClass) as $property) {
             $attribute = self::fieldKindAttributesOf($property)[0]->newInstance();
-            $values[$property->getName()] = self::extractFieldValue($attribute, $property->getValue($instance));
+            $values[$property->getName()] = self::extractFieldValue($attribute, $property, $property->getValue($instance));
         }
 
         return $values;
     }
 
-    private static function extractFieldValue(object $attribute, mixed $value): mixed {
+    /** A ValueObject is read as the string it stores as, never as the object itself. */
+    private static function extractFieldValue(object $attribute, ReflectionProperty $property, mixed $value): mixed {
         return match (true) {
-            $attribute instanceof Embed => $value === null ? null : self::extractDefaultValues(new ReflectionClass($attribute->type), $value),
+            $attribute instanceof Embed => $value === null ? null : self::extractDefaultValues(new ReflectionClass(self::declaredClassOf($property)), $value),
+            $attribute instanceof ValueObject => $value?->toStorage(),
             $attribute instanceof OwningReference => self::extractOwningReferenceValue($value),
             $attribute instanceof Collection => self::extractCollectionItems($attribute, $value),
             default => $value,
@@ -440,6 +477,7 @@ final class NativeEntityReader
             static fn (mixed $item): mixed => match ($attribute->itemKind) {
                 FieldKind::Embed => $item === null ? null : self::extractDefaultValues(new ReflectionClass($attribute->itemTarget), $item),
                 FieldKind::OwningReference => self::extractOwningReferenceValue($item),
+                FieldKind::ValueObject => $item?->toStorage(),
                 default => $item,
             },
             $items,

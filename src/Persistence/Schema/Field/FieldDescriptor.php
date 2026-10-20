@@ -47,8 +47,8 @@ final readonly class FieldDescriptor
      * A custom primitive type: exactly one column, with no identity of its own and
      * never usable as an Entity.
      * @param string $name The field's own name.
-     * @param string $type The custom Type class converting this field's value to and
-     *        from the database, the same shape as a Doctrine custom Type.
+     * @param string $type The value object class, implementing StorableValue: it
+     *        stores and rebuilds itself.
      * @return self
      */
     public static function valueObject(string $name, string $type): self {

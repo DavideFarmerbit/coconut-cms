@@ -23,7 +23,9 @@ final readonly class Collection
      *        $itemScalarType is ScalarType::Enum.
      * @param string|null $itemTarget The item's target identifier, set when $itemKind
      *        is FieldKind::ValueObject, FieldKind::Embed, FieldKind::Reference, or
-     *        FieldKind::OwningReference.
+     *        FieldKind::OwningReference. PHP has no generic arrays, so unlike
+     *        a singular field this can't be read off the property's own type. For
+     *        FieldKind::ValueObject, a class implementing StorableValue.
      */
     public function __construct(
         public FieldKind $itemKind,
