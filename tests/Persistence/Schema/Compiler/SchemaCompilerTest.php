@@ -9,6 +9,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\SchemaCompiler;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
@@ -154,6 +155,59 @@ final class CompilerCollectionOwner
     public function __construct() {
         $this->pistons = [new CompilerPiston()];
         $this->engines = [new CompilerOwnedEngine(400)];
+    }
+}
+
+#[Entity]
+final class CompilerOwnerOfAbsentTarget
+{
+    #[OwningReference(CompilerPiston::class)]
+    private ?object $piston = null;
+}
+
+#[Entity]
+final class CompilerCollectionOwnerOfAbsentTarget
+{
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: CompilerPiston::class)]
+    private array $pistons = [];
+}
+
+#[Entity]
+final class CompilerReferrerOfAbsentTarget
+{
+    #[Reference(CompilerPiston::class)]
+    private ?object $piston = null;
+}
+
+#[Entity]
+final class CompilerCollectionReferrerOfAbsentTarget
+{
+    #[Collection(itemKind: FieldKind::Reference, itemTarget: CompilerPiston::class)]
+    private array $pistons = [];
+}
+
+#[Entity]
+final class CompilerOwningCycleA
+{
+    #[OwningReference(CompilerOwningCycleB::class)]
+    private ?object $b = null;
+}
+
+#[Entity]
+final class CompilerOwningCycleB
+{
+    #[OwningReference(CompilerOwningCycleA::class)]
+    private ?object $a = null;
+}
+
+#[Entity]
+final class CompilerOwnerOfUnrelatedClass
+{
+    #[OwningReference(CompilerOwnedEngine::class)]
+    private ?object $engine;
+
+    public function __construct() {
+        $this->engine = new CompilerPiston();
     }
 }
 
@@ -342,5 +396,89 @@ final class SchemaCompilerTest extends TestCase
             'tags.0' => 'a',
             'tags.1' => 'b',
         ], self::loadSorted($valueStore, CompilerCollectionOwner::class));
+    }
+
+    public function testCompileWithAbsentOwningReferenceTargetThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/OwningReference target/');
+
+        $this->compiler->compile(self::blueprintsOf([CompilerOwnerOfAbsentTarget::class]));
+    }
+
+    public function testCompileWithAbsentCollectionOwningReferenceItemTargetThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/OwningReference target/');
+
+        $this->compiler->compile(self::blueprintsOf([CompilerCollectionOwnerOfAbsentTarget::class]));
+    }
+
+    public function testCompileWithAbsentReferenceTargetThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/Reference or OwningReference target/');
+
+        $this->compiler->compile(self::blueprintsOf([CompilerReferrerOfAbsentTarget::class]));
+    }
+
+    public function testCompileWithAbsentCollectionReferenceItemTargetThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/Reference or OwningReference target/');
+
+        $this->compiler->compile(self::blueprintsOf([CompilerCollectionReferrerOfAbsentTarget::class]));
+    }
+
+    public function testCompileAllowsAnOwningReferenceCycle(): void {
+        $schemas = $this->compiler->compile(self::blueprintsOf([CompilerOwningCycleA::class, CompilerOwningCycleB::class]));
+
+        self::assertCount(2, $schemas);
+    }
+
+    public function testCompileWithAnUnregisteredConcreteOwnedClassThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/holds a .*neither given to compile/');
+
+        // CompilerOwner's default holds a CompilerSportsEngine, which isn't in
+        // this batch, even though the declared target, CompilerOwnedEngine, is.
+        $this->compiler->compile(self::blueprintsOf([
+            CompilerOwner::class,
+            CompilerOwnedEngine::class,
+            CompilerPiston::class,
+        ]));
+    }
+
+    public function testCompileWithAConcreteOwnedClassOutsideTheDeclaredTargetsHierarchyThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/nor one of its descendants/');
+
+        $this->compiler->compile(self::blueprintsOf([
+            CompilerOwnerOfUnrelatedClass::class,
+            CompilerOwnedEngine::class,
+            CompilerPiston::class,
+        ]));
+    }
+
+    public function testCompileThatFailsPartWayLeavesTheRegistryAndTheStoreUntouched(): void {
+        $registry = new SchemaRegistry();
+        $valueStore = new SchemaFieldValueStore(DriverManager::getConnection(['driver' => 'pdo_sqlite', 'memory' => true]));
+        $valueStore->createTable();
+        $compiler = new SchemaCompiler($registry, $valueStore);
+
+        // CompilerPiston and CompilerOwnedEngine are fine on their own; only
+        // CompilerOwnerOfUnrelatedClass fails, and only while its values are
+        // being computed. Listed last so it's also processed last, after the
+        // other two have already been computed.
+        try {
+            $compiler->compile(self::blueprintsOf([
+                CompilerPiston::class,
+                CompilerOwnedEngine::class,
+                CompilerOwnerOfUnrelatedClass::class,
+            ]));
+            self::fail('compile() should have thrown.');
+        } catch (InvalidArgumentException) {
+        }
+
+        self::assertFalse($registry->has(CompilerPiston::class));
+        self::assertFalse($registry->has(CompilerOwnedEngine::class));
+        self::assertSame([], $valueStore->load(CompilerPiston::class));
+        self::assertSame([], $valueStore->load(CompilerOwnedEngine::class));
     }
 }

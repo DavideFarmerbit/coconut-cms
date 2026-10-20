@@ -128,10 +128,13 @@ not a column of the class. Everything past a `.` lives in another table.
 - Collection: each item is traversed with `.` and its index. Example:
   `tags.0`, `wheels.0.size`, `engines.0` (class) and `engines.0.horsepower`.
 
-Values are written in a second pass, after every schema in the batch is
-registered. Every lookup of a target's fields then goes through
-`SchemaRegistry` and sees this batch's own schemas, never one left over from an
-earlier `compile()` call.
+`compile()` computes first and commits last. It builds every schema and every
+value, and runs every check, without touching `SchemaRegistry` or
+`SchemaFieldValueStore`. A lookup of a target's fields reads the batch's own
+schemas first, and the registry only for something outside the batch. So a
+schema being recompiled is never read from an older registration. Only when
+everything has passed does it commit: all values in one transaction, then all
+schemas into the registry. A failure at any point leaves both untouched.
 
 ## One field value store, not two
 

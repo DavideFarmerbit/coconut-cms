@@ -52,15 +52,27 @@ final class SchemaFieldValueStore
      *        traversed with ".", e.g. "engine.piston_diameter".
      */
     public function save(string $identifier, array $values): void {
-        $this->connection->transactional(function (Connection $connection) use ($identifier, $values): void {
-            $connection->delete(self::TABLE, ['identifier' => $identifier]);
+        $this->saveAll([$identifier => $values]);
+    }
 
-            foreach ($values as $field => $value) {
-                $connection->insert(self::TABLE, [
-                    'identifier' => $identifier,
-                    'field_name' => $field,
-                    'value_json' => json_encode($value),
-                ]);
+    /**
+     * save() for several identifiers at once, as a single transaction: either
+     * every identifier's values are replaced, or none are.
+     * @param array<string, array<string, mixed>> $valuesByIdentifier Each entry
+     *        shaped like save()'s $values.
+     */
+    public function saveAll(array $valuesByIdentifier): void {
+        $this->connection->transactional(function (Connection $connection) use ($valuesByIdentifier): void {
+            foreach ($valuesByIdentifier as $identifier => $values) {
+                $connection->delete(self::TABLE, ['identifier' => $identifier]);
+
+                foreach ($values as $field => $value) {
+                    $connection->insert(self::TABLE, [
+                        'identifier' => $identifier,
+                        'field_name' => $field,
+                        'value_json' => json_encode($value),
+                    ]);
+                }
             }
         });
     }

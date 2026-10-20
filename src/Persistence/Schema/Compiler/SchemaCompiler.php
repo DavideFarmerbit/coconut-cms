@@ -34,6 +34,9 @@ final class SchemaCompiler
     public function compile(array $blueprints): array {
         $order = $this->sort($blueprints);
 
+        // Compute: every schema and every value, every check along the way.
+        // Nothing is registered or written yet, so a failure here leaves the
+        // registry and the store exactly as they were.
         $schemas = [];
         foreach ($order as $identifier => $blueprint) {
             $schemas[$identifier] = new EntitySchema(
@@ -47,17 +50,20 @@ final class SchemaCompiler
                 uniqueGroups: $blueprint->uniqueGroups,
                 prototypeValidators: $blueprint->prototypeValidators,
             );
-
-            $this->registry->register($schemas[$identifier]);
         }
 
-        // Only once every schema in this batch is registered: every lookup
-        // below then goes through the registry and sees this batch's own
-        // schemas, never one left over from an earlier compile() call.
+        $valuesByIdentifier = [];
         foreach ($order as $identifier => $blueprint) {
             $valuesByPath = [];
-            $this->flattenValues($blueprint->fields, $blueprint->defaultValues, '', $valuesByPath);
-            $this->valueStore->save($identifier, $valuesByPath);
+            $this->flattenValues($blueprint->fields, $blueprint->defaultValues, '', $schemas, $valuesByPath);
+            $valuesByIdentifier[$identifier] = $valuesByPath;
+        }
+
+        // Commit. The store goes first: it's the only step that can still
+        // fail, and registering can't, so a failed write registers nothing.
+        $this->valueStore->saveAll($valuesByIdentifier);
+        foreach ($schemas as $schema) {
+            $this->registry->register($schema);
         }
 
         return $schemas;
@@ -70,24 +76,26 @@ final class SchemaCompiler
      * Writes $values into $valuesByPath, one entry per leaf: an Embed's fields
      * joined with "_", an OwningReference or a Collection item traversed with ".".
      * @param array<string, mixed> $values Keyed by FieldName.
+     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
      * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenValues(FieldDescriptorCollection $fields, array $values, string $prefix, array &$valuesByPath): void {
+    private function flattenValues(FieldDescriptorCollection $fields, array $values, string $prefix, array $schemas, array &$valuesByPath): void {
         foreach ($fields as $name => $field) {
-            $this->flattenValue($field, $values[(string) $name] ?? null, $prefix . $name, $valuesByPath);
+            $this->flattenValue($field, $values[(string) $name] ?? null, $prefix . $name, $schemas, $valuesByPath);
         }
     }
 
-    /** 
+    /**
      * Dispatch correct 'flatten' method based on field kind.
-     * @param array<string, mixed> $valuesByPath Keyed by FieldPath. 
+     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenValue(FieldDescriptor $field, mixed $value, string $pathKey, array &$valuesByPath): void {
+    private function flattenValue(FieldDescriptor $field, mixed $value, string $pathKey, array $schemas, array &$valuesByPath): void {
         match ($field->kind()) {
             FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $valuesByPath[$pathKey] = $value,
-            FieldKind::Embed => $this->flattenValues($this->hierarchyFieldsOf($field->target()), $value ?? [], $pathKey . '_', $valuesByPath),
-            FieldKind::OwningReference => $this->flattenOwned($value, $pathKey, $valuesByPath),
-            FieldKind::Collection => $this->flattenCollection($field->itemDescriptor(), $value ?? [], $pathKey, $valuesByPath),
+            FieldKind::Embed => $this->flattenValues($this->hierarchyFieldsOf($field->target(), $schemas), $value ?? [], $pathKey . '_', $schemas, $valuesByPath),
+            FieldKind::OwningReference => $this->flattenOwned($field, $value, $pathKey, $schemas, $valuesByPath),
+            FieldKind::Collection => $this->flattenCollection($field->itemDescriptor(), $value ?? [], $pathKey, $schemas, $valuesByPath),
         };
     }
 
@@ -96,40 +104,85 @@ final class SchemaCompiler
      * no value of its own there otherwise, and unlike Embed its class isn't
      * fixed by the schema.
      * @param array{class: class-string, fields: array<string, mixed>}|null $value
+     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
      * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenOwned(?array $value, string $pathKey, array &$valuesByPath): void {
+    private function flattenOwned(FieldDescriptor $field, ?array $value, string $pathKey, array $schemas, array &$valuesByPath): void {
         $valuesByPath[$pathKey] = $value['class'] ?? null;
 
         if ($value !== null) {
-            $this->flattenValues($this->hierarchyFieldsOf($value['class']), $value['fields'], $pathKey . '.', $valuesByPath);
+            $this->assertIsOrExtends($value['class'], $field->target(), $pathKey, $schemas);
+            $this->flattenValues($this->hierarchyFieldsOf($value['class'], $schemas), $value['fields'], $pathKey . '.', $schemas, $valuesByPath);
         }
+    }
+
+    /**
+     * Throws unless $class exists and is $target or one of its descendants.
+     * Walks parents through the schemas rather than using is_a(), since an
+     * editor-created identifier isn't a PHP class.
+     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     */
+    private function assertIsOrExtends(string $class, string $target, string $pathKey, array $schemas): void {
+        if (!isset($schemas[$class]) && !$this->registry->has($class)) {
+            throw new InvalidArgumentException(sprintf(
+                '"%s" holds a "%s", which was neither given to compile() nor already compiled this request.',
+                $pathKey,
+                $class,
+            ));
+        }
+
+        for ($current = $class; $current !== null; $current = $this->schemaOf($current, $schemas)->parent) {
+            if ($current === $target) {
+                return;
+            }
+        }
+
+        throw new InvalidArgumentException(sprintf(
+            '"%s" holds a "%s", which is neither "%s" nor one of its descendants.',
+            $pathKey,
+            $class,
+            $target,
+        ));
     }
 
     /**
      * Each item is its own row in a child table, so it's traversed with "."
      * and its index, never joined into the owner's own columns with "_".
      * @param mixed[] $items
+     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
      * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
-    private function flattenCollection(FieldDescriptor $item, array $items, string $pathKey, array &$valuesByPath): void {
+    private function flattenCollection(FieldDescriptor $item, array $items, string $pathKey, array $schemas, array &$valuesByPath): void {
         foreach (array_values($items) as $index => $value) {
             $itemKey = $pathKey . '.' . $index;
 
             if ($item->kind() === FieldKind::Embed) {
-                $this->flattenValues($this->hierarchyFieldsOf($item->target()), $value ?? [], $itemKey . '.', $valuesByPath);
+                $this->flattenValues($this->hierarchyFieldsOf($item->target(), $schemas), $value ?? [], $itemKey . '.', $schemas, $valuesByPath);
             } else {
-                $this->flattenValue($item, $value, $itemKey, $valuesByPath);
+                $this->flattenValue($item, $value, $itemKey, $schemas, $valuesByPath);
             }
         }
     }
 
-    /** $identifier's own fields plus everything it inherits, all the way up. */
-    private function hierarchyFieldsOf(string $identifier): FieldDescriptorCollection {
-        $schema = $this->registry->get($identifier);
-        $inherited = $schema->parent !== null ? $this->hierarchyFieldsOf($schema->parent) : FieldDescriptorCollection::empty();
+    /**
+     * $identifier's own fields plus everything it inherits, all the way up.
+     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     */
+    private function hierarchyFieldsOf(string $identifier, array $schemas): FieldDescriptorCollection {
+        $schema = $this->schemaOf($identifier, $schemas);
+        $inherited = $schema->parent !== null ? $this->hierarchyFieldsOf($schema->parent, $schemas) : FieldDescriptorCollection::empty();
 
         return $inherited->merge($schema->fields);
+    }
+
+    /**
+     * This batch's own schema for $identifier if it has one, the registry's
+     * otherwise: the batch always wins, so a schema being recompiled is never
+     * read from an older registration.
+     * @param array<string, EntitySchema> $schemas This batch's own, not yet registered.
+     */
+    private function schemaOf(string $identifier, array $schemas): EntitySchema {
+        return $schemas[$identifier] ?? $this->registry->get($identifier);
     }
 
     // ~Value Flattening
@@ -159,9 +212,9 @@ final class SchemaCompiler
     /**
      * Adds $identifier to $order only once every dependency it has is already
      * there, so $order stays dependency-ordered. Throws if $identifier isn't in
-     * $blueprints and isn't already registered from an earlier compile() call, or
-     * if one of its dependencies is already being processed higher up the same
-     * call stack (a cycle).
+     * $blueprints and isn't already registered from an earlier compile() call, if
+     * one of its dependencies is already being processed higher up the same call
+     * stack (a cycle), or if one of its weak dependencies exists nowhere.
      * @param array<string, EntityBlueprint> $blueprints
      * @param array<string, string> $state Keyed by identifier: "visiting" or "visited".
      * @param array<string, EntityBlueprint> $order
@@ -201,6 +254,18 @@ final class SchemaCompiler
             }
         }
 
+        // Weak dependencies only need to exist: never visited, so they impose
+        // no order and can form cycles.
+        foreach ($this->weakDependenciesOf($blueprints[$identifier]) as $dependency) {
+            if (!isset($blueprints[$dependency]) && !$this->registry->has($dependency)) {
+                throw new InvalidArgumentException(sprintf(
+                    '"%s" is referenced as a Reference or OwningReference target by "%s" but was neither given to compile() nor already compiled this request.',
+                    $dependency,
+                    $identifier,
+                ));
+            }
+        }
+
         array_pop($path);
         $state[$identifier] = 'visited';
         // Every dependency is already in $order by this point, so appending here
@@ -231,6 +296,34 @@ final class SchemaCompiler
         return match ($field->kind()) {
             FieldKind::Embed => $field->target(),
             FieldKind::Collection => $this->embedTargetOf($field->itemDescriptor()),
+            default => null,
+        };
+    }
+
+    /**
+     * This blueprint's own weak dependencies: every Reference or
+     * OwningReference target among its own fields. They must exist, but impose
+     * no order.
+     * @return string[]
+     */
+    private function weakDependenciesOf(EntityBlueprint $blueprint): array {
+        $dependencies = [];
+
+        foreach ($blueprint->fields as $field) {
+            $target = $this->weakTargetOf($field);
+            if ($target !== null) {
+                $dependencies[] = $target;
+            }
+        }
+
+        return $dependencies;
+    }
+
+    /** This field's own Reference or OwningReference target, found through a Collection's item if needed, or null. */
+    private function weakTargetOf(FieldDescriptor $field): ?string {
+        return match ($field->kind()) {
+            FieldKind::Reference, FieldKind::OwningReference => $field->target(),
+            FieldKind::Collection => $this->weakTargetOf($field->itemDescriptor()),
             default => null,
         };
     }
