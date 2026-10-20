@@ -150,6 +150,8 @@ final class SchemaCompiler
     }
 
     /**
+     * The bare path holds the item count: a Collection has no value of its own
+     * there otherwise, and without it nothing would say how many items exist.
      * Each item is its own row in a child table, so it's traversed with "."
      * and its index, never embedded into the owner with ":".
      * @param mixed[] $items
@@ -157,6 +159,8 @@ final class SchemaCompiler
      * @param array<string, mixed> $valuesByPath Keyed by FieldPath.
      */
     private function flattenCollection(FieldDescriptor $item, array $items, FieldPath $path, array $schemas, array &$valuesByPath): void {
+        $valuesByPath[(string) $path] = count($items);
+
         foreach (array_values($items) as $index => $value) {
             $itemPath = $path->traverse($index);
 

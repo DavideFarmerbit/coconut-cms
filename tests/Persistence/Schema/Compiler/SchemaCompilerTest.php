@@ -388,11 +388,15 @@ final class SchemaCompilerTest extends TestCase
             CompilerPiston::class,
         ]);
 
+        // Each bare collection path holds its item count.
         self::assertSame([
+            'engines' => 1,
             'engines.0' => CompilerOwnedEngine::class,
             'engines.0.horsepower' => 400,
             'engines.0.piston:diameter' => 10,
+            'pistons' => 1,
             'pistons.0.diameter' => 10,
+            'tags' => 2,
             'tags.0' => 'a',
             'tags.1' => 'b',
         ], self::loadSorted($valueStore, CompilerCollectionOwner::class));

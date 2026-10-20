@@ -61,6 +61,12 @@ final class FieldValueResolver
             throw $this->invalidPath($identifier, $path, sprintf('"%s" must be followed by an item index', $collection));
         }
 
+        // The bare collection path holds its item count.
+        $count = $this->resolve($identifier, FieldPath::of($collection));
+        if ($index >= $count) {
+            throw $this->invalidPath($identifier, $path, sprintf('"%s" has only %d item(s)', $collection, $count));
+        }
+
         $rest = $itemPath->tail();
         if ($rest === null) {
             throw $this->noValue($identifier, $path);

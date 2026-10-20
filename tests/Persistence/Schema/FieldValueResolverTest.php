@@ -209,22 +209,33 @@ final class FieldValueResolverTest extends TestCase
     }
 
     public function testAnEmbedCollectionItemFallsBackToTheItemTarget(): void {
+        $this->store->save(ResolverGarage::class, ['pistons' => 1]);
         $this->store->save(ResolverPiston::class, ['diameter' => 10]);
 
         self::assertSame(10, $this->resolve(ResolverGarage::class, 'pistons.0.diameter'));
     }
 
     public function testAnOwnedCollectionItemFallsBackThroughTheClassItHolds(): void {
-        $this->store->save(ResolverGarage::class, ['engines.0' => ResolverEngine::class]);
+        $this->store->save(ResolverGarage::class, ['engines' => 1, 'engines.0' => ResolverEngine::class]);
         $this->store->save(ResolverEngine::class, ['horsepower' => 300]);
 
         self::assertSame(300, $this->resolve(ResolverGarage::class, 'engines.0.horsepower'));
     }
 
     public function testAStoredScalarCollectionItemIsReturned(): void {
-        $this->store->save(ResolverGarage::class, ['tags.1' => 'blue']);
+        $this->store->save(ResolverGarage::class, ['tags' => 2, 'tags.1' => 'blue']);
 
         self::assertSame('blue', $this->resolve(ResolverGarage::class, 'tags.1'));
+    }
+
+    public function testACollectionItemPastTheStoredCountThrows(): void {
+        $this->store->save(ResolverGarage::class, ['pistons' => 1]);
+        $this->store->save(ResolverPiston::class, ['diameter' => 10]);
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/has only 1 item/');
+
+        $this->resolve(ResolverGarage::class, 'pistons.1.diameter');
     }
 
     public function testAStoredNullIsAValueNotAMiss(): void {
@@ -248,6 +259,7 @@ final class FieldValueResolverTest extends TestCase
 
     #[DataProvider('unresolvablePaths')]
     public function testUnresolvablePathThrows(string $identifier, string $path, string $message): void {
+        $this->store->save(ResolverGarage::class, ['pistons' => 1, 'engines' => 1, 'tags' => 1]);
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessageMatches($message);
 

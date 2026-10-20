@@ -125,8 +125,9 @@ not a column of the class. Everything past a `.` lives in another table.
   unlike Embed its class isn't fixed by the schema. Example: `engine` holds the
   class, `engine.horsepower` and `engine.piston:diameter` hold what the owner
   set on it.
-- Collection: each item is traversed with `.` and its index. Example:
-  `tags.0`, `wheels.0.size`, `engines.0` (class) and `engines.0.horsepower`.
+- Collection: the bare key holds the item count. Each item is traversed with
+  `.` and its index. Example: `tags` (count), `tags.0`, `wheels.0.size`,
+  `engines.0` (class) and `engines.0.horsepower`.
 
 `FieldPath` is built segment by segment, never by joining strings. Its string
 form is what gets stored. A `FieldName` never contains `:` or `.` and is never
@@ -171,8 +172,9 @@ and the editor all need the same answer.
    - Embed: resolve the rest of the path on the Embed's target.
    - OwningReference: resolve the bare field first, which holds the class, then
      resolve the rest of the path on that class.
-   - Collection item: an Embed item falls back to the item target; an owned
-     item falls back through the class its own bare path holds.
+   - Collection item: the index must be below the count the bare collection
+     path resolves to. Then an Embed item falls back to the item target, and
+     an owned item falls back through the class its own bare path holds.
 3. Nothing left to try: throw.
 
 So for `Car` and `engine.horsepower`, the order is: `Car`, then Car's parents,
