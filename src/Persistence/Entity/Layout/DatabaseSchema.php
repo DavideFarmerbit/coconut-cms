@@ -7,6 +7,7 @@ use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\Types;
 use InvalidArgumentException;
 use ReflectionEnum;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\EntityIds;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
@@ -21,9 +22,6 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValues;
 final class DatabaseSchema
 {
     public const ENTITIES = 'entities';
-
-    /** The id of the seeded Cms row: every row without a real owner points at it. */
-    public const NO_OWNER = '00000000-0000-0000-0000-000000000000';
 
     /** MySQL's limit on table, column and index names. */
     private const MAX_NAME_LENGTH = 64;
@@ -43,7 +41,7 @@ final class DatabaseSchema
     private static function addEntitiesTable(Schema $schema): void {
         $table = $schema->createTable(self::ENTITIES);
         $table->addColumn('id', Types::GUID);
-        $table->addColumn('owner', Types::GUID, ['default' => self::NO_OWNER]);
+        $table->addColumn('owner', Types::GUID, ['default' => EntityIds::NIL]);
         $table->addColumn('owner_field', Types::STRING, ['length' => 255, 'default' => '']);
         $table->addColumn('position', Types::INTEGER, ['default' => -1]);
         $table->addColumn('concrete_identifier', Types::STRING, ['length' => 255]);
@@ -55,7 +53,7 @@ final class DatabaseSchema
     private static function addLevel(Schema $schema, LevelLayout $level): void {
         $table = self::createTable($schema, $level->table, $level->identifier);
         $table->addColumn('id', Types::GUID);
-        $table->addColumn('owner', Types::GUID, ['default' => self::NO_OWNER]);
+        $table->addColumn('owner', Types::GUID, ['default' => EntityIds::NIL]);
         $table->addColumn('owner_field', Types::STRING, ['length' => 255, 'default' => '']);
         $table->setPrimaryKey(['id']);
         $table->addForeignKeyConstraint(self::ENTITIES, ['id'], ['id'], ['onDelete' => 'CASCADE']);

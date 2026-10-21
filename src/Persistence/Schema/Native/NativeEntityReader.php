@@ -50,6 +50,9 @@ final class NativeEntityReader
         $reflection = new ReflectionClass($class);
 
         $entity = self::resolveEntityAttribute($reflection);
+        // Not part of the blueprint: only checked, so a wrong #[Id] fails now
+        // rather than on the first save.
+        IdProperty::of($class);
         $fields = self::resolveFields($reflection);
         $fieldPermissions = self::resolveFieldPermissions($reflection, $fields);
         $fieldValidators = self::resolveFieldValidators($reflection, $fields);
@@ -113,7 +116,10 @@ final class NativeEntityReader
         $fields = [];
 
         foreach (self::ownProperties($reflection) as $property) {
-            $fields[$property->getName()] = self::resolveFieldDescriptor($property);
+            // A property with no field-kind attribute isn't a field: ignored.
+            if (self::fieldKindAttributesOf($property) !== []) {
+                $fields[$property->getName()] = self::resolveFieldDescriptor($property);
+            }
         }
 
         return FieldDescriptorCollection::fromArray($fields);
@@ -124,9 +130,9 @@ final class NativeEntityReader
 
         $kindAttributes = self::fieldKindAttributesOf($property);
 
-        if (count($kindAttributes) !== 1) {
+        if (count($kindAttributes) > 1) {
             throw new InvalidArgumentException(sprintf(
-                '%s::$%s must carry exactly one field-kind attribute, found %d.',
+                '%s::$%s carries %d field-kind attributes: a field has exactly one kind.',
                 $property->getDeclaringClass()->getName(),
                 $name,
                 count($kindAttributes),

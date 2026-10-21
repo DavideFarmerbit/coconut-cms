@@ -110,6 +110,9 @@ file changed, so that it needs compiling at all, is a separate hot-path check
 dense data in the same reflection pass that builds its field descriptors, rather
 than walking the class a second time just for values.
 
+A property is a field only when it carries a field-kind attribute. Any
+other property is ignored: never stored, never checked.
+
 An Embed, Reference, OwningReference or ValueObject field's target is the
 property's own declared type, never an attribute argument. It must be a single
 class, nullable or not: `object`, a builtin or a union is rejected. A wrong
@@ -323,3 +326,28 @@ the first, and the others have no column.
 The layout fails rather than letting the database fail later: two values
 landing on one column, two tables with one name, or any name longer than
 MySQL's 64 characters.
+
+## Identity
+
+An entity's id is a UUID, version 7, made by `EntityIds` without asking the
+database. Version 7 ids grow with time, so new rows land at the end of the
+primary key rather than at random places in it.
+
+`IdentityMap` is the source of truth for which object is which entity, for
+one request. It holds objects weakly, and keeps one object per id: loading the
+same entity twice gives the same object. An object it doesn't know has never
+been saved or loaded.
+
+A native class may declare one `#[Id]` property, in itself or an ancestor.
+The repository fills it on save and on load, so code holding the object can
+read its id without asking. It's never a field and never a default: it must
+be a nullable string defaulting to null, and it stays null on an Embed or an
+entity never saved. A class only embedded or owned simply doesn't declare one.
+`IdProperty` checks this, and the reader calls it, so a wrong one fails at
+compile time.
+
+`Cms` is the one seeded entity, with the nil UUID as its id. It's its own
+owner, so `entities.owner`'s foreign key has a row to point at, and every row
+without a real owner points at it. `EntityTables` creates the content tables
+on a fresh database and seeds this row. `Cms` is an ordinary native class
+otherwise, and declares no fields yet.

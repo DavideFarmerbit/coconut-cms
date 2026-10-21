@@ -250,12 +250,6 @@ final class EntityRegistrarChildPastNonEntityMiddle extends EntityRegistrarNonEn
 }
 
 #[Entity]
-final class EntityRegistrarZeroKindAttributes
-{
-    private string $broken;
-}
-
-#[Entity]
 final class EntityRegistrarTwoKindAttributes
 {
     #[Scalar(ScalarType::String)]
@@ -464,6 +458,15 @@ final class EntityRegistrarMoney implements StorableValue
     public static function fromStorage(string $stored): static {
         return new static($stored);
     }
+}
+
+#[Entity]
+final class EntityRegistrarWithPlainProperty
+{
+    #[Scalar(ScalarType::String)]
+    private string $title = '';
+
+    private array $cache;
 }
 
 #[Entity]
@@ -687,14 +690,10 @@ final class NativeEntityReaderTest extends TestCase
         NativeEntityReader::read(EntityRegistrarWithCollectionItemMissingTarget::class);
     }
 
-    public function testRegisterWithZeroKindAttributesThrows(): void {
-        $this->expectException(InvalidArgumentException::class);
-
-        NativeEntityReader::read(EntityRegistrarZeroKindAttributes::class);
-    }
-
     public function testRegisterWithTwoKindAttributesThrows(): void {
         $this->expectException(InvalidArgumentException::class);
+
+        $this->expectExceptionMessage('carries 2 field-kind attributes');
 
         NativeEntityReader::read(EntityRegistrarTwoKindAttributes::class);
     }
@@ -744,6 +743,14 @@ final class NativeEntityReaderTest extends TestCase
         $this->expectException(LengthException::class);
 
         NativeEntityReader::read($class);
+    }
+
+    public function testRegisterIgnoresAPropertyWithNoFieldKindAttribute(): void {
+        // $cache isn't even initialized on the default instance: not a field, so never checked.
+        $blueprint = NativeEntityReader::read(EntityRegistrarWithPlainProperty::class);
+
+        self::assertSame(['title'], array_map('strval', $blueprint->fields->names()));
+        self::assertFalse($blueprint->defaultValues->has(FieldName::of('cache')));
     }
 
     public function testRegisterRecordsWhetherAValueObjectIsIndexable(): void {
