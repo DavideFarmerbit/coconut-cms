@@ -1,6 +1,6 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues;
+namespace XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree;
 
 use Countable;
 use InvalidArgumentException;
@@ -9,8 +9,8 @@ use IteratorAggregate;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 
 /**
- * One object's own field values, keyed by FieldName: a blueprint's whole
- * default instance, or what an Embed or an owned object holds. Immutable:
+ * One object's own field values, keyed by FieldName: a whole default
+ * instance or live entity, or what an Embed or an owned object holds. Immutable:
  * with() returns a new node rather than changing this one.
  * @implements IteratorAggregate<FieldName, ValueNode|null>
  */

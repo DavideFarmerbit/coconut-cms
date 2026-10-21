@@ -1,6 +1,6 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Persistence\Schema\Resolver;
+namespace XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver;
 
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;

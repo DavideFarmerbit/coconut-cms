@@ -1,6 +1,6 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Persistence\Schema\Resolver;
+namespace XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver;
 
 use InvalidArgumentException;
 

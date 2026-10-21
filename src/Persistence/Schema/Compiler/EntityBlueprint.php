@@ -2,7 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Compiler;
 
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\ObjectNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ObjectNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\UniqueGroup;

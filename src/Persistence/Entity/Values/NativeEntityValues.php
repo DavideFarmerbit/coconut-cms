@@ -7,9 +7,9 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeValueReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Resolver\FieldValueResolver;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Resolver\Overrides;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Resolver\Subject;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolver;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Overrides;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Subject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
 

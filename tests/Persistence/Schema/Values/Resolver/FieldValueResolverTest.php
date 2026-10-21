@@ -1,6 +1,6 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Resolver;
+namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Values\Resolver;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -14,8 +14,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Resolver\FieldValueResolver;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Resolver\Subject;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolver;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Subject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;

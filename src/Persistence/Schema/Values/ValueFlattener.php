@@ -4,11 +4,11 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Values;
 
 use Closure;
 use InvalidArgumentException;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\CollectionNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\LeafNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\ObjectNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\OwnedNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\ValueNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\CollectionNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\LeafNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ObjectNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\OwnedNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;

@@ -1,6 +1,6 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues;
+namespace XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree;
 
 use Countable;
 use InvalidArgumentException;

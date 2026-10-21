@@ -1,13 +1,13 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Compiler\DefaultValues;
+namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Values\Tree;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\CollectionNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\LeafNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\ObjectNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\OwnedNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\CollectionNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\LeafNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ObjectNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\OwnedNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 
 final class ValueNodeTest extends TestCase
