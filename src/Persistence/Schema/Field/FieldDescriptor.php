@@ -20,6 +20,7 @@ final readonly class FieldDescriptor
         private ?string $enumClass = null,
         private ?string $target = null,
         private ?self $itemDescriptor = null,
+        private bool $indexable = false,
     ) {
     }
 
@@ -49,10 +50,12 @@ final readonly class FieldDescriptor
      * @param string $name The field's own name.
      * @param string $type The value object class, implementing StorableValue: it
      *        stores and rebuilds itself.
+     * @param bool $indexable What $type's own indexable() said when this was
+     *        compiled: recorded here, so a change to it shows up as a schema change.
      * @return self
      */
-    public static function valueObject(string $name, string $type): self {
-        return new self(FieldKind::ValueObject, $name, target: $type);
+    public static function valueObject(string $name, string $type, bool $indexable): self {
+        return new self(FieldKind::ValueObject, $name, target: $type, indexable: $indexable);
     }
 
     /**
@@ -140,6 +143,13 @@ final readonly class FieldDescriptor
         }
 
         return $this->target;
+    }
+
+    /** Valid for FieldKind::ValueObject only: whether its stored string always fits in 255 characters. */
+    public function indexable(): bool {
+        $this->assertKind(FieldKind::ValueObject);
+
+        return $this->indexable;
     }
 
     /** Valid for FieldKind::Collection only. */

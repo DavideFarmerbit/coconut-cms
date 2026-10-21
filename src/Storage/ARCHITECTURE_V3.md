@@ -52,8 +52,10 @@ request is served from memory.
 `EntitySchemaCodec`), its own fingerprint, and the fingerprints of everything it
 was compiled against. A schema is always read whole, so it's never split into
 columns. A validator rule is stored as the identifier its class was registered
-under, plus its own `toStorage()` configuration: renaming or moving a rule
-class doesn't break what's stored. A compile writes schemas and values in one
+under, plus its own `toStorage()` configuration. A value object field's class
+is stored as the identifier `ValueObjectRegistry` holds it under. Renaming or
+moving either class doesn't break what's stored. The same registry is what
+lets the editor offer value objects by name. A compile writes schemas and values in one
 transaction, as long as both stores share a connection.
 
 ## Compilation happens at different moments per source
@@ -118,7 +120,10 @@ target explicitly.
 
 A value object class implements `StorableValue`: `toStorage()` gives the one
 string it's stored as, plain or JSON, and `fromStorage()` rebuilds it. Two
-value objects are equal when they store as the same string.
+value objects are equal when they store as the same string. Its static
+`indexable()` says whether that string always fits in 255 characters. The
+reader records the answer on the field's descriptor, so changing it is a
+schema change like any other.
 
 The result is a tree of `ValueNode`s, rooted at the blueprint's `defaultValues`,
 an `ObjectNode` of every field the class declares or inherits. An Embed or
@@ -251,3 +256,51 @@ follow a later change to its parent, its Embed targets, or the classes it owns.
    collection `resolveWithoutSubtree()` gives, the collection is kept whole:
    count, every item's class, every scalar item. Within an item, each of its
    own fields is still kept only if it differs from the item's own class.
+
+## Where content is stored
+
+`LayoutBuilder` reads a compiled schema and works out where each of its own
+fields is stored: a `LevelLayout`. `DatabaseSchema` turns level layouts into
+the Doctrine schema of every table they need. Neither reads the database.
+
+- `entities`: one row per entity, native or editor-created. `id` (a UUID,
+  `CHAR(36)`), `owner`, `owner_field`, `position`, `concrete_identifier`.
+  `owner` points at another `entities` row and is `RESTRICT`ed. A row with no
+  real owner points at the seeded `Cms` row, the nil UUID.
+- One table per inheritance level, named by the schema's `table`. Its `id`
+  is the entity's `id`. It copies `owner` and `owner_field`, so a unique index
+  can include them. It holds one column per value its own fields store:
+  - Scalar and ValueObject: one column.
+  - Reference: the target's id, a foreign key to `entities`, `SET NULL`.
+  - Embed: its leaves, flattened. The path's `:` becomes `__`:
+    `chassis:engine:piston:diameter` is `chassis__engine__piston__diameter`.
+  - OwningReference: no column. The owned row is an `entities` row whose
+    `owner_field` holds the path, e.g. `engine` or `chassis:spare`.
+  - Owned Collection: its items are `entities` rows too. Only the count is a
+    column here: `engines_count`.
+- One table per other Collection, named after the level's table and the
+  path: `car__wheels`. Keyed by `owner` and `position`. The item kind only
+  decides the value columns: one `value` column for a Scalar, ValueObject or
+  Reference item, the flattened fields for an Embed item. An Embed item may
+  not hold an OwningReference or a Collection yet: it has no identity to key
+  them on.
+- A touched-state side table per level, `car__state`, one row per entity.
+  One boolean per path an instance can hold at that level: every value
+  column, and the bare path of every OwningReference and Collection. An
+  Embed item's fields get the same, in a side table of the Collection's own.
+
+Every content column is nullable: an untouched value is null and resolves to
+its default. Column types follow the field: `VARCHAR(255)` for String, `TEXT`
+for Text, `BIGINT` for Int, `DECIMAL(20, 6)` for Decimal, an enum's backing
+type for Enum. A ValueObject is `VARCHAR(255)` when `indexable()`, `TEXT`
+otherwise.
+
+Every unique group becomes a unique index starting with the scope it applies
+to: `owner` and `owner_field` on a level, `owner` on a Collection's table. An
+Embed target's groups repeat at every site that embeds it. A group can't
+cover a `TEXT` column, an OwningReference or a Collection: MySQL can't index
+the first, and the others have no column.
+
+The layout fails rather than letting the database fail later: two values
+landing on one column, two tables with one name, or any name longer than
+MySQL's 64 characters.

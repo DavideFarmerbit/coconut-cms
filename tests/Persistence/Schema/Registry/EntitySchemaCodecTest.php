@@ -22,6 +22,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\EntitySchemaCodec;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry;
@@ -44,6 +45,10 @@ final class CodecMoney implements StorableValue
 
     public function toStorage(): string {
         return $this->amount;
+    }
+
+    public static function indexable(): bool {
+        return true;
     }
 
     public static function fromStorage(string $stored): static {
@@ -164,8 +169,10 @@ final class EntitySchemaCodecTest extends TestCase
         $fieldValidators->register(Identifier::of('test', 'max-length'), CodecMaxLength::class);
         $prototypeValidators = new PrototypeValidatorRegistry();
         $prototypeValidators->register(Identifier::of('test', 'not-equal'), CodecNotEqual::class);
+        $valueObjects = new ValueObjectRegistry();
+        $valueObjects->register(Identifier::of('test', 'money'), CodecMoney::class);
 
-        return new EntitySchemaCodec($fieldValidators, $prototypeValidators);
+        return new EntitySchemaCodec($fieldValidators, $prototypeValidators, $valueObjects);
     }
 
     public function testASchemaRoundTripsThroughJson(): void {
@@ -188,9 +195,32 @@ final class EntitySchemaCodecTest extends TestCase
         self::assertStringNotContainsString(CodecMaxLength::class, json_encode($encoded));
     }
 
-    public function testEncodingARuleNeverRegisteredThrows(): void {
-        $this->expectException(RuntimeException::class);
+    public function testAValueObjectIsStoredByItsIdentifierNeverItsClassName(): void {
+        $encoded = self::codec()->encode(self::schemaOf(CodecProduct::class));
 
-        (new EntitySchemaCodec(new FieldValidatorRegistry(), new PrototypeValidatorRegistry()))->encode(self::schemaOf(CodecProduct::class));
+        self::assertSame('test:money', $encoded['fields']['price']['target']);
+        self::assertStringNotContainsString(CodecMoney::class, json_encode($encoded));
+    }
+
+    public function testEncodingARuleNeverRegisteredThrows(): void {
+        $valueObjects = new ValueObjectRegistry();
+        $valueObjects->register(Identifier::of('test', 'money'), CodecMoney::class);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(CodecMaxLength::class);
+
+        (new EntitySchemaCodec(new FieldValidatorRegistry(), new PrototypeValidatorRegistry(), $valueObjects))->encode(self::schemaOf(CodecProduct::class));
+    }
+
+    public function testEncodingAValueObjectNeverRegisteredThrows(): void {
+        $fieldValidators = new FieldValidatorRegistry();
+        $fieldValidators->register(Identifier::of('test', 'max-length'), CodecMaxLength::class);
+        $prototypeValidators = new PrototypeValidatorRegistry();
+        $prototypeValidators->register(Identifier::of('test', 'not-equal'), CodecNotEqual::class);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(CodecMoney::class);
+
+        (new EntitySchemaCodec($fieldValidators, $prototypeValidators, new ValueObjectRegistry()))->encode(self::schemaOf(CodecProduct::class));
     }
 }

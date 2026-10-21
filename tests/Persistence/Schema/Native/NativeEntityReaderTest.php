@@ -456,6 +456,10 @@ final class EntityRegistrarMoney implements StorableValue
         return $this->amount;
     }
 
+    public static function indexable(): bool {
+        return true;
+    }
+
     public static function fromStorage(string $stored): static {
         return new static($stored);
     }
@@ -701,6 +705,13 @@ final class NativeEntityReaderTest extends TestCase
 
         self::assertSame(EntityRegistrarMoney::class, $blueprint->fields->get(FieldName::of('price'))->target());
         self::assertSame(EntityRegistrarMoney::class, $blueprint->fields->get(FieldName::of('history'))->itemDescriptor()->target());
+    }
+
+    public function testRegisterRecordsWhetherAValueObjectIsIndexable(): void {
+        $blueprint = NativeEntityReader::read(EntityRegistrarPriced::class);
+
+        self::assertTrue($blueprint->fields->get(FieldName::of('price'))->indexable());
+        self::assertTrue($blueprint->fields->get(FieldName::of('history'))->itemDescriptor()->indexable());
     }
 
     public function testRegisterReadsAValueObjectsDefaultAsTheStringItStoresAs(): void {

@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Compiler;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
+use XyloIsCoding\CoconutCms\Core\Identifier;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
@@ -270,6 +271,10 @@ final class CompilerMoney implements StorableValue
 
     public function toStorage(): string {
         return $this->amount;
+    }
+
+    public static function indexable(): bool {
+        return false;
     }
 
     public static function fromStorage(string $stored): static {
@@ -543,6 +548,7 @@ final class SchemaCompilerTest extends TestCase
 
     public function testCompileComparesAValueObjectByTheStringItStoresAs(): void {
         $stores = new InMemorySchemaStores();
+        $stores->valueObjects->register(Identifier::of('test', 'money'), CompilerMoney::class);
         $registry = $stores->registry;
         $valueStore = $stores->values;
         $compiler = $stores->compiler();

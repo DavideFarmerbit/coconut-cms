@@ -13,6 +13,13 @@ interface StorableValue
     /** The string this value is stored as: plain or JSON, the class's own choice. */
     public function toStorage(): string;
 
+    /**
+     * Whether toStorage() always fits in 255 characters. If so, the value is
+     * stored as VARCHAR(255) and may be part of a unique group. If not, it's
+     * stored as TEXT, which MySQL can't index whole.
+     */
+    public static function indexable(): bool;
+
     /** Rebuilds a value from what toStorage() produced. */
     public static function fromStorage(string $stored): static;
 }

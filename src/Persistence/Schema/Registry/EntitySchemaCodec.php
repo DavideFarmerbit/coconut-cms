@@ -11,6 +11,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\UniqueGroup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry;
@@ -19,14 +20,16 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegi
 /**
  * Turns an EntitySchema into plain data and back, for SchemaStore. A validator
  * rule is stored as the identifier its class was registered under plus its own
- * toStorage() configuration, never as a class name: renaming or moving a rule
- * class doesn't break what's stored.
+ * toStorage() configuration, and a value object as its registered identifier,
+ * never as a class name: renaming or moving either class doesn't break what's
+ * stored.
  */
 final readonly class EntitySchemaCodec
 {
     public function __construct(
         private FieldValidatorRegistry $fieldValidators,
         private PrototypeValidatorRegistry $prototypeValidators,
+        private ValueObjectRegistry $valueObjects,
     ) {
     }
 
@@ -34,7 +37,7 @@ final readonly class EntitySchemaCodec
     public function encode(EntitySchema $schema): array {
         $fields = [];
         foreach ($schema->fields as $name => $field) {
-            $fields[(string) $name] = self::encodeDescriptor($field);
+            $fields[(string) $name] = $this->encodeDescriptor($field);
         }
 
         $permissions = [];
@@ -73,7 +76,7 @@ final readonly class EntitySchemaCodec
     public function decode(array $encoded): EntitySchema {
         $fields = FieldDescriptorCollection::empty();
         foreach ($encoded['fields'] as $name => $field) {
-            $fields = $fields->with(FieldName::of($name), self::decodeDescriptor($field));
+            $fields = $fields->with(FieldName::of($name), $this->decodeDescriptor($field));
         }
 
         $permissions = FieldPermissionCollection::empty();
@@ -109,23 +112,24 @@ final readonly class EntitySchemaCodec
     }
 
     /** @return array<string, mixed> */
-    private static function encodeDescriptor(FieldDescriptor $field): array {
+    private function encodeDescriptor(FieldDescriptor $field): array {
         return match ($field->kind()) {
             FieldKind::Scalar => ['kind' => $field->kind()->value, 'name' => $field->name(), 'scalarType' => $field->scalarType()->value, 'enumClass' => $field->enumClass()],
-            FieldKind::Collection => ['kind' => $field->kind()->value, 'name' => $field->name(), 'item' => self::encodeDescriptor($field->itemDescriptor())],
+            FieldKind::ValueObject => ['kind' => $field->kind()->value, 'name' => $field->name(), 'target' => (string) $this->valueObjects->identifierOf($field->target()), 'indexable' => $field->indexable()],
+            FieldKind::Collection => ['kind' => $field->kind()->value, 'name' => $field->name(), 'item' => $this->encodeDescriptor($field->itemDescriptor())],
             default => ['kind' => $field->kind()->value, 'name' => $field->name(), 'target' => $field->target()],
         };
     }
 
     /** @param array<string, mixed> $field */
-    private static function decodeDescriptor(array $field): FieldDescriptor {
+    private function decodeDescriptor(array $field): FieldDescriptor {
         return match (FieldKind::from($field['kind'])) {
             FieldKind::Scalar => FieldDescriptor::scalar($field['name'], ScalarType::from($field['scalarType']), $field['enumClass']),
-            FieldKind::ValueObject => FieldDescriptor::valueObject($field['name'], $field['target']),
+            FieldKind::ValueObject => FieldDescriptor::valueObject($field['name'], $this->valueObjects->resolve(Identifier::fromString($field['target'])), $field['indexable']),
             FieldKind::Embed => FieldDescriptor::embed($field['name'], $field['target']),
             FieldKind::Reference => FieldDescriptor::reference($field['name'], $field['target']),
             FieldKind::OwningReference => FieldDescriptor::owningReference($field['name'], $field['target']),
-            FieldKind::Collection => FieldDescriptor::collection($field['name'], self::decodeDescriptor($field['item'])),
+            FieldKind::Collection => FieldDescriptor::collection($field['name'], $this->decodeDescriptor($field['item'])),
         };
     }
 }

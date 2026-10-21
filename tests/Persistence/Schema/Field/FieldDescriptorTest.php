@@ -40,7 +40,7 @@ final class FieldDescriptorTest extends TestCase
     }
 
     public function testValueObjectStoresTarget(): void {
-        $field = FieldDescriptor::valueObject('price', 'Money');
+        $field = FieldDescriptor::valueObject('price', 'Money', true);
 
         self::assertSame(FieldKind::ValueObject, $field->kind());
         self::assertSame('Money', $field->target());

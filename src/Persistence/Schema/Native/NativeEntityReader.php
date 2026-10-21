@@ -136,7 +136,7 @@ final class NativeEntityReader
 
         return match (true) {
             $attribute instanceof Scalar => FieldDescriptor::scalar($name, $attribute->type, self::resolveEnumClass($property, $attribute)),
-            $attribute instanceof ValueObject => FieldDescriptor::valueObject($name, self::resolveValueObjectClass(self::declaredClassOf($property), $property)),
+            $attribute instanceof ValueObject => self::valueObjectDescriptor($name, self::resolveValueObjectClass(self::declaredClassOf($property), $property)),
             $attribute instanceof Embed => FieldDescriptor::embed($name, self::resolveEntityTarget(self::declaredClassOf($property), $property)),
             $attribute instanceof Reference => FieldDescriptor::reference($name, self::resolveEntityTarget(self::declaredClassOf($property), $property)),
             $attribute instanceof OwningReference => FieldDescriptor::owningReference($name, self::resolveEntityTarget(self::declaredClassOf($property), $property)),
@@ -200,6 +200,11 @@ final class NativeEntityReader
         return (new ReflectionClass($class))->getAttributes(Entity::class) !== [];
     }
 
+    /** @param class-string<StorableValue> $class */
+    private static function valueObjectDescriptor(string $name, string $class): FieldDescriptor {
+        return FieldDescriptor::valueObject($name, $class, $class::indexable());
+    }
+
     /** A value object class must store and rebuild itself. */
     private static function resolveValueObjectClass(string $class, ReflectionProperty $property): string {
         if (!is_subclass_of($class, StorableValue::class)) {
@@ -243,7 +248,7 @@ final class NativeEntityReader
     private static function resolveCollectionItemDescriptor(string $name, Collection $attribute, ReflectionProperty $property): FieldDescriptor {
         return match ($attribute->itemKind) {
             FieldKind::Scalar => FieldDescriptor::scalar($name, $attribute->itemScalarType, $attribute->itemEnumClass),
-            FieldKind::ValueObject => FieldDescriptor::valueObject($name, self::resolveValueObjectClass(self::resolveItemTarget($attribute, $property), $property)),
+            FieldKind::ValueObject => self::valueObjectDescriptor($name, self::resolveValueObjectClass(self::resolveItemTarget($attribute, $property), $property)),
             FieldKind::Embed => FieldDescriptor::embed($name, self::resolveEntityItemTarget($attribute, $property)),
             FieldKind::Reference => FieldDescriptor::reference($name, self::resolveEntityItemTarget($attribute, $property)),
             FieldKind::OwningReference => FieldDescriptor::owningReference($name, self::resolveEntityItemTarget($attribute, $property)),
