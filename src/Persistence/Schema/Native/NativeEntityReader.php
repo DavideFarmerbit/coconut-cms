@@ -2,6 +2,8 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Native;
 
+use BackedEnum;
+use DateTimeImmutable;
 use InvalidArgumentException;
 use ReflectionClass;
 use ReflectionMethod;
@@ -135,7 +137,7 @@ final class NativeEntityReader
         $attribute = $kindAttributes[0]->newInstance();
 
         return match (true) {
-            $attribute instanceof Scalar => FieldDescriptor::scalar($name, $attribute->type, self::resolveEnumClass($property, $attribute)),
+            $attribute instanceof Scalar => self::resolveScalar($name, $attribute, $property),
             $attribute instanceof ValueObject => self::valueObjectDescriptor($name, self::resolveValueObjectClass(self::declaredClassOf($property), $property)),
             $attribute instanceof Embed => FieldDescriptor::embed($name, self::resolveEntityTarget(self::declaredClassOf($property), $property)),
             $attribute instanceof Reference => FieldDescriptor::reference($name, self::resolveEntityTarget(self::declaredClassOf($property), $property)),
@@ -202,33 +204,77 @@ final class NativeEntityReader
     }
 
     /**
-     * A singular Scalar::Enum field doesn't need $enumClass stated on the attribute;
-     * it's read off the property's own declared type instead.
+     * A Scalar field, once its property is declared as what its ScalarType
+     * holds: hydration puts values back into the property, so a mismatch
+     * would only fail when real data is loaded.
+     */
+    private static function resolveScalar(string $name, Scalar $attribute, ReflectionProperty $property): FieldDescriptor {
+        $enumClass = self::resolveEnumClass($property, $attribute);
+        $expected = match ($attribute->type) {
+            ScalarType::String, ScalarType::Text, ScalarType::Decimal => 'string',
+            ScalarType::Int => 'int',
+            ScalarType::Float => 'float',
+            ScalarType::Bool => 'bool',
+            ScalarType::Date, ScalarType::DateTime => DateTimeImmutable::class,
+            ScalarType::Enum => $enumClass,
+        };
+
+        $type = $property->getType();
+        if (!$type instanceof ReflectionNamedType || $type->getName() !== $expected) {
+            throw new InvalidArgumentException(sprintf(
+                '%s::$%s is ScalarType::%s, so it must be declared as %s, nullable or not; found "%s".',
+                $property->getDeclaringClass()->getName(),
+                $property->getName(),
+                $attribute->type->name,
+                $expected,
+                $type ?? 'no type',
+            ));
+        }
+
+        return FieldDescriptor::scalar($name, $attribute->type, $enumClass);
+    }
+
+    /**
+     * Returns $enumClass unless it's a pure enum: only a backed enum has a
+     * value to store. Null passes through.
+     */
+    private static function assertBackedEnum(?string $enumClass, ReflectionProperty $property): ?string {
+        if ($enumClass !== null && !is_subclass_of($enumClass, BackedEnum::class)) {
+            throw new InvalidArgumentException(sprintf(
+                '%s::$%s holds %s, which is not a backed enum: only a backed enum has a value to store.',
+                $property->getDeclaringClass()->getName(),
+                $property->getName(),
+                $enumClass,
+            ));
+        }
+
+        return $enumClass;
+    }
+
+    /**
+     * A Scalar::Enum field's enum class: the property's own declared type,
+     * never stated on the attribute. Null for any other ScalarType.
      */
     private static function resolveEnumClass(ReflectionProperty $property, Scalar $attribute): ?string {
         if ($attribute->type !== ScalarType::Enum) {
             return null;
         }
 
-        if ($attribute->enumClass !== null) {
-            return $attribute->enumClass;
-        }
-
         $type = $property->getType();
         if (!$type instanceof ReflectionNamedType || !enum_exists($type->getName())) {
             throw new InvalidArgumentException(sprintf(
-                '%s::$%s is ScalarType::Enum but its own type is not a single enum class; pass $enumClass explicitly.',
+                '%s::$%s is ScalarType::Enum, so it must be declared as a single backed enum class.',
                 $property->getDeclaringClass()->getName(),
                 $property->getName(),
             ));
         }
 
-        return $type->getName();
+        return self::assertBackedEnum($type->getName(), $property);
     }
 
     private static function resolveCollectionItemDescriptor(string $name, Collection $attribute, ReflectionProperty $property): FieldDescriptor {
         return match ($attribute->itemKind) {
-            FieldKind::Scalar => FieldDescriptor::scalar($name, $attribute->itemScalarType, $attribute->itemEnumClass),
+            FieldKind::Scalar => FieldDescriptor::scalar($name, $attribute->itemScalarType, self::assertBackedEnum($attribute->itemEnumClass, $property)),
             FieldKind::ValueObject => self::valueObjectDescriptor($name, self::resolveValueObjectClass(self::resolveItemTarget($attribute, $property), $property)),
             FieldKind::Embed => FieldDescriptor::embed($name, self::resolveEntityItemTarget($attribute, $property)),
             FieldKind::Reference => FieldDescriptor::reference($name, self::resolveEntityItemTarget($attribute, $property)),

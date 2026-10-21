@@ -389,7 +389,7 @@ enum CompilerFuel: int
 #[Entity]
 class CompilerDatedBase
 {
-    #[Scalar(ScalarType::Enum, enumClass: CompilerFuel::class)]
+    #[Scalar(ScalarType::Enum)]
     private CompilerFuel $fuel = CompilerFuel::Petrol;
 
     #[Scalar(ScalarType::DateTime)]

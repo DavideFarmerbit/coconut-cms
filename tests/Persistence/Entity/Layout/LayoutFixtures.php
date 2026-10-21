@@ -148,7 +148,7 @@ final class LayoutCar extends LayoutVehicle
     #[ValueObject]
     private LayoutColor $color;
 
-    #[Scalar(ScalarType::Enum, enumClass: LayoutFuel::class)]
+    #[Scalar(ScalarType::Enum)]
     private LayoutFuel $fuel = LayoutFuel::Petrol;
 
     #[Embed]

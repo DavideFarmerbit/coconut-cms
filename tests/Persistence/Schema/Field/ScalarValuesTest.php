@@ -2,9 +2,11 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Field;
 
+use DateTime;
 use DateTimeImmutable;
 use DateTimeZone;
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarValues;
@@ -51,6 +53,10 @@ final class ScalarValuesTest extends TestCase
         }
     }
 
+    public function testAnIntWidensToAFloatTheWayPhpDoes(): void {
+        self::assertSame(3.0, ScalarValues::toStorage(ScalarType::Float, 3));
+    }
+
     public function testEveryOtherTypeIsStoredAsIs(): void {
         self::assertSame('a', ScalarValues::toStorage(ScalarType::String, 'a'));
         self::assertSame(3, ScalarValues::toStorage(ScalarType::Int, 3));
@@ -59,10 +65,25 @@ final class ScalarValuesTest extends TestCase
         self::assertSame('12.50', ScalarValues::toStorage(ScalarType::Decimal, '12.50'));
     }
 
-    public function testAValueOfTheWrongKindThrows(): void {
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('A DateTime scalar must hold a DateTimeInterface, got string.');
+    /** @return array<string, array{ScalarType, mixed}> */
+    public static function valuesOfTheWrongKind(): array {
+        return [
+            'an int as a String' => [ScalarType::String, 3],
+            'a numeric string as an Int' => [ScalarType::Int, '3'],
+            'a numeric string as a Float' => [ScalarType::Float, '1.5'],
+            'an int as a Bool' => [ScalarType::Bool, 1],
+            'a float as a Decimal' => [ScalarType::Decimal, 1.5],
+            'a string as a Date' => [ScalarType::Date, '2024-03-10'],
+            'a mutable DateTime as a DateTime' => [ScalarType::DateTime, new DateTime('2024-03-10')],
+            'a string as an Enum' => [ScalarType::Enum, 'petrol'],
+        ];
+    }
 
-        ScalarValues::toStorage(ScalarType::DateTime, '2024-03-10');
+    #[DataProvider('valuesOfTheWrongKind')]
+    public function testAValueOfTheWrongKindThrows(ScalarType $type, mixed $value): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage(sprintf('A %s scalar must hold', $type->name));
+
+        ScalarValues::toStorage($type, $value);
     }
 }

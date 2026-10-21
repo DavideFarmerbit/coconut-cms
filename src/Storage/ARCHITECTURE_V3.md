@@ -117,7 +117,12 @@ An Embed, Reference, OwningReference or ValueObject field's target is the
 property's own declared type, never an attribute argument. It must be a single
 class, nullable or not: `object`, a builtin or a union is rejected. A wrong
 target can't be declared at all, since PHP itself enforces the property type.
-A Collection still names its `itemTarget`: `array` says nothing about its
+A Scalar's property must be declared as what its `ScalarType` holds, nullable
+or not: `string` for String, Text and Decimal, `int`, `float`, `bool`,
+`DateTimeImmutable` for Date and DateTime, a backed enum for Enum. An Enum's
+class is that declared type, never an attribute argument. Loading puts stored
+values back into the property, so a mismatch would otherwise only fail once
+real data is read. A Collection still names its `itemTarget`: `array` says nothing about its
 items. Editor-created fields have no property, so their descriptors carry the
 target explicitly.
 
@@ -143,6 +148,10 @@ misread.
   `ScalarValues`: an Enum as its backing value, a Date as `Y-m-d`, a DateTime
   converted to UTC as `Y-m-d H:i:s`, whole seconds. Anything else as is. So
   two equal values always compare equal, wherever they were read from.
+  It also checks each value's kind: a Collection's items, or a value from
+  the editor, are never checked by a property type. The one conversion it
+  makes is PHP's own: an int widens to a float for a Float, so `3` and `3.0`
+  store the same.
 - Reference: a `LeafNode` of the target's id, never recursed into: it doesn't
   own what it points to. In a default instance it must be null for now: how
   a native class would name a default target isn't designed yet.

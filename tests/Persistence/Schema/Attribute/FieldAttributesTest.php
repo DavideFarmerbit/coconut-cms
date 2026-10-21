@@ -18,7 +18,7 @@ final class FieldAttributesSubject
     #[Scalar(ScalarType::String)]
     private string $title;
 
-    #[Scalar(ScalarType::Enum, FieldAttributesStatus::class)]
+    #[Scalar(ScalarType::Enum)]
     private FieldAttributesStatus $status;
 
     #[ValueObject]
@@ -55,14 +55,14 @@ final class FieldAttributesTest extends TestCase
         $attribute = $this->attributeOf('title');
 
         self::assertSame(ScalarType::String, $attribute->type);
-        self::assertNull($attribute->enumClass);
     }
 
-    public function testScalarAttributeReflectsEnumClass(): void {
+    /** The enum class is the property's own declared type, never an argument. */
+    public function testAnEnumScalarAttributeTakesOnlyItsType(): void {
         $attribute = $this->attributeOf('status');
 
         self::assertSame(ScalarType::Enum, $attribute->type);
-        self::assertSame(FieldAttributesStatus::class, $attribute->enumClass);
+        self::assertSame(['type'], array_keys(get_object_vars($attribute)));
     }
 
     /** Their target is the property's own declared type, never an argument. */

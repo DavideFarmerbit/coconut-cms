@@ -481,6 +481,76 @@ final class EntityRegistrarDefaultReference
     }
 }
 
+enum EntityRegistrarPureEnum
+{
+    case Only;
+}
+
+#[Entity]
+final class EntityRegistrarDateAsString
+{
+    #[Scalar(ScalarType::DateTime)]
+    private ?string $createdAt = null;
+}
+
+#[Entity]
+final class EntityRegistrarIntAsString
+{
+    #[Scalar(ScalarType::Int)]
+    private string $count = '0';
+}
+
+#[Entity]
+final class EntityRegistrarMutableDate
+{
+    #[Scalar(ScalarType::Date)]
+    private ?\DateTime $day = null;
+}
+
+#[Entity]
+final class EntityRegistrarUnionScalar
+{
+    #[Scalar(ScalarType::Int)]
+    private int|string $count = 0;
+}
+
+#[Entity]
+final class EntityRegistrarEnumOnString
+{
+    #[Scalar(ScalarType::Enum)]
+    private ?string $status = null;
+}
+
+#[Entity]
+final class EntityRegistrarPureEnumField
+{
+    #[Scalar(ScalarType::Enum)]
+    private ?EntityRegistrarPureEnum $status = null;
+}
+
+#[Entity]
+final class EntityRegistrarPureEnumItems
+{
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Enum, itemEnumClass: EntityRegistrarPureEnum::class)]
+    private array $statuses = [];
+}
+
+#[Entity]
+final class EntityRegistrarWellTypedScalars
+{
+    #[Scalar(ScalarType::Decimal)]
+    private ?string $price = null;
+
+    #[Scalar(ScalarType::Float)]
+    private float $ratio = 0.5;
+
+    #[Scalar(ScalarType::Bool)]
+    private bool $active = false;
+
+    #[Scalar(ScalarType::Date)]
+    private ?DateTimeImmutable $day = null;
+}
+
 #[Entity]
 final class EntityRegistrarOverLongPrice
 {
@@ -770,6 +840,32 @@ final class NativeEntityReaderTest extends TestCase
         $this->expectExceptionMessage('a default Reference must be null for now');
 
         NativeEntityReader::read(EntityRegistrarDefaultReference::class);
+    }
+
+    /** @return array<string, array{class-string, string}> */
+    public static function mistypedScalars(): array {
+        return [
+            'a DateTime as a string' => [EntityRegistrarDateAsString::class, 'must be declared as DateTimeImmutable'],
+            'an Int as a string' => [EntityRegistrarIntAsString::class, 'must be declared as int'],
+            'a Date as a mutable DateTime' => [EntityRegistrarMutableDate::class, 'must be declared as DateTimeImmutable'],
+            'a union type' => [EntityRegistrarUnionScalar::class, 'must be declared as int'],
+            'an Enum on a non-enum type' => [EntityRegistrarEnumOnString::class, 'must be declared as a single backed enum class'],
+            'a pure enum' => [EntityRegistrarPureEnumField::class, 'not a backed enum'],
+            'a pure enum as collection items' => [EntityRegistrarPureEnumItems::class, 'not a backed enum'],
+        ];
+    }
+
+    /** @param class-string $class */
+    #[DataProvider('mistypedScalars')]
+    public function testRegisterWithAScalarPropertyOfTheWrongTypeThrows(string $class, string $message): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage($message);
+
+        NativeEntityReader::read($class);
+    }
+
+    public function testRegisterAcceptsScalarsDeclaredAsWhatTheirTypeHolds(): void {
+        self::assertCount(4, NativeEntityReader::read(EntityRegistrarWellTypedScalars::class)->fields);
     }
 
     public function testRegisterRecordsWhetherAValueObjectIsIndexable(): void {
