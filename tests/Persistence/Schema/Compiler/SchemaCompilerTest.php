@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Compiler;
 
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Core\Identifier;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
@@ -303,6 +304,77 @@ final class CompilerDiscounted extends CompilerPriced
 {
     public function __construct() {
         $this->price = new CompilerMoney('8 EUR');
+    }
+}
+
+#[Entity]
+final class CompilerBolt
+{
+    #[Scalar(ScalarType::Int)]
+    private int $size = 1;
+}
+
+#[Entity]
+final class CompilerHubWithBolt
+{
+    #[OwningReference]
+    private ?CompilerBolt $bolt = null;
+}
+
+#[Entity]
+final class CompilerHubWithBolts
+{
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Int)]
+    private array $bolts = [];
+}
+
+#[Entity]
+final class CompilerWheelEmbeddingAHub
+{
+    #[Embed]
+    private CompilerHubWithBolts $hub;
+
+    public function __construct() {
+        $this->hub = new CompilerHubWithBolts();
+    }
+}
+
+#[Entity]
+final class CompilerCarWithOwningItems
+{
+    #[Collection(itemKind: FieldKind::Embed, itemTarget: CompilerHubWithBolt::class)]
+    private array $hubs = [];
+}
+
+#[Entity]
+final class CompilerCarWithCollectionItems
+{
+    #[Collection(itemKind: FieldKind::Embed, itemTarget: CompilerHubWithBolts::class)]
+    private array $hubs = [];
+}
+
+#[Entity]
+final class CompilerCarWithNestedItems
+{
+    #[Collection(itemKind: FieldKind::Embed, itemTarget: CompilerWheelEmbeddingAHub::class)]
+    private array $wheels = [];
+}
+
+#[Entity]
+final class CompilerCarWithOwnedHubs
+{
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: CompilerHubWithBolts::class)]
+    private array $hubs = [];
+}
+
+#[Entity]
+final class CompilerCarEmbeddingOwningHub
+{
+    #[Embed]
+    private CompilerHubWithBolt $hub;
+
+    public function __construct() {
+        $this->hub = new CompilerHubWithBolt();
     }
 }
 
@@ -662,5 +734,35 @@ final class SchemaCompilerTest extends TestCase
         self::assertFalse($registry->has(CompilerOwnedEngine::class));
         self::assertSame([], $valueStore->load(CompilerPiston::class)->toArray());
         self::assertSame([], $valueStore->load(CompilerOwnedEngine::class)->toArray());
+    }
+
+    /** @return array<string, array{list<class-string>, string}> */
+    public static function embedItemsOwningSomething(): array {
+        return [
+            'an OwningReference' => [[CompilerBolt::class, CompilerHubWithBolt::class, CompilerCarWithOwningItems::class], 'the items of "hubs" hold "bolt"'],
+            'a Collection' => [[CompilerHubWithBolts::class, CompilerCarWithCollectionItems::class], 'the items of "hubs" hold "bolts"'],
+            'a Collection inside an Embed of the item' => [[CompilerHubWithBolts::class, CompilerWheelEmbeddingAHub::class, CompilerCarWithNestedItems::class], 'the items of "wheels" hold "hub:bolts"'],
+        ];
+    }
+
+    /** @param list<class-string> $classes */
+    #[DataProvider('embedItemsOwningSomething')]
+    public function testCompileRejectsAnEmbedItemOwningSomething(array $classes, string $message): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage($message);
+
+        $this->compiler->compile(self::blueprintsOf($classes));
+    }
+
+    public function testCompileAllowsOwnedItemsAndSingularEmbedsToOwnThings(): void {
+        $schemas = $this->compiler->compile(self::blueprintsOf([
+            CompilerBolt::class,
+            CompilerHubWithBolt::class,
+            CompilerHubWithBolts::class,
+            CompilerCarWithOwnedHubs::class,
+            CompilerCarEmbeddingOwningHub::class,
+        ]));
+
+        self::assertCount(5, $schemas);
     }
 }

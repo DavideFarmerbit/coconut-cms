@@ -2,7 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Entity\Layout;
 
-use InvalidArgumentException;
+use LogicException;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 
 /**
@@ -47,13 +47,13 @@ final class LayoutParts
         $this->columns[] = $column;
     }
 
-    /** Throws for a Collection's item: an item has no identity to own anything with. */
+    /** Throws for a Collection's item, which SchemaCompiler already rejects. */
     public function addOwned(OwnedLayout $owned): void {
         $this->assertNotItem($owned->path);
         $this->owned[] = $owned;
     }
 
-    /** Throws for a Collection's item: an item has no identity to key a nested table on. */
+    /** Throws for a Collection's item, which SchemaCompiler already rejects. */
     public function addCollection(CollectionLayout $collection): void {
         $this->assertNotItem($collection->path);
         $this->collections[] = $collection;
@@ -100,11 +100,7 @@ final class LayoutParts
 
     private function assertNotItem(FieldPath $path): void {
         if ($this->item !== null) {
-            throw new InvalidArgumentException(sprintf(
-                'The items of "%s" hold "%s": an OwningReference or a Collection inside a Collection item is not supported yet.',
-                $this->item,
-                $path,
-            ));
+            throw new LogicException(sprintf('The items of "%s" hold "%s", which compiling should have rejected.', $this->item, $path));
         }
     }
 }

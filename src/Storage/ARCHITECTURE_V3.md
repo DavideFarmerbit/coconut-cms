@@ -281,9 +281,14 @@ the Doctrine schema of every table they need. Neither reads the database.
 - One table per other Collection, named after the level's table and the
   path: `car__wheels`. Keyed by `owner` and `position`. The item kind only
   decides the value columns: one `value` column for a Scalar, ValueObject or
-  Reference item, the flattened fields for an Embed item. An Embed item may
-  not hold an OwningReference or a Collection yet: it has no identity to key
-  them on.
+  Reference item, the flattened fields for an Embed item. An Embed item can't
+  hold an OwningReference or a Collection anywhere in its embedded fields,
+  and compiling rejects it. Its only address is its position, which changes
+  on every reorder, so nothing nested under it would have a stable key. Use
+  an Owned Collection instead: its items have an identity. A singular Embed
+  has no such limit, since its path never changes. This could be loosened
+  later with a new storage mechanism. Starting strict keeps that door closed
+  until it's needed.
 - A touched-state side table per level, `car__state`, one row per entity.
   One boolean per path an instance can hold at that level: every value
   column, and the bare path of every OwningReference and Collection. An

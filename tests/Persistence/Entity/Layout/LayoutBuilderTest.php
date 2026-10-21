@@ -37,13 +37,6 @@ final class LayoutWheelWithHolder
 }
 
 #[Entity]
-final class LayoutCollectionOfHolders
-{
-    #[Collection(itemKind: FieldKind::Embed, itemTarget: LayoutHolder::class)]
-    private array $holders = [];
-}
-
-#[Entity]
 #[Unique('tags')]
 final class LayoutUniqueCollection
 {
@@ -177,15 +170,6 @@ final class LayoutBuilderTest extends TestCase
 
         self::assertSame([['owner', 'owner_field', 'serial']], $engine->uniqueIndexes);
         self::assertSame(['serial' => 'serial', 'piston:diameter' => 'piston__diameter'], self::columnsByPath($engine->columns));
-    }
-
-    public function testAnOwningReferenceInsideAnEmbedItemIsRejected(): void {
-        $builder = LayoutFixtures::builderFor([LayoutPiston::class, LayoutEngine::class, LayoutHolder::class, LayoutCollectionOfHolders::class]);
-
-        $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('not supported yet');
-
-        $builder->levelOf(LayoutCollectionOfHolders::class);
     }
 
     public function testAnOwningReferenceInsideASingularEmbedIsFine(): void {

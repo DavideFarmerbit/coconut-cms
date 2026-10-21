@@ -74,6 +74,10 @@ final class SchemaCompiler
 
         $lookup = new SchemaLookup($this->registry, $schemas);
 
+        foreach ($schemas as $identifier => $schema) {
+            $this->assertEmbedItemsOwnNothing($schema, $lookup);
+        }
+
         // Every value each class's default instance holds, inherited fields
         // included. For a class in this batch, these are its effective values.
         $denseByIdentifier = [];
@@ -349,6 +353,62 @@ final class SchemaCompiler
     }
 
     // ~Sparse Values
+    /*================================================================================================================*/
+
+    /*================================================================================================================*/
+    // Structural Checks
+
+    /**
+     * Throws if one of $schema's own Collections of Embeds has items holding an
+     * OwningReference or a Collection anywhere in their embedded fields. An
+     * item's only address is its position, which changes on every reorder:
+     * nothing nested under it would have a stable key. An Owned Collection's
+     * items have an identity, so they can. A singular Embed's own Collections
+     * need no walk from here: its target is checked when it's compiled.
+     * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
+     */
+    private function assertEmbedItemsOwnNothing(EntitySchema $schema, SchemaLookup $schemas): void {
+        foreach ($schema->fields as $name => $field) {
+            if ($field->kind() !== FieldKind::Collection || $field->itemDescriptor()->kind() !== FieldKind::Embed) {
+                continue;
+            }
+
+            $owning = $this->firstOwningPathIn($schemas->hierarchyFieldsOf($field->itemDescriptor()->target()), FieldPath::of(...), $schemas);
+            if ($owning !== null) {
+                throw new InvalidArgumentException(sprintf(
+                    '%s: the items of "%s" hold "%s", an OwningReference or a Collection. An Embed item has no identity to own anything with: make "%s" an Owned Collection instead.',
+                    $schema->identifier,
+                    $name,
+                    $owning,
+                    $name,
+                ));
+            }
+        }
+    }
+
+    /**
+     * The path of the first OwningReference or Collection in $fields, Embeds
+     * included, or null when there's none.
+     * @param Closure(FieldName): FieldPath $pathOf
+     * @param SchemaLookup $schemas This batch's own schemas, ahead of the registry.
+     */
+    private function firstOwningPathIn(FieldDescriptorCollection $fields, Closure $pathOf, SchemaLookup $schemas): ?FieldPath {
+        foreach ($fields as $name => $field) {
+            $owning = match ($field->kind()) {
+                FieldKind::OwningReference, FieldKind::Collection => $pathOf($name),
+                FieldKind::Embed => $this->firstOwningPathIn($schemas->hierarchyFieldsOf($field->target()), $pathOf($name)->embed(...), $schemas),
+                default => null,
+            };
+
+            if ($owning !== null) {
+                return $owning;
+            }
+        }
+
+        return null;
+    }
+
+    // ~Structural Checks
     /*================================================================================================================*/
     
     /*================================================================================================================*/
