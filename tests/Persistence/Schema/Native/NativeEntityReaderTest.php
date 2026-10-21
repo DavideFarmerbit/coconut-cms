@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Native;
 
 use InvalidArgumentException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\PrototypeValidator;
@@ -490,6 +491,34 @@ final class EntityRegistrarValueObjectNotStorable
 }
 
 #[Entity]
+final class EntityRegistrarCollectionOfEmbedNonEntity
+{
+    #[Collection(itemKind: FieldKind::Embed, itemTarget: EntityRegistrarNotAnEntity::class)]
+    private array $items = [];
+}
+
+#[Entity]
+final class EntityRegistrarCollectionOfReferenceNonEntity
+{
+    #[Collection(itemKind: FieldKind::Reference, itemTarget: EntityRegistrarNotAnEntity::class)]
+    private array $items = [];
+}
+
+#[Entity]
+final class EntityRegistrarCollectionOfOwningReferenceNonEntity
+{
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: EntityRegistrarNotAnEntity::class)]
+    private array $items = [];
+}
+
+#[Entity]
+final class EntityRegistrarCollectionOfValueObjectNotStorable
+{
+    #[Collection(itemKind: FieldKind::ValueObject, itemTarget: EntityRegistrarNotStorable::class)]
+    private array $items = [];
+}
+
+#[Entity]
 final class EntityRegistrarEmbedTypedAsObject
 {
     #[Embed]
@@ -690,6 +719,30 @@ final class NativeEntityReaderTest extends TestCase
         $this->expectExceptionMessageMatches('/does not implement/');
 
         NativeEntityReader::read(EntityRegistrarValueObjectNotStorable::class);
+    }
+
+    /** @return array<string, array{class-string}> */
+    public static function collectionsOfNonEntities(): array {
+        return [
+            'Embed items' => [EntityRegistrarCollectionOfEmbedNonEntity::class],
+            'Reference items' => [EntityRegistrarCollectionOfReferenceNonEntity::class],
+            'OwningReference items' => [EntityRegistrarCollectionOfOwningReferenceNonEntity::class],
+        ];
+    }
+
+    #[DataProvider('collectionsOfNonEntities')]
+    public function testRegisterWithACollectionItemTargetingANonEntityThrows(string $class): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/not a class marked #\[Entity\]/');
+
+        NativeEntityReader::read($class);
+    }
+
+    public function testRegisterWithACollectionOfValueObjectsNotImplementingStorableValueThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches('/does not implement/');
+
+        NativeEntityReader::read(EntityRegistrarCollectionOfValueObjectNotStorable::class);
     }
 
     public function testRegisterWithAnInferredTargetTypedAsObjectThrows(): void {
