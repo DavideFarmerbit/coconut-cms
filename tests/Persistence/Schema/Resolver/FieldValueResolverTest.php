@@ -15,6 +15,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Resolver\FieldValueResolver;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Resolver\Subject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
@@ -131,7 +132,7 @@ final class FieldValueResolverTest extends TestCase
     }
 
     private function resolve(string $identifier, string $path): mixed {
-        return $this->resolver->resolve($identifier, FieldPath::fromString($path));
+        return $this->resolver->resolve(Subject::ofClass($identifier), FieldPath::fromString($path));
     }
 
     public function testReturnsAnIdentifiersOwnStoredValue(): void {
@@ -270,7 +271,7 @@ final class FieldValueResolverTest extends TestCase
 
         // The class ResolverCar holds still counts; only its own horsepower
         // override is skipped.
-        self::assertSame(300, $this->resolver->resolveFallback(ResolverCar::class, FieldPath::fromString('engine.horsepower')));
+        self::assertSame(300, $this->resolver->resolveFallback(Subject::ofClass(ResolverCar::class), FieldPath::fromString('engine.horsepower')));
     }
 
     public function testResolveWithoutSubtreeSkipsTheWholeCollection(): void {
@@ -279,8 +280,8 @@ final class FieldValueResolverTest extends TestCase
 
         $pistons = FieldPath::fromString('pistons');
 
-        self::assertSame(2, $this->resolver->resolveWithoutSubtree(ResolverBigGarage::class, $pistons, $pistons));
-        self::assertSame(99, $this->resolver->resolveWithoutSubtree(ResolverBigGarage::class, FieldPath::fromString('pistons.0.diameter'), $pistons));
+        self::assertSame(2, $this->resolver->resolveWithoutSubtree(Subject::ofClass(ResolverBigGarage::class), $pistons, $pistons));
+        self::assertSame(99, $this->resolver->resolveWithoutSubtree(Subject::ofClass(ResolverBigGarage::class), FieldPath::fromString('pistons.0.diameter'), $pistons));
     }
 
     public function testAResolverWithABatchReadsTheBatchAheadOfTheStore(): void {
@@ -288,7 +289,61 @@ final class FieldValueResolverTest extends TestCase
 
         $batched = $this->resolver->withBatch([], [ResolverEngine::class => FieldValues::fromArray(['horsepower' => 1])]);
 
-        self::assertSame(1, $batched->resolve(ResolverEngine::class, FieldPath::fromString('horsepower')));
+        self::assertSame(1, $batched->resolve(Subject::ofClass(ResolverEngine::class), FieldPath::fromString('horsepower')));
+    }
+
+    public function testAnInstancesOwnValueWinsOverItsClass(): void {
+        $this->store->save(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 300]));
+        $instance = Subject::ofInstance(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 450]));
+
+        self::assertSame(450, $this->resolver->resolve($instance, FieldPath::fromString('horsepower')));
+    }
+
+    public function testAnInstanceFallsBackToItsClassAndItsClasssParents(): void {
+        $this->store->save(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 300]));
+        $this->store->save(ResolverPiston::class, FieldValues::fromArray(['diameter' => 10]));
+        $instance = Subject::ofInstance(ResolverSportsEngine::class, FieldValues::empty());
+
+        self::assertSame(300, $this->resolver->resolve($instance, FieldPath::fromString('horsepower')));
+        self::assertSame(10, $this->resolver->resolve($instance, FieldPath::fromString('piston:diameter')));
+    }
+
+    public function testAnInstanceHoldingAnotherOwnedClassStillGetsItsClasssOverride(): void {
+        // The class pins engine.horsepower on whatever engine it holds; the
+        // instance swaps in a sports engine but sets no horsepower itself.
+        $this->store->save(ResolverCar::class, FieldValues::fromArray(['engine' => ResolverEngine::class, 'engine.horsepower' => 500]));
+        $this->store->save(ResolverSportsEngine::class, FieldValues::fromArray(['boost' => 3]));
+        $instance = Subject::ofInstance(ResolverCar::class, FieldValues::fromArray(['engine' => ResolverSportsEngine::class]));
+
+        self::assertSame(500, $this->resolver->resolve($instance, FieldPath::fromString('engine.horsepower')));
+        self::assertSame(3, $this->resolver->resolve($instance, FieldPath::fromString('engine.boost')));
+    }
+
+    public function testACollectionTheInstanceHoldsNeverFallsBackToTheClasssItems(): void {
+        $this->store->save(ResolverGarage::class, FieldValues::fromArray(['pistons' => 2, 'pistons.0.diameter' => 99]));
+        $this->store->save(ResolverPiston::class, FieldValues::fromArray(['diameter' => 10]));
+        $instance = Subject::ofInstance(ResolverGarage::class, FieldValues::fromArray(['pistons' => 1]));
+
+        self::assertSame(1, $this->resolver->resolve($instance, FieldPath::fromString('pistons')));
+        self::assertSame(10, $this->resolver->resolve($instance, FieldPath::fromString('pistons.0.diameter')));
+    }
+
+    public function testAnInstancesFallbackSkipsOnlyTheInstancesOwnValue(): void {
+        // The class holds the same path too: only the instance's own value is
+        // skipped, so the fallback is the class's.
+        $this->store->save(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 300]));
+        $instance = Subject::ofInstance(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 450]));
+
+        self::assertSame(300, $this->resolver->resolveFallback($instance, FieldPath::fromString('horsepower')));
+    }
+
+    public function testAnInstanceWithoutItsCollectionFallsBackToTheClasssWholeCollection(): void {
+        $this->store->save(ResolverGarage::class, FieldValues::fromArray(['pistons' => 2, 'pistons.0.diameter' => 99]));
+        $instance = Subject::ofInstance(ResolverGarage::class, FieldValues::fromArray(['pistons' => 1, 'pistons.0.diameter' => 12]));
+        $pistons = FieldPath::fromString('pistons');
+
+        self::assertSame(2, $this->resolver->resolveWithoutSubtree($instance, $pistons, $pistons));
+        self::assertSame(99, $this->resolver->resolveWithoutSubtree($instance, FieldPath::fromString('pistons.0.diameter'), $pistons));
     }
 
     public function testAStoredNullIsAValueNotAMiss(): void {

@@ -210,16 +210,19 @@ round and corrected: `SchemaFieldValueStore` is the one mechanism for both.
 
 ## Resolving a value
 
-`FieldValueResolver::resolve($identifier, $path)` finds a path's effective
-value. It needs schemas, so it lives outside the store, which only reads and
+`FieldValueResolver::resolve($subject, $path)` finds a path's effective
+value. A `Subject` is a class, or an instance of one: the class plus values of
+its own, held in front of the class. An instance overrides its class the same
+way a subclass overrides its parent, so everything below applies to both. It needs schemas, so it lives outside the store, which only reads and
 writes rows. It is not a repository concern either: the compiler, migrations
 and the editor all need the same answer.
 
-It works through sources (`ValueSource`): (identifier, key prefix) pairs, checked
-in order.
-The first source holding the key wins. A stored null is a value, not a miss.
-An identifier's own sources are itself, then each of its parents, with no
-prefix. Each step down the path extends them:
+It works through sources (`ValueSource`), checked in order. A source is
+either a class's stored values or values given directly, such as an
+instance's, under a key prefix. The first source holding the key wins. A
+stored null is a value, not a miss. A class's own sources are itself, then
+each of its parents, with no prefix. An instance's are its own values, then
+its class's. Each step down the path extends them:
 
 - Embed: the same sources under `field:`, then the target's own sources.
 - OwningReference: first resolve the bare field from the same sources, which
@@ -236,12 +239,12 @@ parents, then `horsepower` in the class `engine` holds, then in that class's
 parents. Nothing left to try: throw `NoFieldValueException`.
 
 Two more entry points serve the compiler:
-(each works through a `ValueExclusion`: one identifier's one path, or subtree,
-skipped while walking the sources)
-- `resolveFallback($identifier, $path)`: what `resolve()` would give if
-  `$identifier` held nothing at `$path`. Everything else it holds still
-  counts, e.g. the class its OwningReference holds.
-- `resolveWithoutSubtree($identifier, $path, $subtree)`: the same, with
+(each works through a `ValueExclusion`: one path, or subtree, skipped in the
+subject's own values while walking the sources)
+- `resolveFallback($subject, $path)`: what `resolve()` would give if the
+  subject's own values held nothing at `$path`. Everything else they hold
+  still counts, e.g. the class its OwningReference holds.
+- `resolveWithoutSubtree($subject, $path, $subtree)`: the same, with
   nothing held at `$subtree` or under it: a collection's item, with the whole
   collection gone.
 

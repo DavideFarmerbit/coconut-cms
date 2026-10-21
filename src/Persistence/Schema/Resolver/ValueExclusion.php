@@ -5,31 +5,31 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Resolver;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 
 /**
- * Makes FieldValueResolver act as if one identifier held nothing at one path,
- * or nothing at it nor anywhere under it: how a fallback is worked out.
+ * Makes FieldValueResolver act as if one source's values held nothing at one
+ * path, or nothing at it nor anywhere under it: how a fallback is worked out.
  */
 final readonly class ValueExclusion
 {
     private function __construct(
-        private string $identifier,
+        private ValueSource $source,
         private FieldPath $path,
         private bool $wholeSubtree,
     ) {
     }
 
-    /** Nothing held at exactly $path. */
-    public static function at(string $identifier, FieldPath $path): self {
-        return new self($identifier, $path, false);
+    /** $source's values hold nothing at exactly $path. */
+    public static function at(ValueSource $source, FieldPath $path): self {
+        return new self($source, $path, false);
     }
 
-    /** Nothing held at $path, nor anywhere under it. */
-    public static function under(string $identifier, FieldPath $path): self {
-        return new self($identifier, $path, true);
+    /** $source's values hold nothing at $path, nor anywhere under it. */
+    public static function under(ValueSource $source, FieldPath $path): self {
+        return new self($source, $path, true);
     }
 
-    /** Whether $identifier's value at $path is to be ignored. */
-    public function covers(string $identifier, FieldPath $path): bool {
-        if ($identifier !== $this->identifier) {
+    /** Whether $source's value at $path, a full path in its values, is to be ignored. */
+    public function covers(ValueSource $source, FieldPath $path): bool {
+        if (!$source->readsSameValuesAs($this->source)) {
             return false;
         }
 

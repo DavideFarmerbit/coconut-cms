@@ -19,6 +19,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\StoredSchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Resolver\FieldValueResolver;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Resolver\Subject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Resolver\NoFieldValueException;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
@@ -323,7 +324,7 @@ final class SchemaCompiler
         // ever looked up.
         foreach ($dense->under($path) as $densePath => $value) {
             try {
-                $fallback = $resolver->resolveWithoutSubtree($identifier, $densePath, $path);
+                $fallback = $resolver->resolveWithoutSubtree(Subject::ofClass($identifier), $densePath, $path);
             } catch (InvalidArgumentException) {
                 // Nothing to fall back to, or an item whose class the other
                 // collection's doesn't share: either way, not the same.
@@ -340,7 +341,7 @@ final class SchemaCompiler
 
     private function keepIfDiffers(string $identifier, FieldPath $path, mixed $value, FieldValueResolver $resolver, FieldValuesBuilder $kept): void {
         try {
-            $fallback = $resolver->resolveFallback($identifier, $path);
+            $fallback = $resolver->resolveFallback(Subject::ofClass($identifier), $path);
         } catch (NoFieldValueException) {
             $kept->set($path, $value);
 

@@ -13,12 +13,13 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
 
 /**
- * Finds the effective value of one FieldPath on one identifier, native or
- * editor-created alike.
+ * Finds the effective value of one FieldPath on one Subject: a class, native
+ * or editor-created alike, or an instance of one.
  *
  * Works through ValueSources, checked in order, the first one holding the key
- * winning. An identifier's own sources are itself and its parents, with no
- * prefix. Each step down the path extends them:
+ * winning. A class's own sources are itself and its parents, with no prefix;
+ * an instance's are its own values, then its class's. Each step down the path
+ * extends them:
  * - Embed: the same sources under "field:", then the target's own sources.
  * - OwningReference: the same sources under "field.", then the own sources of
  *   whatever class the field holds, itself resolved from the same sources.
@@ -56,26 +57,26 @@ final class FieldValueResolver
     }
 
     /** Throws NoFieldValueException when nothing holds a value for $path. */
-    public function resolve(string $identifier, FieldPath $path): mixed {
-        return $this->resolveOn($this->chainOf($identifier), $identifier, $path, null);
+    public function resolve(Subject $subject, FieldPath $path): mixed {
+        return $this->resolveOn($this->sourcesOf($subject), $subject->class, $path, null);
     }
 
     /**
-     * What resolve() would return if $identifier held nothing at $path.
-     * Everything else $identifier holds still counts: the class its
+     * What resolve() would return if $subject's own values held nothing at
+     * $path. Everything else they hold still counts: the class its
      * OwningReference holds, for instance, when $path goes through it.
      */
-    public function resolveFallback(string $identifier, FieldPath $path): mixed {
-        return $this->resolveOn($this->chainOf($identifier), $identifier, $path, ValueExclusion::at($identifier, $path));
+    public function resolveFallback(Subject $subject, FieldPath $path): mixed {
+        return $this->resolveOn($this->sourcesOf($subject), $subject->class, $path, ValueExclusion::at($subject->ownSource(), $path));
     }
 
     /**
-     * What resolve() would return for $path if $identifier held nothing at
-     * $subtree nor anything under it: e.g. a collection's item, with the
-     * whole collection gone.
+     * What resolve() would return for $path if $subject's own values held
+     * nothing at $subtree nor anything under it: e.g. a collection's item,
+     * with the whole collection gone.
      */
-    public function resolveWithoutSubtree(string $identifier, FieldPath $path, FieldPath $subtree): mixed {
-        return $this->resolveOn($this->chainOf($identifier), $identifier, $path, ValueExclusion::under($identifier, $subtree));
+    public function resolveWithoutSubtree(Subject $subject, FieldPath $path, FieldPath $subtree): mixed {
+        return $this->resolveOn($this->sourcesOf($subject), $subject->class, $path, ValueExclusion::under($subject->ownSource(), $subtree));
     }
 
     /**
@@ -140,7 +141,7 @@ final class FieldValueResolver
             throw $this->noValue($class, $path);
         }
 
-        $count = $this->valuesOf($owner->identifier)->get($owner->pathOf($key));
+        $count = $this->valuesOf($owner)->get($owner->pathOf($key));
         if ($index === null) {
             return $count;
         }
@@ -170,14 +171,14 @@ final class FieldValueResolver
             throw $this->noValue($class, $path);
         }
 
-        return $this->valuesOf($source->identifier)->get($source->pathOf($key));
+        return $this->valuesOf($source)->get($source->pathOf($key));
     }
 
     /** @param list<ValueSource> $sources */
     private function firstSourceHolding(array $sources, FieldPath $key, ?ValueExclusion $excluded): ?ValueSource {
         foreach ($sources as $source) {
             $fullPath = $source->pathOf($key);
-            if ($excluded?->covers($source->identifier, $fullPath) || !$this->valuesOf($source->identifier)->has($fullPath)) {
+            if ($excluded?->covers($source, $fullPath) || !$this->valuesOf($source)->has($fullPath)) {
                 continue;
             }
 
@@ -196,20 +197,32 @@ final class FieldValueResolver
     }
 
     /**
-     * $identifier and each of its parents, with no prefix.
+     * $subject's own sources: its own values, if it's an instance, then its
+     * class's chain.
      * @return list<ValueSource>
      */
-    private function chainOf(string $identifier): array {
+    private function sourcesOf(Subject $subject): array {
+        $chain = $this->chainOf($subject->class);
+
+        return $subject->isInstance() ? [$subject->ownSource(), ...$chain] : $chain;
+    }
+
+    /**
+     * $class and each of its parents, with no prefix.
+     * @return list<ValueSource>
+     */
+    private function chainOf(string $class): array {
         $chain = [];
-        for ($current = $identifier; $current !== null; $current = $this->schemas->get($current)->parent) {
-            $chain[] = ValueSource::of($current);
+        for ($current = $class; $current !== null; $current = $this->schemas->get($current)->parent) {
+            $chain[] = ValueSource::ofClass($current);
         }
 
         return $chain;
     }
 
-    private function valuesOf(string $identifier): FieldValues {
-        return $this->batchValues[$identifier] ?? $this->store->load($identifier);
+    /** What $source reads: values given directly, or a class's, from the batch first, then the store. */
+    private function valuesOf(ValueSource $source): FieldValues {
+        return $source->values ?? $this->batchValues[$source->class] ?? $this->store->load($source->class);
     }
 
     /** $path's tail, after checking $path's head joins to it with $join. */
