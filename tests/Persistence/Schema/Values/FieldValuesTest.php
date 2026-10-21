@@ -55,6 +55,26 @@ final class FieldValuesTest extends TestCase
         self::assertSame(['chassis:engine:x' => 1], $values->under(self::path('chassis'))->toArray());
     }
 
+    public function testWithinKeysWhatAnOwnedObjectHoldsFromItself(): void {
+        $values = FieldValues::fromArray([
+            'engine' => 'Engine',
+            'engine.horsepower' => 500,
+            'engine.piston:diameter' => 12,
+            'engineer' => 'x',
+        ]);
+
+        self::assertSame(
+            ['horsepower' => 500, 'piston:diameter' => 12],
+            $values->within(self::path('engine'))->toArray(),
+        );
+    }
+
+    public function testWithinWorksForACollectionItem(): void {
+        $values = FieldValues::fromArray(['wheels' => 2, 'wheels.0.size' => 17, 'wheels.1.size' => 19]);
+
+        self::assertSame(['size' => 19], $values->within(self::path('wheels.1'))->toArray());
+    }
+
     public function testIterationYieldsFieldPathKeys(): void {
         $seen = [];
         foreach (FieldValues::fromArray(['engines.0.horsepower' => 400]) as $path => $value) {

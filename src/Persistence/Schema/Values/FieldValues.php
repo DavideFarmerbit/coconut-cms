@@ -59,6 +59,24 @@ final readonly class FieldValues implements IteratorAggregate, Countable
         ));
     }
 
+    /**
+     * The values past "$path.", keyed from there: what the object owned at
+     * $path, or the Collection item at $path, holds of its own. The value at
+     * $path itself isn't included.
+     */
+    public function within(FieldPath $path): self {
+        $prefix = $path . FieldPath::TRAVERSE;
+
+        $within = [];
+        foreach ($this->values as $candidate => $value) {
+            if (str_starts_with((string) $candidate, $prefix)) {
+                $within[substr((string) $candidate, strlen($prefix))] = $value;
+            }
+        }
+
+        return new self($within);
+    }
+
     public function getIterator(): Iterator {
         foreach ($this->values as $path => $value) {
             yield FieldPath::fromString((string) $path) => $value;

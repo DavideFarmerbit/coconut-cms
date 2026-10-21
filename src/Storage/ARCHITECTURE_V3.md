@@ -387,3 +387,25 @@ from the item's class.
 
 A Reference stores its target's id, from the `IdentityMap`. A target that was
 never saved has none, and fails: it's never saved along on the side.
+
+## From values to rows
+
+`EntityRowsBuilder` turns an entity's `EntityValues` into every row it should
+be stored as, and every row of what it owns. It's plain data: writing it is
+the repository's job.
+
+- The entity's `entities` row, then each level's row and state row, root
+  level first. A value lands on the level whose class declares its field.
+  Touched, it's stored and flagged. Untouched, it's null and unflagged, and
+  resolves to its default.
+- A Collection gets rows only once touched, and then all of them: one per
+  item, plus one state row per Embed item.
+- An owned object gets rows of its own once anything at or under it is
+  touched, its class included. Its `owner` is the entity owning it directly,
+  `owner_field` the path it's held at, `position` its index in an Owned
+  Collection or -1. An empty slot gets no row. From then on its path is
+  flagged touched, so it stops following the default, even if its class
+  still matches it: the same as any other value set by the instance.
+
+Each `Row` says how to bind its values, from their own PHP kind: PDO would
+otherwise send `false` as an empty string, which no boolean column accepts.
