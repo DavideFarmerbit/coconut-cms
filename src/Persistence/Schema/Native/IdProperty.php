@@ -6,13 +6,7 @@ use InvalidArgumentException;
 use ReflectionClass;
 use ReflectionNamedType;
 use ReflectionProperty;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Id;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 
 /**
  * Finds a native class's #[Id] property, if it declares or inherits one, and
@@ -21,8 +15,6 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
  */
 final class IdProperty
 {
-    private const FIELD_ATTRIBUTES = [Scalar::class, ValueObject::class, Embed::class, Reference::class, OwningReference::class, Collection::class];
-
     /** @var array<class-string, ReflectionProperty|null> */
     private static array $byClass = [];
 
@@ -75,7 +67,7 @@ final class IdProperty
             $property->isStatic() => 'is static',
             !$isNullableString => 'is not typed ?string',
             !$property->hasDefaultValue() || $property->getDefaultValue() !== null => 'does not default to null',
-            self::isField($property) => 'is also a field',
+            NativeFields::kindAttributesOf($property) !== [] => 'is also a field',
             default => null,
         };
 
@@ -87,15 +79,5 @@ final class IdProperty
                 $problem,
             ));
         }
-    }
-
-    private static function isField(ReflectionProperty $property): bool {
-        foreach (self::FIELD_ATTRIBUTES as $attribute) {
-            if ($property->getAttributes($attribute) !== []) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

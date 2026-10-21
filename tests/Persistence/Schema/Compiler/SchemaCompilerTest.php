@@ -2,6 +2,8 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Compiler;
 
+use DateTimeImmutable;
+use DateTimeZone;
 use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -376,6 +378,31 @@ final class CompilerCarEmbeddingOwningHub
     public function __construct() {
         $this->hub = new CompilerHubWithBolt();
     }
+}
+
+enum CompilerFuel: int
+{
+    case Petrol = 1;
+    case Diesel = 2;
+}
+
+#[Entity]
+class CompilerDatedBase
+{
+    #[Scalar(ScalarType::Enum, enumClass: CompilerFuel::class)]
+    private CompilerFuel $fuel = CompilerFuel::Petrol;
+
+    #[Scalar(ScalarType::DateTime)]
+    private DateTimeImmutable $since;
+
+    public function __construct() {
+        $this->since = new DateTimeImmutable('2024-01-01 12:00:00', new DateTimeZone('UTC'));
+    }
+}
+
+#[Entity]
+final class CompilerDatedSame extends CompilerDatedBase
+{
 }
 
 final class SchemaCompilerTest extends TestCase
@@ -764,5 +791,22 @@ final class SchemaCompilerTest extends TestCase
         ]));
 
         self::assertCount(5, $schemas);
+    }
+
+    public function testCompileStoresEnumsAndDatesInTheirStoredForm(): void {
+        $stores = new InMemorySchemaStores();
+        $stores->compiler()->compile(self::blueprintsOf([CompilerDatedBase::class]));
+
+        self::assertSame(['fuel' => 1, 'since' => '2024-01-01 12:00:00'], self::loadSorted($stores->values, CompilerDatedBase::class));
+    }
+
+    public function testASubclassWithTheSameEnumAndDateDefaultsStoresNothing(): void {
+        // Compiled apart, so the parent's values come back from the store:
+        // they must still compare equal to the subclass's own.
+        $stores = new InMemorySchemaStores();
+        $stores->compiler()->compile(self::blueprintsOf([CompilerDatedBase::class]));
+        $stores->compiler()->compile(self::blueprintsOf([CompilerDatedSame::class]));
+
+        self::assertSame([], self::loadSorted($stores->values, CompilerDatedSame::class));
     }
 }

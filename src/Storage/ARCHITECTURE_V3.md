@@ -139,9 +139,13 @@ null is a `LeafNode` holding null. Each node class has a `from()` that rejects
 any other kind of node, so a malformed blueprint fails instead of being
 misread.
 
-- Scalar, Reference: a `LeafNode` of the raw value, never recursed into.
-  Reference carries no recursion either way, since it doesn't own what it
-  points to.
+- Scalar: a `LeafNode` of the plain value it's stored as, through
+  `ScalarValues`: an Enum as its backing value, a Date as `Y-m-d`, a DateTime
+  converted to UTC as `Y-m-d H:i:s`, whole seconds. Anything else as is. So
+  two equal values always compare equal, wherever they were read from.
+- Reference: a `LeafNode` of the target's id, never recursed into: it doesn't
+  own what it points to. In a default instance it must be null for now: how
+  a native class would name a default target isn't designed yet.
 - ValueObject: a `LeafNode` of the string `toStorage()` gives, never the object
   itself, or of null. Everything after the reader only ever sees that string.
 - Embed: an `ObjectNode` of the embedded object's own fields, read through the
@@ -354,3 +358,23 @@ owner, so `entities.owner`'s foreign key has a row to point at, and every row
 without a real owner points at it. `EntityTables` creates the content tables
 on a fresh database and seeds this row. `Cms` is an ordinary native class
 otherwise, and declares no fields yet.
+
+## Reading an entity's values
+
+`NativeValueReader` reads any native object into a tree of `ValueNode`s: the
+reader does it for a default instance, content for a live entity. Then
+`ValueFlattener` turns the tree into dense `FieldValues`, and `Overrides`
+keeps only what a `Subject` changes from what it would otherwise resolve to.
+The compiler runs `Overrides` on a class, against its parents and targets.
+`NativeEntityValues` runs it on an instance, against its class.
+
+So an entity's touched values follow the exact rules a class's stored values
+do. A value is touched when it differs from what the class gives, decided by
+comparing, never by tracking writes. Set back to the class's value, it's
+untouched again. Owned objects are part of the entity's values, under their
+paths, and compared against what the class pins on them. A Collection is
+touched whole, and an Embed or owned item's fields only where they differ
+from the item's class.
+
+A Reference stores its target's id, from the `IdentityMap`. A target that was
+never saved has none, and fails: it's never saved along on the side.

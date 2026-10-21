@@ -3,7 +3,6 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Native;
 
 use InvalidArgumentException;
-use ReflectionAttribute;
 use ReflectionClass;
 use ReflectionMethod;
 use ReflectionNamedType;
@@ -20,11 +19,6 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReferenc
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\CollectionNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\LeafNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\ObjectNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\OwnedNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\DefaultValues\ValueNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
@@ -33,7 +27,6 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\UniqueGroup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 
@@ -72,7 +65,7 @@ final class NativeEntityReader
             fieldValidators: $fieldValidators,
             uniqueGroups: $uniqueGroups,
             prototypeValidators: $prototypeValidators,
-            defaultValues: self::extractDefaultValues($reflection, $defaultInstance),
+            defaultValues: self::defaultValuesReader()->read($defaultInstance),
         );
     }
 
@@ -101,7 +94,7 @@ final class NativeEntityReader
      */
     private static function resolveParent(ReflectionClass $reflection): ?string {
         for ($current = $reflection->getParentClass(); $current !== false; $current = $current->getParentClass()) {
-            if (self::isEntity($current->getName())) {
+            if (NativeFields::isEntity($current->getName())) {
                 return $current->getName();
             }
         }
@@ -117,7 +110,7 @@ final class NativeEntityReader
 
         foreach (self::ownProperties($reflection) as $property) {
             // A property with no field-kind attribute isn't a field: ignored.
-            if (self::fieldKindAttributesOf($property) !== []) {
+            if (NativeFields::kindAttributesOf($property) !== []) {
                 $fields[$property->getName()] = self::resolveFieldDescriptor($property);
             }
         }
@@ -128,7 +121,7 @@ final class NativeEntityReader
     private static function resolveFieldDescriptor(ReflectionProperty $property): FieldDescriptor {
         $name = $property->getName();
 
-        $kindAttributes = self::fieldKindAttributesOf($property);
+        $kindAttributes = NativeFields::kindAttributesOf($property);
 
         if (count($kindAttributes) > 1) {
             throw new InvalidArgumentException(sprintf(
@@ -171,27 +164,12 @@ final class NativeEntityReader
     }
     
     /**
-     * Gets all the Field attributes specified for this property
-     * @return ReflectionAttribute<object>[]
-     */
-    private static function fieldKindAttributesOf(ReflectionProperty $property): array {
-        return array_merge(
-            $property->getAttributes(Scalar::class),
-            $property->getAttributes(ValueObject::class),
-            $property->getAttributes(Embed::class),
-            $property->getAttributes(Reference::class),
-            $property->getAttributes(OwningReference::class),
-            $property->getAttributes(Collection::class),
-        );
-    }
-
-    /**
      * Every Embed/Reference/OwningReference target is an ordinary #[Entity]-marked
      * class, used differently at this one field site, never a separate kind of
      * target in its own right.
      */
     private static function resolveEntityTarget(string $target, ReflectionProperty $property): string {
-        if (!class_exists($target) || !self::isEntity($target)) {
+        if (!class_exists($target) || !NativeFields::isEntity($target)) {
             throw new InvalidArgumentException(sprintf(
                 '%s::$%s targets "%s", which is not a class marked #[Entity].',
                 $property->getDeclaringClass()->getName(),
@@ -201,10 +179,6 @@ final class NativeEntityReader
         }
 
         return $target;
-    }
-
-    private static function isEntity(string $class): bool {
-        return (new ReflectionClass($class))->getAttributes(Entity::class) !== [];
     }
 
     /** @param class-string<StorableValue> $class */
@@ -425,6 +399,18 @@ final class NativeEntityReader
     }
 
     /**
+     * Reads a default instance's values. A Reference in a default must be
+     * null: how a native class would name a default target isn't designed
+     * yet, and the object itself can't be stored.
+     */
+    private static function defaultValuesReader(): NativeValueReader {
+        return new NativeValueReader(static fn (object $target): string => throw new InvalidArgumentException(sprintf(
+            'A default instance holds a %s in a Reference: a default Reference must be null for now.',
+            $target::class,
+        )));
+    }
+
+    /**
      * Confirms every field this class declares or inherits from an #[Entity]-marked
      * ancestor is actually readable off its own default instance. Applies the same
      * check to every field kind: a populated collection, an empty one, a null
@@ -432,7 +418,7 @@ final class NativeEntityReader
      * @param ReflectionClass<object> $reflection
      */
     private static function assertDefaultInstanceIsInitialized(ReflectionClass $reflection, object $defaultInstance): void {
-        foreach (self::entityFields($reflection) as $property) {
+        foreach (NativeFields::of($reflection) as $property) {
             if (!$property->isInitialized($defaultInstance)) {
                 throw new InvalidArgumentException(sprintf(
                     '%s::$%s is not initialized on the default instance.',
@@ -441,92 +427,6 @@ final class NativeEntityReader
                 ));
             }
         }
-    }
-
-    /*================================================================================================================*/
-    // Default Values Extraction
-
-    /**
-     * Reads this class's own default instance into a tree of ValueNodes, recursing into Embed
-     * and OwningReference values. An Embed value is read through the declared target
-     * class, never a runtime subclass: type erasure. An OwningReference value is read
-     * through its own actual class: polymorphic, so the class itself is recorded
-     * alongside its fields.
-     * @param ReflectionClass<object> $governingClass
-     */
-    private static function extractDefaultValues(ReflectionClass $governingClass, object $instance): ObjectNode {
-        $values = ObjectNode::empty();
-
-        foreach (self::entityFields($governingClass) as $property) {
-            $attribute = self::fieldKindAttributesOf($property)[0]->newInstance();
-            $values = $values->with(FieldName::of($property->getName()), self::extractFieldValue($attribute, $property, $property->getValue($instance)));
-        }
-
-        return $values;
-    }
-
-    /** A ValueObject is read as the string it stores as, never as the object itself. */
-    private static function extractFieldValue(object $attribute, ReflectionProperty $property, mixed $value): ?ValueNode {
-        return match (true) {
-            $attribute instanceof Embed => $value === null ? null : self::extractDefaultValues(new ReflectionClass(self::declaredClassOf($property)), $value),
-            $attribute instanceof ValueObject => new LeafNode($value === null ? null : StorableValues::toStorage($value)),
-            $attribute instanceof OwningReference => self::extractOwningReferenceValue($value),
-            $attribute instanceof Collection => self::extractCollectionItems($attribute, $value),
-            default => new LeafNode($value),
-        };
-    }
-
-    private static function extractOwningReferenceValue(?object $value): ?OwnedNode {
-        if ($value === null) {
-            return null;
-        }
-
-        return new OwnedNode($value::class, self::extractDefaultValues(new ReflectionClass($value::class), $value));
-    }
-
-    private static function extractCollectionItems(Collection $attribute, array $items): CollectionNode {
-        return new CollectionNode(array_map(
-            static fn (mixed $item): ?ValueNode => match ($attribute->itemKind) {
-                FieldKind::Embed => $item === null ? null : self::extractDefaultValues(new ReflectionClass($attribute->itemTarget), $item),
-                FieldKind::OwningReference => self::extractOwningReferenceValue($item),
-                FieldKind::ValueObject => new LeafNode($item === null ? null : StorableValues::toStorage($item)),
-                default => new LeafNode($item),
-            },
-            $items,
-        ));
-    }
-
-    // ~Default Values Extraction
-    /*================================================================================================================*/
-
-    /**
-     * Every property this class declares or inherits, through any number of
-     * #[Entity]-marked or plain ancestors alike, that belongs to an
-     * #[Entity]-marked class and carries a field-kind attribute itself. Always
-     * climbs the full PHP ancestor chain: a non-#[Entity] class contributes no
-     * field of its own, but doesn't stop the walk from reaching a real entity
-     * further up past it. Reflects each class in the chain separately rather
-     * than calling getProperties() once on the most-derived class: that single
-     * call silently drops a private property declared by an ancestor, only
-     * seeing protected/public ones there.
-     * @param ReflectionClass<object> $reflection
-     * @return ReflectionProperty[]
-     */
-    private static function entityFields(ReflectionClass $reflection): array {
-        $parent = $reflection->getParentClass();
-        $fields = $parent !== false ? self::entityFields($parent) : [];
-
-        if (!self::isEntity($reflection->getName())) {
-            return $fields;
-        }
-
-        foreach ($reflection->getProperties() as $property) {
-            if ($property->getDeclaringClass()->getName() === $reflection->getName() && self::fieldKindAttributesOf($property) !== []) {
-                $fields[] = $property;
-            }
-        }
-
-        return $fields;
     }
 
     /**

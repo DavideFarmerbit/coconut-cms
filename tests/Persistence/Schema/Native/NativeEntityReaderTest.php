@@ -2,6 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Native;
 
+use DateTimeImmutable;
 use InvalidArgumentException;
 use LengthException;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -164,7 +165,7 @@ final class EntityRegistrarProduct
 class EntityRegistrarBase
 {
     #[Scalar(ScalarType::DateTime)]
-    private string $createdAt = '';
+    private ?DateTimeImmutable $createdAt = null;
 }
 
 #[Entity]
@@ -470,6 +471,17 @@ final class EntityRegistrarWithPlainProperty
 }
 
 #[Entity]
+final class EntityRegistrarDefaultReference
+{
+    #[Reference]
+    private ?EntityRegistrarCategory $category;
+
+    public function __construct() {
+        $this->category = new EntityRegistrarCategory();
+    }
+}
+
+#[Entity]
 final class EntityRegistrarOverLongPrice
 {
     #[ValueObject]
@@ -751,6 +763,13 @@ final class NativeEntityReaderTest extends TestCase
 
         self::assertSame(['title'], array_map('strval', $blueprint->fields->names()));
         self::assertFalse($blueprint->defaultValues->has(FieldName::of('cache')));
+    }
+
+    public function testRegisterWithADefaultReferenceHoldingAnObjectThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('a default Reference must be null for now');
+
+        NativeEntityReader::read(EntityRegistrarDefaultReference::class);
     }
 
     public function testRegisterRecordsWhetherAValueObjectIsIndexable(): void {
