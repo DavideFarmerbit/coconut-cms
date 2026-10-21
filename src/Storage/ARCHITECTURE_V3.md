@@ -123,7 +123,11 @@ string it's stored as, plain or JSON, and `fromStorage()` rebuilds it. Two
 value objects are equal when they store as the same string. Its static
 `indexable()` says whether that string always fits in 255 characters. The
 reader records the answer on the field's descriptor, so changing it is a
-schema change like any other.
+schema change like any other. A value object is only ever stored through
+`StorableValues::toStorage()`, which throws when an indexable one goes past
+255 characters. An over-long default fails at compile time, an over-long
+content value before any SQL runs. MySQL would otherwise reject it, or,
+without strict mode, silently cut it.
 
 The result is a tree of `ValueNode`s, rooted at the blueprint's `defaultValues`,
 an `ObjectNode` of every field the class declares or inherits. An Embed or
@@ -292,7 +296,17 @@ the Doctrine schema of every table they need. Neither reads the database.
 - A touched-state side table per level, `car__state`, one row per entity.
   One boolean per path an instance can hold at that level: every value
   column, and the bare path of every OwningReference and Collection. An
-  Embed item's fields get the same, in a side table of the Collection's own.
+  Embed item's fields get the same, in a side table of the Collection's own:
+  `car__wheels__state`, keyed by `owner` and `position` like the items.
+
+A Collection is all or nothing. Untouched, it has no rows, and resolves from
+defaults. Touched, its rows are the whole Collection. Inside a touched
+Collection, an Embed item's fields still follow the item class's default
+until set, the same as the compiler stores a class's default Collection. So
+the first touch writes every item the current default implies: a field that
+differs from the item class is stored and flagged, any other stays null and
+keeps following the item class. Scalar, ValueObject and Reference items are
+the value themselves, so they're always stored and need no flags.
 
 Every content column is nullable: an untouched value is null and resolves to
 its default. Column types follow the field: `VARCHAR(255)` for String, `TEXT`

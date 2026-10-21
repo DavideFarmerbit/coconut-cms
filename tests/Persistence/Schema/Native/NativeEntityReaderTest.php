@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Native;
 
 use InvalidArgumentException;
+use LengthException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
@@ -466,6 +467,28 @@ final class EntityRegistrarMoney implements StorableValue
 }
 
 #[Entity]
+final class EntityRegistrarOverLongPrice
+{
+    #[ValueObject]
+    private EntityRegistrarMoney $price;
+
+    public function __construct() {
+        $this->price = new EntityRegistrarMoney(str_repeat('9', 256));
+    }
+}
+
+#[Entity]
+final class EntityRegistrarOverLongHistory
+{
+    #[Collection(itemKind: FieldKind::ValueObject, itemTarget: EntityRegistrarMoney::class)]
+    private array $history;
+
+    public function __construct() {
+        $this->history = [new EntityRegistrarMoney(str_repeat('9', 256))];
+    }
+}
+
+#[Entity]
 final class EntityRegistrarPriced
 {
     #[ValueObject]
@@ -705,6 +728,22 @@ final class NativeEntityReaderTest extends TestCase
 
         self::assertSame(EntityRegistrarMoney::class, $blueprint->fields->get(FieldName::of('price'))->target());
         self::assertSame(EntityRegistrarMoney::class, $blueprint->fields->get(FieldName::of('history'))->itemDescriptor()->target());
+    }
+
+    /** @return array<string, array{class-string}> */
+    public static function overLongIndexableDefaults(): array {
+        return [
+            'a field' => [EntityRegistrarOverLongPrice::class],
+            'a collection item' => [EntityRegistrarOverLongHistory::class],
+        ];
+    }
+
+    /** @param class-string $class */
+    #[DataProvider('overLongIndexableDefaults')]
+    public function testRegisterWithAnIndexableDefaultPastTheLimitThrows(string $class): void {
+        $this->expectException(LengthException::class);
+
+        NativeEntityReader::read($class);
     }
 
     public function testRegisterRecordsWhetherAValueObjectIsIndexable(): void {

@@ -33,6 +33,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\UniqueGroup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 
@@ -462,7 +463,7 @@ final class NativeEntityReader
     private static function extractFieldValue(object $attribute, ReflectionProperty $property, mixed $value): ?ValueNode {
         return match (true) {
             $attribute instanceof Embed => $value === null ? null : self::extractDefaultValues(new ReflectionClass(self::declaredClassOf($property)), $value),
-            $attribute instanceof ValueObject => new LeafNode($value?->toStorage()),
+            $attribute instanceof ValueObject => new LeafNode($value === null ? null : StorableValues::toStorage($value)),
             $attribute instanceof OwningReference => self::extractOwningReferenceValue($value),
             $attribute instanceof Collection => self::extractCollectionItems($attribute, $value),
             default => new LeafNode($value),
@@ -482,7 +483,7 @@ final class NativeEntityReader
             static fn (mixed $item): ?ValueNode => match ($attribute->itemKind) {
                 FieldKind::Embed => $item === null ? null : self::extractDefaultValues(new ReflectionClass($attribute->itemTarget), $item),
                 FieldKind::OwningReference => self::extractOwningReferenceValue($item),
-                FieldKind::ValueObject => new LeafNode($item?->toStorage()),
+                FieldKind::ValueObject => new LeafNode($item === null ? null : StorableValues::toStorage($item)),
                 default => new LeafNode($item),
             },
             $items,

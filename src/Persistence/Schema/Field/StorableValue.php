@@ -7,6 +7,8 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Field;
  * exactly one string. A #[ValueObject] field's class is the property's own
  * declared type, so the class itself must know how to store and rebuild
  * itself. Two values are equal when they store as the same string.
+ * Stored through StorableValues::toStorage(), never toStorage() directly,
+ * so indexable() is enforced.
  */
 interface StorableValue
 {

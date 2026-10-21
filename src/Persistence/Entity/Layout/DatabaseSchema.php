@@ -10,6 +10,7 @@ use ReflectionEnum;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValues;
 
 /**
  * Turns level layouts into the Doctrine schema of every table they need:
@@ -132,7 +133,7 @@ final class DatabaseSchema
     private static function typeOf(FieldDescriptor $field): array {
         return match ($field->kind()) {
             FieldKind::Scalar => self::scalarTypeOf($field),
-            FieldKind::ValueObject => $field->indexable() ? [Types::STRING, ['length' => 255]] : [Types::TEXT, []],
+            FieldKind::ValueObject => $field->indexable() ? [Types::STRING, ['length' => StorableValues::MAX_INDEXABLE_LENGTH]] : [Types::TEXT, []],
             FieldKind::Reference => [Types::GUID, []],
             default => throw new InvalidArgumentException(sprintf('A %s field has no column of its own.', $field->kind()->name)),
         };
