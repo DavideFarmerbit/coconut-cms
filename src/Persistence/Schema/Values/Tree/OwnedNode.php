@@ -5,15 +5,14 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree;
 use InvalidArgumentException;
 
 /**
- * What an OwningReference holds: the object's concrete class, which can be
- * any subclass of the field's declared target, and that object's own field
- * values, read through that concrete class.
+ * What an OwningReference holds: the owned object's concrete identifier,
+ * which can be any descendant of the field's declared target, and that
+ * object's own field values, read through that concrete identifier.
  */
 final readonly class OwnedNode implements ValueNode
 {
-    /** @param class-string $class */
     public function __construct(
-        public string $class,
+        public string $identifier,
         public ObjectNode $fields,
     ) {
     }

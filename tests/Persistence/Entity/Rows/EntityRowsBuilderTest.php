@@ -9,7 +9,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRows;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\Placement;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\Row;
-use XyloIsCoding\CoconutCms\Persistence\Entity\Values\NativeEntityValues;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
@@ -114,7 +114,7 @@ final class EntityRowsBuilderTest extends TestCase
         self::assertCount(2, $all);
         self::assertTrue(self::rowIn($all[0]->rows, 'rows_car__state')['engine']);
         self::assertSame('id-of-engine', $all[1]->id);
-        self::assertSame(RowsEngine::class, $all[1]->class);
+        self::assertSame(RowsEngine::class, $all[1]->identifier);
         self::assertSame(
             ['id' => 'id-of-engine', 'owner' => 'car-id', 'owner_field' => 'engine', 'position' => -1, 'concrete_identifier' => RowsEngine::class],
             self::rowIn($all[1]->rows, 'entities'),

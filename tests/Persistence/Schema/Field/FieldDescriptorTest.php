@@ -20,17 +20,30 @@ final class FieldDescriptorTest extends TestCase
         self::assertNull($field->enumClass());
     }
 
-    public function testScalarEnumStoresEnumClass(): void {
-        $field = FieldDescriptor::scalar('status', ScalarType::Enum, FieldDescriptorTestStatus::class);
+    public function testScalarEnumStoresEnumClassAndBacking(): void {
+        $field = FieldDescriptor::scalar('status', ScalarType::Enum, FieldDescriptorTestStatus::class, ScalarType::String);
 
         self::assertSame(ScalarType::Enum, $field->scalarType());
         self::assertSame(FieldDescriptorTestStatus::class, $field->enumClass());
+        self::assertSame(ScalarType::String, $field->enumBacking());
     }
 
     public function testScalarEnumWithoutEnumClassThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
         FieldDescriptor::scalar('status', ScalarType::Enum);
+    }
+
+    public function testScalarEnumWithoutBackingThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        FieldDescriptor::scalar('status', ScalarType::Enum, FieldDescriptorTestStatus::class);
+    }
+
+    public function testScalarEnumBackedByAnythingButIntOrStringThrows(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        FieldDescriptor::scalar('status', ScalarType::Enum, FieldDescriptorTestStatus::class, ScalarType::Bool);
     }
 
     public function testScalarNonEnumWithEnumClassThrows(): void {

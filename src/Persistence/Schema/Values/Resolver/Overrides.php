@@ -21,16 +21,16 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValuesBuilder;
 /**
  * Finds what a Subject's values actually override: a value is kept when
  * nothing else would supply it, or what would differs. What isn't kept keeps
- * following whatever it falls back to. For a class, that's its default
+ * following whatever it falls back to. For an entity type, that's its default
  * values against its parents and targets; for an instance, its values
- * against its class: the touched ones.
+ * against its type: the touched ones.
  */
 final readonly class Overrides
 {
     /**
      * @param SchemaLookup $schemas Where field shapes come from.
      * @param FieldValueResolver $resolver Must already read $subject's own
-     *        values: from its batch for a class being compiled, or from the
+     *        values: from its batch for a type being compiled, or from the
      *        Subject itself for an instance.
      */
     public function __construct(
@@ -45,7 +45,7 @@ final readonly class Overrides
      */
     public function of(Subject $subject, ObjectNode $values, FieldValues $dense): FieldValues {
         $kept = new FieldValuesBuilder();
-        $this->keepValues($subject, $this->schemas->hierarchyFieldsOf($subject->class), $values, FieldPath::of(...), $dense, $kept);
+        $this->keepValues($subject, $this->schemas->hierarchyFieldsOf($subject->identifier), $values, FieldPath::of(...), $dense, $kept);
 
         return $kept->build();
     }
@@ -71,14 +71,14 @@ final readonly class Overrides
     }
 
     /**
-     * The class it holds is kept or not like any other value; so is each of
-     * its fields, against what the class would supply on its own.
+     * The identifier it holds is kept or not like any other value; so is each
+     * of its fields, against what that identifier would supply on its own.
      */
     private function keepOwned(Subject $subject, ?OwnedNode $value, FieldPath $path, FieldValues $dense, FieldValuesBuilder $kept): void {
-        $this->keepIfDiffers($subject, $path, $value?->class, $kept);
+        $this->keepIfDiffers($subject, $path, $value?->identifier, $kept);
 
         if ($value !== null) {
-            $this->keepValues($subject, $this->schemas->hierarchyFieldsOf($value->class), $value->fields, $path->traverse(...), $dense, $kept);
+            $this->keepValues($subject, $this->schemas->hierarchyFieldsOf($value->identifier), $value->fields, $path->traverse(...), $dense, $kept);
         }
     }
 
@@ -86,7 +86,7 @@ final readonly class Overrides
      * All or nothing: kept whole, count and every item, when anything about it
      * differs from the collection it would otherwise resolve to; otherwise
      * nothing of it is. Within a kept item, each of its own fields is still
-     * kept only when it differs from what the item's class would supply.
+     * kept only when it differs from what the item's identifier would supply.
      * @param list<ValueNode|null> $items
      */
     private function keepCollection(Subject $subject, FieldDescriptor $item, array $items, FieldPath $path, FieldValues $dense, FieldValuesBuilder $kept): void {
@@ -108,14 +108,14 @@ final readonly class Overrides
     }
 
     /**
-     * Like keepOwned(), except the class is always kept: an item belongs to a
+     * Like keepOwned(), except the identifier is always kept: an item belongs to a
      * kept collection, which has nothing else to supply it.
      */
     private function keepOwnedItem(Subject $subject, ?OwnedNode $value, FieldPath $itemPath, FieldValues $dense, FieldValuesBuilder $kept): void {
-        $kept->set($itemPath, $value?->class);
+        $kept->set($itemPath, $value?->identifier);
 
         if ($value !== null) {
-            $this->keepValues($subject, $this->schemas->hierarchyFieldsOf($value->class), $value->fields, $itemPath->traverse(...), $dense, $kept);
+            $this->keepValues($subject, $this->schemas->hierarchyFieldsOf($value->identifier), $value->fields, $itemPath->traverse(...), $dense, $kept);
         }
     }
 
@@ -131,7 +131,7 @@ final readonly class Overrides
             try {
                 $fallback = $this->resolver->resolveWithoutSubtree($subject, $densePath, $path);
             } catch (InvalidArgumentException) {
-                // Nothing to fall back to, or an item whose class the other
+                // Nothing to fall back to, or an item whose identifier the other
                 // collection's doesn't share: either way, not the same.
                 return true;
             }

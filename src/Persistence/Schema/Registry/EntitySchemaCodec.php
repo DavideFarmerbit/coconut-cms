@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Registry;
 use XyloIsCoding\CoconutCms\Core\Identifier;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
@@ -20,9 +21,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegi
 /**
  * Turns an EntitySchema into plain data and back, for SchemaStore. A validator
  * rule is stored as the identifier its class was registered under plus its own
- * toStorage() configuration, and a value object as its registered identifier,
- * never as a class name: renaming or moving either class doesn't break what's
- * stored.
+ * toStorage() configuration, and a value object or an enum as its registered
+ * identifier, never as a class name: renaming or moving any of them doesn't
+ * break what's stored.
  */
 final readonly class EntitySchemaCodec
 {
@@ -30,6 +31,7 @@ final readonly class EntitySchemaCodec
         private FieldValidatorRegistry $fieldValidators,
         private PrototypeValidatorRegistry $prototypeValidators,
         private ValueObjectRegistry $valueObjects,
+        private EnumRegistry $enums,
     ) {
     }
 
@@ -114,7 +116,13 @@ final readonly class EntitySchemaCodec
     /** @return array<string, mixed> */
     private function encodeDescriptor(FieldDescriptor $field): array {
         return match ($field->kind()) {
-            FieldKind::Scalar => ['kind' => $field->kind()->value, 'name' => $field->name(), 'scalarType' => $field->scalarType()->value, 'enumClass' => $field->enumClass()],
+            FieldKind::Scalar => [
+                'kind' => $field->kind()->value,
+                'name' => $field->name(),
+                'scalarType' => $field->scalarType()->value,
+                'enum' => $field->enumClass() === null ? null : (string) $this->enums->identifierOf($field->enumClass()),
+                'enumBacking' => $field->enumBacking()?->value,
+            ],
             FieldKind::ValueObject => ['kind' => $field->kind()->value, 'name' => $field->name(), 'target' => (string) $this->valueObjects->identifierOf($field->target()), 'indexable' => $field->indexable()],
             FieldKind::Collection => ['kind' => $field->kind()->value, 'name' => $field->name(), 'item' => $this->encodeDescriptor($field->itemDescriptor())],
             default => ['kind' => $field->kind()->value, 'name' => $field->name(), 'target' => $field->target()],
@@ -124,7 +132,12 @@ final readonly class EntitySchemaCodec
     /** @param array<string, mixed> $field */
     private function decodeDescriptor(array $field): FieldDescriptor {
         return match (FieldKind::from($field['kind'])) {
-            FieldKind::Scalar => FieldDescriptor::scalar($field['name'], ScalarType::from($field['scalarType']), $field['enumClass']),
+            FieldKind::Scalar => FieldDescriptor::scalar(
+                $field['name'],
+                ScalarType::from($field['scalarType']),
+                $field['enum'] === null ? null : $this->enums->resolve(Identifier::fromString($field['enum'])),
+                ScalarType::tryFrom($field['enumBacking'] ?? ''),
+            ),
             FieldKind::ValueObject => FieldDescriptor::valueObject($field['name'], $this->valueObjects->resolve(Identifier::fromString($field['target'])), $field['indexable']),
             FieldKind::Embed => FieldDescriptor::embed($field['name'], $field['target']),
             FieldKind::Reference => FieldDescriptor::reference($field['name'], $field['target']),

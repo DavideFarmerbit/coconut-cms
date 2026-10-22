@@ -8,17 +8,19 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollecti
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 
 /**
- * Everything the compiler resolved about one class's shape, native or
+ * Everything the compiler resolved about one entity type's shape, native or
  * editor-created, and the only form of it that's actually persisted. Holds only
- * this class's own fields, not an ancestor's. Carries no default values and no way
+ * this type's own fields, not an ancestor's. Carries no default values and no way
  * to build an instance: those are a producer's own concern, never this one's.
  */
 final readonly class EntitySchema
 {
     /**
-     * @param class-string $identifier
-     * @param class-string|null $parent The CTI parent, or null for a root. Never the
-     *        class's PHP parent unless that parent is also #[Entity]-marked.
+     * @param string $identifier A native class's name, or an editor-created
+     *        prototype's identifier.
+     * @param string|null $parent The CTI parent's identifier, or null for a
+     *        root. For a native class, never its PHP parent unless that parent
+     *        is also #[Entity]-marked.
      * @param string $table Always the real table name: an explicit #[Entity(table:
      *        ...)] override, or the derived default when none was given.
      * @param list<UniqueGroup> $uniqueGroups

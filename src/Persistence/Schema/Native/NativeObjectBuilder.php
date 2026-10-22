@@ -118,7 +118,8 @@ final class NativeObjectBuilder
             return null;
         }
 
-        $owned = $this->buildAs(new ReflectionClass($node->class), $node->fields, null, $path->traverse(...), $onOwned);
+        // Native: every identifier an owned field holds is a PHP class here.
+        $owned = $this->buildAs(new ReflectionClass($node->identifier), $node->fields, null, $path->traverse(...), $onOwned);
         $onOwned($path, $owned);
 
         return $owned;

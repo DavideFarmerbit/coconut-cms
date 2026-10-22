@@ -1,9 +1,10 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Persistence\Entity\Values;
+namespace XyloIsCoding\CoconutCms\Persistence\Entity\Native;
 
 use LogicException;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeValueReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;

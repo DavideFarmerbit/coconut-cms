@@ -1,22 +1,23 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Entity;
+namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Entity\Native;
 
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Cms;
-use XyloIsCoding\CoconutCms\Persistence\Entity\EntityLoader;
+use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityTables;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\EntityIds;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LayoutBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityLoader;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\Placement;
-use XyloIsCoding\CoconutCms\Persistence\Entity\Values\NativeEntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
@@ -30,7 +31,7 @@ use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsWheel;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Schema\InMemorySchemaStores;
 
 /** Saving writes rows by hand here: the repository that does it comes next. */
-final class EntityLoaderTest extends TestCase
+final class NativeEntityLoaderTest extends TestCase
 {
     private Connection $connection;
     private InMemorySchemaStores $stores;
@@ -94,8 +95,12 @@ final class EntityLoaderTest extends TestCase
     }
 
     /** A loader with nothing in memory yet: what a fresh request starts with. */
-    private function freshLoader(): EntityLoader {
-        return new EntityLoader($this->connection, $this->stores->registry, $this->stores->values, new IdentityMap());
+    private function freshLoader(): NativeEntityLoader {
+        return $this->loaderWith(new IdentityMap());
+    }
+
+    private function loaderWith(IdentityMap $identities): NativeEntityLoader {
+        return new NativeEntityLoader(new EntityReader($this->connection, $this->stores->registry, $this->stores->values), $identities);
     }
 
     private function fullCar(IdentityMap $identities): RowsCar {
@@ -151,7 +156,7 @@ final class EntityLoaderTest extends TestCase
         $identities = new IdentityMap();
         $id = $this->save(new RowsCar(), $identities);
         $loaded = new IdentityMap();
-        $loader = new EntityLoader($this->connection, $this->stores->registry, $this->stores->values, $loaded);
+        $loader = $this->loaderWith($loaded);
 
         $car = $loader->load($id);
 

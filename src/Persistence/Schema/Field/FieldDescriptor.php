@@ -18,6 +18,7 @@ final readonly class FieldDescriptor
         private string $name,
         private ?ScalarType $scalarType = null,
         private ?string $enumClass = null,
+        private ?ScalarType $enumBacking = null,
         private ?string $target = null,
         private ?self $itemDescriptor = null,
         private bool $indexable = false,
@@ -30,18 +31,26 @@ final readonly class FieldDescriptor
      * @param ScalarType $type Which primitive the field holds.
      * @param string|null $enumClass The backed enum class the field holds. Required
      *        when $type is ScalarType::Enum, and invalid for every other $type.
+     * @param ScalarType|null $enumBacking What the enum is backed by: ScalarType::Int
+     *        or ScalarType::String. Recorded here, so nothing past reading a
+     *        class needs the enum itself to know its column, and a change to it
+     *        shows up as a schema change. Required with $enumClass.
      * @return self
      */
-    public static function scalar(string $name, ScalarType $type, ?string $enumClass = null): self {
+    public static function scalar(string $name, ScalarType $type, ?string $enumClass = null, ?ScalarType $enumBacking = null): self {
         if ($type === ScalarType::Enum) {
-            if ($enumClass === null) {
-                throw new InvalidArgumentException('ScalarType::Enum requires $enumClass.');
+            if ($enumClass === null || $enumBacking === null) {
+                throw new InvalidArgumentException('ScalarType::Enum requires $enumClass and $enumBacking.');
             }
-        } elseif ($enumClass !== null) {
-            throw new InvalidArgumentException('$enumClass only applies to ScalarType::Enum.');
+
+            if ($enumBacking !== ScalarType::Int && $enumBacking !== ScalarType::String) {
+                throw new InvalidArgumentException('An enum is backed by ScalarType::Int or ScalarType::String.');
+            }
+        } elseif ($enumClass !== null || $enumBacking !== null) {
+            throw new InvalidArgumentException('$enumClass and $enumBacking only apply to ScalarType::Enum.');
         }
 
-        return new self(FieldKind::Scalar, $name, scalarType: $type, enumClass: $enumClass);
+        return new self(FieldKind::Scalar, $name, scalarType: $type, enumClass: $enumClass, enumBacking: $enumBacking);
     }
 
     /**
@@ -133,6 +142,13 @@ final readonly class FieldDescriptor
         $this->assertKind(FieldKind::Scalar);
 
         return $this->enumClass;
+    }
+
+    /** Valid for FieldKind::Scalar only; non-null exactly when scalarType() is ScalarType::Enum. */
+    public function enumBacking(): ?ScalarType {
+        $this->assertKind(FieldKind::Scalar);
+
+        return $this->enumBacking;
     }
 
     /** Valid for ValueObject, Embed, Reference, and OwningReference. */

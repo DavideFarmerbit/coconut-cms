@@ -6,7 +6,6 @@ use Doctrine\DBAL\Schema\Schema;
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\Types;
 use InvalidArgumentException;
-use ReflectionEnum;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\EntityIds;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
@@ -149,13 +148,11 @@ final class DatabaseSchema
             ScalarType::Date => [Types::DATE_IMMUTABLE, []],
             ScalarType::DateTime => [Types::DATETIME_IMMUTABLE, []],
             ScalarType::Decimal => [Types::DECIMAL, ['precision' => ScalarValues::DECIMAL_PRECISION, 'scale' => ScalarValues::DECIMAL_SCALE]],
-            ScalarType::Enum => (new ReflectionEnum($field->enumClass()))->getBackingType()?->getName() === 'int'
-                ? [Types::BIGINT, []]
-                : [Types::STRING, ['length' => 255]],
+            ScalarType::Enum => $field->enumBacking() === ScalarType::Int ? [Types::BIGINT, []] : [Types::STRING, ['length' => 255]],
         };
     }
 
-    /** @param class-string $identifier The class the table is for, named if it fails. */
+    /** @param string $identifier The entity type the table is for, named if it fails. */
     private static function createTable(Schema $schema, string $name, string $identifier): Table {
         self::assertFits($name, sprintf('Table "%s" of %s', $name, $identifier));
 

@@ -17,6 +17,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
@@ -172,7 +173,14 @@ final class EntitySchemaCodecTest extends TestCase
         $valueObjects = new ValueObjectRegistry();
         $valueObjects->register(Identifier::of('test', 'money'), CodecMoney::class);
 
-        return new EntitySchemaCodec($fieldValidators, $prototypeValidators, $valueObjects);
+        return new EntitySchemaCodec($fieldValidators, $prototypeValidators, $valueObjects, self::enums());
+    }
+
+    private static function enums(): EnumRegistry {
+        $enums = new EnumRegistry();
+        $enums->register(Identifier::of('test', 'status'), CodecStatus::class);
+
+        return $enums;
     }
 
     public function testASchemaRoundTripsThroughJson(): void {
@@ -209,7 +217,7 @@ final class EntitySchemaCodecTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage(CodecMaxLength::class);
 
-        (new EntitySchemaCodec(new FieldValidatorRegistry(), new PrototypeValidatorRegistry(), $valueObjects))->encode(self::schemaOf(CodecProduct::class));
+        (new EntitySchemaCodec(new FieldValidatorRegistry(), new PrototypeValidatorRegistry(), $valueObjects, self::enums()))->encode(self::schemaOf(CodecProduct::class));
     }
 
     public function testEncodingAValueObjectNeverRegisteredThrows(): void {
@@ -221,6 +229,21 @@ final class EntitySchemaCodecTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage(CodecMoney::class);
 
-        (new EntitySchemaCodec($fieldValidators, $prototypeValidators, new ValueObjectRegistry()))->encode(self::schemaOf(CodecProduct::class));
+        (new EntitySchemaCodec($fieldValidators, $prototypeValidators, new ValueObjectRegistry(), self::enums()))->encode(self::schemaOf(CodecProduct::class));
+    }
+
+    public function testAnEnumIsStoredByItsIdentifierAndBackingNeverItsClassName(): void {
+        $encoded = self::codec()->encode(self::schemaOf(CodecProduct::class));
+
+        self::assertSame('test:status', $encoded['fields']['status']['enum']);
+        self::assertSame(ScalarType::String->value, $encoded['fields']['status']['enumBacking']);
+        self::assertStringNotContainsString(CodecStatus::class, json_encode($encoded));
+    }
+
+    public function testEncodingAnEnumNeverRegisteredThrows(): void {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(CodecStatus::class);
+
+        (new EntitySchemaCodec(new FieldValidatorRegistry(), new PrototypeValidatorRegistry(), new ValueObjectRegistry(), new EnumRegistry()))->encode(self::schemaOf(CodecProduct::class));
     }
 }

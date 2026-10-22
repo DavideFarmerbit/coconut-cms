@@ -4,7 +4,6 @@ namespace XyloIsCoding\CoconutCms\Persistence\Entity\Rows;
 
 use Closure;
 use Doctrine\DBAL\Connection;
-use ReflectionEnum;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\CollectionLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LayoutBuilder;
@@ -38,16 +37,16 @@ final class EntityRowsReader
 
     /** Null when no entity has $id. */
     public function read(string $id): ?StoredEntity {
-        $class = $this->connection->fetchOne(sprintf('SELECT concrete_identifier FROM %s WHERE id = ?', DatabaseSchema::ENTITIES), [$id]);
-        if ($class === false) {
+        $identifier = $this->connection->fetchOne(sprintf('SELECT concrete_identifier FROM %s WHERE id = ?', DatabaseSchema::ENTITIES), [$id]);
+        if ($identifier === false) {
             return null;
         }
 
         $touched = new FieldValuesBuilder();
         $ownedIds = [];
-        $this->readInto($id, $class, null, $touched, $ownedIds);
+        $this->readInto($id, $identifier, null, $touched, $ownedIds);
 
-        return new StoredEntity($class, $touched->build(), $ownedIds);
+        return new StoredEntity($identifier, $touched->build(), $ownedIds);
     }
 
     /**
@@ -56,10 +55,10 @@ final class EntityRowsReader
      *        one read() was called for; null for that one itself.
      * @param array<string, string> $ownedIds
      */
-    private function readInto(string $id, string $class, ?FieldPath $prefix, FieldValuesBuilder $touched, array &$ownedIds): void {
+    private function readInto(string $id, string $identifier, ?FieldPath $prefix, FieldValuesBuilder $touched, array &$ownedIds): void {
         $at = static fn (FieldPath $path): FieldPath => $prefix === null ? $path : $prefix->append(FieldPath::TRAVERSE, $path);
 
-        foreach ($this->chainOf($class) as $level) {
+        foreach ($this->chainOf($identifier) as $level) {
             $row = $this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE id = ?', $level->table), [$id]);
             $state = $this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE id = ?', $level->stateTable), [$id]);
             $flags = $level->stateColumns();
@@ -110,7 +109,7 @@ final class EntityRowsReader
     }
 
     /**
-     * The class each owned object holds, or null, then everything it holds of
+     * The identifier each owned object holds, or null, then everything it holds of
      * its own, from its own rows.
      * @param array<string, mixed> $ownerRow The owner's row at the level declaring $owned.
      * @param Closure(FieldPath): FieldPath $at
@@ -164,18 +163,18 @@ final class EntityRowsReader
             ScalarType::Bool => (bool) $value,
             ScalarType::Int => (int) $value,
             ScalarType::Float => (float) $value,
-            ScalarType::Enum => (new ReflectionEnum($field->enumClass()))->getBackingType()?->getName() === 'int' ? (int) $value : (string) $value,
+            ScalarType::Enum => $field->enumBacking() === ScalarType::Int ? (int) $value : (string) $value,
             default => $value,
         };
     }
 
     /**
-     * $class's levels, root first.
+     * $identifier's levels, root first.
      * @return list<LevelLayout>
      */
-    private function chainOf(string $class): array {
+    private function chainOf(string $identifier): array {
         $chain = [];
-        for ($current = $class; $current !== null; $current = $this->schemas->get($current)->parent) {
+        for ($current = $identifier; $current !== null; $current = $this->schemas->get($current)->parent) {
             $chain[] = $this->levels[$current] ??= $this->layouts->levelOf($current);
         }
 

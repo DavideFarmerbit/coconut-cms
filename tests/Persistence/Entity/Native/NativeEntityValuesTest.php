@@ -1,13 +1,14 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Values;
+namespace XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Native;
 
 use DateTimeImmutable;
 use DateTimeZone;
 use LogicException;
 use PHPUnit\Framework\TestCase;
+use XyloIsCoding\CoconutCms\Core\Identifier;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
-use XyloIsCoding\CoconutCms\Persistence\Entity\Values\NativeEntityValues;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
@@ -106,6 +107,7 @@ final class NativeEntityValuesTest extends TestCase
 
     protected function setUp(): void {
         $stores = $this->stores = new InMemorySchemaStores();
+        $stores->enums->register(Identifier::of('test', 'fuel'), ValuesFuel::class);
         $blueprints = [];
         foreach ([ValuesMaker::class, ValuesPiston::class, ValuesEngine::class, ValuesTurboEngine::class, ValuesWheel::class, ValuesCar::class] as $class) {
             $blueprints[$class] = NativeEntityReader::read($class);

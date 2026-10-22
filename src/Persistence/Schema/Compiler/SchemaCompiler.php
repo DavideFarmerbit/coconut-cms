@@ -91,7 +91,7 @@ final class SchemaCompiler
         $overrides = new Overrides($lookup, $this->resolver->withBatch($schemas, $denseByIdentifier));
         $sparseByIdentifier = [];
         foreach ($order as $identifier => $blueprint) {
-            $sparseByIdentifier[$identifier] = $overrides->of(Subject::ofClass($identifier), $blueprint->defaultValues, $denseByIdentifier[$identifier]);
+            $sparseByIdentifier[$identifier] = $overrides->of(Subject::of($identifier), $blueprint->defaultValues, $denseByIdentifier[$identifier]);
         }
 
         // Each schema's own fingerprint, then the fingerprint of every schema it
@@ -368,34 +368,35 @@ final class SchemaCompiler
         return array_values(array_unique([
             ...$this->dependenciesOf($blueprint),
             ...$this->weakDependenciesOf($blueprint),
-            ...$this->heldClassesIn($blueprint->defaultValues),
+            ...$this->heldIdentifiersIn($blueprint->defaultValues),
         ]));
     }
 
     /**
-     * Every concrete class an OwnedNode anywhere under $node holds: a subclass
-     * of the declared target is a dependency the schema alone doesn't name.
+     * Every concrete identifier an OwnedNode anywhere under $node holds: a
+     * descendant of the declared target is a dependency the schema alone
+     * doesn't name.
      * @return list<string>
      */
-    private function heldClassesIn(?ValueNode $node): array {
-        $classes = [];
+    private function heldIdentifiersIn(?ValueNode $node): array {
+        $identifiers = [];
 
         if ($node instanceof OwnedNode) {
-            $classes[] = $node->class;
+            $identifiers[] = $node->identifier;
             $node = $node->fields;
         }
 
         if ($node instanceof ObjectNode) {
             foreach ($node as $value) {
-                array_push($classes, ...$this->heldClassesIn($value));
+                array_push($identifiers, ...$this->heldIdentifiersIn($value));
             }
         } elseif ($node instanceof CollectionNode) {
             foreach ($node->items as $item) {
-                array_push($classes, ...$this->heldClassesIn($item));
+                array_push($identifiers, ...$this->heldIdentifiersIn($item));
             }
         }
 
-        return $classes;
+        return $identifiers;
     }
 
     private function storedOrThrow(string $identifier): StoredSchema {

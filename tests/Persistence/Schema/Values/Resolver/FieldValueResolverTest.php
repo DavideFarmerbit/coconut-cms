@@ -132,7 +132,7 @@ final class FieldValueResolverTest extends TestCase
     }
 
     private function resolve(string $identifier, string $path): mixed {
-        return $this->resolver->resolve(Subject::ofClass($identifier), FieldPath::fromString($path));
+        return $this->resolver->resolve(Subject::of($identifier), FieldPath::fromString($path));
     }
 
     public function testReturnsAnIdentifiersOwnStoredValue(): void {
@@ -271,7 +271,7 @@ final class FieldValueResolverTest extends TestCase
 
         // The class ResolverCar holds still counts; only its own horsepower
         // override is skipped.
-        self::assertSame(300, $this->resolver->resolveFallback(Subject::ofClass(ResolverCar::class), FieldPath::fromString('engine.horsepower')));
+        self::assertSame(300, $this->resolver->resolveFallback(Subject::of(ResolverCar::class), FieldPath::fromString('engine.horsepower')));
     }
 
     public function testResolveWithoutSubtreeSkipsTheWholeCollection(): void {
@@ -280,8 +280,8 @@ final class FieldValueResolverTest extends TestCase
 
         $pistons = FieldPath::fromString('pistons');
 
-        self::assertSame(2, $this->resolver->resolveWithoutSubtree(Subject::ofClass(ResolverBigGarage::class), $pistons, $pistons));
-        self::assertSame(99, $this->resolver->resolveWithoutSubtree(Subject::ofClass(ResolverBigGarage::class), FieldPath::fromString('pistons.0.diameter'), $pistons));
+        self::assertSame(2, $this->resolver->resolveWithoutSubtree(Subject::of(ResolverBigGarage::class), $pistons, $pistons));
+        self::assertSame(99, $this->resolver->resolveWithoutSubtree(Subject::of(ResolverBigGarage::class), FieldPath::fromString('pistons.0.diameter'), $pistons));
     }
 
     public function testAResolverWithABatchReadsTheBatchAheadOfTheStore(): void {
@@ -289,7 +289,7 @@ final class FieldValueResolverTest extends TestCase
 
         $batched = $this->resolver->withBatch([], [ResolverEngine::class => FieldValues::fromArray(['horsepower' => 1])]);
 
-        self::assertSame(1, $batched->resolve(Subject::ofClass(ResolverEngine::class), FieldPath::fromString('horsepower')));
+        self::assertSame(1, $batched->resolve(Subject::of(ResolverEngine::class), FieldPath::fromString('horsepower')));
     }
 
     public function testAnInstancesOwnValueWinsOverItsClass(): void {

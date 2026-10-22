@@ -53,9 +53,11 @@ request is served from memory.
 was compiled against. A schema is always read whole, so it's never split into
 columns. A validator rule is stored as the identifier its class was registered
 under, plus its own `toStorage()` configuration. A value object field's class
-is stored as the identifier `ValueObjectRegistry` holds it under. Renaming or
-moving either class doesn't break what's stored. The same registry is what
-lets the editor offer value objects by name. A compile writes schemas and values in one
+is stored as the identifier `ValueObjectRegistry` holds it under, and an Enum
+field's enum as the one `EnumRegistry` holds it under, along with what it's
+backed by. Renaming or moving any of these classes doesn't break what's
+stored. The same registries are what let the editor offer value objects and
+enums by name. A compile writes schemas and values in one
 transaction, as long as both stores share a connection.
 
 ## Compilation happens at different moments per source
@@ -415,12 +417,20 @@ otherwise send `false` as an empty string, which no boolean column accepts.
 
 ## Loading an entity
 
-`EntityLoader` is the way back. `EntityRowsReader` reads an entity's rows
-into its touched values: only flagged columns count, each back in its stored
-form (MySQL gives a boolean back as `0` or `1`), and an owned object's values
-come from its own rows, under its path. The resolver then resolves the whole
-tree on `Subject::ofInstance()`: anything untouched comes from the class's
-defaults as they are now, not as they were when the entity was saved.
+Loading is split in two. `EntityReader` reads any entity, native or
+editor-created, and never touches a PHP class: `EntityRowsReader` reads its
+rows into its touched values (only flagged columns count, each back in its
+stored form: MySQL gives a boolean back as `0` or `1`), with an owned
+object's values from its own rows, under its path. The resolver then resolves
+the whole tree on `Subject::ofInstance()`: anything untouched comes from the
+type's defaults as they are now, not as they were when the entity was saved.
+It returns a `LoadedEntity`: that tree, the ids of its owned objects, and the
+ids its References hold.
+
+`NativeEntityLoader` builds a PHP object from a `LoadedEntity`. Everything
+native lives in `Entity/Native/`, so the line between the shared pipeline and
+what only native classes need stays visible. Shared code names an entity
+type by its identifier, never as a class: an editor-created one isn't one.
 
 `NativeObjectBuilder` builds the object from that tree the way Unreal copies
 a class default object. Each class's default instance is built once, then

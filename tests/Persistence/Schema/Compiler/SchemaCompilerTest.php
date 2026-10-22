@@ -795,6 +795,7 @@ final class SchemaCompilerTest extends TestCase
 
     public function testCompileStoresEnumsAndDatesInTheirStoredForm(): void {
         $stores = new InMemorySchemaStores();
+        $stores->enums->register(Identifier::of('test', 'fuel'), CompilerFuel::class);
         $stores->compiler()->compile(self::blueprintsOf([CompilerDatedBase::class]));
 
         self::assertSame(['fuel' => 1, 'since' => '2024-01-01 12:00:00'], self::loadSorted($stores->values, CompilerDatedBase::class));
@@ -804,6 +805,7 @@ final class SchemaCompilerTest extends TestCase
         // Compiled apart, so the parent's values come back from the store:
         // they must still compare equal to the subclass's own.
         $stores = new InMemorySchemaStores();
+        $stores->enums->register(Identifier::of('test', 'fuel'), CompilerFuel::class);
         $stores->compiler()->compile(self::blueprintsOf([CompilerDatedBase::class]));
         $stores->compiler()->compile(self::blueprintsOf([CompilerDatedSame::class]));
 

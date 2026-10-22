@@ -6,6 +6,7 @@ use BackedEnum;
 use DateTimeImmutable;
 use InvalidArgumentException;
 use ReflectionClass;
+use ReflectionEnum;
 use ReflectionNamedType;
 use ReflectionProperty;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
@@ -229,7 +230,20 @@ final class NativeEntityReader
             ));
         }
 
-        return FieldDescriptor::scalar($name, $attribute->type, $enumClass);
+        return FieldDescriptor::scalar($name, $attribute->type, $enumClass, self::enumBackingOf($enumClass));
+    }
+
+    /**
+     * What $enumClass is backed by, read once here so nothing past the reader
+     * needs the enum itself. Null when there's no enum.
+     * @param class-string<BackedEnum>|null $enumClass Already checked to be backed.
+     */
+    private static function enumBackingOf(?string $enumClass): ?ScalarType {
+        if ($enumClass === null) {
+            return null;
+        }
+
+        return (new ReflectionEnum($enumClass))->getBackingType()?->getName() === 'int' ? ScalarType::Int : ScalarType::String;
     }
 
     /**
@@ -272,7 +286,12 @@ final class NativeEntityReader
 
     private static function resolveCollectionItemDescriptor(string $name, Collection $attribute, ReflectionProperty $property): FieldDescriptor {
         return match ($attribute->itemKind) {
-            FieldKind::Scalar => FieldDescriptor::scalar($name, $attribute->itemScalarType, self::assertBackedEnum($attribute->itemEnumClass, $property)),
+            FieldKind::Scalar => FieldDescriptor::scalar(
+                $name,
+                $attribute->itemScalarType,
+                self::assertBackedEnum($attribute->itemEnumClass, $property),
+                self::enumBackingOf($attribute->itemEnumClass),
+            ),
             FieldKind::ValueObject => self::valueObjectDescriptor($name, self::resolveValueObjectClass(self::resolveItemTarget($attribute, $property), $property)),
             FieldKind::Embed => FieldDescriptor::embed($name, self::resolveEntityItemTarget($attribute, $property)),
             FieldKind::Reference => FieldDescriptor::reference($name, self::resolveEntityItemTarget($attribute, $property)),

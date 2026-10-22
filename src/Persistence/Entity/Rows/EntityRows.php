@@ -10,13 +10,13 @@ namespace XyloIsCoding\CoconutCms\Persistence\Entity\Rows;
 final readonly class EntityRows
 {
     /**
-     * @param class-string $class
+     * @param string $identifier The entity's concrete identifier.
      * @param list<Row> $rows In an order safe to insert: a row always after
      *        the row it points to.
      */
     public function __construct(
         public string $id,
-        public string $class,
+        public string $identifier,
         public array $rows,
     ) {
     }

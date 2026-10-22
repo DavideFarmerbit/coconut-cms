@@ -20,19 +20,20 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\OwnedNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
 
 /**
- * Finds the effective value of one FieldPath on one Subject: a class, native
- * or editor-created alike, or an instance of one.
+ * Finds the effective value of one FieldPath on one Subject: an entity type,
+ * native or editor-created alike, named by its identifier, or an instance of
+ * one. Reads schemas and stored values only, never a PHP class.
  *
  * Works through ValueSources, checked in order, the first one holding the key
- * winning. A class's own sources are itself and its parents, with no prefix;
- * an instance's are its own values, then its class's. Each step down the path
- * extends them:
+ * winning. An identifier's own sources are itself and its parents, with no
+ * prefix; an instance's are its own values, then its identifier's. Each step
+ * down the path extends them:
  * - Embed: the same sources under "field:", then the target's own sources.
  * - OwningReference: the same sources under "field.", then the own sources of
- *   whatever class the field holds, itself resolved from the same sources.
+ *   whatever identifier the field holds, itself resolved from the same sources.
  * - Collection: the first source holding the bare field owns the collection,
  *   its value being the item count. An item's own sources are only that owner
- *   under "field.index.", then the item class's own sources: never another
+ *   under "field.index.", then the item identifier's own sources: never another
  *   source's items, so a collection is never inherited item by item.
  */
 final class FieldValueResolver
@@ -65,16 +66,16 @@ final class FieldValueResolver
 
     /** Throws NoFieldValueException when nothing holds a value for $path. */
     public function resolve(Subject $subject, FieldPath $path): mixed {
-        return $this->resolveOn($this->sourcesOf($subject), $subject->class, $path, null);
+        return $this->resolveOn($this->sourcesOf($subject), $subject->identifier, $path, null);
     }
 
     /**
      * What resolve() would return if $subject's own values held nothing at
-     * $path. Everything else they hold still counts: the class its
+     * $path. Everything else they hold still counts: the identifier its
      * OwningReference holds, for instance, when $path goes through it.
      */
     public function resolveFallback(Subject $subject, FieldPath $path): mixed {
-        return $this->resolveOn($this->sourcesOf($subject), $subject->class, $path, ValueExclusion::at($subject->ownSource(), $path));
+        return $this->resolveOn($this->sourcesOf($subject), $subject->identifier, $path, ValueExclusion::at($subject->ownSource(), $path));
     }
 
     /**
@@ -83,16 +84,16 @@ final class FieldValueResolver
      * with the whole collection gone.
      */
     public function resolveWithoutSubtree(Subject $subject, FieldPath $path, FieldPath $subtree): mixed {
-        return $this->resolveOn($this->sourcesOf($subject), $subject->class, $path, ValueExclusion::under($subject->ownSource(), $subtree));
+        return $this->resolveOn($this->sourcesOf($subject), $subject->identifier, $path, ValueExclusion::under($subject->ownSource(), $subtree));
     }
 
     /**
-     * Every value $subject resolves to, as a tree shaped like its class's
+     * Every value $subject resolves to, as a tree shaped like its schema's
      * fields: what an object is built from. An owned object is read through
-     * the class it resolves to holding, a Collection item by item.
+     * the identifier it resolves to holding, a Collection item by item.
      */
     public function resolveTree(Subject $subject): ObjectNode {
-        return $this->treeOf($subject, $this->schemas->hierarchyFieldsOf($subject->class), FieldPath::of(...));
+        return $this->treeOf($subject, $this->schemas->hierarchyFieldsOf($subject->identifier), FieldPath::of(...));
     }
 
     /** @param Closure(FieldName): FieldPath $pathOf Turns one of $fields' names into its full path. */
@@ -117,9 +118,9 @@ final class FieldValueResolver
 
     /** Null when nothing is held at $path. */
     private function ownedNodeOf(Subject $subject, FieldPath $path): ?OwnedNode {
-        $class = $this->resolve($subject, $path);
+        $identifier = $this->resolve($subject, $path);
 
-        return $class === null ? null : new OwnedNode($class, $this->treeOf($subject, $this->schemas->hierarchyFieldsOf($class), $path->traverse(...)));
+        return $identifier === null ? null : new OwnedNode($identifier, $this->treeOf($subject, $this->schemas->hierarchyFieldsOf($identifier), $path->traverse(...)));
     }
 
     private function collectionNodeOf(Subject $subject, FieldDescriptor $item, FieldPath $path): CollectionNode {
@@ -138,22 +139,22 @@ final class FieldValueResolver
 
     /**
      * @param list<ValueSource> $sources In order.
-     * @param string $class Whose fields $path's head is one of.
+     * @param string $identifier Whose fields $path's head is one of.
      */
-    private function resolveOn(array $sources, string $class, FieldPath $path, ?ValueExclusion $excluded): mixed {
+    private function resolveOn(array $sources, string $identifier, FieldPath $path, ?ValueExclusion $excluded): mixed {
         $head = $path->head();
-        $field = $this->fieldOf($class, $head, $path);
+        $field = $this->fieldOf($identifier, $head, $path);
         $key = FieldPath::of($head);
 
         return match ($field->kind()) {
             FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $path->tail() === null
-                ? $this->firstValue($sources, $key, $excluded, $class, $path)
-                : throw $this->invalidPath($class, $path, sprintf('"%s" has no fields of its own', $head)),
-            FieldKind::Embed => $this->resolveThroughEmbed($sources, $key, $field->target(), $this->tailAfter($class, $path, FieldPath::EMBED), $excluded),
+                ? $this->firstValue($sources, $key, $excluded, $identifier, $path)
+                : throw $this->invalidPath($identifier, $path, sprintf('"%s" has no fields of its own', $head)),
+            FieldKind::Embed => $this->resolveThroughEmbed($sources, $key, $field->target(), $this->tailAfter($identifier, $path, FieldPath::EMBED), $excluded),
             FieldKind::OwningReference => $path->tail() === null
-                ? $this->firstValue($sources, $key, $excluded, $class, $path)
-                : $this->resolveThroughOwned($sources, $key, $this->tailAfter($class, $path, FieldPath::TRAVERSE), $excluded, $class, $path),
-            FieldKind::Collection => $this->resolveThroughCollection($sources, $key, $field->itemDescriptor(), $class, $path, $excluded),
+                ? $this->firstValue($sources, $key, $excluded, $identifier, $path)
+                : $this->resolveThroughOwned($sources, $key, $this->tailAfter($identifier, $path, FieldPath::TRAVERSE), $excluded, $identifier, $path),
+            FieldKind::Collection => $this->resolveThroughCollection($sources, $key, $field->itemDescriptor(), $identifier, $path, $excluded),
         };
     }
 
@@ -167,35 +168,35 @@ final class FieldValueResolver
      * before anything gets looked up.
      * @param list<ValueSource> $sources
      */
-    private function resolveThroughOwned(array $sources, FieldPath $key, FieldPath $rest, ?ValueExclusion $excluded, string $class, FieldPath $path): mixed {
-        $held = $this->firstValue($sources, $key, $excluded, $class, $path);
+    private function resolveThroughOwned(array $sources, FieldPath $key, FieldPath $rest, ?ValueExclusion $excluded, string $identifier, FieldPath $path): mixed {
+        $held = $this->firstValue($sources, $key, $excluded, $identifier, $path);
         if ($held === null) {
-            throw new NoFieldValueException(sprintf('Cannot resolve "%s" on "%s": "%s" holds nothing.', $path, $class, $key));
+            throw new NoFieldValueException(sprintf('Cannot resolve "%s" on "%s": "%s" holds nothing.', $path, $identifier, $key));
         }
 
         return $this->resolveOn([...$this->under($sources, $key, FieldPath::TRAVERSE), ...$this->chainOf($held)], $held, $rest, $excluded);
     }
 
     /** @param list<ValueSource> $sources */
-    private function resolveThroughCollection(array $sources, FieldPath $key, FieldDescriptor $item, string $class, FieldPath $path, ?ValueExclusion $excluded): mixed {
+    private function resolveThroughCollection(array $sources, FieldPath $key, FieldDescriptor $item, string $identifier, FieldPath $path, ?ValueExclusion $excluded): mixed {
         $index = null;
         $rest = null;
         if ($path->tail() !== null) {
-            $itemPath = $this->tailAfter($class, $path, FieldPath::TRAVERSE);
+            $itemPath = $this->tailAfter($identifier, $path, FieldPath::TRAVERSE);
             $index = $itemPath->head();
             if (!is_int($index)) {
-                throw $this->invalidPath($class, $path, sprintf('"%s" must be followed by an item index', $key));
+                throw $this->invalidPath($identifier, $path, sprintf('"%s" must be followed by an item index', $key));
             }
 
             $rest = $itemPath->tail();
             if ($rest !== null && $item->kind() !== FieldKind::Embed && $item->kind() !== FieldKind::OwningReference) {
-                throw $this->invalidPath($class, $path, sprintf('the items of "%s" have no fields of their own', $key));
+                throw $this->invalidPath($identifier, $path, sprintf('the items of "%s" have no fields of their own', $key));
             }
         }
 
         $owner = $this->firstSourceHolding($sources, $key, $excluded);
         if ($owner === null) {
-            throw $this->noValue($class, $path);
+            throw $this->noValue($identifier, $path);
         }
 
         $count = $this->valuesOf($owner)->get($owner->pathOf($key));
@@ -204,28 +205,28 @@ final class FieldValueResolver
         }
 
         if ($index >= $count) {
-            throw $this->invalidPath($class, $path, sprintf('"%s" has only %d item(s)', $key, $count));
+            throw $this->invalidPath($identifier, $path, sprintf('"%s" has only %d item(s)', $key, $count));
         }
 
         $itemKey = $key->traverse($index);
 
         if ($rest === null) {
-            return $this->firstValue([$owner], $itemKey, $excluded, $class, $path);
+            return $this->firstValue([$owner], $itemKey, $excluded, $identifier, $path);
         }
 
         return $item->kind() === FieldKind::Embed
             ? $this->resolveOn([$owner->under($itemKey, FieldPath::TRAVERSE), ...$this->chainOf($item->target())], $item->target(), $rest, $excluded)
-            : $this->resolveThroughOwned([$owner], $itemKey, $rest, $excluded, $class, $path);
+            : $this->resolveThroughOwned([$owner], $itemKey, $rest, $excluded, $identifier, $path);
     }
 
     /**
      * The value of the first source holding $key.
      * @param list<ValueSource> $sources
      */
-    private function firstValue(array $sources, FieldPath $key, ?ValueExclusion $excluded, string $class, FieldPath $path): mixed {
+    private function firstValue(array $sources, FieldPath $key, ?ValueExclusion $excluded, string $identifier, FieldPath $path): mixed {
         $source = $this->firstSourceHolding($sources, $key, $excluded);
         if ($source === null) {
-            throw $this->noValue($class, $path);
+            throw $this->noValue($identifier, $path);
         }
 
         return $this->valuesOf($source)->get($source->pathOf($key));
@@ -255,56 +256,56 @@ final class FieldValueResolver
 
     /**
      * $subject's own sources: its own values, if it's an instance, then its
-     * class's chain.
+     * identifier's chain.
      * @return list<ValueSource>
      */
     private function sourcesOf(Subject $subject): array {
-        $chain = $this->chainOf($subject->class);
+        $chain = $this->chainOf($subject->identifier);
 
         return $subject->isInstance() ? [$subject->ownSource(), ...$chain] : $chain;
     }
 
     /**
-     * $class and each of its parents, with no prefix.
+     * $identifier and each of its parents, with no prefix.
      * @return list<ValueSource>
      */
-    private function chainOf(string $class): array {
+    private function chainOf(string $identifier): array {
         $chain = [];
-        for ($current = $class; $current !== null; $current = $this->schemas->get($current)->parent) {
-            $chain[] = ValueSource::ofClass($current);
+        for ($current = $identifier; $current !== null; $current = $this->schemas->get($current)->parent) {
+            $chain[] = ValueSource::ofIdentifier($current);
         }
 
         return $chain;
     }
 
-    /** What $source reads: values given directly, or a class's, from the batch first, then the store. */
+    /** What $source reads: values given directly, or an identifier's, from the batch first, then the store. */
     private function valuesOf(ValueSource $source): FieldValues {
-        return $source->values ?? $this->batchValues[$source->class] ?? $this->store->load($source->class);
+        return $source->values ?? $this->batchValues[$source->identifier] ?? $this->store->load($source->identifier);
     }
 
     /** $path's tail, after checking $path's head joins to it with $join. */
-    private function tailAfter(string $class, FieldPath $path, string $join): FieldPath {
+    private function tailAfter(string $identifier, FieldPath $path, string $join): FieldPath {
         if ($path->headJoin() !== $join) {
-            throw $this->invalidPath($class, $path, sprintf('"%s" must be followed by "%s"', $path->head(), $join));
+            throw $this->invalidPath($identifier, $path, sprintf('"%s" must be followed by "%s"', $path->head(), $join));
         }
 
         return $path->tail();
     }
 
-    private function fieldOf(string $class, FieldName|int $head, FieldPath $path): FieldDescriptor {
-        $fields = $this->schemas->hierarchyFieldsOf($class);
+    private function fieldOf(string $identifier, FieldName|int $head, FieldPath $path): FieldDescriptor {
+        $fields = $this->schemas->hierarchyFieldsOf($identifier);
         if (!$head instanceof FieldName || !$fields->has($head)) {
-            throw $this->invalidPath($class, $path, sprintf('"%s" has no field "%s"', $class, $head));
+            throw $this->invalidPath($identifier, $path, sprintf('"%s" has no field "%s"', $identifier, $head));
         }
 
         return $fields->get($head);
     }
 
-    private function noValue(string $class, FieldPath $path): NoFieldValueException {
-        return new NoFieldValueException(sprintf('Nothing holds a value for "%s" on "%s".', $path, $class));
+    private function noValue(string $identifier, FieldPath $path): NoFieldValueException {
+        return new NoFieldValueException(sprintf('Nothing holds a value for "%s" on "%s".', $path, $identifier));
     }
 
-    private function invalidPath(string $class, FieldPath $path, string $reason): InvalidArgumentException {
-        return new InvalidArgumentException(sprintf('"%s" is not a valid path on "%s": %s.', $path, $class, $reason));
+    private function invalidPath(string $identifier, FieldPath $path, string $reason): InvalidArgumentException {
+        return new InvalidArgumentException(sprintf('"%s" is not a valid path on "%s": %s.', $path, $identifier, $reason));
     }
 }

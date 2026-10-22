@@ -180,6 +180,7 @@ final class LayoutFixtures
         $stores = new InMemorySchemaStores();
         $stores->valueObjects->register(Identifier::of('test', 'color'), LayoutColor::class);
         $stores->valueObjects->register(Identifier::of('test', 'notes'), LayoutNotes::class);
+        $stores->enums->register(Identifier::of('test', 'fuel'), LayoutFuel::class);
         $blueprints = [];
         foreach ($classes as $class) {
             $blueprints[$class] = NativeEntityReader::read($class);

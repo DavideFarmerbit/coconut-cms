@@ -6,24 +6,25 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 
 /**
- * Where FieldValueResolver looks for a value: either a class's own stored
- * values, or values given directly, such as an instance's. Either way under a
- * path prefix: with no prefix, a key is looked up as is; under "engine"
- * joined by ".", a key "horsepower" is looked up as "engine.horsepower".
+ * Where FieldValueResolver looks for a value: either an identifier's own
+ * stored values, or values given directly, such as an instance's. Either way
+ * under a path prefix: with no prefix, a key is looked up as is; under
+ * "engine" joined by ".", a key "horsepower" is looked up as
+ * "engine.horsepower".
  */
 final readonly class ValueSource
 {
     private function __construct(
-        public ?string $class,
+        public ?string $identifier,
         public ?FieldValues $values,
         private ?FieldPath $prefix,
         private ?string $join,
     ) {
     }
 
-    /** $class's own stored values, with no prefix. */
-    public static function ofClass(string $class): self {
-        return new self($class, null, null, null);
+    /** $identifier's own stored values, with no prefix. */
+    public static function ofIdentifier(string $identifier): self {
+        return new self($identifier, null, null, null);
     }
 
     /** $values themselves, with no prefix. */
@@ -33,7 +34,7 @@ final readonly class ValueSource
 
     /** This source, one step further down: under $relative, joined to what follows by $join. */
     public function under(FieldPath $relative, string $join): self {
-        return new self($this->class, $this->values, $this->pathOf($relative), $join);
+        return new self($this->identifier, $this->values, $this->pathOf($relative), $join);
     }
 
     /** The full path $key is held at in this source's values. */
@@ -43,6 +44,6 @@ final readonly class ValueSource
 
     /** Whether this source reads the same values as $other, whatever the prefix. */
     public function readsSameValuesAs(self $other): bool {
-        return $this->values !== null ? $this->values === $other->values : $this->class === $other->class;
+        return $this->values !== null ? $this->values === $other->values : $this->identifier === $other->identifier;
     }
 }

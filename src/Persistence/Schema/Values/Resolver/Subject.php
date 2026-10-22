@@ -5,27 +5,27 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 
 /**
- * What FieldValueResolver resolves a path on: a class, and optionally values
- * of its own held in front of the class, such as an instance's. A class alone
- * is its own values' holder; an instance overrides its class the same way a
- * subclass overrides its parent.
+ * What FieldValueResolver resolves a path on: an entity type, by its
+ * identifier, and optionally values of its own held in front of the type's,
+ * such as an instance's. A type alone is its own values' holder; an instance
+ * overrides its type the same way a subtype overrides its parent.
  */
 final readonly class Subject
 {
     private function __construct(
-        public string $class,
+        public string $identifier,
         private ?FieldValues $ownValues,
     ) {
     }
 
-    /** $class itself: its own stored values come first. */
-    public static function ofClass(string $class): self {
-        return new self($class, null);
+    /** The type $identifier itself: its own stored values come first. */
+    public static function of(string $identifier): self {
+        return new self($identifier, null);
     }
 
-    /** An instance of $class holding $values, checked before anything $class holds. */
-    public static function ofInstance(string $class, FieldValues $values): self {
-        return new self($class, $values);
+    /** An instance of $identifier holding $values, checked before anything $identifier holds. */
+    public static function ofInstance(string $identifier, FieldValues $values): self {
+        return new self($identifier, $values);
     }
 
     /**
@@ -33,10 +33,10 @@ final readonly class Subject
      * it act as if it held nothing in.
      */
     public function ownSource(): ValueSource {
-        return $this->ownValues !== null ? ValueSource::ofValues($this->ownValues) : ValueSource::ofClass($this->class);
+        return $this->ownValues !== null ? ValueSource::ofValues($this->ownValues) : ValueSource::ofIdentifier($this->identifier);
     }
 
-    /** Whether it holds values in front of its class's own. */
+    /** Whether it holds values in front of its type's own. */
     public function isInstance(): bool {
         return $this->ownValues !== null;
     }

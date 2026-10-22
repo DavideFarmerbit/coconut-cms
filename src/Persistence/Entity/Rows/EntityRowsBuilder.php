@@ -19,9 +19,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
  *
  * A touched value lands in its column with its flag set; anything untouched
  * is null with its flag unset, and resolves to its default. An owned object
- * gets rows of its own once anything at or under it is touched, its class
- * included: from then on its class is touched too, and stops following the
- * default. A Collection gets rows only when touched, and then all of them.
+ * gets rows of its own once anything at or under it is touched, its
+ * identifier included: from then on its identifier is touched too, and stops
+ * following the default. A Collection gets rows only when touched, and then
+ * all of them.
  */
 final class EntityRowsBuilder
 {
@@ -38,13 +39,13 @@ final class EntityRowsBuilder
 
     /**
      * @param Closure(FieldPath): string $ownedIdOf The id of the object owned
-     *        at a path from this entity's own class, given a new one if it
+     *        at a path from this entity, given a new one if it
      *        never had one.
      * @return list<EntityRows> This entity's first, then everything it owns,
      *         each owner before what it owns.
      */
     public function rowsOf(EntityValues $values, string $id, Placement $placement, Closure $ownedIdOf): array {
-        return $this->entityRows($values->class, $values->dense, $values->touched, $id, $placement, null, $ownedIdOf);
+        return $this->entityRows($values->identifier, $values->dense, $values->touched, $id, $placement, null, $ownedIdOf);
     }
 
     /**
@@ -52,17 +53,17 @@ final class EntityRowsBuilder
      *        entity rowsOf() was called for; null for that entity itself.
      * @return list<EntityRows>
      */
-    private function entityRows(string $class, FieldValues $dense, FieldValues $touched, string $id, Placement $placement, ?FieldPath $prefix, Closure $ownedIdOf): array {
+    private function entityRows(string $identifier, FieldValues $dense, FieldValues $touched, string $id, Placement $placement, ?FieldPath $prefix, Closure $ownedIdOf): array {
         $rows = [new Row(DatabaseSchema::ENTITIES, [
             'id' => $id,
             'owner' => $placement->owner,
             'owner_field' => $placement->ownerField,
             'position' => $placement->position,
-            'concrete_identifier' => $class,
+            'concrete_identifier' => $identifier,
         ])];
         $owned = [];
 
-        foreach ($this->chainOf($class) as $level) {
+        foreach ($this->chainOf($identifier) as $level) {
             $rows[] = new Row($level->table, $this->levelRowOf($level, $touched, $id, $placement));
             $rows[] = new Row($level->stateTable, $this->stateRowOf($level, $touched, $id));
 
@@ -75,7 +76,7 @@ final class EntityRowsBuilder
             }
         }
 
-        return [new EntityRows($id, $class, $rows), ...$owned];
+        return [new EntityRows($id, $identifier, $rows), ...$owned];
     }
 
     /** @return array<string, mixed> */
@@ -177,23 +178,23 @@ final class EntityRowsBuilder
      * @return list<EntityRows>
      */
     private function ownedObjectRows(FieldPath $path, FieldValues $dense, FieldValues $touched, Placement $placement, ?FieldPath $prefix, Closure $ownedIdOf): array {
-        $class = $dense->get($path);
-        if ($class === null) {
+        $identifier = $dense->get($path);
+        if ($identifier === null) {
             return [];
         }
 
         $fullPath = $prefix === null ? $path : $prefix->append(FieldPath::TRAVERSE, $path);
 
-        return $this->entityRows($class, $dense->within($path), $touched->within($path), $ownedIdOf($fullPath), $placement, $fullPath, $ownedIdOf);
+        return $this->entityRows($identifier, $dense->within($path), $touched->within($path), $ownedIdOf($fullPath), $placement, $fullPath, $ownedIdOf);
     }
 
     /**
-     * $class's levels, root first.
+     * $identifier's levels, root first.
      * @return list<LevelLayout>
      */
-    private function chainOf(string $class): array {
+    private function chainOf(string $identifier): array {
         $chain = [];
-        for ($current = $class; $current !== null; $current = $this->schemas->get($current)->parent) {
+        for ($current = $identifier; $current !== null; $current = $this->schemas->get($current)->parent) {
             $chain[] = $this->levels[$current] ??= $this->layouts->levelOf($current);
         }
 

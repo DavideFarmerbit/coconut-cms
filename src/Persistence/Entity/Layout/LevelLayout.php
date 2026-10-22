@@ -12,7 +12,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 final readonly class LevelLayout
 {
     /**
-     * @param class-string $identifier
+     * @param string $identifier The entity type whose own level this is.
      * @param list<ValueColumn> $columns Every value stored on $table itself.
      * @param list<OwnedLayout> $owned
      * @param list<CollectionLayout> $collections

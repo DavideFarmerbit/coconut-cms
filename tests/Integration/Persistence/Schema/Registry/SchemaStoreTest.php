@@ -14,6 +14,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\EntitySchemaCodec;
@@ -74,7 +75,7 @@ final class SchemaStoreTest extends TestCase
         $fieldValidators = new FieldValidatorRegistry();
         $fieldValidators->register(Identifier::of('test', 'max-length'), SchemaStoreMaxLength::class);
 
-        $this->store = new SchemaStore($this->connection, new EntitySchemaCodec($fieldValidators, new PrototypeValidatorRegistry(), new ValueObjectRegistry()));
+        $this->store = new SchemaStore($this->connection, new EntitySchemaCodec($fieldValidators, new PrototypeValidatorRegistry(), new ValueObjectRegistry(), new EnumRegistry()));
         $this->store->dropTableIfExists();
         $this->store->createTable();
     }
