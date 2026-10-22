@@ -3,7 +3,6 @@
 namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Entity\Native;
 
 use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception\ForeignKeyConstraintViolationException;
 use Doctrine\DBAL\Exception\LockWaitTimeoutException;
 use LogicException;
@@ -21,6 +20,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
+use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsCar;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsEngine;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsFixtures;
@@ -40,13 +40,7 @@ final class NativeEntityWriterTest extends TestCase
     private NativeEntityWriter $writer;
 
     protected function setUp(): void {
-        $this->connection = DriverManager::getConnection([
-            'driver' => 'pdo_mysql',
-            'user' => 'root',
-            'password' => 'root',
-            'unix_socket' => '/Users/davidebosco/Library/Application Support/Local/run/PzVL9Ueo_/mysql/mysqld.sock',
-            'dbname' => 'local',
-        ]);
+        $this->connection = TestDatabase::connect();
 
         $classes = [Cms::class, ...RowsFixtures::CLASSES];
         $blueprints = NativeEntityReader::readAll($classes);
@@ -281,7 +275,7 @@ final class NativeEntityWriterTest extends TestCase
         $car = new RowsCar();
         $id = $this->writer->save($car);
 
-        $other = DriverManager::getConnection($this->connection->getParams());
+        $other = TestDatabase::connect();
         $other->beginTransaction();
         $other->fetchOne(sprintf('SELECT id FROM %s WHERE id = ? FOR UPDATE', DatabaseSchema::ENTITIES), [$id]);
         $this->connection->executeStatement('SET SESSION innodb_lock_wait_timeout = 1');

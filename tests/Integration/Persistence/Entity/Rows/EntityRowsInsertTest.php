@@ -3,7 +3,6 @@
 namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Entity\Rows;
 
 use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Cms;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityTables;
@@ -17,6 +16,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\Placement;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
+use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsCar;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsEngine;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsFixtures;
@@ -34,13 +34,7 @@ final class EntityRowsInsertTest extends TestCase
     private array $levels = [];
 
     protected function setUp(): void {
-        $this->connection = DriverManager::getConnection([
-            'driver' => 'pdo_mysql',
-            'user' => 'root',
-            'password' => 'root',
-            'unix_socket' => '/Users/davidebosco/Library/Application Support/Local/run/PzVL9Ueo_/mysql/mysqld.sock',
-            'dbname' => 'local',
-        ]);
+        $this->connection = TestDatabase::connect();
 
         // Schemas compile in memory; only the content tables go to MySQL.
         $blueprints = NativeEntityReader::readAll([Cms::class, ...RowsFixtures::CLASSES]);

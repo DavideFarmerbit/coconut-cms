@@ -3,12 +3,12 @@
 namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Schema\Values;
 
 use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValuesDiff;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 
 final class SchemaFieldValueStoreTest extends TestCase
 {
@@ -16,13 +16,7 @@ final class SchemaFieldValueStoreTest extends TestCase
     private SchemaFieldValueStore $store;
 
     protected function setUp(): void {
-        $this->connection = DriverManager::getConnection([
-            'driver' => 'pdo_mysql',
-            'user' => 'root',
-            'password' => 'root',
-            'unix_socket' => '/Users/davidebosco/Library/Application Support/Local/run/PzVL9Ueo_/mysql/mysqld.sock',
-            'dbname' => 'local',
-        ]);
+        $this->connection = TestDatabase::connect();
 
         $this->store = new SchemaFieldValueStore($this->connection);
         $this->store->dropTableIfExists();

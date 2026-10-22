@@ -3,7 +3,6 @@
 namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Entity\Native;
 
 use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Cms;
@@ -21,6 +20,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
+use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsCar;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsEngine;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsFixtures;
@@ -38,13 +38,7 @@ final class NativeEntityLoaderTest extends TestCase
     private array $levels = [];
 
     protected function setUp(): void {
-        $this->connection = DriverManager::getConnection([
-            'driver' => 'pdo_mysql',
-            'user' => 'root',
-            'password' => 'root',
-            'unix_socket' => '/Users/davidebosco/Library/Application Support/Local/run/PzVL9Ueo_/mysql/mysqld.sock',
-            'dbname' => 'local',
-        ]);
+        $this->connection = TestDatabase::connect();
 
         $classes = [Cms::class, ...RowsFixtures::CLASSES];
         $blueprints = NativeEntityReader::readAll($classes);

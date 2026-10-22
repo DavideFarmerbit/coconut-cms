@@ -3,7 +3,6 @@
 namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Entity;
 
 use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception\ForeignKeyConstraintViolationException;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
@@ -15,6 +14,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Layout\LayoutFixtures;
 
 #[Entity]
@@ -31,13 +31,7 @@ final class EntityTablesTest extends TestCase
     private array $levels;
 
     protected function setUp(): void {
-        $this->connection = DriverManager::getConnection([
-            'driver' => 'pdo_mysql',
-            'user' => 'root',
-            'password' => 'root',
-            'unix_socket' => '/Users/davidebosco/Library/Application Support/Local/run/PzVL9Ueo_/mysql/mysqld.sock',
-            'dbname' => 'local',
-        ]);
+        $this->connection = TestDatabase::connect();
 
         $builder = LayoutFixtures::builderFor([Cms::class, EntityTablesNote::class]);
         $this->levels = [$builder->levelOf(Cms::IDENTIFIER), $builder->levelOf('default:entity_tables_note')];

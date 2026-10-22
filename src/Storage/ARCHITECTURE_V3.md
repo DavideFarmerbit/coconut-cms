@@ -5,10 +5,23 @@ Updated alongside implementation, one decision at a time, so this document never
 outpaces the code the way earlier rounds did. A decision recorded here may still be
 ahead of the code; where that's true, it's noted inline rather than left implicit.
 
-Scope: the schema-registration, compilation, and caching pieces of the system only.
-For everything else (namespaces, the write path, undo, permissions),
-ARCHITECTURE_V2.md, CLEANUP_FOR_V2_ROUND17.md and PROPOSAL_FOR_V2_DEFAULT_TRACKING still 
-apply, until this document grows to cover them too.
+Scope:
+
+- **Schemas:** reading native classes, compiling them, storing schemas and
+  their default values, and catching stale ones.
+- **Content:** where an entity's values are stored, identity, and saving,
+  loading and deleting native entities.
+
+Not covered yet:
+
+- migrations, when a schema changes after content is stored;
+- editor-created entities, decided in `PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`;
+- namespaces, undo and permissions, for which `archive/ARCHITECTURE_V2.md` and
+  `archive/CLEANUP_FOR_V2_ROUND17.md` still hold the latest design.
+
+Everything in `archive/` is superseded: the v1 and v2 designs, their roadmaps,
+and their cleanup rounds. Read it for history, or for an area this document
+doesn't cover yet. Where the two disagree, this document wins.
 
 ## Three stages
 

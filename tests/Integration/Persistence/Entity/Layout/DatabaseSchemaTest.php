@@ -3,11 +3,11 @@
 namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Entity\Layout;
 
 use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Schema\Schema;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
+use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Layout\LayoutCar;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Layout\LayoutChassis;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Layout\LayoutEngine;
@@ -23,13 +23,7 @@ final class DatabaseSchemaTest extends TestCase
     private Schema $schema;
 
     protected function setUp(): void {
-        $this->connection = DriverManager::getConnection([
-            'driver' => 'pdo_mysql',
-            'user' => 'root',
-            'password' => 'root',
-            'unix_socket' => '/Users/davidebosco/Library/Application Support/Local/run/PzVL9Ueo_/mysql/mysqld.sock',
-            'dbname' => 'local',
-        ]);
+        $this->connection = TestDatabase::connect();
 
         $builder = LayoutFixtures::carBuilder();
         $levels = [];

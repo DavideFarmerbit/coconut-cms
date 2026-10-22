@@ -3,7 +3,6 @@
 namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Schema\Registry;
 
 use Doctrine\DBAL\Connection;
-use Doctrine\DBAL\DriverManager;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Core\Identifier;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
@@ -24,6 +23,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
+use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 
 final class SchemaStoreMaxLength implements FieldValidatorRule
 {
@@ -64,13 +64,7 @@ final class SchemaStoreTest extends TestCase
     private SchemaStore $store;
 
     protected function setUp(): void {
-        $this->connection = DriverManager::getConnection([
-            'driver' => 'pdo_mysql',
-            'user' => 'root',
-            'password' => 'root',
-            'unix_socket' => '/Users/davidebosco/Library/Application Support/Local/run/PzVL9Ueo_/mysql/mysqld.sock',
-            'dbname' => 'local',
-        ]);
+        $this->connection = TestDatabase::connect();
 
         $fieldValidators = new FieldValidatorRegistry();
         $fieldValidators->register(Identifier::of('test', 'max-length'), SchemaStoreMaxLength::class);
