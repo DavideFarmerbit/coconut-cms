@@ -146,8 +146,11 @@ misread.
 
 - Scalar: a `LeafNode` of the plain value it's stored as, through
   `ScalarValues`: an Enum as its backing value, a Date as `Y-m-d`, a DateTime
-  converted to UTC as `Y-m-d H:i:s`, whole seconds. Anything else as is. So
-  two equal values always compare equal, wherever they were read from.
+  converted to UTC as `Y-m-d H:i:s`, whole seconds, a Decimal with exactly
+  six decimal places and no leading zeros, the way MySQL gives a
+  `DECIMAL(20, 6)` back. Anything else as is. So two equal values always
+  compare equal, wherever they were read from, the database included. A
+  Decimal with more than six places fails rather than being rounded.
   It also checks each value's kind: a Collection's items, or a value from
   the editor, are never checked by a property type. The one conversion it
   makes is PHP's own: an int widens to a float for a Float, so `3` and `3.0`
@@ -409,3 +412,27 @@ the repository's job.
 
 Each `Row` says how to bind its values, from their own PHP kind: PDO would
 otherwise send `false` as an empty string, which no boolean column accepts.
+
+## Loading an entity
+
+`EntityLoader` is the way back. `EntityRowsReader` reads an entity's rows
+into its touched values: only flagged columns count, each back in its stored
+form (MySQL gives a boolean back as `0` or `1`), and an owned object's values
+come from its own rows, under its path. The resolver then resolves the whole
+tree on `Subject::ofInstance()`: anything untouched comes from the class's
+defaults as they are now, not as they were when the entity was saved.
+
+`NativeObjectBuilder` builds the object from that tree the way Unreal copies
+a class default object. Each class's default instance is built once, then
+for every object a clone of it gives the non-field state, and every field is
+set from the tree. So a constructor runs once per class, not once per load.
+A non-field object every instance must own a copy of is copied by the class's
+own `__clone()`. A field is set exactly once, so a readonly one works too.
+
+Owned objects load with their owner. One never touched is built from its
+default and has no id until it's touched and saved. A Reference loads as a
+lazy ghost of its target's concrete class, looked up for every referenced id
+in one query, since a ghost must be created as its final class. Its fields
+load when first read; its `#[Id]` is readable before that. The `IdentityMap`
+keeps one object per id: loading an id twice, or reaching it through two
+References, gives the same object.

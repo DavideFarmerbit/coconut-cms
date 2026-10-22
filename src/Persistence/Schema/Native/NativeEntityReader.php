@@ -6,13 +6,11 @@ use BackedEnum;
 use DateTimeImmutable;
 use InvalidArgumentException;
 use ReflectionClass;
-use ReflectionMethod;
 use ReflectionNamedType;
 use ReflectionProperty;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\PrototypeValidator;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Unique;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Method\DefaultInstance;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermission;
@@ -53,7 +51,7 @@ final class NativeEntityReader
         $fieldValidators = self::resolveFieldValidators($reflection, $fields);
         $uniqueGroups = self::resolveUniqueGroups($reflection, $fields);
         $prototypeValidators = self::resolvePrototypeValidators($reflection, $fields);
-        $defaultInstance = self::buildDefaultInstance($reflection);
+        $defaultInstance = DefaultInstances::build($reflection);
 
         self::assertDefaultInstanceIsInitialized($reflection, $defaultInstance);
 
@@ -400,48 +398,6 @@ final class NativeEntityReader
         }
 
         return $rules;
-    }
-
-    /**
-     * Builds one throwaway default instance, used only to read default values off
-     * of; never kept or exposed.
-     * @param ReflectionClass<object> $reflection
-     */
-    private static function buildDefaultInstance(ReflectionClass $reflection): object {
-        $markedMethods = array_values(array_filter(
-            $reflection->getMethods(),
-            static fn (ReflectionMethod $method): bool => $method->getAttributes(DefaultInstance::class) !== [],
-        ));
-
-        if (count($markedMethods) > 1) {
-            throw new InvalidArgumentException(sprintf(
-                '%s marks more than one method #[DefaultInstance].',
-                $reflection->getName(),
-            ));
-        }
-
-        if ($markedMethods !== []) {
-            $method = $markedMethods[0];
-            if (!$method->isStatic() || $method->getNumberOfParameters() !== 0) {
-                throw new InvalidArgumentException(sprintf(
-                    '%s::%s() must be static and take no parameters to carry #[DefaultInstance].',
-                    $reflection->getName(),
-                    $method->getName(),
-                ));
-            }
-
-            return $method->invoke(null);
-        }
-
-        $constructor = $reflection->getConstructor();
-        if ($constructor !== null && $constructor->getNumberOfRequiredParameters() > 0) {
-            throw new InvalidArgumentException(sprintf(
-                '%s needs a zero-argument constructor, or a static method marked #[DefaultInstance].',
-                $reflection->getName(),
-            ));
-        }
-
-        return $reflection->newInstance();
     }
 
     /**

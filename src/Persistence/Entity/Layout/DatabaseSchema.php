@@ -11,6 +11,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\EntityIds;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValues;
 
 /**
@@ -147,7 +148,7 @@ final class DatabaseSchema
             ScalarType::Float => [Types::FLOAT, []],
             ScalarType::Date => [Types::DATE_IMMUTABLE, []],
             ScalarType::DateTime => [Types::DATETIME_IMMUTABLE, []],
-            ScalarType::Decimal => [Types::DECIMAL, ['precision' => 20, 'scale' => 6]],
+            ScalarType::Decimal => [Types::DECIMAL, ['precision' => ScalarValues::DECIMAL_PRECISION, 'scale' => ScalarValues::DECIMAL_SCALE]],
             ScalarType::Enum => (new ReflectionEnum($field->enumClass()))->getBackingType()?->getName() === 'int'
                 ? [Types::BIGINT, []]
                 : [Types::STRING, ['length' => 255]],

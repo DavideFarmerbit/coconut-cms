@@ -17,6 +17,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolver;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Subject;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Schema\InMemorySchemaStores;
 
 enum ValuesFuel: string
@@ -98,9 +102,10 @@ final class NativeEntityValuesTest extends TestCase
 {
     private IdentityMap $identities;
     private NativeEntityValues $values;
+    private InMemorySchemaStores $stores;
 
     protected function setUp(): void {
-        $stores = new InMemorySchemaStores();
+        $stores = $this->stores = new InMemorySchemaStores();
         $blueprints = [];
         foreach ([ValuesMaker::class, ValuesPiston::class, ValuesEngine::class, ValuesTurboEngine::class, ValuesWheel::class, ValuesCar::class] as $class) {
             $blueprints[$class] = NativeEntityReader::read($class);
@@ -117,6 +122,25 @@ final class NativeEntityValuesTest extends TestCase
         ksort($touched, SORT_STRING);
 
         return $touched;
+    }
+
+    public function testOnlyTheTouchedValuesResolveBackToEveryValue(): void {
+        $maker = new ValuesMaker();
+        $this->identities->remember($maker, 'maker-id');
+        $car = new ValuesCar();
+        $car->name = 'mine';
+        $car->engine = new ValuesTurboEngine();
+        $car->engine->piston->diameter = 12;
+        $car->wheels = [new ValuesWheel(), new ValuesWheel()];
+        $car->wheels[1]->size = 19;
+        $car->maker = $maker;
+        $values = $this->values->of($car);
+
+        $lookup = new SchemaLookup($this->stores->registry);
+        $resolver = new FieldValueResolver($this->stores->registry, $this->stores->values);
+        $tree = $resolver->resolveTree(Subject::ofInstance(ValuesCar::class, $values->touched));
+
+        self::assertSame($values->dense->toArray(), (new ValueFlattener($lookup))->flatten(ValuesCar::class, $tree)->toArray());
     }
 
     public function testAnUntouchedEntityTouchesNothing(): void {

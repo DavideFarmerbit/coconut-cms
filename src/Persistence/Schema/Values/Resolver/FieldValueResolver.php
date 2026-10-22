@@ -2,8 +2,10 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver;
 
+use Closure;
 use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
@@ -11,6 +13,11 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\CollectionNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\LeafNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ObjectNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\OwnedNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
 
 /**
  * Finds the effective value of one FieldPath on one Subject: a class, native
@@ -77,6 +84,56 @@ final class FieldValueResolver
      */
     public function resolveWithoutSubtree(Subject $subject, FieldPath $path, FieldPath $subtree): mixed {
         return $this->resolveOn($this->sourcesOf($subject), $subject->class, $path, ValueExclusion::under($subject->ownSource(), $subtree));
+    }
+
+    /**
+     * Every value $subject resolves to, as a tree shaped like its class's
+     * fields: what an object is built from. An owned object is read through
+     * the class it resolves to holding, a Collection item by item.
+     */
+    public function resolveTree(Subject $subject): ObjectNode {
+        return $this->treeOf($subject, $this->schemas->hierarchyFieldsOf($subject->class), FieldPath::of(...));
+    }
+
+    /** @param Closure(FieldName): FieldPath $pathOf Turns one of $fields' names into its full path. */
+    private function treeOf(Subject $subject, FieldDescriptorCollection $fields, Closure $pathOf): ObjectNode {
+        $tree = ObjectNode::empty();
+        foreach ($fields as $name => $field) {
+            $tree = $tree->with($name, $this->nodeOf($subject, $field, $pathOf($name)));
+        }
+
+        return $tree;
+    }
+
+    /** Dispatches on the field's kind. */
+    private function nodeOf(Subject $subject, FieldDescriptor $field, FieldPath $path): ?ValueNode {
+        return match ($field->kind()) {
+            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => new LeafNode($this->resolve($subject, $path)),
+            FieldKind::Embed => $this->treeOf($subject, $this->schemas->hierarchyFieldsOf($field->target()), $path->embed(...)),
+            FieldKind::OwningReference => $this->ownedNodeOf($subject, $path),
+            FieldKind::Collection => $this->collectionNodeOf($subject, $field->itemDescriptor(), $path),
+        };
+    }
+
+    /** Null when nothing is held at $path. */
+    private function ownedNodeOf(Subject $subject, FieldPath $path): ?OwnedNode {
+        $class = $this->resolve($subject, $path);
+
+        return $class === null ? null : new OwnedNode($class, $this->treeOf($subject, $this->schemas->hierarchyFieldsOf($class), $path->traverse(...)));
+    }
+
+    private function collectionNodeOf(Subject $subject, FieldDescriptor $item, FieldPath $path): CollectionNode {
+        $items = [];
+        for ($index = 0; $index < $this->resolve($subject, $path); $index++) {
+            $itemPath = $path->traverse($index);
+            $items[] = match ($item->kind()) {
+                FieldKind::Embed => $this->treeOf($subject, $this->schemas->hierarchyFieldsOf($item->target()), $itemPath->traverse(...)),
+                FieldKind::OwningReference => $this->ownedNodeOf($subject, $itemPath),
+                default => new LeafNode($this->resolve($subject, $itemPath)),
+            };
+        }
+
+        return new CollectionNode($items);
     }
 
     /**

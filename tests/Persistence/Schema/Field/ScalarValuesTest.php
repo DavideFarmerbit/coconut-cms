@@ -57,12 +57,58 @@ final class ScalarValuesTest extends TestCase
         self::assertSame(3.0, ScalarValues::toStorage(ScalarType::Float, 3));
     }
 
+    /** @return array<string, array{string, string}> */
+    public static function decimals(): array {
+        return [
+            'fewer places' => ['12.5', '12.500000'],
+            'no places' => ['12', '12.000000'],
+            'leading zeros' => ['007.25', '7.250000'],
+            'negative' => ['-3.1', '-3.100000'],
+            'negative zero' => ['-0.0', '0.000000'],
+            'trailing zeros past the scale' => ['1.50000000', '1.500000'],
+        ];
+    }
+
+    /** Written the way MySQL gives a DECIMAL(20, 6) back, so a loaded value equals the saved one. */
+    #[DataProvider('decimals')]
+    public function testADecimalIsStoredInTheFormTheDatabaseGivesBack(string $decimal, string $stored): void {
+        self::assertSame($stored, ScalarValues::toStorage(ScalarType::Decimal, $decimal));
+    }
+
+    public function testADecimalPastTheScaleThrowsRatherThanRound(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('more than 6 decimal places');
+
+        ScalarValues::toStorage(ScalarType::Decimal, '1.0000001');
+    }
+
+    public function testSomethingNotANumberIsNotADecimal(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        ScalarValues::toStorage(ScalarType::Decimal, '12,50');
+    }
+
+    public function testFromStorageRebuildsWhatThePropertyHolds(): void {
+        self::assertSame(ScalarValuesTestFuel::Petrol, ScalarValues::fromStorage(ScalarType::Enum, ScalarValuesTestFuel::class, 'petrol'));
+        self::assertEquals(new DateTimeImmutable('2024-03-10 00:00:00'), ScalarValues::fromStorage(ScalarType::Date, null, '2024-03-10'));
+        self::assertEquals(new DateTimeImmutable('2024-03-10 22:30:15', new DateTimeZone('UTC')), ScalarValues::fromStorage(ScalarType::DateTime, null, '2024-03-10 22:30:15'));
+        self::assertSame('12.500000', ScalarValues::fromStorage(ScalarType::Decimal, null, '12.500000'));
+        self::assertNull(ScalarValues::fromStorage(ScalarType::Enum, ScalarValuesTestFuel::class, null));
+    }
+
+    public function testAValueStoredThenRebuiltStoresTheSameAgain(): void {
+        $inRome = new DateTimeImmutable('2024-03-10 23:30:15', new DateTimeZone('Europe/Rome'));
+        $stored = ScalarValues::toStorage(ScalarType::DateTime, $inRome);
+
+        self::assertSame($stored, ScalarValues::toStorage(ScalarType::DateTime, ScalarValues::fromStorage(ScalarType::DateTime, null, $stored)));
+        self::assertEquals($inRome->getTimestamp(), ScalarValues::fromStorage(ScalarType::DateTime, null, $stored)->getTimestamp());
+    }
+
     public function testEveryOtherTypeIsStoredAsIs(): void {
         self::assertSame('a', ScalarValues::toStorage(ScalarType::String, 'a'));
         self::assertSame(3, ScalarValues::toStorage(ScalarType::Int, 3));
         self::assertSame(1.5, ScalarValues::toStorage(ScalarType::Float, 1.5));
         self::assertTrue(ScalarValues::toStorage(ScalarType::Bool, true));
-        self::assertSame('12.50', ScalarValues::toStorage(ScalarType::Decimal, '12.50'));
     }
 
     /** @return array<string, array{ScalarType, mixed}> */
