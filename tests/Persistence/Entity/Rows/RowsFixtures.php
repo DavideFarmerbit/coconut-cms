@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Id;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
@@ -28,6 +29,9 @@ final class RowsTurbo
 #[Entity(table: 'rows_engine')]
 final class RowsEngine
 {
+    #[Id]
+    public ?string $id = null;
+
     #[Scalar(ScalarType::Int)]
     public int $horsepower = 300;
 

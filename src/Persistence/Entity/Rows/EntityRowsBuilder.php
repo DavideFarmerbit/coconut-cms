@@ -5,7 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Entity\Rows;
 use Closure;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\CollectionLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
-use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LayoutBuilder;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\OwnedLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntityValues;
@@ -26,15 +26,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
  */
 final class EntityRowsBuilder
 {
-    private readonly LayoutBuilder $layouts;
+    private readonly LevelChains $chains;
 
-    /** @var array<string, LevelLayout> Keyed by identifier. */
-    private array $levels = [];
-
-    public function __construct(
-        private readonly SchemaLookup $schemas,
-    ) {
-        $this->layouts = new LayoutBuilder($schemas);
+    public function __construct(SchemaLookup $schemas) {
+        $this->chains = new LevelChains($schemas);
     }
 
     /**
@@ -63,7 +58,7 @@ final class EntityRowsBuilder
         ])];
         $owned = [];
 
-        foreach ($this->chainOf($identifier) as $level) {
+        foreach ($this->chains->of($identifier) as $level) {
             $rows[] = new Row($level->table, $this->levelRowOf($level, $touched, $id, $placement));
             $rows[] = new Row($level->stateTable, $this->stateRowOf($level, $touched, $id));
 
@@ -186,18 +181,5 @@ final class EntityRowsBuilder
         $fullPath = $prefix === null ? $path : $prefix->append(FieldPath::TRAVERSE, $path);
 
         return $this->entityRows($identifier, $dense->within($path), $touched->within($path), $ownedIdOf($fullPath), $placement, $fullPath, $ownedIdOf);
-    }
-
-    /**
-     * $identifier's levels, root first.
-     * @return list<LevelLayout>
-     */
-    private function chainOf(string $identifier): array {
-        $chain = [];
-        for ($current = $identifier; $current !== null; $current = $this->schemas->get($current)->parent) {
-            $chain[] = $this->levels[$current] ??= $this->layouts->levelOf($current);
-        }
-
-        return array_reverse($chain);
     }
 }

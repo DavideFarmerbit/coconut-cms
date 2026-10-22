@@ -6,8 +6,7 @@ use Closure;
 use Doctrine\DBAL\Connection;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\CollectionLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
-use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LayoutBuilder;
-use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\OwnedLayout;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
@@ -23,16 +22,13 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValuesBuilder;
  */
 final class EntityRowsReader
 {
-    private readonly LayoutBuilder $layouts;
-
-    /** @var array<string, LevelLayout> Keyed by identifier. */
-    private array $levels = [];
+    private readonly LevelChains $chains;
 
     public function __construct(
         private readonly Connection $connection,
-        private readonly SchemaLookup $schemas,
+        SchemaLookup $schemas,
     ) {
-        $this->layouts = new LayoutBuilder($schemas);
+        $this->chains = new LevelChains($schemas);
     }
 
     /** Null when no entity has $id. */
@@ -58,7 +54,7 @@ final class EntityRowsReader
     private function readInto(string $id, string $identifier, ?FieldPath $prefix, FieldValuesBuilder $touched, array &$ownedIds): void {
         $at = static fn (FieldPath $path): FieldPath => $prefix === null ? $path : $prefix->append(FieldPath::TRAVERSE, $path);
 
-        foreach ($this->chainOf($identifier) as $level) {
+        foreach ($this->chains->of($identifier) as $level) {
             $row = $this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE id = ?', $level->table), [$id]);
             $state = $this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE id = ?', $level->stateTable), [$id]);
             $flags = $level->stateColumns();
@@ -166,18 +162,5 @@ final class EntityRowsReader
             ScalarType::Enum => $field->enumBacking() === ScalarType::Int ? (int) $value : (string) $value,
             default => $value,
         };
-    }
-
-    /**
-     * $identifier's levels, root first.
-     * @return list<LevelLayout>
-     */
-    private function chainOf(string $identifier): array {
-        $chain = [];
-        for ($current = $identifier; $current !== null; $current = $this->schemas->get($current)->parent) {
-            $chain[] = $this->levels[$current] ??= $this->layouts->levelOf($current);
-        }
-
-        return array_reverse($chain);
     }
 }

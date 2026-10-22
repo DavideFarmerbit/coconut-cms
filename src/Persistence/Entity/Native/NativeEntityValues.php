@@ -2,12 +2,14 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Entity\Native;
 
+use Closure;
 use LogicException;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeValueReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolver;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Overrides;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Subject;
@@ -37,8 +39,12 @@ final readonly class NativeEntityValues
         $this->overrides = new Overrides($this->schemas, new FieldValueResolver($registry, $store));
     }
 
-    public function of(object $entity): EntityValues {
-        $tree = $this->reader->read($entity);
+    /**
+     * @param Closure(FieldPath, object): void|null $onOwned Told about every
+     *        owned object read, with its path from $entity's class.
+     */
+    public function of(object $entity, ?Closure $onOwned = null): EntityValues {
+        $tree = $this->reader->read($entity, $onOwned);
         $dense = (new ValueFlattener($this->schemas))->flatten($entity::class, $tree);
 
         return new EntityValues(

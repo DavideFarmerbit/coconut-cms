@@ -397,7 +397,7 @@ never saved has none, and fails: it's never saved along on the side.
 
 `EntityRowsBuilder` turns an entity's `EntityValues` into every row it should
 be stored as, and every row of what it owns. It's plain data: writing it is
-the repository's job.
+`EntityWriter`'s job.
 
 - The entity's `entities` row, then each level's row and state row, root
   level first. A value lands on the level whose class declares its field.
@@ -446,3 +446,44 @@ in one query, since a ghost must be created as its final class. Its fields
 load when first read; its `#[Id]` is readable before that. The `IdentityMap`
 keeps one object per id: loading an id twice, or reaching it through two
 References, gives the same object.
+
+## Saving an entity
+
+Saving is split the same way as loading. `EntityWriter` writes any entity by
+id, from its `EntityValues`. `NativeEntityWriter` reads a native object into
+those values, hands out ids, and keeps the `IdentityMap` and each `#[Id]` in
+step with what's stored.
+
+A save writes a whole aggregate: an entity and everything it owns, in one
+transaction. An owned entity is saved and deleted only through its owner. A
+save or delete given one fails.
+
+A save reconciles what's stored with what's wanted now:
+
+1. A recursive query on `entities.owner` finds everything stored under the
+   entity, at any depth. A standalone entity's row points at `Cms` through no
+   field, so only a row with an `owner_field` counts as owned.
+2. Every entity kept loses its level rows. Its side table and Collection rows
+   go with them, by cascade. So every content row is rewritten whole, and a
+   unique value moving from one row to another never collides with itself.
+3. Each wanted entity's `entities` row is inserted or updated, owners first.
+   An owned object moved to a new owner in the same aggregate keeps its id,
+   and stops pointing at its old owner before that one is deleted.
+4. Every entity no longer wanted is deleted, deepest first, since
+   `entities.owner` restricts deleting an owner. This covers an owned object
+   replaced by another, one dropped from an Owned Collection, and one back at
+   its defaults: it has no rows to keep, so it follows its default again.
+5. Every wanted level, side table and Collection row is inserted.
+
+An owned object keeps its id while it's the same object, from the
+`IdentityMap`. A new object gets a new id, even in the same place.
+`NativeValueReader` tells the native writer which object sits at each owned
+path, the same way `NativeObjectBuilder` does when building one.
+
+The `IdentityMap` and `#[Id]` properties change only once the transaction
+commits. Every object written is remembered with its id. Every entity deleted
+is forgotten, and its object, if still around, has its `#[Id]` set back to
+null. A failed save leaves both as they were.
+
+Deleting an entity deletes everything it owns, deepest first. A Reference to
+it is set to null by its foreign key, and loads as null.

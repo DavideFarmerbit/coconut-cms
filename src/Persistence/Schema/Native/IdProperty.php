@@ -53,8 +53,8 @@ final class IdProperty
         return self::$byClass[$class] = $found;
     }
 
-    /** Sets $entity's #[Id] property to $id, if its class has one. */
-    public static function assign(object $entity, string $id): void {
+    /** Sets $entity's #[Id] property to $id, if its class has one: null once it's deleted. */
+    public static function assign(object $entity, ?string $id): void {
         self::of($entity::class)?->setValue($entity, $id);
     }
 

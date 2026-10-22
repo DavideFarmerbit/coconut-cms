@@ -9,15 +9,14 @@ use ReflectionClass;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Cms;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityTables;
+use XyloIsCoding\CoconutCms\Persistence\Entity\EntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\EntityIds;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LayoutBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityLoader;
-use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityValues;
-use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsBuilder;
-use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\Placement;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
@@ -30,7 +29,6 @@ use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsTurbo;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsWheel;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Schema\InMemorySchemaStores;
 
-/** Saving writes rows by hand here: the repository that does it comes next. */
 final class NativeEntityLoaderTest extends TestCase
 {
     private Connection $connection;
@@ -77,21 +75,10 @@ final class NativeEntityLoaderTest extends TestCase
         $this->connection->executeStatement('SET FOREIGN_KEY_CHECKS = 1');
     }
 
-    /** Writes $entity's rows, standalone, and returns its new id. */
     private function save(object $entity, IdentityMap $identities): string {
-        $id = EntityIds::generate();
-        $values = (new NativeEntityValues($this->stores->registry, $this->stores->values, $identities))->of($entity);
-        $all = (new EntityRowsBuilder(new SchemaLookup($this->stores->registry)))->rowsOf($values, $id, Placement::standalone(), static fn (): string => EntityIds::generate());
+        $writer = new EntityWriter($this->connection, $this->stores->registry);
 
-        foreach ($all as $each) {
-            foreach ($each->rows as $row) {
-                $this->connection->insert($row->table, $row->values, $row->types());
-            }
-        }
-
-        $identities->remember($entity, $id);
-
-        return $id;
+        return (new NativeEntityWriter($writer, $this->stores->registry, $this->stores->values, $identities))->save($entity);
     }
 
     /** A loader with nothing in memory yet: what a fresh request starts with. */
