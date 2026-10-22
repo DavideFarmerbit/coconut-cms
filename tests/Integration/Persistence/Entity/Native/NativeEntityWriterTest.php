@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Entity\Native;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Exception\ForeignKeyConstraintViolationException;
+use Doctrine\DBAL\Exception\LockWaitTimeoutException;
 use LogicException;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Cms;
@@ -245,6 +246,50 @@ final class NativeEntityWriterTest extends TestCase
         $this->expectExceptionMessage('through its owner');
 
         $this->writer->delete($car->engine);
+    }
+
+    public function testAnOwnedObjectStillStoredInAnotherAggregateIsRejected(): void {
+        $first = new RowsCar();
+        $first->engine->horsepower = 450;
+        $this->writer->save($first);
+
+        $second = new RowsCar();
+        $second->engine = $first->engine;
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('already stored in another aggregate');
+
+        $this->writer->save($second);
+    }
+
+    public function testAnOwnedObjectSavedOnItsOwnBeforeItsOwnerIsRejectedWithIt(): void {
+        $car = new RowsCar();
+        $car->engine->horsepower = 450;
+        $this->writer->save($car->engine);
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('already stored in another aggregate');
+
+        $this->writer->save($car);
+    }
+
+    public function testASaveWaitsForAnotherHoldingItsAggregate(): void {
+        $car = new RowsCar();
+        $id = $this->writer->save($car);
+
+        $other = DriverManager::getConnection($this->connection->getParams());
+        $other->beginTransaction();
+        $other->fetchOne(sprintf('SELECT id FROM %s WHERE id = ? FOR UPDATE', DatabaseSchema::ENTITIES), [$id]);
+        $this->connection->executeStatement('SET SESSION innodb_lock_wait_timeout = 1');
+
+        try {
+            $car->name = 'blocked';
+            $this->expectException(LockWaitTimeoutException::class);
+            $this->writer->save($car);
+        } finally {
+            $other->rollBack();
+            $other->close();
+        }
     }
 
     public function testAFailedSaveChangesNothingStoredNorInMemory(): void {

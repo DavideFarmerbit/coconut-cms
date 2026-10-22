@@ -456,7 +456,20 @@ step with what's stored.
 
 A save writes a whole aggregate: an entity and everything it owns, in one
 transaction. An owned entity is saved and deleted only through its owner. A
-save or delete given one fails.
+save or delete given one that's stored as owned fails. One never stored has
+nothing marking it as owned, so it's saved standalone; its owner's next save
+then fails, as below.
+
+An owned object belongs to one aggregate at a time. A save that would insert
+an id already stored elsewhere fails: the object is still stored in another
+aggregate. Saving the aggregate it left first deletes it there, and it gets a
+new id in its new one.
+
+Saves and deletes of one aggregate run one at a time. Each locks the root's
+`entities` row first, then reads the aggregate. A second one waits, then sees
+what the first committed. The writer's transactions are read committed: the
+lock on a root not stored yet then locks no gap, so two first saves never
+block each other.
 
 A save reconciles what's stored with what's wanted now:
 
