@@ -18,10 +18,10 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityLoader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsCar;
-use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsChassis;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsEngine;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsFixtures;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsMaker;
@@ -33,6 +33,7 @@ final class NativeEntityLoaderTest extends TestCase
 {
     private Connection $connection;
     private InMemorySchemaStores $stores;
+    private NativeEntityRegistry $classes;
     /** @var list<LevelLayout> */
     private array $levels = [];
 
@@ -46,16 +47,18 @@ final class NativeEntityLoaderTest extends TestCase
         ]);
 
         $classes = [Cms::class, ...RowsFixtures::CLASSES];
+        $blueprints = NativeEntityReader::readAll($classes);
         $this->stores = new InMemorySchemaStores();
-        $blueprints = [];
-        foreach ($classes as $class) {
-            $blueprints[$class] = NativeEntityReader::read($class);
-        }
         $this->stores->compiler()->compile($blueprints);
 
         $layouts = new LayoutBuilder(new SchemaLookup($this->stores->registry));
+        foreach (array_keys($blueprints) as $identifier) {
+            $this->levels[] = $layouts->levelOf($identifier);
+        }
+
+        $this->classes = new NativeEntityRegistry();
         foreach ($classes as $class) {
-            $this->levels[] = $layouts->levelOf($class);
+            $this->classes->register($class);
         }
 
         $this->dropTables();
@@ -87,7 +90,7 @@ final class NativeEntityLoaderTest extends TestCase
     }
 
     private function loaderWith(IdentityMap $identities): NativeEntityLoader {
-        return new NativeEntityLoader(new EntityReader($this->connection, $this->stores->registry, $this->stores->values), $identities);
+        return new NativeEntityLoader(new EntityReader($this->connection, $this->stores->registry, $this->stores->values), $this->classes, $identities);
     }
 
     private function fullCar(IdentityMap $identities): RowsCar {
@@ -132,7 +135,7 @@ final class NativeEntityLoaderTest extends TestCase
         $id = $this->save($car, $identities);
 
         // RowsChassis's default weight changes after the car was saved.
-        $this->stores->values->save(RowsChassis::class, FieldValues::fromArray(['weight' => 2000]));
+        $this->stores->values->save('default:rows_chassis', FieldValues::fromArray(['weight' => 2000]));
         $loaded = $this->freshLoader()->load($id);
 
         self::assertSame('mine', $loaded->name);

@@ -654,16 +654,16 @@ final class NativeEntityReaderTest extends TestCase
     public function testRegisterReflectsEntityAttributeAndFields(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarProduct::class);
 
-        self::assertSame(EntityRegistrarProduct::class, $blueprint->identifier);
+        self::assertSame('default:entity_registrar_product', $blueprint->identifier);
         self::assertNull($blueprint->parent);
         self::assertSame('products', $blueprint->table);
         self::assertTrue($blueprint->editorExtensible);
 
         self::assertSame(ScalarType::String, $blueprint->fields->get(FieldName::of('sku'))->scalarType());
-        self::assertSame(EntityRegistrarCategory::class, $blueprint->fields->get(FieldName::of('category'))->target());
-        self::assertSame(EntityRegistrarEngine::class, $blueprint->fields->get(FieldName::of('engine'))->target());
+        self::assertSame('default:entity_registrar_category', $blueprint->fields->get(FieldName::of('category'))->target());
+        self::assertSame('default:entity_registrar_engine', $blueprint->fields->get(FieldName::of('engine'))->target());
         self::assertSame(FieldKind::Collection, $blueprint->fields->get(FieldName::of('relatedCategories'))->kind());
-        self::assertSame(EntityRegistrarCategory::class, $blueprint->fields->get(FieldName::of('relatedCategories'))->itemDescriptor()->target());
+        self::assertSame('default:entity_registrar_category', $blueprint->fields->get(FieldName::of('relatedCategories'))->itemDescriptor()->target());
     }
 
     public function testRegisterDerivesTableNameWhenNoneIsGiven(): void {
@@ -711,7 +711,7 @@ final class NativeEntityReaderTest extends TestCase
     public function testRegisterResolvesParentWhenItIsAnEntity(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarDerived::class);
 
-        self::assertSame(EntityRegistrarBase::class, $blueprint->parent);
+        self::assertSame('default:entity_registrar_base', $blueprint->parent);
         self::assertTrue($blueprint->fields->has(FieldName::of('extra')));
         self::assertFalse($blueprint->fields->has(FieldName::of('createdAt')));
     }
@@ -743,7 +743,7 @@ final class NativeEntityReaderTest extends TestCase
     public function testRegisterSkipsPastANonEntityAncestorToFindARealEntityFurtherUp(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarChildPastNonEntityMiddle::class);
 
-        self::assertSame(EntityRegistrarGrandparent::class, $blueprint->parent);
+        self::assertSame('default:entity_registrar_grandparent', $blueprint->parent);
         self::assertSame(['own'], array_map('strval', $blueprint->fields->names()));
         self::assertSame(['createdAt', 'own'], array_map('strval', $blueprint->defaultValues->names()));
     }
@@ -994,7 +994,7 @@ final class NativeEntityReaderTest extends TestCase
         $blueprint = NativeEntityReader::read(EntityRegistrarCarWithOwningReference::class);
 
         self::assertEquals(
-            new OwnedNode(EntityRegistrarSportsEngine::class, ObjectNode::fromArray(['horsepower' => new LeafNode(100), 'redline' => new LeafNode(7000)])),
+            new OwnedNode('default:entity_registrar_sports_engine', ObjectNode::fromArray(['horsepower' => new LeafNode(100), 'redline' => new LeafNode(7000)])),
             $blueprint->defaultValues->get(FieldName::of('engine')),
         );
     }
@@ -1009,7 +1009,7 @@ final class NativeEntityReaderTest extends TestCase
         $blueprint = NativeEntityReader::read(EntityRegistrarGarage::class);
 
         self::assertEquals(
-            new CollectionNode([new OwnedNode(EntityRegistrarSportsEngine::class, ObjectNode::fromArray(['horsepower' => new LeafNode(100), 'redline' => new LeafNode(7000)]))]),
+            new CollectionNode([new OwnedNode('default:entity_registrar_sports_engine', ObjectNode::fromArray(['horsepower' => new LeafNode(100), 'redline' => new LeafNode(7000)]))]),
             $blueprint->defaultValues->get(FieldName::of('engines')),
         );
     }

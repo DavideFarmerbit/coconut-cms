@@ -26,11 +26,7 @@ final class EntityRowsBuilderTest extends TestCase
 
     protected function setUp(): void {
         $stores = new InMemorySchemaStores();
-        $blueprints = [];
-        foreach (RowsFixtures::CLASSES as $class) {
-            $blueprints[$class] = NativeEntityReader::read($class);
-        }
-        $stores->compiler()->compile($blueprints);
+        $stores->compiler()->compile(NativeEntityReader::readAll(RowsFixtures::CLASSES));
 
         $this->identities = new IdentityMap();
         $this->values = new NativeEntityValues($stores->registry, $stores->values, $this->identities);
@@ -77,7 +73,7 @@ final class EntityRowsBuilderTest extends TestCase
             array_map(static fn (Row $row): string => $row->table, $all[0]->rows),
         );
         self::assertSame(
-            ['id' => 'car-id', 'owner' => EntityIds::NIL, 'owner_field' => '', 'position' => -1, 'concrete_identifier' => RowsCar::class],
+            ['id' => 'car-id', 'owner' => EntityIds::NIL, 'owner_field' => '', 'position' => -1, 'concrete_identifier' => 'default:rows_car'],
             self::rowIn($all[0]->rows, 'entities'),
         );
         self::assertSame(
@@ -114,9 +110,9 @@ final class EntityRowsBuilderTest extends TestCase
         self::assertCount(2, $all);
         self::assertTrue(self::rowIn($all[0]->rows, 'rows_car__state')['engine']);
         self::assertSame('id-of-engine', $all[1]->id);
-        self::assertSame(RowsEngine::class, $all[1]->identifier);
+        self::assertSame('default:rows_engine', $all[1]->identifier);
         self::assertSame(
-            ['id' => 'id-of-engine', 'owner' => 'car-id', 'owner_field' => 'engine', 'position' => -1, 'concrete_identifier' => RowsEngine::class],
+            ['id' => 'id-of-engine', 'owner' => 'car-id', 'owner_field' => 'engine', 'position' => -1, 'concrete_identifier' => 'default:rows_engine'],
             self::rowIn($all[1]->rows, 'entities'),
         );
         self::assertSame(

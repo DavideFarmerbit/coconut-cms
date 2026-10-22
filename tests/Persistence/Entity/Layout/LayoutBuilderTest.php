@@ -17,6 +17,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
 
 #[Entity]
 final class LayoutHolder
@@ -77,7 +78,7 @@ final class LayoutBuilderTest extends TestCase
     }
 
     private static function car(): LevelLayout {
-        return LayoutFixtures::carBuilder()->levelOf(LayoutCar::class);
+        return LayoutFixtures::carBuilder()->levelOf('default:layout_car');
     }
 
     private static function collectionAt(LevelLayout $level, string $path): CollectionLayout {
@@ -166,7 +167,7 @@ final class LayoutBuilderTest extends TestCase
     }
 
     public function testAUniqueGroupOverAnEmbedCoversEveryColumnItFlattensInto(): void {
-        $engine = LayoutFixtures::carBuilder()->levelOf(LayoutEngine::class);
+        $engine = LayoutFixtures::carBuilder()->levelOf('default:layout_engine');
 
         self::assertSame([['owner', 'owner_field', 'serial']], $engine->uniqueIndexes);
         self::assertSame(['serial' => 'serial', 'piston:diameter' => 'piston__diameter'], self::columnsByPath($engine->columns));
@@ -175,7 +176,7 @@ final class LayoutBuilderTest extends TestCase
     public function testAnOwningReferenceInsideASingularEmbedIsFine(): void {
         $builder = LayoutFixtures::builderFor([LayoutPiston::class, LayoutEngine::class, LayoutHolder::class, LayoutWheelWithHolder::class]);
 
-        self::assertSame('holder:engine', $builder->levelOf(LayoutWheelWithHolder::class)->owned[0]->ownerField());
+        self::assertSame('holder:engine', $builder->levelOf('default:layout_wheel_with_holder')->owned[0]->ownerField());
     }
 
     /** @return array<string, array{class-string}> */
@@ -194,7 +195,7 @@ final class LayoutBuilderTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('stored as TEXT');
 
-        $builder->levelOf($class);
+        $builder->levelOf(NativeIdentifiers::of($class));
     }
 
     public function testAUniqueGroupOverACollectionIsRejected(): void {
@@ -203,6 +204,6 @@ final class LayoutBuilderTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessage('no column to index');
 
-        $builder->levelOf(LayoutUniqueCollection::class);
+        $builder->levelOf('default:layout_unique_collection');
     }
 }

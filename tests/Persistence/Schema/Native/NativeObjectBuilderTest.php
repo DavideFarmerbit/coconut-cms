@@ -16,6 +16,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeObjectBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeValueReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
@@ -144,7 +145,10 @@ final class NativeObjectBuilderTest extends TestCase
     protected function setUp(): void {
         $this->maker = new BuilderMaker();
         $this->reader = new NativeValueReader(static fn (object $target): string => 'maker-id');
-        $this->builder = new NativeObjectBuilder(fn (string $declaredClass, string $id): object => $id === 'maker-id' ? $this->maker : self::fail('Unknown id.'));
+        $classes = new NativeEntityRegistry();
+        $classes->register(BuilderEngine::class);
+        $classes->register(BuilderTurboEngine::class);
+        $this->builder = new NativeObjectBuilder($classes, fn (string $declaredClass, string $id): object => $id === 'maker-id' ? $this->maker : self::fail('Unknown id.'));
         BuilderCar::$constructed = 0;
     }
 

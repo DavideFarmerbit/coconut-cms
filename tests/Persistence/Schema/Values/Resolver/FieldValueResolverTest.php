@@ -136,173 +136,173 @@ final class FieldValueResolverTest extends TestCase
     }
 
     public function testReturnsAnIdentifiersOwnStoredValue(): void {
-        $this->store->save(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 300]));
+        $this->store->save('default:resolver_engine', FieldValues::fromArray(['horsepower' => 300]));
 
-        self::assertSame(300, $this->resolve(ResolverEngine::class, 'horsepower'));
+        self::assertSame(300, $this->resolve('default:resolver_engine', 'horsepower'));
     }
 
     public function testFallsBackToTheParent(): void {
-        $this->store->save(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 300]));
+        $this->store->save('default:resolver_engine', FieldValues::fromArray(['horsepower' => 300]));
 
-        self::assertSame(300, $this->resolve(ResolverSportsEngine::class, 'horsepower'));
+        self::assertSame(300, $this->resolve('default:resolver_sports_engine', 'horsepower'));
     }
 
     public function testAChildsOwnValueWinsOverItsParents(): void {
-        $this->store->save(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 300]));
-        $this->store->save(ResolverSportsEngine::class, FieldValues::fromArray(['horsepower' => 500]));
+        $this->store->save('default:resolver_engine', FieldValues::fromArray(['horsepower' => 300]));
+        $this->store->save('default:resolver_sports_engine', FieldValues::fromArray(['horsepower' => 500]));
 
-        self::assertSame(500, $this->resolve(ResolverSportsEngine::class, 'horsepower'));
+        self::assertSame(500, $this->resolve('default:resolver_sports_engine', 'horsepower'));
     }
 
     public function testAnEmbedFallsBackToItsTarget(): void {
-        $this->store->save(ResolverPiston::class, FieldValues::fromArray(['diameter' => 10]));
+        $this->store->save('default:resolver_piston', FieldValues::fromArray(['diameter' => 10]));
 
-        self::assertSame(10, $this->resolve(ResolverEngine::class, 'piston:diameter'));
+        self::assertSame(10, $this->resolve('default:resolver_engine', 'piston:diameter'));
     }
 
     public function testAnEmbedChainFallsBackOneTargetAtATime(): void {
-        $this->store->save(ResolverPiston::class, FieldValues::fromArray(['diameter' => 10]));
+        $this->store->save('default:resolver_piston', FieldValues::fromArray(['diameter' => 10]));
 
-        self::assertSame(10, $this->resolve(ResolverChassis::class, 'engine:piston:diameter'));
+        self::assertSame(10, $this->resolve('default:resolver_chassis', 'engine:piston:diameter'));
     }
 
     public function testAnEmbedOverrideWinsOverItsTarget(): void {
-        $this->store->save(ResolverPiston::class, FieldValues::fromArray(['diameter' => 10]));
-        $this->store->save(ResolverChassis::class, FieldValues::fromArray(['engine:piston:diameter' => 12]));
+        $this->store->save('default:resolver_piston', FieldValues::fromArray(['diameter' => 10]));
+        $this->store->save('default:resolver_chassis', FieldValues::fromArray(['engine:piston:diameter' => 12]));
 
-        self::assertSame(12, $this->resolve(ResolverChassis::class, 'engine:piston:diameter'));
+        self::assertSame(12, $this->resolve('default:resolver_chassis', 'engine:piston:diameter'));
     }
 
     public function testAnOwningReferenceFallsBackThroughTheClassItHolds(): void {
-        $this->store->save(ResolverCar::class, FieldValues::fromArray(['engine' => ResolverSportsEngine::class]));
-        $this->store->save(ResolverSportsEngine::class, FieldValues::fromArray(['boost' => 2]));
-        $this->store->save(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 300]));
+        $this->store->save('default:resolver_car', FieldValues::fromArray(['engine' => 'default:resolver_sports_engine']));
+        $this->store->save('default:resolver_sports_engine', FieldValues::fromArray(['boost' => 2]));
+        $this->store->save('default:resolver_engine', FieldValues::fromArray(['horsepower' => 300]));
 
         // Through ResolverSportsEngine's own row, then up to its parent's.
-        self::assertSame(2, $this->resolve(ResolverCar::class, 'engine.boost'));
-        self::assertSame(300, $this->resolve(ResolverCar::class, 'engine.horsepower'));
+        self::assertSame(2, $this->resolve('default:resolver_car', 'engine.boost'));
+        self::assertSame(300, $this->resolve('default:resolver_car', 'engine.horsepower'));
     }
 
     public function testAnOwnersOverrideWinsOverTheClassItHolds(): void {
-        $this->store->save(ResolverCar::class, FieldValues::fromArray(['engine' => ResolverSportsEngine::class, 'engine.horsepower' => 500]));
-        $this->store->save(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 300]));
+        $this->store->save('default:resolver_car', FieldValues::fromArray(['engine' => 'default:resolver_sports_engine', 'engine.horsepower' => 500]));
+        $this->store->save('default:resolver_engine', FieldValues::fromArray(['horsepower' => 300]));
 
-        self::assertSame(500, $this->resolve(ResolverCar::class, 'engine.horsepower'));
+        self::assertSame(500, $this->resolve('default:resolver_car', 'engine.horsepower'));
     }
 
     public function testAnOwnersParentsOverrideWinsOverTheClassItHolds(): void {
         // ResolverAudiCar stores nothing: both the class it holds and the
         // override come from ResolverCar, ahead of the engine's own default.
-        $this->store->save(ResolverCar::class, FieldValues::fromArray(['engine' => ResolverSportsEngine::class, 'engine.horsepower' => 400]));
-        $this->store->save(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 300]));
+        $this->store->save('default:resolver_car', FieldValues::fromArray(['engine' => 'default:resolver_sports_engine', 'engine.horsepower' => 400]));
+        $this->store->save('default:resolver_engine', FieldValues::fromArray(['horsepower' => 300]));
 
-        self::assertSame(400, $this->resolve(ResolverAudiCar::class, 'engine.horsepower'));
+        self::assertSame(400, $this->resolve('default:resolver_audi_car', 'engine.horsepower'));
     }
 
     public function testAnEmbedInsideAnOwnedObjectFallsBackThroughBoth(): void {
-        $this->store->save(ResolverCar::class, FieldValues::fromArray(['engine' => ResolverEngine::class]));
-        $this->store->save(ResolverPiston::class, FieldValues::fromArray(['diameter' => 10]));
+        $this->store->save('default:resolver_car', FieldValues::fromArray(['engine' => 'default:resolver_engine']));
+        $this->store->save('default:resolver_piston', FieldValues::fromArray(['diameter' => 10]));
 
-        self::assertSame(10, $this->resolve(ResolverCar::class, 'engine.piston:diameter'));
+        self::assertSame(10, $this->resolve('default:resolver_car', 'engine.piston:diameter'));
     }
 
     public function testAnOwningReferenceHoldingNothingThrows(): void {
-        $this->store->save(ResolverCar::class, FieldValues::fromArray(['engine' => null]));
+        $this->store->save('default:resolver_car', FieldValues::fromArray(['engine' => null]));
 
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessageMatches('/holds nothing/');
 
-        $this->resolve(ResolverCar::class, 'engine.horsepower');
+        $this->resolve('default:resolver_car', 'engine.horsepower');
     }
 
     public function testAnEmbedCollectionItemFallsBackToTheItemTarget(): void {
-        $this->store->save(ResolverGarage::class, FieldValues::fromArray(['pistons' => 1]));
-        $this->store->save(ResolverPiston::class, FieldValues::fromArray(['diameter' => 10]));
+        $this->store->save('default:resolver_garage', FieldValues::fromArray(['pistons' => 1]));
+        $this->store->save('default:resolver_piston', FieldValues::fromArray(['diameter' => 10]));
 
-        self::assertSame(10, $this->resolve(ResolverGarage::class, 'pistons.0.diameter'));
+        self::assertSame(10, $this->resolve('default:resolver_garage', 'pistons.0.diameter'));
     }
 
     public function testAnOwnedCollectionItemFallsBackThroughTheClassItHolds(): void {
-        $this->store->save(ResolverGarage::class, FieldValues::fromArray(['engines' => 1, 'engines.0' => ResolverEngine::class]));
-        $this->store->save(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 300]));
+        $this->store->save('default:resolver_garage', FieldValues::fromArray(['engines' => 1, 'engines.0' => 'default:resolver_engine']));
+        $this->store->save('default:resolver_engine', FieldValues::fromArray(['horsepower' => 300]));
 
-        self::assertSame(300, $this->resolve(ResolverGarage::class, 'engines.0.horsepower'));
+        self::assertSame(300, $this->resolve('default:resolver_garage', 'engines.0.horsepower'));
     }
 
     public function testAStoredScalarCollectionItemIsReturned(): void {
-        $this->store->save(ResolverGarage::class, FieldValues::fromArray(['tags' => 2, 'tags.1' => 'blue']));
+        $this->store->save('default:resolver_garage', FieldValues::fromArray(['tags' => 2, 'tags.1' => 'blue']));
 
-        self::assertSame('blue', $this->resolve(ResolverGarage::class, 'tags.1'));
+        self::assertSame('blue', $this->resolve('default:resolver_garage', 'tags.1'));
     }
 
     public function testACollectionItemPastTheStoredCountThrows(): void {
-        $this->store->save(ResolverGarage::class, FieldValues::fromArray(['pistons' => 1]));
-        $this->store->save(ResolverPiston::class, FieldValues::fromArray(['diameter' => 10]));
+        $this->store->save('default:resolver_garage', FieldValues::fromArray(['pistons' => 1]));
+        $this->store->save('default:resolver_piston', FieldValues::fromArray(['diameter' => 10]));
 
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessageMatches('/has only 1 item/');
 
-        $this->resolve(ResolverGarage::class, 'pistons.1.diameter');
+        $this->resolve('default:resolver_garage', 'pistons.1.diameter');
     }
 
     public function testACollectionTheChildStoresNeverFallsBackToTheParentsItems(): void {
-        $this->store->save(ResolverGarage::class, FieldValues::fromArray(['pistons' => 2, 'pistons.0.diameter' => 99]));
-        $this->store->save(ResolverBigGarage::class, FieldValues::fromArray(['pistons' => 1]));
-        $this->store->save(ResolverPiston::class, FieldValues::fromArray(['diameter' => 10]));
+        $this->store->save('default:resolver_garage', FieldValues::fromArray(['pistons' => 2, 'pistons.0.diameter' => 99]));
+        $this->store->save('default:resolver_big_garage', FieldValues::fromArray(['pistons' => 1]));
+        $this->store->save('default:resolver_piston', FieldValues::fromArray(['diameter' => 10]));
 
         // ResolverBigGarage owns its collection: item 0 falls back to
         // ResolverPiston, never to ResolverGarage's own item 0.
-        self::assertSame(1, $this->resolve(ResolverBigGarage::class, 'pistons'));
-        self::assertSame(10, $this->resolve(ResolverBigGarage::class, 'pistons.0.diameter'));
+        self::assertSame(1, $this->resolve('default:resolver_big_garage', 'pistons'));
+        self::assertSame(10, $this->resolve('default:resolver_big_garage', 'pistons.0.diameter'));
     }
 
     public function testACollectionTheChildDoesNotStoreIsInheritedWhole(): void {
-        $this->store->save(ResolverGarage::class, FieldValues::fromArray(['pistons' => 2, 'pistons.0.diameter' => 99]));
-        $this->store->save(ResolverPiston::class, FieldValues::fromArray(['diameter' => 10]));
+        $this->store->save('default:resolver_garage', FieldValues::fromArray(['pistons' => 2, 'pistons.0.diameter' => 99]));
+        $this->store->save('default:resolver_piston', FieldValues::fromArray(['diameter' => 10]));
 
-        self::assertSame(2, $this->resolve(ResolverBigGarage::class, 'pistons'));
-        self::assertSame(99, $this->resolve(ResolverBigGarage::class, 'pistons.0.diameter'));
-        self::assertSame(10, $this->resolve(ResolverBigGarage::class, 'pistons.1.diameter'));
+        self::assertSame(2, $this->resolve('default:resolver_big_garage', 'pistons'));
+        self::assertSame(99, $this->resolve('default:resolver_big_garage', 'pistons.0.diameter'));
+        self::assertSame(10, $this->resolve('default:resolver_big_garage', 'pistons.1.diameter'));
     }
 
     public function testResolveFallbackSkipsOnlyThatKey(): void {
-        $this->store->save(ResolverCar::class, FieldValues::fromArray(['engine' => ResolverSportsEngine::class, 'engine.horsepower' => 500]));
-        $this->store->save(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 300]));
+        $this->store->save('default:resolver_car', FieldValues::fromArray(['engine' => 'default:resolver_sports_engine', 'engine.horsepower' => 500]));
+        $this->store->save('default:resolver_engine', FieldValues::fromArray(['horsepower' => 300]));
 
         // The class ResolverCar holds still counts; only its own horsepower
         // override is skipped.
-        self::assertSame(300, $this->resolver->resolveFallback(Subject::of(ResolverCar::class), FieldPath::fromString('engine.horsepower')));
+        self::assertSame(300, $this->resolver->resolveFallback(Subject::of('default:resolver_car'), FieldPath::fromString('engine.horsepower')));
     }
 
     public function testResolveWithoutSubtreeSkipsTheWholeCollection(): void {
-        $this->store->save(ResolverGarage::class, FieldValues::fromArray(['pistons' => 2, 'pistons.0.diameter' => 99]));
-        $this->store->save(ResolverBigGarage::class, FieldValues::fromArray(['pistons' => 1, 'pistons.0.diameter' => 12]));
+        $this->store->save('default:resolver_garage', FieldValues::fromArray(['pistons' => 2, 'pistons.0.diameter' => 99]));
+        $this->store->save('default:resolver_big_garage', FieldValues::fromArray(['pistons' => 1, 'pistons.0.diameter' => 12]));
 
         $pistons = FieldPath::fromString('pistons');
 
-        self::assertSame(2, $this->resolver->resolveWithoutSubtree(Subject::of(ResolverBigGarage::class), $pistons, $pistons));
-        self::assertSame(99, $this->resolver->resolveWithoutSubtree(Subject::of(ResolverBigGarage::class), FieldPath::fromString('pistons.0.diameter'), $pistons));
+        self::assertSame(2, $this->resolver->resolveWithoutSubtree(Subject::of('default:resolver_big_garage'), $pistons, $pistons));
+        self::assertSame(99, $this->resolver->resolveWithoutSubtree(Subject::of('default:resolver_big_garage'), FieldPath::fromString('pistons.0.diameter'), $pistons));
     }
 
     public function testAResolverWithABatchReadsTheBatchAheadOfTheStore(): void {
-        $this->store->save(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 300]));
+        $this->store->save('default:resolver_engine', FieldValues::fromArray(['horsepower' => 300]));
 
-        $batched = $this->resolver->withBatch([], [ResolverEngine::class => FieldValues::fromArray(['horsepower' => 1])]);
+        $batched = $this->resolver->withBatch([], ['default:resolver_engine' => FieldValues::fromArray(['horsepower' => 1])]);
 
-        self::assertSame(1, $batched->resolve(Subject::of(ResolverEngine::class), FieldPath::fromString('horsepower')));
+        self::assertSame(1, $batched->resolve(Subject::of('default:resolver_engine'), FieldPath::fromString('horsepower')));
     }
 
     public function testAnInstancesOwnValueWinsOverItsClass(): void {
-        $this->store->save(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 300]));
-        $instance = Subject::ofInstance(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 450]));
+        $this->store->save('default:resolver_engine', FieldValues::fromArray(['horsepower' => 300]));
+        $instance = Subject::ofInstance('default:resolver_engine', FieldValues::fromArray(['horsepower' => 450]));
 
         self::assertSame(450, $this->resolver->resolve($instance, FieldPath::fromString('horsepower')));
     }
 
     public function testAnInstanceFallsBackToItsClassAndItsClasssParents(): void {
-        $this->store->save(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 300]));
-        $this->store->save(ResolverPiston::class, FieldValues::fromArray(['diameter' => 10]));
-        $instance = Subject::ofInstance(ResolverSportsEngine::class, FieldValues::empty());
+        $this->store->save('default:resolver_engine', FieldValues::fromArray(['horsepower' => 300]));
+        $this->store->save('default:resolver_piston', FieldValues::fromArray(['diameter' => 10]));
+        $instance = Subject::ofInstance('default:resolver_sports_engine', FieldValues::empty());
 
         self::assertSame(300, $this->resolver->resolve($instance, FieldPath::fromString('horsepower')));
         self::assertSame(10, $this->resolver->resolve($instance, FieldPath::fromString('piston:diameter')));
@@ -311,18 +311,18 @@ final class FieldValueResolverTest extends TestCase
     public function testAnInstanceHoldingAnotherOwnedClassStillGetsItsClasssOverride(): void {
         // The class pins engine.horsepower on whatever engine it holds; the
         // instance swaps in a sports engine but sets no horsepower itself.
-        $this->store->save(ResolverCar::class, FieldValues::fromArray(['engine' => ResolverEngine::class, 'engine.horsepower' => 500]));
-        $this->store->save(ResolverSportsEngine::class, FieldValues::fromArray(['boost' => 3]));
-        $instance = Subject::ofInstance(ResolverCar::class, FieldValues::fromArray(['engine' => ResolverSportsEngine::class]));
+        $this->store->save('default:resolver_car', FieldValues::fromArray(['engine' => 'default:resolver_engine', 'engine.horsepower' => 500]));
+        $this->store->save('default:resolver_sports_engine', FieldValues::fromArray(['boost' => 3]));
+        $instance = Subject::ofInstance('default:resolver_car', FieldValues::fromArray(['engine' => 'default:resolver_sports_engine']));
 
         self::assertSame(500, $this->resolver->resolve($instance, FieldPath::fromString('engine.horsepower')));
         self::assertSame(3, $this->resolver->resolve($instance, FieldPath::fromString('engine.boost')));
     }
 
     public function testACollectionTheInstanceHoldsNeverFallsBackToTheClasssItems(): void {
-        $this->store->save(ResolverGarage::class, FieldValues::fromArray(['pistons' => 2, 'pistons.0.diameter' => 99]));
-        $this->store->save(ResolverPiston::class, FieldValues::fromArray(['diameter' => 10]));
-        $instance = Subject::ofInstance(ResolverGarage::class, FieldValues::fromArray(['pistons' => 1]));
+        $this->store->save('default:resolver_garage', FieldValues::fromArray(['pistons' => 2, 'pistons.0.diameter' => 99]));
+        $this->store->save('default:resolver_piston', FieldValues::fromArray(['diameter' => 10]));
+        $instance = Subject::ofInstance('default:resolver_garage', FieldValues::fromArray(['pistons' => 1]));
 
         self::assertSame(1, $this->resolver->resolve($instance, FieldPath::fromString('pistons')));
         self::assertSame(10, $this->resolver->resolve($instance, FieldPath::fromString('pistons.0.diameter')));
@@ -331,15 +331,15 @@ final class FieldValueResolverTest extends TestCase
     public function testAnInstancesFallbackSkipsOnlyTheInstancesOwnValue(): void {
         // The class holds the same path too: only the instance's own value is
         // skipped, so the fallback is the class's.
-        $this->store->save(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 300]));
-        $instance = Subject::ofInstance(ResolverEngine::class, FieldValues::fromArray(['horsepower' => 450]));
+        $this->store->save('default:resolver_engine', FieldValues::fromArray(['horsepower' => 300]));
+        $instance = Subject::ofInstance('default:resolver_engine', FieldValues::fromArray(['horsepower' => 450]));
 
         self::assertSame(300, $this->resolver->resolveFallback($instance, FieldPath::fromString('horsepower')));
     }
 
     public function testAnInstanceWithoutItsCollectionFallsBackToTheClasssWholeCollection(): void {
-        $this->store->save(ResolverGarage::class, FieldValues::fromArray(['pistons' => 2, 'pistons.0.diameter' => 99]));
-        $instance = Subject::ofInstance(ResolverGarage::class, FieldValues::fromArray(['pistons' => 1, 'pistons.0.diameter' => 12]));
+        $this->store->save('default:resolver_garage', FieldValues::fromArray(['pistons' => 2, 'pistons.0.diameter' => 99]));
+        $instance = Subject::ofInstance('default:resolver_garage', FieldValues::fromArray(['pistons' => 1, 'pistons.0.diameter' => 12]));
         $pistons = FieldPath::fromString('pistons');
 
         self::assertSame(2, $this->resolver->resolveWithoutSubtree($instance, $pistons, $pistons));
@@ -347,27 +347,27 @@ final class FieldValueResolverTest extends TestCase
     }
 
     public function testAStoredNullIsAValueNotAMiss(): void {
-        $this->store->save(ResolverCar::class, FieldValues::fromArray(['engine' => null]));
+        $this->store->save('default:resolver_car', FieldValues::fromArray(['engine' => null]));
 
-        self::assertNull($this->resolve(ResolverCar::class, 'engine'));
+        self::assertNull($this->resolve('default:resolver_car', 'engine'));
     }
 
     /** @return array<string, array{class-string, string, string}> */
     public static function unresolvablePaths(): array {
         return [
-            'nothing stored anywhere' => [ResolverEngine::class, 'horsepower', '/Nothing holds a value/'],
-            'unknown field' => [ResolverEngine::class, 'torque', '/has no field "torque"/'],
-            'embed traversed with "."' => [ResolverEngine::class, 'piston.diameter', '/must be followed by ":"/'],
-            'owned field embedded with ":"' => [ResolverCar::class, 'engine:horsepower', '/must be followed by "\."/'],
-            'scalar with a tail' => [ResolverEngine::class, 'horsepower.x', '/has no fields of its own/'],
-            'collection without an index' => [ResolverGarage::class, 'pistons.diameter', '/must be followed by an item index/'],
-            'scalar collection item with a tail' => [ResolverGarage::class, 'tags.0.x', '/have no fields of their own/'],
+            'nothing stored anywhere' => ['default:resolver_engine', 'horsepower', '/Nothing holds a value/'],
+            'unknown field' => ['default:resolver_engine', 'torque', '/has no field "torque"/'],
+            'embed traversed with "."' => ['default:resolver_engine', 'piston.diameter', '/must be followed by ":"/'],
+            'owned field embedded with ":"' => ['default:resolver_car', 'engine:horsepower', '/must be followed by "\."/'],
+            'scalar with a tail' => ['default:resolver_engine', 'horsepower.x', '/has no fields of its own/'],
+            'collection without an index' => ['default:resolver_garage', 'pistons.diameter', '/must be followed by an item index/'],
+            'scalar collection item with a tail' => ['default:resolver_garage', 'tags.0.x', '/have no fields of their own/'],
         ];
     }
 
     #[DataProvider('unresolvablePaths')]
     public function testUnresolvablePathThrows(string $identifier, string $path, string $message): void {
-        $this->store->save(ResolverGarage::class, FieldValues::fromArray(['pistons' => 1, 'engines' => 1, 'tags' => 1]));
+        $this->store->save('default:resolver_garage', FieldValues::fromArray(['pistons' => 1, 'engines' => 1, 'tags' => 1]));
         $this->expectException(InvalidArgumentException::class);
         $this->expectExceptionMessageMatches($message);
 

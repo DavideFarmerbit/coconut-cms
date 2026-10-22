@@ -94,19 +94,6 @@ final class SchemaRegistryTest extends TestCase
     }
 
     /**
-     * @param class-string[] $classes
-     * @return array<string, EntityBlueprint>
-     */
-    private static function blueprintsOf(array $classes): array {
-        $blueprints = [];
-        foreach ($classes as $class) {
-            $blueprints[$class] = NativeEntityReader::read($class);
-        }
-
-        return $blueprints;
-    }
-
-    /**
      * $class's blueprint with its default values replaced: how a test stands
      * in for a class changing between two compiles.
      * @return array<string, EntityBlueprint>
@@ -114,7 +101,7 @@ final class SchemaRegistryTest extends TestCase
     private static function changed(string $class, ObjectNode $defaultValues): array {
         $original = NativeEntityReader::read($class);
 
-        return [$class => new EntityBlueprint(
+        return [$original->identifier => new EntityBlueprint(
             identifier: $original->identifier,
             parent: $original->parent,
             table: $original->table,
@@ -178,58 +165,58 @@ final class SchemaRegistryTest extends TestCase
 
     public function testAFreshRegistryLoadsWhatAnEarlierCompileStored(): void {
         $stores = new InMemorySchemaStores();
-        $compiled = $stores->compiler()->compile(self::blueprintsOf([RegistryPiston::class]));
+        $compiled = $stores->compiler()->compile(NativeEntityReader::readAll([RegistryPiston::class]));
 
         $registry = self::freshRegistry($stores);
 
-        self::assertTrue($registry->has(RegistryPiston::class));
-        self::assertEquals($compiled[RegistryPiston::class], $registry->get(RegistryPiston::class));
+        self::assertTrue($registry->has('default:registry_piston'));
+        self::assertEquals($compiled['default:registry_piston'], $registry->get('default:registry_piston'));
     }
 
     public function testADependentIsStaleOnceItsDependencyChanges(): void {
         $stores = new InMemorySchemaStores();
-        $stores->compiler()->compile(self::blueprintsOf([RegistryPiston::class, RegistryEngine::class]));
+        $stores->compiler()->compile(NativeEntityReader::readAll([RegistryPiston::class, RegistryEngine::class]));
 
         $stores->compiler()->compile(self::changed(RegistryPiston::class, ObjectNode::fromArray(['diameter' => new LeafNode(12)])));
 
-        self::assertStaleBecauseOf(RegistryPiston::class, static fn () => self::freshRegistry($stores)->get(RegistryEngine::class));
+        self::assertStaleBecauseOf('default:registry_piston', static fn () => self::freshRegistry($stores)->get('default:registry_engine'));
     }
 
     public function testRecompilingADependencyUnchangedKeepsTheDependentFresh(): void {
         $stores = new InMemorySchemaStores();
-        $compiled = $stores->compiler()->compile(self::blueprintsOf([RegistryPiston::class, RegistryEngine::class]));
+        $compiled = $stores->compiler()->compile(NativeEntityReader::readAll([RegistryPiston::class, RegistryEngine::class]));
 
-        $stores->compiler()->compile(self::blueprintsOf([RegistryPiston::class]));
+        $stores->compiler()->compile(NativeEntityReader::readAll([RegistryPiston::class]));
 
-        self::assertEquals($compiled[RegistryEngine::class], self::freshRegistry($stores)->get(RegistryEngine::class));
+        self::assertEquals($compiled['default:registry_engine'], self::freshRegistry($stores)->get('default:registry_engine'));
     }
 
     public function testAChangeTwoLevelsDownStillMakesTheDependentStale(): void {
         $stores = new InMemorySchemaStores();
-        $stores->compiler()->compile(self::blueprintsOf([RegistryBase::class, RegistryMiddle::class, RegistryLeaf::class]));
+        $stores->compiler()->compile(NativeEntityReader::readAll([RegistryBase::class, RegistryMiddle::class, RegistryLeaf::class]));
 
         // RegistryMiddle stores nothing of its own either way: only a
         // dependency recorded straight through it can catch this.
         $stores->compiler()->compile(self::changed(RegistryBase::class, ObjectNode::fromArray(['value' => new LeafNode(2)])));
 
-        self::assertStaleBecauseOf(RegistryBase::class, static fn () => self::freshRegistry($stores)->get(RegistryLeaf::class));
+        self::assertStaleBecauseOf('default:registry_base', static fn () => self::freshRegistry($stores)->get('default:registry_leaf'));
     }
 
     public function testAWeakDependencyChangingMakesTheDependentStaleToo(): void {
         $stores = new InMemorySchemaStores();
-        $stores->compiler()->compile(self::blueprintsOf([RegistryPiston::class, RegistryOwner::class]));
+        $stores->compiler()->compile(NativeEntityReader::readAll([RegistryPiston::class, RegistryOwner::class]));
 
         $stores->compiler()->compile(self::changed(RegistryPiston::class, ObjectNode::fromArray(['diameter' => new LeafNode(12)])));
 
-        self::assertStaleBecauseOf(RegistryPiston::class, static fn () => self::freshRegistry($stores)->get(RegistryOwner::class));
+        self::assertStaleBecauseOf('default:registry_piston', static fn () => self::freshRegistry($stores)->get('default:registry_owner'));
     }
 
     public function testAnOwningReferenceCycleIsStoredWithEachSideDependingOnTheOther(): void {
         $stores = new InMemorySchemaStores();
-        $stores->compiler()->compile(self::blueprintsOf([RegistryCycleA::class, RegistryCycleB::class]));
+        $stores->compiler()->compile(NativeEntityReader::readAll([RegistryCycleA::class, RegistryCycleB::class]));
 
-        self::assertSame([RegistryCycleB::class], array_keys($stores->schemas->load(RegistryCycleA::class)->dependencies));
-        self::assertSame([RegistryCycleA::class], array_keys($stores->schemas->load(RegistryCycleB::class)->dependencies));
-        self::freshRegistry($stores)->get(RegistryCycleA::class);
+        self::assertSame(['default:registry_cycle_b'], array_keys($stores->schemas->load('default:registry_cycle_a')->dependencies));
+        self::assertSame(['default:registry_cycle_a'], array_keys($stores->schemas->load('default:registry_cycle_b')->dependencies));
+        self::freshRegistry($stores)->get('default:registry_cycle_a');
     }
 }

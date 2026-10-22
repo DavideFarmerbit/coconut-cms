@@ -40,6 +40,37 @@ trigger to compile it on the caller's behalf. Whatever gathers a batch (a
 hot-path recompile for native, an admin save for editor) is responsible for
 including everything it depends on.
 
+## Native identifiers
+
+Everything stored names an entity type by its identifier, a "namespace:key"
+string, never by a PHP class name. A native class declares its own with
+`#[Entity(identifier: 'shop:product')]`. Without one, it gets `default:` and
+its short name, snake-cased: `BlogPost` is `default:blog_post`.
+`NativeIdentifiers` works this out. The CMS's own native entities live in the
+`coconut-cms` namespace, as `Cms` does: `coconut-cms:cms`.
+
+So moving a class to another PHP namespace changes nothing stored. Renaming
+an implicit one's short name does change its identifier. To rename one
+safely, pin its old identifier on it first, then rename the class freely.
+
+A class's table comes from its identifier, unless `#[Entity(table: ...)]`
+names one. In the `default` namespace, the table is the key alone:
+`default:blog_post` is `blog_post`. In any other namespace, it's the
+namespace and the key: `coconut-cms:page` is `coconut_cms_page`. So two
+packages' keys never land on one table. A `-` or `.` becomes `_`.
+
+`NativeEntityReader` writes identifiers everywhere a type appears in a
+blueprint: its own, its parent's, every Embed, Reference and OwningReference
+target, and the type an owned object holds in its default values. Attributes
+still name classes (`itemTarget: Engine::class`), so they stay checked by
+PHP; the reader turns them into identifiers.
+
+`NativeEntityRegistry` is the way back: which class an identifier stands for.
+The native loader and object builder need it to build what's stored. Every
+native entity class is registered at boot. Two classes with one identifier
+are rejected there, and by `NativeEntityReader::readAll()`, which reads a
+batch for `compile()`, keyed by identifier.
+
 ## The registry: memory first, then the store
 
 `SchemaRegistry::get()` returns the schema already in memory this request.

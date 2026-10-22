@@ -15,6 +15,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
 
 #[Entity]
 final class LayoutPart
@@ -55,7 +56,7 @@ final class DatabaseSchemaTest extends TestCase
         $builder = LayoutFixtures::carBuilder();
         $levels = [];
         foreach ([LayoutMaker::class, LayoutPiston::class, LayoutEngine::class, LayoutWheel::class, LayoutChassis::class, LayoutVehicle::class, LayoutCar::class] as $class) {
-            $levels[] = $builder->levelOf($class);
+            $levels[] = $builder->levelOf(NativeIdentifiers::of($class));
         }
 
         return DatabaseSchema::of($levels);
@@ -63,7 +64,7 @@ final class DatabaseSchemaTest extends TestCase
 
     /** @param class-string $class */
     private static function schemaOf(string $class): Schema {
-        return DatabaseSchema::of([LayoutFixtures::builderFor([LayoutPart::class, $class])->levelOf($class)]);
+        return DatabaseSchema::of([LayoutFixtures::builderFor([LayoutPart::class, $class])->levelOf(NativeIdentifiers::of($class))]);
     }
 
     /** @return list<string> "local -> foreign table (onDelete)", one per foreign key. */
@@ -145,7 +146,7 @@ final class DatabaseSchemaTest extends TestCase
     }
 
     public function testAValueObjectThatIsNotIndexableIsStoredAsText(): void {
-        $schema = DatabaseSchema::of([LayoutFixtures::builderFor([LayoutNoted::class])->levelOf(LayoutNoted::class)]);
+        $schema = DatabaseSchema::of([LayoutFixtures::builderFor([LayoutNoted::class])->levelOf('default:layout_noted')]);
 
         self::assertSame(Type::getType(Types::TEXT), $schema->getTable('layout_noted')->getColumn('notes')->getType());
     }

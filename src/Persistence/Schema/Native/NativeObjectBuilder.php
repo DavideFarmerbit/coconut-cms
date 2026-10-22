@@ -36,11 +36,14 @@ final class NativeObjectBuilder
     private array $defaults = [];
 
     /**
+     * @param NativeEntityRegistry $classes Turns the identifier an owned
+     *        object is stored under into the class to build.
      * @param Closure(class-string, string): ?object $referenceOf The object a
      *        Reference holds: given the field's declared class and the stored
      *        id. Null when the target no longer exists.
      */
     public function __construct(
+        private readonly NativeEntityRegistry $classes,
         private readonly Closure $referenceOf,
     ) {
     }
@@ -118,8 +121,7 @@ final class NativeObjectBuilder
             return null;
         }
 
-        // Native: every identifier an owned field holds is a PHP class here.
-        $owned = $this->buildAs(new ReflectionClass($node->identifier), $node->fields, null, $path->traverse(...), $onOwned);
+        $owned = $this->buildAs(new ReflectionClass($this->classes->classOf($node->identifier)), $node->fields, null, $path->traverse(...), $onOwned);
         $onOwned($path, $owned);
 
         return $owned;

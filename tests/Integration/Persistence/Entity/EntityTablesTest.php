@@ -40,7 +40,7 @@ final class EntityTablesTest extends TestCase
         ]);
 
         $builder = LayoutFixtures::builderFor([Cms::class, EntityTablesNote::class]);
-        $this->levels = [$builder->levelOf(Cms::class), $builder->levelOf(EntityTablesNote::class)];
+        $this->levels = [$builder->levelOf(Cms::IDENTIFIER), $builder->levelOf('default:entity_tables_note')];
         $this->dropTables();
     }
 
@@ -63,7 +63,7 @@ final class EntityTablesTest extends TestCase
         $this->connection->insert(DatabaseSchema::ENTITIES, [
             'id' => $id,
             'owner' => $owner,
-            'concrete_identifier' => EntityTablesNote::class,
+            'concrete_identifier' => 'default:entity_tables_note',
         ]);
 
         return $id;
@@ -73,7 +73,7 @@ final class EntityTablesTest extends TestCase
         (new EntityTables($this->connection))->create($this->levels);
 
         self::assertSame(
-            ['id' => EntityIds::NIL, 'owner' => EntityIds::NIL, 'owner_field' => '', 'position' => -1, 'concrete_identifier' => Cms::class],
+            ['id' => EntityIds::NIL, 'owner' => EntityIds::NIL, 'owner_field' => '', 'position' => -1, 'concrete_identifier' => Cms::IDENTIFIER],
             $this->connection->fetchAssociative('SELECT * FROM entities'),
         );
         self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM cms WHERE id = ?', [EntityIds::NIL]));
@@ -84,7 +84,7 @@ final class EntityTablesTest extends TestCase
         (new EntityTables($this->connection))->create($this->levels);
         $id = EntityIds::generate();
 
-        $this->connection->insert(DatabaseSchema::ENTITIES, ['id' => $id, 'concrete_identifier' => EntityTablesNote::class]);
+        $this->connection->insert(DatabaseSchema::ENTITIES, ['id' => $id, 'concrete_identifier' => 'default:entity_tables_note']);
 
         self::assertSame(EntityIds::NIL, $this->connection->fetchOne('SELECT owner FROM entities WHERE id = ?', [$id]));
     }

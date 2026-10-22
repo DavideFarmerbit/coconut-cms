@@ -24,6 +24,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Schema\InMemorySchemaStores;
 
@@ -421,12 +422,7 @@ final class SchemaCompilerTest extends TestCase
      * @return array<string, \XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint>
      */
     private static function blueprintsOf(array $classes): array {
-        $blueprints = [];
-        foreach ($classes as $class) {
-            $blueprints[$class] = NativeEntityReader::read($class);
-        }
-
-        return $blueprints;
+        return NativeEntityReader::readAll($classes);
     }
 
     /**
@@ -436,8 +432,8 @@ final class SchemaCompilerTest extends TestCase
      * @return array<string, EntityBlueprint>
      */
     private static function holdingUnrelatedClass(array $blueprints): array {
-        $original = $blueprints[CompilerOwnerOfUnrelatedClass::class];
-        $blueprints[CompilerOwnerOfUnrelatedClass::class] = new EntityBlueprint(
+        $original = $blueprints['default:compiler_owner_of_unrelated_class'];
+        $blueprints['default:compiler_owner_of_unrelated_class'] = new EntityBlueprint(
             identifier: $original->identifier,
             parent: $original->parent,
             table: $original->table,
@@ -447,7 +443,7 @@ final class SchemaCompilerTest extends TestCase
             fieldValidators: $original->fieldValidators,
             uniqueGroups: $original->uniqueGroups,
             prototypeValidators: $original->prototypeValidators,
-            defaultValues: ObjectNode::fromArray(['engine' => new OwnedNode(CompilerPiston::class, ObjectNode::fromArray(['diameter' => new LeafNode(10)]))]),
+            defaultValues: ObjectNode::fromArray(['engine' => new OwnedNode('default:compiler_piston', ObjectNode::fromArray(['diameter' => new LeafNode(10)]))]),
         );
 
         return $blueprints;
@@ -456,13 +452,13 @@ final class SchemaCompilerTest extends TestCase
     public function testCompileOrdersParentBeforeChild(): void {
         $order = array_keys($this->compiler->compile(self::blueprintsOf([CompilerChild::class, CompilerRoot::class])));
 
-        self::assertSame([CompilerRoot::class, CompilerChild::class], $order);
+        self::assertSame(['default:compiler_root', 'default:compiler_child'], $order);
     }
 
     public function testCompileOrdersEmbedTargetBeforeEmbedder(): void {
         $order = array_keys($this->compiler->compile(self::blueprintsOf([CompilerEmbedder::class, CompilerEmbedTarget::class])));
 
-        self::assertSame([CompilerEmbedTarget::class, CompilerEmbedder::class], $order);
+        self::assertSame(['default:compiler_embed_target', 'default:compiler_embedder'], $order);
     }
 
     public function testCompileOrdersATransitiveEmbedChainCorrectly(): void {
@@ -473,22 +469,22 @@ final class SchemaCompilerTest extends TestCase
         ])));
 
         self::assertSame([
-            CompilerEmbedTarget::class,
-            CompilerDeepEmbedMiddle::class,
-            CompilerDeepEmbedOuter::class,
+            'default:compiler_embed_target',
+            'default:compiler_deep_embed_middle',
+            'default:compiler_deep_embed_outer',
         ], $order);
     }
 
     public function testCompileOrdersCollectionEmbedItemTargetBeforeEmbedder(): void {
         $order = array_keys($this->compiler->compile(self::blueprintsOf([CompilerCollectionEmbedder::class, CompilerEmbedTarget::class])));
 
-        self::assertSame([CompilerEmbedTarget::class, CompilerCollectionEmbedder::class], $order);
+        self::assertSame(['default:compiler_embed_target', 'default:compiler_collection_embedder'], $order);
     }
 
     public function testCompileLeavesASelfReferencingOwningReferenceAlone(): void {
         $order = array_keys($this->compiler->compile(self::blueprintsOf([CompilerNode::class])));
 
-        self::assertSame([CompilerNode::class], $order);
+        self::assertSame(['default:compiler_node'], $order);
     }
 
     public function testCompileWithMissingParentThrows(): void {
@@ -516,7 +512,7 @@ final class SchemaCompilerTest extends TestCase
         // registered from the first compile() call, so this must not throw.
         $schemas = $this->compiler->compile(self::blueprintsOf([CompilerChild::class]));
 
-        self::assertSame([CompilerChild::class], array_keys($schemas));
+        self::assertSame(['default:compiler_child'], array_keys($schemas));
     }
 
     public function testCompileRegistersEveryCompiledSchemaWithTheRegistry(): void {
@@ -526,7 +522,7 @@ final class SchemaCompilerTest extends TestCase
 
         $compiler->compile(self::blueprintsOf([CompilerEmbedTarget::class]));
 
-        self::assertTrue($registry->has(CompilerEmbedTarget::class));
+        self::assertTrue($registry->has('default:compiler_embed_target'));
     }
 
     /** @param class-string[] $classes */
@@ -538,12 +534,13 @@ final class SchemaCompilerTest extends TestCase
     }
 
     /**
-     * Sorted by key, so assertions don't depend on the order the database
-     * hands rows back in.
+     * What $class's identifier stores, sorted by key, so assertions don't
+     * depend on the order the database hands rows back in.
+     * @param class-string $class
      * @return array<string, mixed>
      */
-    private static function loadSorted(SchemaFieldValueStore $valueStore, string $identifier): array {
-        $values = $valueStore->load($identifier)->toArray();
+    private static function loadSorted(SchemaFieldValueStore $valueStore, string $class): array {
+        $values = $valueStore->load(NativeIdentifiers::of($class))->toArray();
         ksort($values, SORT_STRING);
 
         return $values;
@@ -614,7 +611,7 @@ final class SchemaCompilerTest extends TestCase
         // CompilerSportsEngine's own values is kept: boost and the piston's
         // diameter match it, horsepower doesn't.
         self::assertSame([
-            'engine' => CompilerSportsEngine::class,
+            'engine' => 'default:compiler_sports_engine',
             'engine.horsepower' => 500,
         ], self::loadSorted($valueStore, CompilerOwner::class));
 
@@ -636,7 +633,7 @@ final class SchemaCompilerTest extends TestCase
         // horsepower, not either piston diameter.
         self::assertSame([
             'engines' => 1,
-            'engines.0' => CompilerOwnedEngine::class,
+            'engines.0' => 'default:compiler_owned_engine',
             'engines.0.horsepower' => 400,
             'pistons' => 1,
             'tags' => 2,
@@ -757,10 +754,10 @@ final class SchemaCompilerTest extends TestCase
         } catch (InvalidArgumentException) {
         }
 
-        self::assertFalse($registry->has(CompilerPiston::class));
-        self::assertFalse($registry->has(CompilerOwnedEngine::class));
-        self::assertSame([], $valueStore->load(CompilerPiston::class)->toArray());
-        self::assertSame([], $valueStore->load(CompilerOwnedEngine::class)->toArray());
+        self::assertFalse($registry->has('default:compiler_piston'));
+        self::assertFalse($registry->has('default:compiler_owned_engine'));
+        self::assertSame([], $valueStore->load('default:compiler_piston')->toArray());
+        self::assertSame([], $valueStore->load('default:compiler_owned_engine')->toArray());
     }
 
     /** @return array<string, array{list<class-string>, string}> */

@@ -7,6 +7,7 @@ use Doctrine\DBAL\DriverManager;
 use Doctrine\DBAL\Schema\Schema;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Layout\LayoutCar;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Layout\LayoutChassis;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Layout\LayoutEngine;
@@ -33,7 +34,7 @@ final class DatabaseSchemaTest extends TestCase
         $builder = LayoutFixtures::carBuilder();
         $levels = [];
         foreach ([LayoutMaker::class, LayoutPiston::class, LayoutEngine::class, LayoutWheel::class, LayoutChassis::class, LayoutVehicle::class, LayoutCar::class] as $class) {
-            $levels[] = $builder->levelOf($class);
+            $levels[] = $builder->levelOf(NativeIdentifiers::of($class));
         }
 
         $this->schema = DatabaseSchema::of($levels);

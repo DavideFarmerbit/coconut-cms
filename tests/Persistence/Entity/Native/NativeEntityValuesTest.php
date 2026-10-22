@@ -108,11 +108,7 @@ final class NativeEntityValuesTest extends TestCase
     protected function setUp(): void {
         $stores = $this->stores = new InMemorySchemaStores();
         $stores->enums->register(Identifier::of('test', 'fuel'), ValuesFuel::class);
-        $blueprints = [];
-        foreach ([ValuesMaker::class, ValuesPiston::class, ValuesEngine::class, ValuesTurboEngine::class, ValuesWheel::class, ValuesCar::class] as $class) {
-            $blueprints[$class] = NativeEntityReader::read($class);
-        }
-        $stores->compiler()->compile($blueprints);
+        $stores->compiler()->compile(NativeEntityReader::readAll([ValuesMaker::class, ValuesPiston::class, ValuesEngine::class, ValuesTurboEngine::class, ValuesWheel::class, ValuesCar::class]));
 
         $this->identities = new IdentityMap();
         $this->values = new NativeEntityValues($stores->registry, $stores->values, $this->identities);
@@ -140,9 +136,9 @@ final class NativeEntityValuesTest extends TestCase
 
         $lookup = new SchemaLookup($this->stores->registry);
         $resolver = new FieldValueResolver($this->stores->registry, $this->stores->values);
-        $tree = $resolver->resolveTree(Subject::ofInstance(ValuesCar::class, $values->touched));
+        $tree = $resolver->resolveTree(Subject::ofInstance('default:values_car', $values->touched));
 
-        self::assertSame($values->dense->toArray(), (new ValueFlattener($lookup))->flatten(ValuesCar::class, $tree)->toArray());
+        self::assertSame($values->dense->toArray(), (new ValueFlattener($lookup))->flatten('default:values_car', $tree)->toArray());
     }
 
     public function testAnUntouchedEntityTouchesNothing(): void {
@@ -153,7 +149,7 @@ final class NativeEntityValuesTest extends TestCase
         $dense = $this->values->of(new ValuesCar())->dense->toArray();
 
         self::assertSame('petrol', $dense['fuel']);
-        self::assertSame(ValuesEngine::class, $dense['engine']);
+        self::assertSame('default:values_engine', $dense['engine']);
         self::assertSame(500, $dense['engine.horsepower']);
         self::assertSame(10, $dense['engine.piston:diameter']);
         self::assertSame(0, $dense['wheels']);
@@ -191,7 +187,7 @@ final class NativeEntityValuesTest extends TestCase
         $car->engine->horsepower = 500;
 
         // horsepower still matches what ValuesCar pins; boost matches the turbo's own default.
-        self::assertSame(['engine' => ValuesTurboEngine::class], $this->touchedOf($car));
+        self::assertSame(['engine' => 'default:values_turbo_engine'], $this->touchedOf($car));
     }
 
     public function testClearingAnOwnedObjectTouchesItAsNull(): void {

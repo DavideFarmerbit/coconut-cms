@@ -181,12 +181,7 @@ final class LayoutFixtures
         $stores->valueObjects->register(Identifier::of('test', 'color'), LayoutColor::class);
         $stores->valueObjects->register(Identifier::of('test', 'notes'), LayoutNotes::class);
         $stores->enums->register(Identifier::of('test', 'fuel'), LayoutFuel::class);
-        $blueprints = [];
-        foreach ($classes as $class) {
-            $blueprints[$class] = NativeEntityReader::read($class);
-        }
-
-        $stores->compiler()->compile($blueprints);
+        $stores->compiler()->compile(NativeEntityReader::readAll($classes));
 
         return new LayoutBuilder(new SchemaLookup($stores->registry));
     }

@@ -38,12 +38,29 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollecti
 final class NativeEntityReader
 {
     /**
+     * Reads every class in $classes, and returns what compile() takes. Throws when two of
+     * them share an identifier.
+     * @param list<class-string> $classes
+     * @return array<string, EntityBlueprint> Keyed by identifier.
+     */
+    public static function readAll(array $classes): array {
+        $identifiers = new NativeEntityRegistry();
+        $blueprints = [];
+        foreach ($classes as $class) {
+            $blueprints[$identifiers->register($class)] = self::read($class);
+        }
+
+        return $blueprints;
+    }
+
+    /**
      * @param class-string $class
      */
     public static function read(string $class): EntityBlueprint {
         $reflection = new ReflectionClass($class);
 
         $entity = self::resolveEntityAttribute($reflection);
+        $identifier = NativeIdentifiers::of($class);
         // Not part of the blueprint: only checked, so a wrong #[Id] fails now
         // rather than on the first save.
         IdProperty::of($class);
@@ -57,9 +74,9 @@ final class NativeEntityReader
         self::assertDefaultInstanceIsInitialized($reflection, $defaultInstance);
 
         return new EntityBlueprint(
-            identifier: $class,
+            identifier: $identifier,
             parent: self::resolveParent($reflection),
-            table: $entity->table ?? self::deriveTableName($reflection->getShortName()),
+            table: $entity->table ?? NativeIdentifiers::tableOf($identifier),
             editorExtensible: $entity->editorExtensible,
             fields: $fields,
             fieldPermissions: $fieldPermissions,
@@ -82,21 +99,17 @@ final class NativeEntityReader
         return $attributes[0]->newInstance();
     }
 
-    /** Snake-cases a short class name: Product -> product, BlogPost -> blog_post. */
-    private static function deriveTableName(string $shortClassName): string {
-        return strtolower((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $shortClassName));
-    }
-
     /**
-     * The nearest #[Entity]-marked ancestor, skipping over any non-#[Entity]
-     * class in between: such a class contributes no field of its own, but it
-     * doesn't break the chain to whatever real entity is still further up.
+     * The identifier of the nearest #[Entity]-marked ancestor, skipping over
+     * any non-#[Entity] class in between: such a class contributes no field
+     * of its own, but it doesn't break the chain to whatever real entity is
+     * still further up.
      * @param ReflectionClass<object> $reflection
      */
     private static function resolveParent(ReflectionClass $reflection): ?string {
         for ($current = $reflection->getParentClass(); $current !== false; $current = $current->getParentClass()) {
             if (NativeFields::isEntity($current->getName())) {
-                return $current->getName();
+                return NativeIdentifiers::of($current->getName());
             }
         }
 
@@ -165,9 +178,9 @@ final class NativeEntityReader
     }
     
     /**
-     * Every Embed/Reference/OwningReference target is an ordinary #[Entity]-marked
-     * class, used differently at this one field site, never a separate kind of
-     * target in its own right.
+     * The identifier of an Embed/Reference/OwningReference target: an ordinary
+     * #[Entity]-marked class, used differently at this one field site, never a
+     * separate kind of target in its own right.
      */
     private static function resolveEntityTarget(string $target, ReflectionProperty $property): string {
         if (!class_exists($target) || !NativeFields::isEntity($target)) {
@@ -179,7 +192,7 @@ final class NativeEntityReader
             ));
         }
 
-        return $target;
+        return NativeIdentifiers::of($target);
     }
 
     /** @param class-string<StorableValue> $class */
@@ -300,7 +313,7 @@ final class NativeEntityReader
         };
     }
 
-    /** A Collection item target that must also be an #[Entity]-marked class. */
+    /** The identifier of a Collection item target that must be an #[Entity]-marked class. */
     private static function resolveEntityItemTarget(Collection $attribute, ReflectionProperty $property): string {
         return self::resolveEntityTarget(self::resolveItemTarget($attribute, $property), $property);
     }

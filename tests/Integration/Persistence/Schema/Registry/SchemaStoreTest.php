@@ -106,7 +106,7 @@ final class SchemaStoreTest extends TestCase
 
         $this->store->saveAll([$stored]);
 
-        self::assertEquals($stored, $this->store->load(SchemaStoreProduct::class));
+        self::assertEquals($stored, $this->store->load('default:schema_store_product'));
     }
 
     public function testLoadOfAnIdentifierNeverSavedIsNull(): void {
@@ -119,6 +119,6 @@ final class SchemaStoreTest extends TestCase
 
         $this->store->saveAll([$replacement]);
 
-        self::assertEquals($replacement, $this->store->load(SchemaStoreProduct::class));
+        self::assertEquals($replacement, $this->store->load('default:schema_store_product'));
     }
 }

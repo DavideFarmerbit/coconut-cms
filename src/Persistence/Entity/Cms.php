@@ -10,7 +10,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
  * Declares no fields yet: CMS-wide singleton data would go in its own Owned
  * fields, if that need shows up.
  */
-#[Entity(table: 'cms')]
+#[Entity(identifier: self::IDENTIFIER, table: 'cms')]
 final class Cms
 {
+    /** What its entities row and schema name it by. */
+    public const IDENTIFIER = 'coconut-cms:cms';
 }

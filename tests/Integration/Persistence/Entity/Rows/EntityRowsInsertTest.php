@@ -43,17 +43,13 @@ final class EntityRowsInsertTest extends TestCase
         ]);
 
         // Schemas compile in memory; only the content tables go to MySQL.
-        $classes = [Cms::class, ...RowsFixtures::CLASSES];
+        $blueprints = NativeEntityReader::readAll([Cms::class, ...RowsFixtures::CLASSES]);
         $this->stores = new InMemorySchemaStores();
-        $blueprints = [];
-        foreach ($classes as $class) {
-            $blueprints[$class] = NativeEntityReader::read($class);
-        }
         $this->stores->compiler()->compile($blueprints);
 
         $layouts = new LayoutBuilder(new SchemaLookup($this->stores->registry));
-        foreach ($classes as $class) {
-            $this->levels[] = $layouts->levelOf($class);
+        foreach (array_keys($blueprints) as $identifier) {
+            $this->levels[] = $layouts->levelOf($identifier);
         }
 
         $this->dropTables();
@@ -77,7 +73,7 @@ final class EntityRowsInsertTest extends TestCase
         $identities = new IdentityMap();
         $maker = new RowsMaker();
         $identities->remember($maker, EntityIds::generate());
-        $this->connection->insert(DatabaseSchema::ENTITIES, ['id' => $identities->idOf($maker), 'concrete_identifier' => RowsMaker::class]);
+        $this->connection->insert(DatabaseSchema::ENTITIES, ['id' => $identities->idOf($maker), 'concrete_identifier' => 'default:rows_maker']);
 
         $car = new RowsCar();
         $car->name = 'mine';

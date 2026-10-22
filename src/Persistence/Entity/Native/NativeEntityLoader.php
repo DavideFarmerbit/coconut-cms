@@ -8,6 +8,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
 use XyloIsCoding\CoconutCms\Persistence\Entity\LoadedEntity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\IdProperty;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeObjectBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 
@@ -25,11 +26,13 @@ final class NativeEntityLoader
     /** @var array<string, string> Each referenced id's concrete identifier, looked up while loading. */
     private array $referencedIdentifiers = [];
 
+    /** @param NativeEntityRegistry $classes Turns a stored identifier into the class to build. */
     public function __construct(
         private readonly EntityReader $reader,
+        private readonly NativeEntityRegistry $classes,
         private readonly IdentityMap $identities,
     ) {
-        $this->builder = new NativeObjectBuilder($this->referenceOf(...));
+        $this->builder = new NativeObjectBuilder($classes, $this->referenceOf(...));
     }
 
     /** The entity with $id, or null when there's none. */
@@ -48,7 +51,7 @@ final class NativeEntityLoader
     private function build(?object $into, LoadedEntity $loaded): object {
         $this->lookUpReferencedIdentifiers($loaded->referencedIds);
 
-        $object = $this->builder->build($loaded->identifier, $loaded->tree, $into, function (FieldPath $path, object $owned) use ($loaded): void {
+        $object = $this->builder->build($this->classes->classOf($loaded->identifier), $loaded->tree, $into, function (FieldPath $path, object $owned) use ($loaded): void {
             // An owned object with no rows of its own is still following its
             // default: it has no id until it's touched and saved.
             $ownedId = $loaded->ownedIds[(string) $path] ?? null;
@@ -74,11 +77,12 @@ final class NativeEntityLoader
             return $known;
         }
 
-        $class = $this->referencedIdentifiers[$id] ?? null;
-        if ($class === null) {
+        $identifier = $this->referencedIdentifiers[$id] ?? null;
+        if ($identifier === null) {
             return null;
         }
 
+        $class = $this->classes->classOf($identifier);
         $ghost = (new ReflectionClass($class))->newLazyGhost(function (object $ghost) use ($id): void {
             $loaded = $this->reader->read($id) ?? throw new LogicException(sprintf('Entity %s was deleted before its reference was first used.', $id));
             $this->build($ghost, $loaded);

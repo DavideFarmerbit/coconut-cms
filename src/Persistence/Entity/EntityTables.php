@@ -37,7 +37,7 @@ final readonly class EntityTables
                 'owner' => EntityIds::NIL,
                 'owner_field' => '',
                 'position' => -1,
-                'concrete_identifier' => Cms::class,
+                'concrete_identifier' => Cms::IDENTIFIER,
             ]);
             $connection->insert($cms->table, ['id' => EntityIds::NIL, 'owner' => EntityIds::NIL, 'owner_field' => '']);
             $connection->insert($cms->stateTable, ['id' => EntityIds::NIL]);
@@ -47,11 +47,11 @@ final readonly class EntityTables
     /** @param list<LevelLayout> $levels */
     private function cmsLevelIn(array $levels): LevelLayout {
         foreach ($levels as $level) {
-            if ($level->identifier === Cms::class) {
+            if ($level->identifier === Cms::IDENTIFIER) {
                 return $level;
             }
         }
 
-        throw new InvalidArgumentException(sprintf('The levels to create must include %s, the row every other row without an owner points at.', Cms::class));
+        throw new InvalidArgumentException(sprintf('The levels to create must include %s, the row every other row without an owner points at.', Cms::IDENTIFIER));
     }
 }

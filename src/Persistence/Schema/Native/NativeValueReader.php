@@ -29,7 +29,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
  * instance, content for a live entity. Recurses into Embed and OwningReference
  * values. An Embed value is read through the declared target class, never a
  * runtime subclass: type erasure. An OwningReference value is read through its
- * own actual class: polymorphic, so the class is recorded alongside its fields.
+ * own actual class: polymorphic, so its identifier is recorded alongside its
+ * fields.
  */
 final readonly class NativeValueReader
 {
@@ -85,7 +86,7 @@ final readonly class NativeValueReader
             return null;
         }
 
-        $owned = new OwnedNode($value::class, $this->readAs(new ReflectionClass($value), $value, $path->traverse(...), $onOwned));
+        $owned = new OwnedNode(NativeIdentifiers::of($value::class), $this->readAs(new ReflectionClass($value), $value, $path->traverse(...), $onOwned));
         $onOwned($path, $value);
 
         return $owned;

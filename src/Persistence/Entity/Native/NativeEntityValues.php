@@ -6,6 +6,7 @@ use Closure;
 use LogicException;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntityValues;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeValueReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
@@ -44,13 +45,14 @@ final readonly class NativeEntityValues
      *        owned object read, with its path from $entity's class.
      */
     public function of(object $entity, ?Closure $onOwned = null): EntityValues {
+        $identifier = NativeIdentifiers::of($entity::class);
         $tree = $this->reader->read($entity, $onOwned);
-        $dense = (new ValueFlattener($this->schemas))->flatten($entity::class, $tree);
+        $dense = (new ValueFlattener($this->schemas))->flatten($identifier, $tree);
 
         return new EntityValues(
-            $entity::class,
+            $identifier,
             $dense,
-            $this->overrides->of(Subject::ofInstance($entity::class, $dense), $tree, $dense),
+            $this->overrides->of(Subject::ofInstance($identifier, $dense), $tree, $dense),
         );
     }
 

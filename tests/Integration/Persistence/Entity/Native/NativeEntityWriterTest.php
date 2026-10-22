@@ -19,6 +19,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityLoader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsCar;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsEngine;
@@ -32,6 +33,7 @@ final class NativeEntityWriterTest extends TestCase
 {
     private Connection $connection;
     private InMemorySchemaStores $stores;
+    private NativeEntityRegistry $classes;
     /** @var list<LevelLayout> */
     private array $levels = [];
     private IdentityMap $identities;
@@ -47,16 +49,18 @@ final class NativeEntityWriterTest extends TestCase
         ]);
 
         $classes = [Cms::class, ...RowsFixtures::CLASSES];
+        $blueprints = NativeEntityReader::readAll($classes);
         $this->stores = new InMemorySchemaStores();
-        $blueprints = [];
-        foreach ($classes as $class) {
-            $blueprints[$class] = NativeEntityReader::read($class);
-        }
         $this->stores->compiler()->compile($blueprints);
 
         $layouts = new LayoutBuilder(new SchemaLookup($this->stores->registry));
+        foreach (array_keys($blueprints) as $identifier) {
+            $this->levels[] = $layouts->levelOf($identifier);
+        }
+
+        $this->classes = new NativeEntityRegistry();
         foreach ($classes as $class) {
-            $this->levels[] = $layouts->levelOf($class);
+            $this->classes->register($class);
         }
 
         $this->dropTables();
@@ -81,7 +85,7 @@ final class NativeEntityWriterTest extends TestCase
 
     /** A loader with nothing in memory yet: what a fresh request starts with. */
     private function freshLoad(string $id): ?object {
-        return (new NativeEntityLoader(new EntityReader($this->connection, $this->stores->registry, $this->stores->values), new IdentityMap()))->load($id);
+        return (new NativeEntityLoader(new EntityReader($this->connection, $this->stores->registry, $this->stores->values), $this->classes, new IdentityMap()))->load($id);
     }
 
     private function exists(string $id): bool {
