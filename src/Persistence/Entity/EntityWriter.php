@@ -33,15 +33,36 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 final class EntityWriter
 {
     private readonly EntityRowsBuilder $rows;
-    private readonly LevelChains $chains;
+    private readonly LevelChains $storedChains;
 
-    public function __construct(
+    /**
+     * @param SchemaLookup $schemas The shape rows are written in.
+     * @param SchemaLookup $storedSchemas The shape stored rows are in: where
+     *        an entity's old rows are deleted from.
+     */
+    private function __construct(
         private readonly Connection $connection,
-        SchemaRegistry $registry,
+        SchemaLookup $schemas,
+        SchemaLookup $storedSchemas,
     ) {
-        $schemas = new SchemaLookup($registry);
         $this->rows = new EntityRowsBuilder($schemas);
-        $this->chains = new LevelChains($schemas);
+        $this->storedChains = new LevelChains($storedSchemas);
+    }
+
+    /** Writes and deletes with the schemas $registry serves: what every request does. */
+    public static function of(Connection $connection, SchemaRegistry $registry): self {
+        $schemas = new SchemaLookup($registry);
+
+        return new self($connection, $schemas, $schemas);
+    }
+
+    /**
+     * For a migration's move: rows are written in $target's shape, while the
+     * rows they replace are still in $stored's, a renamed type's old tables
+     * included.
+     */
+    public static function forMigration(Connection $connection, SchemaLookup $target, SchemaLookup $stored): self {
+        return new self($connection, $target, $stored);
     }
 
     /**
@@ -188,7 +209,7 @@ final class EntityWriter
      * side table and Collection rows go with it.
      */
     private function deleteContentRows(string $id, string $identifier): void {
-        foreach ($this->chains->of($identifier) as $level) {
+        foreach ($this->storedChains->of($identifier) as $level) {
             $this->connection->delete($level->table, [ColumnNames::ID => $id]);
         }
     }

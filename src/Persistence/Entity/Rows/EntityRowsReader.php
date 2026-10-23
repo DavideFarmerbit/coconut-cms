@@ -25,9 +25,17 @@ final class EntityRowsReader
 {
     private readonly LevelChains $chains;
 
+    /**
+     * @param bool $readsMovedAside For a migration's move: a column a migration
+     *        moved aside, "_old__weight", is read as the one it was, "weight".
+     * @param list<string> $tablesMovedAside Tables a migration moved aside, by
+     *        their name in $schemas: each is read from its "_old__" name.
+     */
     public function __construct(
         private readonly Connection $connection,
         SchemaLookup $schemas,
+        private readonly bool $readsMovedAside = false,
+        private readonly array $tablesMovedAside = [],
     ) {
         $this->chains = new LevelChains($schemas);
     }
@@ -56,8 +64,8 @@ final class EntityRowsReader
         $at = static fn (FieldPath $path): FieldPath => $prefix === null ? $path : $prefix->append(FieldPath::TRAVERSE, $path);
 
         foreach ($this->chains->of($identifier) as $level) {
-            $row = $this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $level->table, ColumnNames::ID), [$id]);
-            $state = $this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $level->stateTable, ColumnNames::ID), [$id]);
+            $row = $this->restored($this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $this->tableOf($level->table), ColumnNames::ID), [$id]));
+            $state = $this->restored($this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $this->tableOf($level->stateTable), ColumnNames::ID), [$id]));
             $flags = $level->stateColumns();
             $isTouched = static fn (FieldPath $path): bool => (bool) $state[$flags[(string) $path]];
 
@@ -83,13 +91,14 @@ final class EntityRowsReader
 
     /** @param Closure(FieldPath): FieldPath $at Turns a path on the owner into one from the entity being read. */
     private function readCollection(CollectionLayout $collection, string $ownerId, Closure $at, FieldValuesBuilder $touched): void {
-        $rows = $this->connection->fetchAllAssociative(
-            sprintf('SELECT * FROM %s WHERE %s = ? ORDER BY %s', $collection->table, ColumnNames::OWNER, ColumnNames::POSITION),
+        $rows = array_map($this->restored(...), $this->connection->fetchAllAssociative(
+            sprintf('SELECT * FROM %s WHERE %s = ? ORDER BY %s', $this->tableOf($collection->table), ColumnNames::OWNER, ColumnNames::POSITION),
             [$ownerId],
-        );
+        ));
         $states = [];
         if ($collection->stateTable !== null) {
-            foreach ($this->connection->fetchAllAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $collection->stateTable, ColumnNames::OWNER), [$ownerId]) as $state) {
+            foreach ($this->connection->fetchAllAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $this->tableOf($collection->stateTable), ColumnNames::OWNER), [$ownerId]) as $state) {
+                $state = $this->restored($state);
                 $states[$state[ColumnNames::POSITION]] = $state;
             }
         }
@@ -149,6 +158,31 @@ final class EntityRowsReader
 
         $ownedIds[(string) $at($path)] = $row['id'];
         $this->readInto($row['id'], $row['concrete_identifier'], $at($path), $touched, $ownedIds);
+    }
+
+    /** Where $table's rows are read from: its "_old__" name when a migration moved it aside. */
+    private function tableOf(string $table): string {
+        return in_array($table, $this->tablesMovedAside, true) ? ColumnNames::old($table) : $table;
+    }
+
+    /**
+     * $row with every column a migration moved aside read as the one it was:
+     * "_old__weight" holds what "weight" did. Unchanged outside a migration.
+     * @param array<string, mixed>|false $row
+     * @return array<string, mixed>|false
+     */
+    private function restored(array|false $row): array|false {
+        if (!$this->readsMovedAside || $row === false) {
+            return $row;
+        }
+
+        foreach ($row as $column => $value) {
+            if (str_starts_with((string) $column, ColumnNames::OLD)) {
+                $row[substr((string) $column, strlen(ColumnNames::OLD))] = $value;
+            }
+        }
+
+        return $row;
     }
 
     /**

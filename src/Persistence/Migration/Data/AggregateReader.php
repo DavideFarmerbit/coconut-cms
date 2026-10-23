@@ -15,7 +15,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
  * Reads a stored aggregate into AggregateValues, before it moves: its touched
  * values with the schemas still stored, and every other value resolved from
  * the defaults still stored. Must run before the migration stores its new
- * schemas and values.
+ * schemas and values. Reads what expand moved aside, "_old__" columns and
+ * tables, as what they were.
  */
 final readonly class AggregateReader
 {
@@ -23,13 +24,15 @@ final readonly class AggregateReader
     private EntityRowsReader $rows;
     private FieldValueResolver $resolver;
 
+    /** @param list<string> $tablesMovedAside Tables expand moved aside, by their stored name. */
     public function __construct(
         Connection $connection,
         SchemaRegistry $registry,
         SchemaFieldValueStore $values,
+        array $tablesMovedAside = [],
     ) {
         $this->schemas = new SchemaLookup($registry);
-        $this->rows = new EntityRowsReader($connection, $this->schemas);
+        $this->rows = new EntityRowsReader($connection, $this->schemas, readsMovedAside: true, tablesMovedAside: $tablesMovedAside);
         $this->resolver = new FieldValueResolver($registry, $values);
     }
 

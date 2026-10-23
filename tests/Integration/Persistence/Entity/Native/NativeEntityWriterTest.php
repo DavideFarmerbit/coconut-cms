@@ -61,7 +61,7 @@ final class NativeEntityWriterTest extends TestCase
         (new EntityTables($this->connection))->create($this->levels);
 
         $this->identities = new IdentityMap();
-        $this->writer = new NativeEntityWriter(new EntityWriter($this->connection, $this->stores->registry), $this->stores->registry, $this->stores->values, $this->identities);
+        $this->writer = new NativeEntityWriter(EntityWriter::of($this->connection, $this->stores->registry), $this->stores->registry, $this->stores->values, $this->identities);
     }
 
     protected function tearDown(): void {

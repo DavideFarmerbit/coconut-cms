@@ -11,7 +11,8 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
 
 /**
  * Creates the content tables on a fresh database, and seeds the Cms row the
- * rest point at. Not a migration: it only ever creates, never alters.
+ * rest point at. Not a migration: it only ever creates, never alters. A
+ * migration creates tables its own way and only uses seed().
  */
 final readonly class EntityTables
 {
@@ -26,9 +27,22 @@ final readonly class EntityTables
      * @param list<LevelLayout> $levels
      */
     public function create(array $levels): void {
-        $cms = $this->cmsLevelIn($levels);
-
+        $this->cmsLevelIn($levels);
         $this->connection->createSchemaManager()->createSchemaObjects(DatabaseSchema::of($levels));
+        $this->seed($levels);
+    }
+
+    /**
+     * Seeds the Cms row into tables that already exist, unless it's there:
+     * what a migration does on a fresh database once expand has created
+     * them. Cms's own level must be among $levels.
+     * @param list<LevelLayout> $levels
+     */
+    public function seed(array $levels): void {
+        $cms = $this->cmsLevelIn($levels);
+        if ($this->connection->fetchOne(sprintf('SELECT 1 FROM %s WHERE id = ?', DatabaseSchema::ENTITIES), [EntityIds::NIL]) !== false) {
+            return;
+        }
 
         // Its own owner, so the self-referencing foreign key has a row to
         // point at. Never written through the ordinary write path.

@@ -399,9 +399,13 @@ cover a `TEXT` column, an OwningReference or a Collection: MySQL can't index
 the first, and the others have no column.
 
 The layout fails rather than letting the database fail later: two values
-landing on one column, two tables with one name, or any name longer than
-MySQL's 64 characters. With the naming rule above, the first can't happen
-any more, and the second only through an explicit table name.
+landing on one column, two tables with one name, or any name longer than 58
+characters: MySQL allows 64, less the six a migration may prefix a name with
+(see "How data moves"). With the naming rule above, the first can't happen
+any more, and the second only through an explicit table name. A migration
+lays out every schema from code before anything else, a fresh install
+included, so a collision fails it before any DDL runs, naming the type. The
+compiler doesn't check this: the schema side never depends on the layout.
 
 ## Identity
 
@@ -558,8 +562,17 @@ it is set to null by its foreign key, and loads as null.
 
 ## Migrations
 
-**Decided, not built yet.** A migration brings stored content in line with
-schemas that changed after it was stored.
+A migration brings stored content in line with schemas that changed after it
+was stored. `Migrator::migrate()` runs one, from the native classes read with
+`NativeEntityReader::readAll()` and every declared `MigrationSteps`; a fresh
+database is a migration from nothing. One migration runs at a time: each
+holds a MySQL lock.
+
+**Built**, except where noted inline: storing a `NoType` value; migrating
+editor-created types' content and stored values, which stops a migration
+that would need it; and checking every output against the new field's stored
+form before writing, where for now the database's own strict mode rejects
+what doesn't fit, the error naming the entity that failed.
 
 ### What a change costs
 
@@ -907,16 +920,31 @@ later, as an optimization that must give the same result.
 MySQL commits every DDL statement on its own, so a migration can't be one
 transaction. It runs in three steps instead:
 
-1. **Expand.** Add every new table and column. The old ones stay. Every
-   content column is nullable, so old and new shapes coexist in one table.
-   The DDL comes from comparing the database as it is with the target, so
-   running a failed migration again doesn't trip over what it already added.
+1. **Expand.** Add every new table, column and index. The old ones stay.
+   Every content column is nullable, so old and new shapes coexist in one
+   table. A column keeping its name but changing its type is renamed out of
+   the way first, `weight` to `_old__weight`, then added again in its new
+   type; its indexes and foreign keys go, since they're no data. In MySQL 8
+   both are usually instant: nothing is copied. A table whose name a new one
+   needs is renamed the same way, to `_old__<table>`. The DDL comes from
+   comparing the database as it is with the target, so running a failed
+   migration again doesn't trip over what it already did.
 2. **Move.** Move every entity's data and commit the new schemas, in one
    transaction: data changes are transactional, and the schema stores share
-   the database. Either everything moves and the new schemas are committed,
-   or nothing does.
-3. **Contract.** Drop what's no longer used. If this fails, what's left is
-   unused and nullable, and the next run drops it.
+   the database. Each aggregate is read with the old schemas, a renamed
+   column's value read from its `_old__` name, and written in the new shape.
+   Either everything moves and the new schemas are committed, with the
+   applied steps' ids, or nothing does.
+3. **Contract.** Drop every `_old__` column and table, and whatever the new
+   layout no longer has. If this fails, what's left is unused and nullable,
+   and the next run drops it.
+
+Every point a migration can stop at is recognizable from the database alone:
+`_old__` names with the old schemas still stored mean expand was cut short,
+and the next run carries on; with the new schemas stored, contract is pending,
+and the next run finishes it. `_old__` follows the system-name rule, so it
+never collides with a field. It adds six characters, so the layout caps every
+table and column name at 58, keeping the renamed one within MySQL's 64.
 
 One transaction for all the data is long on a large database. That's
 acceptable for now. If it isn't one day, the fix is batches with a record of

@@ -73,7 +73,7 @@ final class NativeEntityLoaderTest extends TestCase
     }
 
     private function save(object $entity, IdentityMap $identities): string {
-        $writer = new EntityWriter($this->connection, $this->stores->registry);
+        $writer = EntityWriter::of($this->connection, $this->stores->registry);
 
         return (new NativeEntityWriter($writer, $this->stores->registry, $this->stores->values, $identities))->save($entity);
     }

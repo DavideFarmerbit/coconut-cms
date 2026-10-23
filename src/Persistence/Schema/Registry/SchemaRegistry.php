@@ -26,6 +26,14 @@ final class SchemaRegistry
         $this->schemas[$schema->identifier] = $schema;
     }
 
+    /**
+     * Forgets every schema held in memory: after a migration commits, or
+     * rolls back, what's in memory may not be what's stored.
+     */
+    public function forgetAll(): void {
+        $this->schemas = [];
+    }
+
     /** True for a stored schema even when it's stale: get() is what checks that. */
     public function has(string $identifier): bool {
         return array_key_exists($identifier, $this->schemas) || $this->store->load($identifier) !== null;

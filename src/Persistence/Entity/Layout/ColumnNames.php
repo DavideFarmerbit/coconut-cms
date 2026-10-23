@@ -34,6 +34,12 @@ final class ColumnNames
     /** A Scalar, ValueObject or Reference Collection item's value. */
     public const VALUE = '_value';
 
+    /**
+     * What a migration prefixes a column or table with while the old one
+     * still holds data the new one needs: "_old__weight".
+     */
+    public const OLD = '_old__';
+
     /** The column $path's value lands on. Throws for a path with a "." in it. */
     public static function of(FieldPath $path): string {
         $name = (string) $path;
@@ -57,5 +63,10 @@ final class ColumnNames
     /** The side table holding $table's touched flags: "_state__car", "_state__car__wheels". */
     public static function stateTable(string $table): string {
         return '_state' . self::EMBED . $table;
+    }
+
+    /** $name moved out of the way by a migration: "_old__weight". */
+    public static function old(string $name): string {
+        return self::OLD . $name;
     }
 }

@@ -190,7 +190,7 @@ final class DatabaseSchemaTest extends TestCase
 
     public function testANameTooLongForMysqlIsRejected(): void {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('is longer than 64 characters');
+        $this->expectExceptionMessage('is longer than 58 characters');
 
         self::schemaOf(LayoutLongName::class);
     }

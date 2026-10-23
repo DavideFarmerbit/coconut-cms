@@ -181,6 +181,21 @@ final readonly class SchemaState
     }
 
     /**
+     * Every schema at this point, of every source.
+     * @return array<string, EntitySchema> Keyed by identifier.
+     */
+    public function schemas(): array {
+        return $this->schemas;
+    }
+
+    /** The source of type $identifier: native or editor-created. */
+    public function sourceOf(string $identifier): SchemaSource {
+        $this->get($identifier);
+
+        return $this->sources[$identifier];
+    }
+
+    /**
      * The native schemas: what the code is compared with.
      * @return array<string, EntitySchema> Keyed by identifier.
      */

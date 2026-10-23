@@ -42,6 +42,13 @@ final class SchemaFieldValueStore
         $this->loaded = [];
     }
 
+    /** Creates the table unless it exists: what a migration does on any database. */
+    public function ensureTable(): void {
+        if (!$this->connection->createSchemaManager()->tablesExist([self::TABLE])) {
+            $this->createTable();
+        }
+    }
+
     public function dropTableIfExists(): void {
         $schemaManager = $this->connection->createSchemaManager();
         if ($schemaManager->tablesExist([self::TABLE])) {
@@ -84,6 +91,26 @@ final class SchemaFieldValueStore
                 }
             }
         });
+    }
+
+    /**
+     * Removes every value stored for each of $identifiers: what a migration
+     * does for a type the code no longer has.
+     * @param list<string> $identifiers
+     */
+    public function deleteAll(array $identifiers): void {
+        foreach ($identifiers as $identifier) {
+            unset($this->loaded[$identifier]);
+            $this->connection->delete(self::TABLE, ['identifier' => $identifier]);
+        }
+    }
+
+    /**
+     * Forgets everything loaded so far: after a rollback, what was loaded
+     * inside the transaction may no longer be what the database holds.
+     */
+    public function forgetLoaded(): void {
+        $this->loaded = [];
     }
 
     public function load(string $identifier): FieldValues {

@@ -23,8 +23,12 @@ final class DatabaseSchema
 {
     public const ENTITIES = 'entities';
 
-    /** MySQL's limit on table, column and index names. */
-    private const MAX_NAME_LENGTH = 64;
+    /**
+     * MySQL's limit on table, column and index names, 64, less the six
+     * characters of ColumnNames::OLD: renamed by a migration, a name must
+     * still fit.
+     */
+    private const MAX_NAME_LENGTH = 64 - 6;
 
     /** @param list<LevelLayout> $levels */
     public static function of(array $levels): Schema {
