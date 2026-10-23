@@ -36,12 +36,13 @@ final readonly class MigrationPlanner
         foreach ($pending as $step) {
             foreach ($step->fixups() as $fixup) {
                 try {
-                    $schemas = $fixup->applyTo($schemas);
+                    $after = $fixup->applyTo($schemas);
                 } catch (InvalidFixup $problem) {
                     throw InvalidFixup::inStep($step->id(), $fixup, $problem);
                 }
 
-                $fixups[] = $fixup;
+                $fixups[] = new PlannedFixup($fixup, $schemas, $after);
+                $schemas = $after;
             }
         }
 
@@ -54,12 +55,13 @@ final readonly class MigrationPlanner
             }
 
             try {
-                $schemas = $fixup->applyTo($schemas);
+                $after = $fixup->applyTo($schemas);
             } catch (InvalidFixup $problem) {
                 throw InvalidFixup::fromPolicy($fixup, $problem);
             }
 
-            $fixups[] = $fixup;
+            $fixups[] = new PlannedFixup($fixup, $schemas, $after);
+            $schemas = $after;
         }
 
         if ($blocked !== []) {
@@ -71,6 +73,6 @@ final readonly class MigrationPlanner
             throw new LogicException(sprintf('The policy resolved a difference without explaining it: %s', $left[0]->describe()));
         }
 
-        return new MigrationPlan(array_map(static fn (MigrationStep $step): string => $step->id(), $pending), $fixups);
+        return new MigrationPlan(array_map(static fn (MigrationStep $step): string => $step->id(), $pending), $fixups, $schemas);
     }
 }

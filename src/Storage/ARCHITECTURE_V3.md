@@ -681,10 +681,18 @@ The common fixups are shorthands:
   type, so a table derived from the identifier needs no `MoveTable` of its
   own.
 - `DropType(type)`: deletes its entities and everything they own. References
-  to them become null.
+  to them become null. Where one sits in another entity's owned field, or as
+  an Owned Collection item, that slot becomes null, the same for both: what it
+  held is gone. A converter or transformation before the drop can put
+  something else there.
 - `MoveTable(type)`: its table moves to the name the code gives it.
-- `Reparent(type, converter?)`: a level added follows its defaults, or the
-  converter fills it. A level removed drops its data.
+- `Reparent(type, initializer?)`: the type moves under the parent the code
+  gives it. A level it gains holds fields every existing entity already
+  should have, so it's filled, not added: following its defaults, or by the
+  initializer. It's called for every entity of the type and its subclasses,
+  receives the entity's values, and sets fields of the levels gained, and only
+  those. One initializer fills every level one `Reparent` inserts. A level the
+  type loses takes its values with it, unless a fixup before moves them.
 - `AddUniqueGroup(type, fields)`, `DropUniqueGroup(type, fields)`.
 - `AddField(type, field, initializer)`: gives existing entities a value other
   than the default.
@@ -696,9 +704,9 @@ The common fixups are shorthands:
 - `MoveValues(type, from, to)`: values moved between any two paths of an
   aggregate: across levels, into or out of an Embed, across an owned boundary.
   Data only: the schema changes it goes with are declared next to it.
-- `RetypeField(type, field, converter)`: a retype always has a converter,
-  even where the old and new stored forms look alike. Nothing converts from
-  one type to another implicitly.
+- `RetypeField::converting(type, field, converter)`: a retype always has a
+  converter, even where the old and new stored forms look alike. Nothing
+  converts from one type to another implicitly.
 - `RetypeField::reset(type, field)`: a readable name for `DropField` followed
   by the field added again, following its default.
 
@@ -724,9 +732,86 @@ car's value, since a car still has the path. Moved down from `Vehicle` to
 `Car`, a vehicle that isn't a car loses its value, since it no longer has the
 path.
 
-A transformation sees a whole aggregate, so it can move a value across an
-owned boundary. An owned type's own fixups run first, wherever its entities
-sit, then its owners'.
+Each fixup runs over a whole aggregate at once, at every place its field or
+type lives, before the next fixup starts. So the declared order is the order
+everything runs in, across all types.
+
+A general transformation is declared on a type, and runs at every place that
+type lives: its entities and its subclasses', owned or standalone, and its
+Embed sites. At each, it receives the values rooted there: its own fields and
+everything it owns, nested. So a car's transformation can move a value down
+into `car.engine`; moving one up from an engine into its car takes a
+transformation on the car.
+
+### How an aggregate moves
+
+For each root entity:
+
+1. Its touched values are read with the old schemas, owned objects included,
+   and resolved against the old defaults: every value in effective form,
+   each marked touched or not.
+2. Each fixup's data side runs, in order, over the whole aggregate. It finds
+   where its field lives from the schemas as the fixups before it left them.
+   Renames and moves change paths, keeping each value's mark and each owned
+   object's id. Converters replace values.
+3. The aggregate is written with the new schemas, the way a save writes it.
+
+Only two kinds of value are compared with the new defaults at the end, the
+way a save compares: touched values, and converters' output.
+
+- Touched and not converted: stays touched, unless it now equals its default.
+- Converted with `Conversion::of()`: touched only where it differs from the
+  new default.
+- Converted with `Conversion::default()`: untouched.
+- Untouched and not converted: stays untouched, and follows whatever the new
+  default is. Without this, a default changed in the same release as a
+  migration would pin every untouched entity to the old default.
+
+A fixup on a field applies wherever that field's values live: in entities of
+the type declaring it and of every subclass, standalone or owned, and at every
+Embed site of the type, singular or as Collection items. The field is one
+declaration everywhere, so it's declared once.
+
+### The data API
+
+```php
+interface FieldConverter {
+    public function convert(Captured $old): Conversion;
+}
+
+final class Captured {
+    public function value(): mixed;      // at the field itself: a scalar, a Reference's id, an owned
+                                         // object's identifier, a Collection's item count; null for an Embed
+    public function isDefault(): bool;   // whether it was following the old default
+    public function under(): Values;     // the values below it, paths relative to the field
+}
+
+final class Conversion {
+    public static function of(mixed $value, array $under = []): self;
+    public static function default(): self;
+}
+
+interface FieldInitializer {             // AddField(type, field, initializer)
+    public function initialize(Values $values): Conversion;
+}
+
+interface LevelInitializer {             // Reparent(type, initializer)
+    public function initialize(MigratingValues $values): void;
+}
+
+interface Transformation {               // Transform(type, transformation)
+    /** @return list<Fixup> The schema fixups it amounts to. */
+    public function declares(): array;
+    public function transform(MigratingValues $values): void;
+}
+```
+
+`Values` is read-only: `get`, `has`, `isDefault`, `paths`. `MigratingValues`
+adds `set(path, Conversion)`, `remove` and `move`, scoped to one call.
+Converters, initializers and transformations are always classes, never
+closures: named, testable, and readable in a step. Every output is checked against the new field's stored form
+before anything is written: one that doesn't fit fails the migration, naming
+the type, the field and the entity.
 
 ### Values in, values out
 

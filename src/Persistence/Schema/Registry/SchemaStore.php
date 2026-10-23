@@ -112,6 +112,17 @@ final class SchemaStore
     }
 
     /**
+     * Every stored schema, of every source: what a migration compares with
+     * the code.
+     * @return list<StoredSchema>
+     */
+    public function all(): array {
+        $identifiers = $this->connection->fetchFirstColumn(sprintf('SELECT identifier FROM %s ORDER BY identifier', self::TABLE));
+
+        return array_map(fn (string $identifier): StoredSchema => $this->load($identifier), $identifiers);
+    }
+
+    /**
      * $schema's own fingerprint, given the values stored for it: changes
      * whenever either does, and only then. Never includes a dependency's.
      */

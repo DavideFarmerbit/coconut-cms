@@ -2,6 +2,8 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Migration\Fixup;
 
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateValues;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Occurrences;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\UniqueGroups;
 use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
@@ -11,7 +13,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
  * The shorthand for MoveValues from the old name to the new, the old field
  * dropped, the new one added.
  */
-final readonly class RenameField implements Fixup
+final readonly class RenameField implements Fixup, MovesValues
 {
     public FieldName $old;
     public FieldName $new;
@@ -33,6 +35,12 @@ final readonly class RenameField implements Fixup
         return $schemas->with($schema
             ->withFields($schema->fields->renamed($this->old, $this->new))
             ->withUniqueGroups(UniqueGroups::withFieldRenamed($schema->uniqueGroups, $this->old, $this->new)));
+    }
+
+    public function moveValues(AggregateValues $values, SchemaState $before, SchemaState $after): void {
+        foreach (Occurrences::ofType($this->type, $values, $before) as $occurrence) {
+            $values->move($occurrence->fieldPath($this->old), $occurrence->fieldPath($this->new));
+        }
     }
 
     public function describe(): string {

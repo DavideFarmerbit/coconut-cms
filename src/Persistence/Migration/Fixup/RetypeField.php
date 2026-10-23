@@ -2,28 +2,41 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Migration\Fixup;
 
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateValues;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Captured;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Occurrences;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Values;
 use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 
 /**
  * A type's own field changing what it holds: its kind, target, scalar type,
- * enum, or item. reset() drops every value and lets every entity follow the
- * new default. Converting values instead comes with the data side.
+ * enum, or item. converting() turns every old value into a new one, nothing
+ * implicit; reset() drops every value, so every entity follows the new
+ * default.
  */
-final readonly class RetypeField implements Fixup
+final readonly class RetypeField implements Fixup, MovesValues
 {
     public FieldName $field;
 
     private function __construct(
         public string $type,
         string $field,
+        private ?FieldConverter $converter,
     ) {
         $this->field = FieldName::of($field);
     }
 
+    /** Every value converted by $converter, wherever the field lives, touched or following its old default. */
+    public static function converting(string $type, string $field, FieldConverter $converter): self {
+        return new self($type, $field, $converter);
+    }
+
     /** Every value dropped: every entity follows the field's new default. */
     public static function reset(string $type, string $field): self {
-        return new self($type, $field);
+        return new self($type, $field, null);
     }
 
     public function applyTo(SchemaState $schemas): SchemaState {
@@ -33,7 +46,41 @@ final readonly class RetypeField implements Fixup
         return $schemas->with($schema->withFields($schema->fields->with($this->field, $schemas->codeField($this->type, $this->field))));
     }
 
+    public function moveValues(AggregateValues $values, SchemaState $before, SchemaState $after): void {
+        $old = $before->field($this->type, $this->field);
+        $new = $after->field($this->type, $this->field);
+
+        foreach (Occurrences::ofType($this->type, $values, $before) as $occurrence) {
+            $path = $occurrence->fieldPath($this->field);
+            if ($this->converter === null) {
+                $values->removeAt($path);
+                continue;
+            }
+
+            $under = $values->valuesUnder($path);
+            // An Embed has no value of its own: it follows its default while
+            // nothing under it is touched.
+            $isDefault = $old->kind() === FieldKind::Embed
+                ? self::allDefault($under)
+                : $values->markOf($path)->isDefault();
+
+            $values->write($path, $new, $this->converter->convert(new Captured($values->get($path), $isDefault, $under)));
+        }
+    }
+
     public function describe(): string {
-        return sprintf('RetypeField::reset(%s, %s)', $this->type, $this->field);
+        return $this->converter === null
+            ? sprintf('RetypeField::reset(%s, %s)', $this->type, $this->field)
+            : sprintf('RetypeField::converting(%s, %s, %s)', $this->type, $this->field, $this->converter::class);
+    }
+
+    private static function allDefault(Values $values): bool {
+        foreach ($values->paths() as $path) {
+            if (!$values->isDefault($path)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

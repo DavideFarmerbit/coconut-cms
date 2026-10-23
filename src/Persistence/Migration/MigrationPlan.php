@@ -2,7 +2,8 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Migration;
 
-use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\Fixup;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateValues;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MovesValues;
 
 /**
  * Every fixup a migration runs, in order, once it's known that together they
@@ -14,12 +15,24 @@ final readonly class MigrationPlan
     /**
      * @param list<string> $stepIds The pending steps, in the order they run:
      *        what the database records as applied once the migration commits.
-     * @param list<Fixup> $fixups Declared fixups first, then the policy's.
+     * @param list<PlannedFixup> $fixups Declared fixups first, then the policy's.
+     * @param SchemaState $schemas The stored schemas once every fixup ran:
+     *        the code's, plus every editor-created schema as fixed.
      */
     public function __construct(
         public array $stepIds,
         public array $fixups,
+        public SchemaState $schemas,
     ) {
+    }
+
+    /** Runs every fixup's data side over $values, in order. */
+    public function moveValues(AggregateValues $values): void {
+        foreach ($this->fixups as $planned) {
+            if ($planned->fixup instanceof MovesValues) {
+                $planned->fixup->moveValues($values, $planned->before, $planned->after);
+            }
+        }
     }
 
     /** Whether the migration has anything to do. */

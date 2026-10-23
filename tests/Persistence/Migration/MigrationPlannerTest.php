@@ -18,6 +18,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\InvalidFixup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationBlocked;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationPlanner;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationStep;
+use XyloIsCoding\CoconutCms\Persistence\Migration\PlannedFixup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\DeveloperPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\UnsafePolicy;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
@@ -78,9 +79,12 @@ final class MigrationPlannerTest extends TestCase
         };
     }
 
-    /** @return list<string> */
+    /**
+     * @param list<PlannedFixup> $fixups
+     * @return list<string>
+     */
     private static function described(array $fixups): array {
-        return array_map(static fn (Fixup $fixup): string => $fixup->describe(), $fixups);
+        return array_map(static fn (PlannedFixup $planned): string => $planned->fixup->describe(), $fixups);
     }
 
     public function testNothingChangedPlansNothing(): void {

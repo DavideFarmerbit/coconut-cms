@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Migration;
 use Closure;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\StoredSchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
@@ -91,6 +92,34 @@ final readonly class SchemaState
         }
 
         return $schema->fields->get($name);
+    }
+
+    /**
+     * $identifier and its ancestors at this point, root first.
+     * @return list<string>
+     */
+    public function chainOf(string $identifier): array {
+        $chain = [];
+        for ($current = $identifier; $current !== null; $current = $this->get($current)->parent) {
+            $chain[] = $current;
+        }
+
+        return array_reverse($chain);
+    }
+
+    /** Whether $identifier is $ancestor or descends from it, at this point. */
+    public function isA(string $identifier, string $ancestor): bool {
+        return in_array($ancestor, $this->chainOf($identifier), true);
+    }
+
+    /** Every field $identifier holds at this point, its ancestors' included, root level first. */
+    public function hierarchyFieldsOf(string $identifier): FieldDescriptorCollection {
+        $fields = FieldDescriptorCollection::empty();
+        foreach ($this->chainOf($identifier) as $level) {
+            $fields = $fields->merge($this->get($level)->fields);
+        }
+
+        return $fields;
     }
 
     /**
