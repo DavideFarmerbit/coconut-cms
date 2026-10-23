@@ -26,7 +26,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\RetypeField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\Transform;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationPlan;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationPlanner;
-use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationStep;
+use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
@@ -151,26 +151,10 @@ final class MovingValuesTest extends TestCase
      * @param array<string, EntitySchema> $code
      */
     private static function plan(array $stored, array $code, Fixup ...$fixups): MigrationPlan {
-        $step = new class($fixups) implements MigrationStep {
-            /** @param list<Fixup> $fixups */
-            public function __construct(
-                private readonly array $fixups,
-            ) {
-            }
-
-            public function id(): string {
-                return 'step';
-            }
-
-            public function fixups(): array {
-                return $this->fixups;
-            }
-        };
-
         return (new MigrationPlanner())->plan(
             array_values(array_map(static fn (EntitySchema $schema): StoredSchema => new StoredSchema($schema, SchemaSource::Native, str_repeat('0', 64), []), $stored)),
             $code,
-            [$step],
+            MigrationSteps::none()->add('step', $fixups),
         );
     }
 

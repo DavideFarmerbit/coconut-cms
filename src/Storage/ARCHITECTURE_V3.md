@@ -635,11 +635,24 @@ inherited fields, move the same way native content does.
 ### Fixups are ordered steps
 
 Fixups are typed objects in code, reviewed with the commit, grouped into
-ordered steps. Each step has a unique id. Boot code passes the steps as one
-list, and the list's order is the order they run in: two branches adding steps
-at once then meet as a merge conflict, never as an older step silently slotted
-in before one already applied. The database records the id of every step it
-has applied, next to the schema stores.
+ordered steps. Boot code declares every step in one `MigrationSteps`, an id and
+its fixups at a time, and the order they're added in is the order they run in:
+two branches adding steps at once then meet as a merge conflict, never as an
+older step silently slotted in before one already applied. Two steps sharing
+an id are rejected as soon as the second is added. The database records the id
+of every step it has applied, next to the schema stores.
+
+```php
+$steps = MigrationSteps::none()
+    // First release: the car's price is renamed.
+    ->add('2026-10-01-rename-price', [
+        new RenameField('default:car', 'price', 'cost'),
+    ])
+    // Second release: the cost becomes text.
+    ->add('2026-10-08-cost-as-text', [
+        RetypeField::converting('default:car', 'cost', new PriceToText()),
+    ]);
+```
 
 A database several steps behind catches up through every pending one. It holds
 no schema for the states in between, so it can't move step by step. Instead,

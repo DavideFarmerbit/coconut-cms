@@ -2,11 +2,11 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Persistence\Migration;
 
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\AddField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\DropField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\DropType;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\Fixup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MoveTable;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MoveValues;
@@ -17,7 +17,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\RetypeField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\InvalidFixup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationBlocked;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationPlanner;
-use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationStep;
+use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 use XyloIsCoding\CoconutCms\Persistence\Migration\PlannedFixup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\DeveloperPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\UnsafePolicy;
@@ -60,25 +60,6 @@ final class MigrationPlannerTest extends TestCase
         return array_column(array_map(static fn (EntitySchema $schema): array => [$schema->identifier, $schema], $schemas), 1, 0);
     }
 
-    private static function step(string $id, Fixup ...$fixups): MigrationStep {
-        return new class($id, $fixups) implements MigrationStep {
-            /** @param list<Fixup> $fixups */
-            public function __construct(
-                private readonly string $id,
-                private readonly array $fixups,
-            ) {
-            }
-
-            public function id(): string {
-                return $this->id;
-            }
-
-            public function fixups(): array {
-                return $this->fixups;
-            }
-        };
-    }
-
     /**
      * @param list<PlannedFixup> $fixups
      * @return list<string>
@@ -90,14 +71,14 @@ final class MigrationPlannerTest extends TestCase
     public function testNothingChangedPlansNothing(): void {
         $car = self::schema('test:car', ['price' => self::int('price')]);
 
-        self::assertTrue((new MigrationPlanner())->plan([self::stored($car)], self::code($car), [])->isEmpty());
+        self::assertTrue((new MigrationPlanner())->plan([self::stored($car)], self::code($car), MigrationSteps::none())->isEmpty());
     }
 
     public function testStrictLetsAnAdditionThroughAsItsOwnFixup(): void {
         $plan = (new MigrationPlanner())->plan(
             [self::stored(self::schema('test:car'))],
             self::code(self::schema('test:car', ['price' => self::int('price')]), self::schema('test:bike')),
-            [],
+            MigrationSteps::none(),
         );
 
         self::assertSame(['AddField(test:car, price)', 'AddType(test:bike)'], self::described($plan->fixups));
@@ -108,7 +89,7 @@ final class MigrationPlannerTest extends TestCase
             (new MigrationPlanner())->plan(
                 [self::stored(self::schema('test:car', ['price' => self::int('price')])), self::stored(self::schema('test:bike'))],
                 self::code(self::schema('test:car')),
-                [],
+                MigrationSteps::none(),
             );
             self::fail('The migration should have been blocked.');
         } catch (MigrationBlocked $blocked) {
@@ -121,7 +102,7 @@ final class MigrationPlannerTest extends TestCase
         $plan = (new MigrationPlanner())->plan(
             [self::stored(self::schema('test:car', ['price' => self::int('price')]))],
             self::code(self::schema('test:car')),
-            [self::step('drop-price', new DropField('test:car', 'price'))],
+            MigrationSteps::none()->add('drop-price', [new DropField('test:car', 'price')]),
         );
 
         self::assertSame(['drop-price'], $plan->stepIds);
@@ -132,7 +113,7 @@ final class MigrationPlannerTest extends TestCase
         $plan = (new MigrationPlanner())->plan(
             [self::stored(self::schema('test:car', ['price' => self::int('price')]))],
             self::code(self::schema('test:car', ['cost' => self::int('cost')])),
-            [self::step('rename-price', new RenameField('test:car', 'price', 'cost'))],
+            MigrationSteps::none()->add('rename-price', [new RenameField('test:car', 'price', 'cost')]),
         );
 
         self::assertSame(['RenameField(test:car, price → cost)'], self::described($plan->fixups));
@@ -142,13 +123,35 @@ final class MigrationPlannerTest extends TestCase
         $plan = (new MigrationPlanner())->plan(
             [self::stored(self::schema('test:car', ['price' => self::int('price')]))],
             self::code(self::schema('test:car', ['amount' => self::int('amount')])),
-            [
-                self::step('price-to-cost', new RenameField('test:car', 'price', 'cost')),
-                self::step('cost-to-amount', new RenameField('test:car', 'cost', 'amount')),
-            ],
+            MigrationSteps::none()
+                ->add('price-to-cost', [new RenameField('test:car', 'price', 'cost')])
+                ->add('cost-to-amount', [new RenameField('test:car', 'cost', 'amount')]),
         );
 
         self::assertSame(['price-to-cost', 'cost-to-amount'], $plan->stepIds);
+    }
+
+    public function testOnlyPendingStepsRun(): void {
+        $steps = MigrationSteps::none()
+            ->add('price-to-cost', [new RenameField('test:car', 'price', 'cost')])
+            ->add('cost-to-amount', [new RenameField('test:car', 'cost', 'amount')]);
+
+        $plan = (new MigrationPlanner())->plan(
+            [self::stored(self::schema('test:car', ['cost' => self::int('cost')]))],
+            self::code(self::schema('test:car', ['amount' => self::int('amount')])),
+            $steps->pending(['price-to-cost']),
+        );
+
+        self::assertSame(['cost-to-amount'], $plan->stepIds);
+    }
+
+    public function testTwoStepsCanNeverShareAnId(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Two migration steps have the id "rename-price".');
+
+        MigrationSteps::none()
+            ->add('rename-price', [new RenameField('test:car', 'price', 'cost')])
+            ->add('rename-price', [new RenameField('test:car', 'cost', 'amount')]);
     }
 
     public function testAFixupNamingWhatDoesNotExistThrowsNamingItsStep(): void {
@@ -158,7 +161,7 @@ final class MigrationPlannerTest extends TestCase
         (new MigrationPlanner())->plan(
             [self::stored(self::schema('test:car', ['price' => self::int('price')]))],
             self::code(self::schema('test:car', ['cost' => self::int('cost')])),
-            [self::step('typo', new RenameField('test:car', 'prize', 'cost'))],
+            MigrationSteps::none()->add('typo', [new RenameField('test:car', 'prize', 'cost')]),
         );
     }
 
@@ -173,7 +176,7 @@ final class MigrationPlannerTest extends TestCase
             self::schema('test:garage', ['cars' => FieldDescriptor::collection('cars', FieldDescriptor::reference('cars', 'test:automobile'))]),
         );
 
-        $plan = (new MigrationPlanner())->plan($stored, $code, [self::step('rename-car', new RenameType('test:car', 'test:automobile'))]);
+        $plan = (new MigrationPlanner())->plan($stored, $code, MigrationSteps::none()->add('rename-car', [new RenameType('test:car', 'test:automobile')]));
 
         // The garage's target and the table both followed: nothing else to declare.
         self::assertSame(['RenameType(test:car → test:automobile)'], self::described($plan->fixups));
@@ -182,7 +185,7 @@ final class MigrationPlannerTest extends TestCase
     public function testAnEditorCreatedTypeIsNeverARemovedNativeOne(): void {
         $car = self::schema('test:car');
 
-        $plan = (new MigrationPlanner())->plan([self::stored($car), self::stored(self::schema('editor:race_car'), SchemaSource::Editor)], self::code($car), []);
+        $plan = (new MigrationPlanner())->plan([self::stored($car), self::stored(self::schema('editor:race_car'), SchemaSource::Editor)], self::code($car), MigrationSteps::none());
 
         self::assertTrue($plan->isEmpty());
     }
@@ -191,7 +194,7 @@ final class MigrationPlannerTest extends TestCase
         $plan = (new MigrationPlanner())->plan(
             [self::stored(self::schema('test:car', ['speed' => self::int('speed')]))],
             self::code(self::schema('test:car', ['speed' => FieldDescriptor::scalar('speed', ScalarType::Float)])),
-            [self::step('reset-speed', RetypeField::reset('test:car', 'speed'))],
+            MigrationSteps::none()->add('reset-speed', [RetypeField::reset('test:car', 'speed')]),
         );
 
         self::assertSame(['RetypeField::reset(test:car, speed)'], self::described($plan->fixups));
@@ -203,19 +206,19 @@ final class MigrationPlannerTest extends TestCase
         $inserted = (new MigrationPlanner(new DeveloperPolicy()))->plan(
             $stored,
             self::code(self::schema('test:vehicle'), self::schema('test:motor_vehicle', parent: 'test:vehicle'), self::schema('test:car', parent: 'test:motor_vehicle', table: 'car')),
-            [],
+            MigrationSteps::none(),
         );
         self::assertSame(['AddType(test:motor_vehicle)', 'Reparent(test:car)', 'MoveTable(test:car)'], self::described($inserted->fixups));
 
         $this->expectException(MigrationBlocked::class);
-        (new MigrationPlanner(new DeveloperPolicy()))->plan($stored, self::code(self::schema('test:vehicle'), self::schema('test:car', table: 'cars')), []);
+        (new MigrationPlanner(new DeveloperPolicy()))->plan($stored, self::code(self::schema('test:vehicle'), self::schema('test:car', table: 'cars')), MigrationSteps::none());
     }
 
     public function testUnsafeResolvesEverythingByDroppingAndResetting(): void {
         $plan = (new MigrationPlanner(new UnsafePolicy()))->plan(
             [self::stored(self::schema('test:car', ['price' => self::int('price'), 'speed' => self::int('speed')])), self::stored(self::schema('test:bike'))],
             self::code(self::schema('test:car', ['cost' => self::int('cost'), 'speed' => FieldDescriptor::scalar('speed', ScalarType::Float)])),
-            [],
+            MigrationSteps::none(),
         );
 
         self::assertSame(
@@ -228,7 +231,7 @@ final class MigrationPlannerTest extends TestCase
         $plan = (new MigrationPlanner())->plan(
             [self::stored(self::schema('test:car'))],
             self::code(self::schema('test:car', ['price' => self::int('price')])),
-            [self::step('add-price', new AddField('test:car', 'price'))],
+            MigrationSteps::none()->add('add-price', [new AddField('test:car', 'price')]),
         );
 
         self::assertSame(['AddField(test:car, price)'], self::described($plan->fixups));
@@ -241,7 +244,7 @@ final class MigrationPlannerTest extends TestCase
         (new MigrationPlanner())->plan(
             [self::stored(self::schema('test:car'))],
             self::code(),
-            [self::step('drop', new DropType('test:car'), new MoveTable('test:car'))],
+            MigrationSteps::none()->add('drop', [new DropType('test:car'), new MoveTable('test:car')]),
         );
     }
 
@@ -249,7 +252,7 @@ final class MigrationPlannerTest extends TestCase
         $plan = (new MigrationPlanner())->plan(
             [self::stored(self::schema('test:vehicle')), self::stored(self::schema('test:car', ['price' => self::int('price')], parent: 'test:vehicle'))],
             self::code(self::schema('test:vehicle', ['price' => self::int('price')]), self::schema('test:car', parent: 'test:vehicle')),
-            [self::step('price-up', new MoveField('test:car', 'price', 'test:vehicle'))],
+            MigrationSteps::none()->add('price-up', [new MoveField('test:car', 'price', 'test:vehicle')]),
         );
 
         self::assertSame(['MoveField(price, test:car → test:vehicle)'], self::described($plan->fixups));
@@ -262,7 +265,7 @@ final class MigrationPlannerTest extends TestCase
         (new MigrationPlanner())->plan(
             [self::stored(self::schema('test:bike')), self::stored(self::schema('test:car', ['price' => self::int('price')]))],
             self::code(self::schema('test:bike', ['price' => self::int('price')]), self::schema('test:car')),
-            [self::step('price-to-bike', new MoveField('test:car', 'price', 'test:bike'))],
+            MigrationSteps::none()->add('price-to-bike', [new MoveField('test:car', 'price', 'test:bike')]),
         );
     }
 
@@ -271,13 +274,13 @@ final class MigrationPlannerTest extends TestCase
         $code = self::code(self::schema('test:car', ['cost' => self::int('cost')]));
 
         try {
-            (new MigrationPlanner())->plan($stored, $code, [self::step('move', new MoveValues('test:car', 'price', 'cost'))]);
+            (new MigrationPlanner())->plan($stored, $code, MigrationSteps::none()->add('move', [new MoveValues('test:car', 'price', 'cost')]));
             self::fail('Moving values alone should not explain the removed field.');
         } catch (MigrationBlocked $blocked) {
             self::assertStringContainsString('Field "price" was removed from type "test:car".', $blocked->getMessage());
         }
 
-        $plan = (new MigrationPlanner())->plan($stored, $code, [self::step('move', new MoveValues('test:car', 'price', 'cost'), new DropField('test:car', 'price'))]);
+        $plan = (new MigrationPlanner())->plan($stored, $code, MigrationSteps::none()->add('move', [new MoveValues('test:car', 'price', 'cost'), new DropField('test:car', 'price')]));
         self::assertSame(['MoveValues(test:car, price → cost)', 'DropField(test:car, price)', 'AddField(test:car, cost)'], self::described($plan->fixups));
     }
 
@@ -285,7 +288,7 @@ final class MigrationPlannerTest extends TestCase
         $plan = (new MigrationPlanner())->plan(
             [self::stored(self::schema('test:vehicle')), self::stored(self::schema('test:car'))],
             self::code(self::schema('test:vehicle'), self::schema('test:car', parent: 'test:vehicle')),
-            [self::step('car-is-a-vehicle', new Reparent('test:car'))],
+            MigrationSteps::none()->add('car-is-a-vehicle', [new Reparent('test:car')]),
         );
 
         self::assertSame(['Reparent(test:car)'], self::described($plan->fixups));

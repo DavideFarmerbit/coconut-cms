@@ -2,18 +2,25 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Migration;
 
+use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\Fixup;
 
 /**
- * One reviewed set of fixups. Boot code lists every step in the order they
- * run; the database records the id of each one it has applied. A step can be
- * deleted from the code once every database has applied it.
+ * One reviewed set of fixups, under an id the database records once it's
+ * applied. Declared through MigrationSteps::add().
  */
-interface MigrationStep
+final readonly class MigrationStep
 {
-    /** Unique among every step, and never reused: it's what the database records. */
-    public function id(): string;
-
-    /** @return list<Fixup> In the order they run. */
-    public function fixups(): array;
+    /**
+     * @param string $id Unique among every step, and never reused.
+     * @param list<Fixup> $fixups In the order they run.
+     */
+    public function __construct(
+        public string $id,
+        public array $fixups,
+    ) {
+        if (trim($id) === '') {
+            throw new InvalidArgumentException('A migration step needs an id.');
+        }
+    }
 }

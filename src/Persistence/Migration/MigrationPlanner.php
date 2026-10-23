@@ -26,19 +26,19 @@ final readonly class MigrationPlanner
      * @param list<StoredSchema> $stored Every stored schema, of every source.
      * @param array<string, EntitySchema> $code The native schemas compiled
      *        from code, keyed by identifier.
-     * @param list<MigrationStep> $pending The steps the database hasn't
-     *        applied yet, in the order they run.
+     * @param MigrationSteps $pending The steps the database hasn't applied
+     *        yet, in the order they run.
      */
-    public function plan(array $stored, array $code, array $pending): MigrationPlan {
+    public function plan(array $stored, array $code, MigrationSteps $pending): MigrationPlan {
         $schemas = SchemaState::of($stored, $code);
         $fixups = [];
 
-        foreach ($pending as $step) {
-            foreach ($step->fixups() as $fixup) {
+        foreach ($pending->all() as $step) {
+            foreach ($step->fixups as $fixup) {
                 try {
                     $after = $fixup->applyTo($schemas);
                 } catch (InvalidFixup $problem) {
-                    throw InvalidFixup::inStep($step->id(), $fixup, $problem);
+                    throw InvalidFixup::inStep($step->id, $fixup, $problem);
                 }
 
                 $fixups[] = new PlannedFixup($fixup, $schemas, $after);
@@ -73,6 +73,6 @@ final readonly class MigrationPlanner
             throw new LogicException(sprintf('The policy resolved a difference without explaining it: %s', $left[0]->describe()));
         }
 
-        return new MigrationPlan(array_map(static fn (MigrationStep $step): string => $step->id(), $pending), $fixups, $schemas);
+        return new MigrationPlan($pending->ids(), $fixups, $schemas);
     }
 }
