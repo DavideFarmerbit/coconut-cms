@@ -28,6 +28,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
+use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
 use XyloIsCoding\CoconutCms\Persistence\Schema\UniqueGroup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 
@@ -75,6 +76,7 @@ final class NativeEntityReader
 
         return new EntityBlueprint(
             identifier: $identifier,
+            source: SchemaSource::Native,
             parent: self::resolveParent($reflection),
             table: $entity->table ?? NativeIdentifiers::tableOf($identifier),
             editorExtensible: $entity->editorExtensible,

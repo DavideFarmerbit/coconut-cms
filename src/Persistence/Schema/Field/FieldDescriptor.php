@@ -187,4 +187,44 @@ final readonly class FieldDescriptor
 
     // ~Accessors
     /*================================================================================================================*/
+
+    /*================================================================================================================*/
+    // Copies
+
+    /** The same field under another name: a Collection's item is renamed with it. */
+    public function renamed(string $name): self {
+        return new self(
+            $this->kind,
+            $name,
+            $this->scalarType,
+            $this->enumClass,
+            $this->enumBacking,
+            $this->target,
+            $this->itemDescriptor?->renamed($name),
+            $this->indexable,
+        );
+    }
+
+    /**
+     * The same field, pointing at $to wherever it pointed at the entity type
+     * $from: its own target, or its Collection item's. A value object's target
+     * is a class, never an entity type, so it never changes.
+     */
+    public function retargeted(string $from, string $to): self {
+        $retargets = $this->kind !== FieldKind::ValueObject && $this->target === $from;
+
+        return new self(
+            $this->kind,
+            $this->name,
+            $this->scalarType,
+            $this->enumClass,
+            $this->enumBacking,
+            $retargets ? $to : $this->target,
+            $this->itemDescriptor?->retargeted($from, $to),
+            $this->indexable,
+        );
+    }
+
+    // ~Copies
+    /*================================================================================================================*/
 }

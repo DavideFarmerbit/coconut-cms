@@ -544,3 +544,237 @@ null. A failed save leaves both as they were.
 
 Deleting an entity deletes everything it owns, deepest first. A Reference to
 it is set to null by its foreign key, and loads as null.
+
+## Migrations
+
+**Decided, not built yet.** A migration brings stored content in line with
+schemas that changed after it was stored.
+
+### What a change costs
+
+Content is sparse: an untouched value is null and unflagged, and resolves
+live. So most changes cost stored content nothing:
+
+- An added type, field, Collection or owned field gets new columns, tables or
+  flags, all empty. Its content follows its default.
+- A changed default needs nothing: untouched content follows it live.
+
+Only these touch stored data: a removed field or type, a rename, a retype, and
+a reparent or Embed target change that removes a level or columns.
+
+### Policies
+
+A migration policy decides what happens to a difference no fixup declares:
+
+- **Strict**, the default: every difference but an addition must be declared.
+  Otherwise the migration throws, and the site stays blocked until it's fixed.
+  An addition may still be declared, to give existing entities a value other
+  than the default.
+- **Developer**: a difference that can't lose stored data applies by itself.
+  One that can must still be declared, or the migration throws.
+- **Unsafe**: everything applies as best effort. An undeclared rename becomes
+  a drop and an add; an undeclared retype resets to the default.
+
+A policy turns each difference left unexplained into the fixup that resolves
+it, or into nothing, which blocks the migration. Those fixups run after the
+declared steps, and nothing may differ afterwards:
+
+- strict resolves the three additions: a type, a field, a unique group;
+- developer adds every lossless change: a table moved, a unique group dropped,
+  and a parent changed only by inserting levels, the new chain holding the
+  whole old one;
+- unsafe resolves everything: a removal is dropped, a change is reset, and a
+  rename is a drop and an add.
+
+Other policies implement the same interface. Boot code passes the policy as an
+object, and strict applies when it passes none. So a looser policy is always a
+visible line of code, never a setting someone can leave on in production.
+
+The same change always follows the same rule, whatever the stored content
+holds: a removed field nobody ever touched still needs its declaration.
+Content can still make a declared change fail. An added unique group over
+duplicate touched values, or a converter whose output doesn't fit the new
+field, fails the migration before anything is written.
+
+### What isn't a difference
+
+Nothing stored depends on these, so none of them is a difference under any
+policy:
+
+- a changed default;
+- changed validators or permissions: content breaking a new validator is
+  caught on its next save;
+- a changed `editorExtensible`: an editor-created type whose parent stops
+  allowing it falls back to having no parent until it's fixed, and nothing
+  stored changes.
+
+### Defaults normalize on the next save
+
+A changed default needs no declaration under any policy. A touched value that now equals the new default stays touched until
+the entity is next saved. Saving compares again, so it becomes untouched then.
+Until that save, it keeps its value through any further default change.
+
+This is intentional for now. Revisit later: a migration step could re-save
+every affected entity's touched values against the new defaults. It needs no
+new machinery, and changes nothing already stored.
+
+### What a migration touches
+
+A native migration compares the native types stored with the native classes
+in code. Each stored schema records its source, native or editor-created, so
+a stored type missing from the code is a removed native type only when it's
+native.
+
+Editor-created schemas are still updated by a native migration wherever a
+declared fixup makes the change obvious: a renamed type used as their parent
+or field target, a renamed field they inherit, a field or type dropped with a
+named substitute. Editor-created schemas are their own source of truth, so
+fixing them directly is allowed. Their content, and their stored values for
+inherited fields, move the same way native content does.
+
+### Fixups are ordered steps
+
+Fixups are typed objects in code, reviewed with the commit, grouped into
+ordered steps. Each step has a unique id. Boot code passes the steps as one
+list, and the list's order is the order they run in: two branches adding steps
+at once then meet as a merge conflict, never as an older step silently slotted
+in before one already applied. The database records the id of every step it
+has applied, next to the schema stores.
+
+A database several steps behind catches up through every pending one. It holds
+no schema for the states in between, so it can't move step by step. Instead,
+each fixup transforms an entity's touched values by path, and the pending
+steps' fixups compose, in order, into one transformation: a field renamed
+`price` to `cost`, then later `cost` to `amount`, moves straight from `price`
+to `amount`. Each entity moves once: read with the stored schemas, transformed
+through every pending step, written with the schemas from code. A converter in
+a later step receives what the earlier steps produced, which is what its
+author wrote it against. The composed fixups, plus what the policy lets
+through, must explain every difference between the stored schemas and the
+code.
+
+Under strict, an addition is a new type, a new field or a new unique group.
+Anything else is declared, even when it loses nothing, like a table rename or
+a reparent that only inserts a level.
+
+A step can be deleted from the code once every database has applied it. A
+database still missing it then can't explain its differences, and blocks.
+
+A fresh database, with no stored schemas, has nothing to migrate. Its tables
+are created from the code, and every step in the list is recorded as applied:
+an old rename must never run against tables that never had the old name.
+
+### Fixups transform values
+
+Every fixup transforms two things: an aggregate's values, and the schemas.
+Every pending step's fixups run, in order, over the stored schemas. Then the
+result is compared with the code: whatever still differs is unexplained, and
+goes to the policy. So a chain of renames needs nothing special, and a fixup
+naming a type or field that doesn't exist at that point throws there, naming
+its step: a typo never passes silently. Data still moves once, from the
+stored schemas straight to the code's.
+
+The common fixups are shorthands:
+
+- `RenameType(old, new)`: every parent and target naming the type follows
+  it, and so does its table: it takes the table the code gives the renamed
+  type, so a table derived from the identifier needs no `MoveTable` of its
+  own.
+- `DropType(type)`: deletes its entities and everything they own. References
+  to them become null.
+- `MoveTable(type)`: its table moves to the name the code gives it.
+- `Reparent(type, converter?)`: a level added follows its defaults, or the
+  converter fills it. A level removed drops its data.
+- `AddUniqueGroup(type, fields)`, `DropUniqueGroup(type, fields)`.
+- `AddField(type, field, initializer)`: gives existing entities a value other
+  than the default.
+- `DropField(type, field)`.
+- `RenameField(type, old, new)`, and `MoveField(type, from, to)` for any two
+  paths: across levels, into or out of an Embed, across an owned boundary. A
+  move is about data. On the schemas, it only accounts for its own type losing
+  `from` and gaining `to`, when they are that type's own fields. A change to
+  any other type's schema stays a difference of its own: moving
+  `engine.horsepower` up to the car still needs the engine type's `DropField`,
+  since every engine loses it, not just the ones under cars.
+- `RetypeField(type, field, converter)`: a retype always has a converter,
+  even where the old and new stored forms look alike. Nothing converts from
+  one type to another implicitly.
+- `RetypeField::reset(type, field)`: a readable name for `DropField` followed
+  by the field added again, following its default.
+
+A general transformation covers what no shorthand does: splitting a field,
+merging several into one, deriving one from others. It declares its effect on
+the schemas as the shorthands it amounts to: splitting `name` drops `name`
+and adds `firstName` and `lastName`.
+
+A fixup names things as they are when it runs. Within a step, fixups run in
+the order listed.
+
+A transformation sees a whole aggregate, so it can move a value across an
+owned boundary. An owned type's own fixups run first, wherever its entities
+sit, then its owners'.
+
+### Values in, values out
+
+Converters and transformations work on stored form, both ways: strings, ints,
+canonical decimals, dates as text, identifiers. Never PHP objects: a database
+several steps behind passes through states whose classes may no longer exist.
+
+What a converter receives is the field's capture: the value at its path (a
+scalar, a Reference's id, an owned object's identifier, a Collection's item
+count) and the values under it, relative to the field. It returns the same
+shape for the new field.
+
+A converter or transformation receives each entity's effective values: what
+it touched, and what it resolved to otherwise, from the old defaults. These
+are still stored while the migration runs. The capture also says whether each
+value was touched or the old default. A converter returns a `Conversion`:
+`Conversion::of($value)`, or `Conversion::default()` to leave the entity
+following the new default. Never a magic value standing for "default". Nothing is implicit: every
+entity goes through the converter, and the converter decides whether a
+default carries over, converted, or becomes the new default.
+
+Its output is stored only where it differs from what the new schema resolves
+to, the same comparison a save makes. So an entity keeps showing what it
+showed, converted, and stays untouched wherever the conversion lands on the
+new default.
+
+### NoType
+
+Every change that carries data forward captures the old value first, as
+`NoType`, then rebuilds the new value from it. A converter's input is always
+this capture, never the old field itself, so it never depends on where the
+old value lived: a column, a flattened Embed, a Collection table or an owned
+entity's rows. The capture is the entity's touched values under the field's
+old path, in their stored form, read with the old schema.
+
+Storing a `NoType` value, for a field whose old value nothing converts in the
+same migration, is decided later, on the same capture.
+
+### How data moves
+
+Data moves at the value level, one entity at a time. For each entity a change
+affects, `EntityRowsReader` reads its touched values with the old schema. They
+are transformed: keys renamed, old values captured and converted, dropped keys
+removed. `EntityRowsBuilder` builds its rows with the new schema, and they
+replace the old rows, the same way a save does. One general mechanism covers
+every kind of field and change. A faster SQL path for a simple case may come
+later, as an optimization that must give the same result.
+
+MySQL commits every DDL statement on its own, so a migration can't be one
+transaction. It runs in three steps instead:
+
+1. **Expand.** Add every new table and column. The old ones stay. Every
+   content column is nullable, so old and new shapes coexist in one table.
+   The DDL comes from comparing the database as it is with the target, so
+   running a failed migration again doesn't trip over what it already added.
+2. **Move.** Move every entity's data and commit the new schemas, in one
+   transaction: data changes are transactional, and the schema stores share
+   the database. Either everything moves and the new schemas are committed,
+   or nothing does.
+3. **Contract.** Drop what's no longer used. If this fails, what's left is
+   unused and nullable, and the next run drops it.
+
+One transaction for all the data is long on a large database. That's
+acceptable for now. If it isn't one day, the fix is batches with a record of
+which entities have moved.

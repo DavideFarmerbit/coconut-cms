@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Compiler;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ObjectNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
 use XyloIsCoding\CoconutCms\Persistence\Schema\UniqueGroup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
@@ -21,8 +22,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule
 final readonly class EntityBlueprint
 {
     /**
-     * @param string $identifier A native class's name, or an editor-created
-     *        prototype's identifier.
+     * @param string $identifier A native class's identifier, or an
+     *        editor-created prototype's.
+     * @param SchemaSource $source Which producer built it.
      * @param string|null $parent The CTI parent's identifier, or null for a
      *        root. For a native class, never its PHP parent unless that parent
      *        is also #[Entity]-marked.
@@ -35,6 +37,7 @@ final readonly class EntityBlueprint
      */
     public function __construct(
         public string $identifier,
+        public SchemaSource $source,
         public ?string $parent,
         public string $table,
         public bool $editorExtensible,

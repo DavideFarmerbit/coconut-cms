@@ -27,11 +27,13 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
 /**
  * Turns a batch of already-read blueprints into their final EntitySchemas:
  * orders the batch so a parent or Embed target always comes before whatever
- * depends on it, registers every result with the request's SchemaRegistry, and
- * writes to SchemaFieldValueStore only the default values each one changes
- * from what it would otherwise resolve to. A dependency
- * outside the given batch is expected to already be registered with the
- * registry, from an earlier compile() call.
+ * depends on it, keeps only the default values each one changes from what it
+ * would otherwise resolve to, then stores and registers the result. A
+ * dependency outside the given batch is expected to already be registered
+ * with the registry, from an earlier compile() call.
+ *
+ * compile() does it all at once. compute() and store() split it for a
+ * migration, which compares the computed batch with what's stored first.
  */
 final class SchemaCompiler
 {
@@ -46,16 +48,33 @@ final class SchemaCompiler
     }
 
     /**
+     * Computes, stores and registers $blueprints in one go: what everything
+     * but a migration needs.
      * @param array<string, EntityBlueprint> $blueprints Keyed by identifier.
      * @return array<string, EntitySchema> Keyed by identifier, one entry per
-     *         $blueprints, in no particular order.
+     *         $blueprints, in dependency order.
      */
     public function compile(array $blueprints): array {
+        $batch = $this->compute($blueprints);
+        $this->store($batch);
+
+        // Registering can't fail, so a failed write registers nothing.
+        foreach ($batch->schemas as $schema) {
+            $this->registry->register($schema);
+        }
+
+        return $batch->schemas;
+    }
+
+    /**
+     * Every schema and every value $blueprints compile to, every check along
+     * the way. Nothing is written or registered, so a failure leaves the
+     * registry and the stores exactly as they were.
+     * @param array<string, EntityBlueprint> $blueprints Keyed by identifier.
+     */
+    public function compute(array $blueprints): CompiledBatch {
         $order = $this->sort($blueprints);
 
-        // Compute: every schema and every value, every check along the way.
-        // Nothing is registered or written yet, so a failure here leaves the
-        // registry and the store exactly as they were.
         $schemas = [];
         foreach ($order as $identifier => $blueprint) {
             $schemas[$identifier] = new EntitySchema(
@@ -109,20 +128,24 @@ final class SchemaCompiler
                 $dependencies[$dependency] = $fingerprints[$dependency] ?? $this->storedOrThrow($dependency)->fingerprint;
             }
 
-            $stored[] = new StoredSchema($schema, $fingerprints[$identifier], $dependencies);
+            $stored[] = new StoredSchema($schema, $blueprints[$identifier]->source, $fingerprints[$identifier], $dependencies);
         }
 
-        // Commit: schemas and values in one transaction, then the registry.
-        // Registering can't fail, so a failed write registers nothing.
-        $this->schemaStore->transactional(function () use ($sparseByIdentifier, $stored): void {
-            $this->valueStore->saveAll($sparseByIdentifier);
-            $this->schemaStore->saveAll($stored);
+        return new CompiledBatch($schemas, $sparseByIdentifier, $stored);
+    }
+
+    /**
+     * Writes $batch's schemas and values in one transaction, joining one
+     * already open: a migration stores its batch in the same transaction that
+     * moves its data. Never registers: whoever stores a batch registers its
+     * schemas once the outermost transaction has committed, so a rollback
+     * never leaves the registry ahead of the database.
+     */
+    public function store(CompiledBatch $batch): void {
+        $this->schemaStore->transactional(function () use ($batch): void {
+            $this->valueStore->saveAll($batch->values);
+            $this->schemaStore->saveAll($batch->stored);
         });
-        foreach ($schemas as $schema) {
-            $this->registry->register($schema);
-        }
-
-        return $schemas;
     }
 
     /*================================================================================================================*/

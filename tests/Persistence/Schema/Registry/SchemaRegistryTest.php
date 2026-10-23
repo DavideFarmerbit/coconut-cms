@@ -103,6 +103,7 @@ final class SchemaRegistryTest extends TestCase
 
         return [$original->identifier => new EntityBlueprint(
             identifier: $original->identifier,
+            source: $original->source,
             parent: $original->parent,
             table: $original->table,
             editorExtensible: $original->editorExtensible,

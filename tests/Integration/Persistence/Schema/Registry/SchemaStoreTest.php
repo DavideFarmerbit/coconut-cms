@@ -19,6 +19,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\EntitySchemaCodec;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\StoredSchema;
+use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
@@ -96,7 +97,7 @@ final class SchemaStoreTest extends TestCase
     }
 
     public function testSaveThenLoadRoundTripsASchemaWithItsFingerprints(): void {
-        $stored = new StoredSchema(self::productSchema(), str_repeat('a', 64), ['App\\Category' => str_repeat('b', 64)]);
+        $stored = new StoredSchema(self::productSchema(), SchemaSource::Editor, str_repeat('a', 64), ['test:category' => str_repeat('b', 64)]);
 
         $this->store->saveAll([$stored]);
 
@@ -108,8 +109,8 @@ final class SchemaStoreTest extends TestCase
     }
 
     public function testSaveReplacesWhateverWasStoredForTheSameIdentifier(): void {
-        $this->store->saveAll([new StoredSchema(self::productSchema(), str_repeat('a', 64), [])]);
-        $replacement = new StoredSchema(self::productSchema(), str_repeat('c', 64), []);
+        $this->store->saveAll([new StoredSchema(self::productSchema(), SchemaSource::Native, str_repeat('a', 64), [])]);
+        $replacement = new StoredSchema(self::productSchema(), SchemaSource::Native, str_repeat('c', 64), []);
 
         $this->store->saveAll([$replacement]);
 

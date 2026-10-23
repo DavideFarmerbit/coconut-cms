@@ -25,6 +25,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
+use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Schema\InMemorySchemaStores;
 
@@ -435,6 +436,7 @@ final class SchemaCompilerTest extends TestCase
         $original = $blueprints['default:compiler_owner_of_unrelated_class'];
         $blueprints['default:compiler_owner_of_unrelated_class'] = new EntityBlueprint(
             identifier: $original->identifier,
+            source: $original->source,
             parent: $original->parent,
             table: $original->table,
             editorExtensible: $original->editorExtensible,
@@ -788,6 +790,42 @@ final class SchemaCompilerTest extends TestCase
         ]));
 
         self::assertCount(5, $schemas);
+    }
+
+    public function testComputeWritesAndRegistersNothing(): void {
+        $stores = new InMemorySchemaStores();
+
+        $batch = $stores->compiler()->compute(self::blueprintsOf([CompilerOwnedEngine::class, CompilerPiston::class]));
+
+        self::assertSame(['default:compiler_piston', 'default:compiler_owned_engine'], array_keys($batch->schemas));
+        self::assertSame(['horsepower' => 300], $batch->values['default:compiler_owned_engine']->toArray());
+        self::assertSame(SchemaSource::Native, $batch->stored[1]->source);
+        self::assertFalse($stores->registry->has('default:compiler_owned_engine'));
+        self::assertNull($stores->schemas->load('default:compiler_owned_engine'));
+        self::assertSame([], $stores->values->load('default:compiler_owned_engine')->toArray());
+    }
+
+    public function testStoreWritesWhatComputeProduced(): void {
+        $stores = new InMemorySchemaStores();
+        $compiler = $stores->compiler();
+
+        $compiler->store($compiler->compute(self::blueprintsOf([CompilerOwnedEngine::class, CompilerPiston::class])));
+
+        self::assertNotNull($stores->schemas->load('default:compiler_owned_engine'));
+        self::assertSame(['horsepower' => 300], self::loadSorted($stores->values, CompilerOwnedEngine::class));
+    }
+
+    public function testStoreJoinsATransactionAlreadyOpenAndRollsBackWithIt(): void {
+        $stores = new InMemorySchemaStores();
+        $compiler = $stores->compiler();
+        $batch = $compiler->compute(self::blueprintsOf([CompilerOwnedEngine::class, CompilerPiston::class]));
+
+        $stores->connection->beginTransaction();
+        $compiler->store($batch);
+        $stores->connection->rollBack();
+
+        self::assertNull($stores->schemas->load('default:compiler_owned_engine'));
+        self::assertSame([], $stores->values->load('default:compiler_owned_engine')->toArray());
     }
 
     public function testCompileStoresEnumsAndDatesInTheirStoredForm(): void {

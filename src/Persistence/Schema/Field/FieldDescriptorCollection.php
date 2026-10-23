@@ -9,8 +9,8 @@ use IteratorAggregate;
 
 /**
  * Every field an entity declares at its own level, keyed by FieldName.
- * Immutable: with() and merge() both return a new collection rather than
- * changing this one.
+ * Immutable: with(), without(), merge() and the rest all return a new
+ * collection rather than changing this one.
  * @implements IteratorAggregate<FieldName, FieldDescriptor>
  */
 final readonly class FieldDescriptorCollection implements IteratorAggregate, Countable
@@ -35,6 +35,33 @@ final readonly class FieldDescriptorCollection implements IteratorAggregate, Cou
         $fields[(string) $name] = $field;
 
         return new self($fields);
+    }
+
+    public function without(FieldName $name): self {
+        $fields = $this->fields;
+        unset($fields[(string) $name]);
+
+        return new self($fields);
+    }
+
+    /** $old's field under $new, in the same place, its descriptor renamed with it. */
+    public function renamed(FieldName $old, FieldName $new): self {
+        $fields = [];
+        foreach ($this->fields as $name => $field) {
+            if ($name === (string) $old) {
+                $fields[(string) $new] = $field->renamed((string) $new);
+                continue;
+            }
+
+            $fields[$name] = $field;
+        }
+
+        return new self($fields);
+    }
+
+    /** Every field, retargeted from the entity type $from to $to. */
+    public function retargeted(string $from, string $to): self {
+        return new self(array_map(static fn (FieldDescriptor $field): FieldDescriptor => $field->retargeted($from, $to), $this->fields));
     }
 
     public function get(FieldName $name): FieldDescriptor {

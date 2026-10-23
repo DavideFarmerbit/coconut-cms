@@ -16,8 +16,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule
 final readonly class EntitySchema
 {
     /**
-     * @param string $identifier A native class's name, or an editor-created
-     *        prototype's identifier.
+     * @param string $identifier A native class's identifier, or an
+     *        editor-created prototype's.
      * @param string|null $parent The CTI parent's identifier, or null for a
      *        root. For a native class, never its PHP parent unless that parent
      *        is also #[Entity]-marked.
@@ -38,4 +38,49 @@ final readonly class EntitySchema
         public array $prototypeValidators,
     ) {
     }
+
+    /*================================================================================================================*/
+    // Copies
+
+    public function withIdentifier(string $identifier): self {
+        return $this->copy($identifier, $this->parent, $this->table, $this->fields, $this->uniqueGroups);
+    }
+
+    public function withParent(?string $parent): self {
+        return $this->copy($this->identifier, $parent, $this->table, $this->fields, $this->uniqueGroups);
+    }
+
+    public function withTable(string $table): self {
+        return $this->copy($this->identifier, $this->parent, $table, $this->fields, $this->uniqueGroups);
+    }
+
+    public function withFields(FieldDescriptorCollection $fields): self {
+        return $this->copy($this->identifier, $this->parent, $this->table, $fields, $this->uniqueGroups);
+    }
+
+    /** @param list<UniqueGroup> $uniqueGroups */
+    public function withUniqueGroups(array $uniqueGroups): self {
+        return $this->copy($this->identifier, $this->parent, $this->table, $this->fields, $uniqueGroups);
+    }
+
+    /**
+     * This schema with these values, everything else kept.
+     * @param list<UniqueGroup> $uniqueGroups
+     */
+    private function copy(string $identifier, ?string $parent, string $table, FieldDescriptorCollection $fields, array $uniqueGroups): self {
+        return new self(
+            identifier: $identifier,
+            parent: $parent,
+            table: $table,
+            editorExtensible: $this->editorExtensible,
+            fields: $fields,
+            fieldPermissions: $this->fieldPermissions,
+            fieldValidators: $this->fieldValidators,
+            uniqueGroups: $uniqueGroups,
+            prototypeValidators: $this->prototypeValidators,
+        );
+    }
+
+    // ~Copies
+    /*================================================================================================================*/
 }

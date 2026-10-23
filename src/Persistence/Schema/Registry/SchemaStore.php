@@ -7,11 +7,13 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Types\Types;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
+use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 
 /**
- * Persists compiled schemas, one row each: the schema as JSON, its own
- * fingerprint, and the fingerprints of everything it was compiled against.
+ * Persists compiled schemas, one row each: where it came from, the schema as
+ * JSON, its own fingerprint, and the fingerprints of everything it was
+ * compiled against.
  * A schema is always read whole, never queried by parts.
  *
  * Remembers what it loaded for the rest of the request, misses included, and
@@ -33,6 +35,7 @@ final class SchemaStore
     public function createTable(): void {
         $table = new Table(self::TABLE);
         $table->addColumn('identifier', Types::STRING, ['length' => 255]);
+        $table->addColumn('source', Types::STRING, ['length' => 16]);
         $table->addColumn('schema_json', Types::TEXT);
         $table->addColumn('fingerprint', Types::STRING, ['length' => 64]);
         $table->addColumn('dependencies_json', Types::TEXT);
@@ -80,6 +83,7 @@ final class SchemaStore
                 $connection->delete(self::TABLE, ['identifier' => $stored->schema->identifier]);
                 $connection->insert(self::TABLE, [
                     'identifier' => $stored->schema->identifier,
+                    'source' => $stored->source->value,
                     'schema_json' => json_encode($this->codec->encode($stored->schema)),
                     'fingerprint' => $stored->fingerprint,
                     'dependencies_json' => json_encode($stored->dependencies),
@@ -95,12 +99,13 @@ final class SchemaStore
         }
 
         $row = $this->connection->fetchAssociative(
-            sprintf('SELECT schema_json, fingerprint, dependencies_json FROM %s WHERE identifier = ?', self::TABLE),
+            sprintf('SELECT source, schema_json, fingerprint, dependencies_json FROM %s WHERE identifier = ?', self::TABLE),
             [$identifier],
         );
 
         return $this->loaded[$identifier] = $row === false ? null : new StoredSchema(
             $this->codec->decode(json_decode($row['schema_json'], true)),
+            SchemaSource::from($row['source']),
             $row['fingerprint'],
             json_decode($row['dependencies_json'], true),
         );
