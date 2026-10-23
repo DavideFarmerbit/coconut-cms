@@ -29,6 +29,11 @@ final class IdentifiersOtherProduct
 {
 }
 
+#[Entity(table: '_cars')]
+final class IdentifiersSystemTable
+{
+}
+
 #[Entity(identifier: 'no-namespace')]
 final class IdentifiersMalformed
 {
@@ -71,6 +76,13 @@ final class NativeIdentifiersTest extends TestCase
 
     public function testATableNamedOnTheClassWins(): void {
         self::assertSame('own_products', NativeEntityReader::read(IdentifiersOtherProduct::class)->table);
+    }
+
+    public function testATableStartingWithAnUnderscoreIsRejected(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('table "_cars" cannot start with "_"');
+
+        NativeEntityReader::read(IdentifiersSystemTable::class);
     }
 
     public function testTheRegistryGivesBackTheClassRegisteredUnderAnIdentifier(): void {

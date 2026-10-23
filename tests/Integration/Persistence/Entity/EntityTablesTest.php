@@ -70,8 +70,8 @@ final class EntityTablesTest extends TestCase
             ['id' => EntityIds::NIL, 'owner' => EntityIds::NIL, 'owner_field' => '', 'position' => -1, 'concrete_identifier' => Cms::IDENTIFIER],
             $this->connection->fetchAssociative('SELECT * FROM entities'),
         );
-        self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM cms WHERE id = ?', [EntityIds::NIL]));
-        self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM cms__state WHERE id = ?', [EntityIds::NIL]));
+        self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM cms WHERE _id = ?', [EntityIds::NIL]));
+        self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM _state__cms WHERE _id = ?', [EntityIds::NIL]));
     }
 
     public function testARowWithNoOwnerGivenBelongsToCms(): void {

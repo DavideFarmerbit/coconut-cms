@@ -89,7 +89,7 @@ final readonly class LayoutBuilder
         if ($item->kind() === FieldKind::Embed) {
             $this->addEmbed($items, $item->target(), FieldPath::of(...));
         } else {
-            $items->addColumn(new ValueColumn(null, 'value', $item));
+            $items->addColumn(new ValueColumn(null, ColumnNames::VALUE, $item));
         }
 
         $parts->addCollection(new CollectionLayout(

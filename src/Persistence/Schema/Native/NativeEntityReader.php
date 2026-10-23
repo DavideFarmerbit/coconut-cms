@@ -78,7 +78,7 @@ final class NativeEntityReader
             identifier: $identifier,
             source: SchemaSource::Native,
             parent: self::resolveParent($reflection),
-            table: $entity->table ?? NativeIdentifiers::tableOf($identifier),
+            table: self::resolveTable($class, $entity->table ?? NativeIdentifiers::tableOf($identifier)),
             editorExtensible: $entity->editorExtensible,
             fields: $fields,
             fieldPermissions: $fieldPermissions,
@@ -99,6 +99,18 @@ final class NativeEntityReader
         }
 
         return $attributes[0]->newInstance();
+    }
+
+    /**
+     * $table, unless it starts with "_": every table name the system adds does,
+     * so a type's own table never lands on one of them.
+     */
+    private static function resolveTable(string $class, string $table): string {
+        if (str_starts_with($table, '_')) {
+            throw new InvalidArgumentException(sprintf('%s\'s table "%s" cannot start with "_": those are kept for the tables the system adds.', $class, $table));
+        }
+
+        return $table;
     }
 
     /**

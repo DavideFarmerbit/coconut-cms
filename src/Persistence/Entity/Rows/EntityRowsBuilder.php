@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Entity\Rows;
 
 use Closure;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\CollectionLayout;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
@@ -76,7 +77,7 @@ final class EntityRowsBuilder
 
     /** @return array<string, mixed> */
     private function levelRowOf(LevelLayout $level, FieldValues $touched, string $id, Placement $placement): array {
-        $row = ['id' => $id, 'owner' => $placement->owner, 'owner_field' => $placement->ownerField];
+        $row = [ColumnNames::ID => $id, ColumnNames::OWNER => $placement->owner, ColumnNames::OWNER_FIELD => $placement->ownerField];
 
         foreach ($level->columns as $column) {
             $row[$column->name] = $touched->has($column->path) ? $touched->get($column->path) : null;
@@ -97,7 +98,7 @@ final class EntityRowsBuilder
      * @return array<string, mixed>
      */
     private function stateRowOf(LevelLayout $level, FieldValues $touched, string $id): array {
-        $row = ['id' => $id];
+        $row = [ColumnNames::ID => $id];
         foreach ($level->stateColumns() as $path => $column) {
             $row[$column] = $touched->under(FieldPath::fromString($path))->count() > 0;
         }
@@ -119,8 +120,8 @@ final class EntityRowsBuilder
         $stateRows = [];
         for ($index = 0; $index < $touched->get($collection->path); $index++) {
             $item = $touched->within($collection->path->traverse($index));
-            $row = ['owner' => $id, 'position' => $index];
-            $stateRow = ['owner' => $id, 'position' => $index];
+            $row = [ColumnNames::OWNER => $id, ColumnNames::POSITION => $index];
+            $stateRow = [ColumnNames::OWNER => $id, ColumnNames::POSITION => $index];
 
             foreach ($collection->itemColumns as $column) {
                 if ($column->path === null) {

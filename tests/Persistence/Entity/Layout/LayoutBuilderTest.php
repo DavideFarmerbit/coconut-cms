@@ -95,7 +95,7 @@ final class LayoutBuilderTest extends TestCase
         $car = self::car();
 
         self::assertSame('car', $car->table);
-        self::assertSame('car__state', $car->stateTable);
+        self::assertSame('_state__car', $car->stateTable);
         self::assertArrayNotHasKey('name', self::columnsByPath($car->columns));
     }
 
@@ -114,7 +114,7 @@ final class LayoutBuilderTest extends TestCase
             self::car()->owned,
         );
 
-        self::assertSame([['chassis:spare', null], ['engine', null], ['engines', 'engines_count']], $owned);
+        self::assertSame([['chassis:spare', null], ['engine', null], ['engines', '_engines_count']], $owned);
     }
 
     public function testEveryOtherCollectionGetsItsOwnTableNamedAfterItsPath(): void {
@@ -129,14 +129,14 @@ final class LayoutBuilderTest extends TestCase
         self::assertNull($makers->stateTable);
         self::assertCount(1, $makers->itemColumns);
         self::assertNull($makers->itemColumns[0]->path);
-        self::assertSame('value', $makers->itemColumns[0]->name);
+        self::assertSame('_value', $makers->itemColumns[0]->name);
         self::assertSame(FieldKind::Reference, $makers->itemColumns[0]->field->kind());
     }
 
     public function testAnEmbedItemFlattensIntoItemColumnsWithItsOwnStateTable(): void {
         $wheels = self::collectionAt(self::car(), 'wheels');
 
-        self::assertSame('car__wheels__state', $wheels->stateTable);
+        self::assertSame('_state__car__wheels', $wheels->stateTable);
         self::assertSame(['size' => 'size', 'maker' => 'maker'], self::columnsByPath($wheels->itemColumns));
     }
 
@@ -157,19 +157,19 @@ final class LayoutBuilderTest extends TestCase
 
     public function testUniqueGroupsAreScopedToTheOwnerAndRepeatedAtEveryEmbedSite(): void {
         self::assertSame([
-            ['owner', 'owner_field', 'chassis__maker'],
-            ['owner', 'owner_field', 'color', 'fuel'],
+            ['_owner', '_owner_field', 'chassis__maker'],
+            ['_owner', '_owner_field', 'color', 'fuel'],
         ], self::car()->uniqueIndexes);
     }
 
     public function testAnEmbedItemsUniqueGroupIsScopedToTheCollectionsOwner(): void {
-        self::assertSame([['owner', 'size']], self::collectionAt(self::car(), 'wheels')->uniqueIndexes);
+        self::assertSame([['_owner', 'size']], self::collectionAt(self::car(), 'wheels')->uniqueIndexes);
     }
 
     public function testAUniqueGroupOverAnEmbedCoversEveryColumnItFlattensInto(): void {
         $engine = LayoutFixtures::carBuilder()->levelOf('default:layout_engine');
 
-        self::assertSame([['owner', 'owner_field', 'serial']], $engine->uniqueIndexes);
+        self::assertSame([['_owner', '_owner_field', 'serial']], $engine->uniqueIndexes);
         self::assertSame(['serial' => 'serial', 'piston:diameter' => 'piston__diameter'], self::columnsByPath($engine->columns));
     }
 

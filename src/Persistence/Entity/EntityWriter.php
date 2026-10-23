@@ -6,6 +6,7 @@ use Closure;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use LogicException;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRows;
@@ -188,7 +189,7 @@ final class EntityWriter
      */
     private function deleteContentRows(string $id, string $identifier): void {
         foreach ($this->chains->of($identifier) as $level) {
-            $this->connection->delete($level->table, ['id' => $id]);
+            $this->connection->delete($level->table, [ColumnNames::ID => $id]);
         }
     }
 

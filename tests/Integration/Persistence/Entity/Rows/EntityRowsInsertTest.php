@@ -91,7 +91,7 @@ final class EntityRowsInsertTest extends TestCase
 
         // The car, its engine, the engine's turbo, one spare, plus the maker and Cms.
         self::assertSame(6, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM entities'));
-        self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM rows_car__wheels__state WHERE maker = 1'));
-        self::assertSame(2, (int) $this->connection->fetchOne('SELECT spares_count FROM rows_car'));
+        self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM _state__rows_car__wheels WHERE maker = 1'));
+        self::assertSame(2, (int) $this->connection->fetchOne('SELECT _spares_count FROM rows_car'));
     }
 }

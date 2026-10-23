@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Entity\Rows;
 use Closure;
 use Doctrine\DBAL\Connection;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\CollectionLayout;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\OwnedLayout;
@@ -55,8 +56,8 @@ final class EntityRowsReader
         $at = static fn (FieldPath $path): FieldPath => $prefix === null ? $path : $prefix->append(FieldPath::TRAVERSE, $path);
 
         foreach ($this->chains->of($identifier) as $level) {
-            $row = $this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE id = ?', $level->table), [$id]);
-            $state = $this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE id = ?', $level->stateTable), [$id]);
+            $row = $this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $level->table, ColumnNames::ID), [$id]);
+            $state = $this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $level->stateTable, ColumnNames::ID), [$id]);
             $flags = $level->stateColumns();
             $isTouched = static fn (FieldPath $path): bool => (bool) $state[$flags[(string) $path]];
 
@@ -82,22 +83,26 @@ final class EntityRowsReader
 
     /** @param Closure(FieldPath): FieldPath $at Turns a path on the owner into one from the entity being read. */
     private function readCollection(CollectionLayout $collection, string $ownerId, Closure $at, FieldValuesBuilder $touched): void {
-        $rows = $this->connection->fetchAllAssociative(sprintf('SELECT * FROM %s WHERE owner = ? ORDER BY position', $collection->table), [$ownerId]);
+        $rows = $this->connection->fetchAllAssociative(
+            sprintf('SELECT * FROM %s WHERE %s = ? ORDER BY %s', $collection->table, ColumnNames::OWNER, ColumnNames::POSITION),
+            [$ownerId],
+        );
         $states = [];
         if ($collection->stateTable !== null) {
-            foreach ($this->connection->fetchAllAssociative(sprintf('SELECT * FROM %s WHERE owner = ?', $collection->stateTable), [$ownerId]) as $state) {
-                $states[$state['position']] = $state;
+            foreach ($this->connection->fetchAllAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $collection->stateTable, ColumnNames::OWNER), [$ownerId]) as $state) {
+                $states[$state[ColumnNames::POSITION]] = $state;
             }
         }
 
         $touched->set($at($collection->path), count($rows));
         foreach ($rows as $row) {
-            $itemPath = $collection->path->traverse((int) $row['position']);
+            $position = $row[ColumnNames::POSITION];
+            $itemPath = $collection->path->traverse((int) $position);
 
             foreach ($collection->itemColumns as $column) {
                 if ($column->path === null) {
                     $touched->set($at($itemPath), self::fromDatabase($column->field, $row[$column->name]));
-                } elseif ($states[$row['position']][$column->name]) {
+                } elseif ($states[$position][$column->name]) {
                     $touched->set($at($itemPath->append(FieldPath::TRAVERSE, $column->path)), self::fromDatabase($column->field, $row[$column->name]));
                 }
             }

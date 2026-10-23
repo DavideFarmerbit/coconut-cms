@@ -20,6 +20,8 @@ final class FieldNameTest extends TestCase
             'contains the embed separator' => ['piston:diameter'],
             'contains the traverse separator' => ['engine.horsepower'],
             'all digits, read as a collection index' => ['12'],
+            'starts with "_", kept for system names' => ['_id'],
+            'holds "__", how an Embed\'s fields join' => ['chassis__weight'],
         ];
     }
 

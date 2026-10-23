@@ -35,12 +35,12 @@ final class LayoutParts
     }
 
     public static function forLevel(string $table): self {
-        return new self($table, ['owner', 'owner_field'], null);
+        return new self($table, [ColumnNames::OWNER, ColumnNames::OWNER_FIELD], null);
     }
 
     /** For the items of the Collection at $collection, stored on $table. */
     public static function forItems(string $table, FieldPath $collection): self {
-        return new self($table, ['owner'], $collection);
+        return new self($table, [ColumnNames::OWNER], $collection);
     }
 
     public function addColumn(ValueColumn $column): void {

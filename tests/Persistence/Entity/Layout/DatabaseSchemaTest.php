@@ -91,26 +91,26 @@ final class DatabaseSchemaTest extends TestCase
         sort($tables);
 
         self::assertSame([
+            '_state__car',
+            '_state__car__wheels',
+            '_state__layout_chassis',
+            '_state__layout_engine',
+            '_state__layout_maker',
+            '_state__layout_piston',
+            '_state__layout_vehicle',
+            '_state__layout_wheel',
             'car',
             'car__chassis__tags',
             'car__makers',
-            'car__state',
             'car__wheels',
-            'car__wheels__state',
             'entities',
             'layout_chassis',
-            'layout_chassis__state',
             'layout_chassis__tags',
             'layout_engine',
-            'layout_engine__state',
             'layout_maker',
-            'layout_maker__state',
             'layout_piston',
-            'layout_piston__state',
             'layout_vehicle',
-            'layout_vehicle__state',
             'layout_wheel',
-            'layout_wheel__state',
         ], $tables);
     }
 
@@ -118,7 +118,7 @@ final class DatabaseSchemaTest extends TestCase
         $car = self::carSchema()->getTable('car');
 
         self::assertSame(
-            ['id', 'owner', 'owner_field', 'color', 'fuel', 'chassis__weight', 'chassis__maker', 'engines_count'],
+            ['_id', '_owner', '_owner_field', 'color', 'fuel', 'chassis__weight', 'chassis__maker', '_engines_count'],
             self::columnNamesOf($car),
         );
     }
@@ -130,7 +130,7 @@ final class DatabaseSchemaTest extends TestCase
             self::assertFalse($car->getColumn($column)->getNotnull(), $column);
         }
 
-        self::assertTrue($car->getColumn('engines_count')->getNotnull());
+        self::assertTrue($car->getColumn('_engines_count')->getNotnull());
     }
 
     public function testColumnTypesFollowTheFieldKind(): void {
@@ -155,28 +155,28 @@ final class DatabaseSchemaTest extends TestCase
         $schema = self::carSchema();
 
         self::assertSame(['owner -> entities (RESTRICT)'], self::foreignKeysOf($schema, 'entities'));
-        self::assertSame(['id -> entities (CASCADE)', 'chassis__maker -> entities (SET NULL)'], self::foreignKeysOf($schema, 'car'));
-        self::assertSame(['id -> car (CASCADE)'], self::foreignKeysOf($schema, 'car__state'));
-        self::assertSame(['owner -> car (CASCADE)', 'value -> entities (SET NULL)'], self::foreignKeysOf($schema, 'car__makers'));
-        self::assertSame(['owner,position -> car__wheels (CASCADE)'], self::foreignKeysOf($schema, 'car__wheels__state'));
+        self::assertSame(['_id -> entities (CASCADE)', 'chassis__maker -> entities (SET NULL)'], self::foreignKeysOf($schema, 'car'));
+        self::assertSame(['_id -> car (CASCADE)'], self::foreignKeysOf($schema, '_state__car'));
+        self::assertSame(['_owner -> car (CASCADE)', '_value -> entities (SET NULL)'], self::foreignKeysOf($schema, 'car__makers'));
+        self::assertSame(['_owner,_position -> car__wheels (CASCADE)'], self::foreignKeysOf($schema, '_state__car__wheels'));
     }
 
     public function testACollectionTableIsKeyedByOwnerAndPosition(): void {
         $tags = self::carSchema()->getTable('car__chassis__tags');
 
-        self::assertSame(['owner', 'position', 'value'], self::columnNamesOf($tags));
-        self::assertSame(['owner', 'position'], $tags->getPrimaryKey()->getColumns());
+        self::assertSame(['_owner', '_position', '_value'], self::columnNamesOf($tags));
+        self::assertSame(['_owner', '_position'], $tags->getPrimaryKey()->getColumns());
     }
 
     public function testAnEmbedItemsStateTableFlagsEachItemColumn(): void {
-        $state = self::carSchema()->getTable('car__wheels__state');
+        $state = self::carSchema()->getTable('_state__car__wheels');
 
-        self::assertSame(['owner', 'position', 'size', 'maker'], self::columnNamesOf($state));
+        self::assertSame(['_owner', '_position', 'size', 'maker'], self::columnNamesOf($state));
     }
 
-    public function testTwoValuesLandingOnOneColumnAreRejected(): void {
+    public function testAFieldNameThatCouldLandOnAnEmbedsColumnIsRejectedWhenRead(): void {
         $this->expectException(InvalidArgumentException::class);
-        $this->expectExceptionMessage('Two values both land on column "a__b"');
+        $this->expectExceptionMessage('Field name "a__b" cannot start with "_" or hold "__"');
 
         self::schemaOf(LayoutCollidingColumns::class);
     }

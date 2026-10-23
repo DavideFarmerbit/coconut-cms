@@ -69,7 +69,7 @@ final class EntityRowsBuilderTest extends TestCase
 
         self::assertCount(1, $all);
         self::assertSame(
-            ['entities', 'rows_vehicle', 'rows_vehicle__state', 'rows_car', 'rows_car__state'],
+            ['entities', 'rows_vehicle', '_state__rows_vehicle', 'rows_car', '_state__rows_car'],
             array_map(static fn (Row $row): string => $row->table, $all[0]->rows),
         );
         self::assertSame(
@@ -77,12 +77,12 @@ final class EntityRowsBuilderTest extends TestCase
             self::rowIn($all[0]->rows, 'entities'),
         );
         self::assertSame(
-            ['id' => 'car-id', 'owner' => EntityIds::NIL, 'owner_field' => '', 'chassis__weight' => null, 'maker' => null, 'spares_count' => 0],
+            ['_id' => 'car-id', '_owner' => EntityIds::NIL, '_owner_field' => '', 'chassis__weight' => null, 'maker' => null, '_spares_count' => 0],
             self::rowIn($all[0]->rows, 'rows_car'),
         );
         self::assertSame(
-            ['id' => 'car-id', 'chassis__weight' => false, 'maker' => false, 'engine' => false, 'spares' => false, 'wheels' => false, 'tags' => false],
-            self::rowIn($all[0]->rows, 'rows_car__state'),
+            ['_id' => 'car-id', 'chassis__weight' => false, 'maker' => false, 'engine' => false, 'spares' => false, 'wheels' => false, 'tags' => false],
+            self::rowIn($all[0]->rows, '_state__rows_car'),
         );
     }
 
@@ -96,10 +96,10 @@ final class EntityRowsBuilderTest extends TestCase
         $rows = $this->rowsOf($car)[0]->rows;
 
         self::assertSame('mine', self::rowIn($rows, 'rows_vehicle')['name']);
-        self::assertTrue(self::rowIn($rows, 'rows_vehicle__state')['name']);
+        self::assertTrue(self::rowIn($rows, '_state__rows_vehicle')['name']);
         self::assertSame(1200, self::rowIn($rows, 'rows_car')['chassis__weight']);
         self::assertSame('maker-id', self::rowIn($rows, 'rows_car')['maker']);
-        self::assertTrue(self::rowIn($rows, 'rows_car__state')['chassis__weight']);
+        self::assertTrue(self::rowIn($rows, '_state__rows_car')['chassis__weight']);
     }
 
     public function testAnOwnedObjectWithAFieldSetGetsRowsOfItsOwn(): void {
@@ -108,7 +108,7 @@ final class EntityRowsBuilderTest extends TestCase
         $all = $this->rowsOf($car);
 
         self::assertCount(2, $all);
-        self::assertTrue(self::rowIn($all[0]->rows, 'rows_car__state')['engine']);
+        self::assertTrue(self::rowIn($all[0]->rows, '_state__rows_car')['engine']);
         self::assertSame('id-of-engine', $all[1]->id);
         self::assertSame('default:rows_engine', $all[1]->identifier);
         self::assertSame(
@@ -116,7 +116,7 @@ final class EntityRowsBuilderTest extends TestCase
             self::rowIn($all[1]->rows, 'entities'),
         );
         self::assertSame(
-            ['id' => 'id-of-engine', 'owner' => 'car-id', 'owner_field' => 'engine', 'horsepower' => 450],
+            ['_id' => 'id-of-engine', '_owner' => 'car-id', '_owner_field' => 'engine', 'horsepower' => 450],
             self::rowIn($all[1]->rows, 'rows_engine'),
         );
     }
@@ -140,7 +140,7 @@ final class EntityRowsBuilderTest extends TestCase
         $all = $this->rowsOf($car);
 
         self::assertCount(1, $all);
-        self::assertTrue(self::rowIn($all[0]->rows, 'rows_car__state')['engine']);
+        self::assertTrue(self::rowIn($all[0]->rows, '_state__rows_car')['engine']);
     }
 
     public function testAnOwnedCollectionStoresItsCountAndAnEntityPerItemSkippingEmptySlots(): void {
@@ -148,8 +148,8 @@ final class EntityRowsBuilderTest extends TestCase
         $car->spares = [new RowsEngine(), null, new RowsEngine()];
         $all = $this->rowsOf($car);
 
-        self::assertSame(3, self::rowIn($all[0]->rows, 'rows_car')['spares_count']);
-        self::assertTrue(self::rowIn($all[0]->rows, 'rows_car__state')['spares']);
+        self::assertSame(3, self::rowIn($all[0]->rows, 'rows_car')['_spares_count']);
+        self::assertTrue(self::rowIn($all[0]->rows, '_state__rows_car')['spares']);
         self::assertSame(['spares.0', 'spares.2'], $this->askedFor);
         self::assertSame(
             [['spares', 0], ['spares', 2]],
@@ -170,7 +170,7 @@ final class EntityRowsBuilderTest extends TestCase
         $rows = $this->rowsOf($car)[0]->rows;
 
         self::assertSame(
-            [['owner' => 'car-id', 'position' => 0, 'value' => 'red'], ['owner' => 'car-id', 'position' => 1, 'value' => 'fast']],
+            [['_owner' => 'car-id', '_position' => 0, '_value' => 'red'], ['_owner' => 'car-id', '_position' => 1, '_value' => 'fast']],
             self::rowsIn($rows, 'rows_car__tags'),
         );
     }
@@ -182,12 +182,12 @@ final class EntityRowsBuilderTest extends TestCase
         $rows = $this->rowsOf($car)[0]->rows;
 
         self::assertSame(
-            [['owner' => 'car-id', 'position' => 0, 'size' => null, 'maker' => null], ['owner' => 'car-id', 'position' => 1, 'size' => 19, 'maker' => null]],
+            [['_owner' => 'car-id', '_position' => 0, 'size' => null, 'maker' => null], ['_owner' => 'car-id', '_position' => 1, 'size' => 19, 'maker' => null]],
             self::rowsIn($rows, 'rows_car__wheels'),
         );
         self::assertSame(
-            [['owner' => 'car-id', 'position' => 0, 'size' => false, 'maker' => false], ['owner' => 'car-id', 'position' => 1, 'size' => true, 'maker' => false]],
-            self::rowsIn($rows, 'rows_car__wheels__state'),
+            [['_owner' => 'car-id', '_position' => 0, 'size' => false, 'maker' => false], ['_owner' => 'car-id', '_position' => 1, 'size' => true, 'maker' => false]],
+            self::rowsIn($rows, '_state__rows_car__wheels'),
         );
     }
 }

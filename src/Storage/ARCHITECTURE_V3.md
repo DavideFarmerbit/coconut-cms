@@ -339,9 +339,10 @@ the Doctrine schema of every table they need. Neither reads the database.
   `CHAR(36)`), `owner`, `owner_field`, `position`, `concrete_identifier`.
   `owner` points at another `entities` row and is `RESTRICT`ed. A row with no
   real owner points at the seeded `Cms` row, the nil UUID.
-- One table per inheritance level, named by the schema's `table`. Its `id`
-  is the entity's `id`. It copies `owner` and `owner_field`, so a unique index
-  can include them. It holds one column per value its own fields store:
+- One table per inheritance level, named by the schema's `table`. Its `_id`
+  is the entity's `id`. It copies the entity's owner and owner field as
+  `_owner` and `_owner_field`, so a unique index can include them. It holds
+  one column per value its own fields store:
   - Scalar and ValueObject: one column.
   - Reference: the target's id, a foreign key to `entities`, `SET NULL`.
   - Embed: its leaves, flattened. The path's `:` becomes `__`:
@@ -349,10 +350,10 @@ the Doctrine schema of every table they need. Neither reads the database.
   - OwningReference: no column. The owned row is an `entities` row whose
     `owner_field` holds the path, e.g. `engine` or `chassis:spare`.
   - Owned Collection: its items are `entities` rows too. Only the count is a
-    column here: `engines_count`.
+    column here: `_engines_count`.
 - One table per other Collection, named after the level's table and the
-  path: `car__wheels`. Keyed by `owner` and `position`. The item kind only
-  decides the value columns: one `value` column for a Scalar, ValueObject or
+  path: `car__wheels`. Keyed by `_owner` and `_position`. The item kind only
+  decides the value columns: one `_value` column for a Scalar, ValueObject or
   Reference item, the flattened fields for an Embed item. An Embed item can't
   hold an OwningReference or a Collection anywhere in its embedded fields,
   and compiling rejects it. Its only address is its position, which changes
@@ -361,11 +362,20 @@ the Doctrine schema of every table they need. Neither reads the database.
   has no such limit, since its path never changes. This could be loosened
   later with a new storage mechanism. Starting strict keeps that door closed
   until it's needed.
-- A touched-state side table per level, `car__state`, one row per entity.
+- A touched-state side table per level, `_state__car`, one row per entity.
   One boolean per path an instance can hold at that level: every value
   column, and the bare path of every OwningReference and Collection. An
   Embed item's fields get the same, in a side table of the Collection's own:
-  `car__wheels__state`, keyed by `owner` and `position` like the items.
+  `_state__car__wheels`, keyed by `_owner` and `_position` like the items.
+
+System names never collide with field names. A field name never starts with
+`_` and never holds `__`, and a type's own table never starts with `_`. Every
+name the system adds to a table holding fields starts with `_`: `_id`,
+`_owner`, `_owner_field`, `_position`, `_value`, `_<collection>_count`, and
+the state tables, `_state__<table>`. The `entities` table holds no fields, so
+its columns keep plain names. Without this, a field named `owner`, a
+Collection named `state`, or a field named `spares_count` next to an Owned
+Collection `spares` would each land on a name already taken.
 
 A Collection is all or nothing. Untouched, it has no rows, and resolves from
 defaults. Touched, its rows are the whole Collection. Inside a touched
@@ -383,14 +393,15 @@ type for Enum. A ValueObject is `VARCHAR(255)` when `indexable()`, `TEXT`
 otherwise.
 
 Every unique group becomes a unique index starting with the scope it applies
-to: `owner` and `owner_field` on a level, `owner` on a Collection's table. An
+to: `_owner` and `_owner_field` on a level, `_owner` on a Collection's table. An
 Embed target's groups repeat at every site that embeds it. A group can't
 cover a `TEXT` column, an OwningReference or a Collection: MySQL can't index
 the first, and the others have no column.
 
 The layout fails rather than letting the database fail later: two values
 landing on one column, two tables with one name, or any name longer than
-MySQL's 64 characters.
+MySQL's 64 characters. With the naming rule above, the first can't happen
+any more, and the second only through an explicit table name.
 
 ## Identity
 
@@ -822,9 +833,29 @@ interface Transformation {               // Transform(type, transformation)
 `Values` is read-only: `get`, `has`, `isDefault`, `paths`. `MigratingValues`
 adds `set(path, Conversion)`, `remove` and `move`, scoped to one call.
 Converters, initializers and transformations are always classes, never
-closures: named, testable, and readable in a step. Every output is checked against the new field's stored form
-before anything is written: one that doesn't fit fails the migration, naming
-the type, the field and the entity.
+closures: named, testable, and readable in a step. Every output is checked
+against the new field's stored form before anything is written: one that
+doesn't fit fails the migration, naming the type, the field and the entity.
+
+An initializer runs at every place its type lives, including objects that
+only exist as defaults: an owned object never touched, an Embed with nothing
+set, an entity with every value a default. Whatever it returns there is
+stored, and stops following the default. An initializer that wants such a
+place to stay a default says so itself:
+
+```php
+final class SerialFromHorsepower implements FieldInitializer
+{
+    public function initialize(Values $values): Conversion {
+        // Still the default engine: let its serial follow the default too.
+        if ($values->isDefault('horsepower')) {
+            return Conversion::default();
+        }
+
+        return Conversion::of(sprintf('SN-%d', $values->get('horsepower')));
+    }
+}
+```
 
 ### Values in, values out
 

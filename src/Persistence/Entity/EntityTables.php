@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Entity;
 use Doctrine\DBAL\Connection;
 use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\EntityIds;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
 
@@ -39,8 +40,8 @@ final readonly class EntityTables
                 'position' => -1,
                 'concrete_identifier' => Cms::IDENTIFIER,
             ]);
-            $connection->insert($cms->table, ['id' => EntityIds::NIL, 'owner' => EntityIds::NIL, 'owner_field' => '']);
-            $connection->insert($cms->stateTable, ['id' => EntityIds::NIL]);
+            $connection->insert($cms->table, [ColumnNames::ID => EntityIds::NIL, ColumnNames::OWNER => EntityIds::NIL, ColumnNames::OWNER_FIELD => '']);
+            $connection->insert($cms->stateTable, [ColumnNames::ID => EntityIds::NIL]);
         });
     }
 

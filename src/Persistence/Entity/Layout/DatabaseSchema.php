@@ -52,11 +52,11 @@ final class DatabaseSchema
 
     private static function addLevel(Schema $schema, LevelLayout $level): void {
         $table = self::createTable($schema, $level->table, $level->identifier);
-        $table->addColumn('id', Types::GUID);
-        $table->addColumn('owner', Types::GUID, ['default' => EntityIds::NIL]);
-        $table->addColumn('owner_field', Types::STRING, ['length' => 255, 'default' => '']);
-        $table->setPrimaryKey(['id']);
-        $table->addForeignKeyConstraint(self::ENTITIES, ['id'], ['id'], ['onDelete' => 'CASCADE']);
+        $table->addColumn(ColumnNames::ID, Types::GUID);
+        $table->addColumn(ColumnNames::OWNER, Types::GUID, ['default' => EntityIds::NIL]);
+        $table->addColumn(ColumnNames::OWNER_FIELD, Types::STRING, ['length' => 255, 'default' => '']);
+        $table->setPrimaryKey([ColumnNames::ID]);
+        $table->addForeignKeyConstraint(self::ENTITIES, [ColumnNames::ID], ['id'], ['onDelete' => 'CASCADE']);
 
         foreach ($level->columns as $column) {
             self::addValueColumn($table, $column);
@@ -73,9 +73,9 @@ final class DatabaseSchema
         }
 
         $state = self::createTable($schema, $level->stateTable, $level->identifier);
-        $state->addColumn('id', Types::GUID);
-        $state->setPrimaryKey(['id']);
-        $state->addForeignKeyConstraint($level->table, ['id'], ['id'], ['onDelete' => 'CASCADE']);
+        $state->addColumn(ColumnNames::ID, Types::GUID);
+        $state->setPrimaryKey([ColumnNames::ID]);
+        $state->addForeignKeyConstraint($level->table, [ColumnNames::ID], [ColumnNames::ID], ['onDelete' => 'CASCADE']);
         foreach ($level->stateColumns() as $name) {
             self::addColumn($state, $name, Types::BOOLEAN, ['default' => false]);
         }
@@ -87,10 +87,10 @@ final class DatabaseSchema
 
     private static function addCollection(Schema $schema, LevelLayout $level, CollectionLayout $collection): void {
         $table = self::createTable($schema, $collection->table, $level->identifier);
-        $table->addColumn('owner', Types::GUID);
-        $table->addColumn('position', Types::INTEGER);
-        $table->setPrimaryKey(['owner', 'position']);
-        $table->addForeignKeyConstraint($level->table, ['owner'], ['id'], ['onDelete' => 'CASCADE']);
+        $table->addColumn(ColumnNames::OWNER, Types::GUID);
+        $table->addColumn(ColumnNames::POSITION, Types::INTEGER);
+        $table->setPrimaryKey([ColumnNames::OWNER, ColumnNames::POSITION]);
+        $table->addForeignKeyConstraint($level->table, [ColumnNames::OWNER], [ColumnNames::ID], ['onDelete' => 'CASCADE']);
 
         foreach ($collection->itemColumns as $column) {
             self::addValueColumn($table, $column);
@@ -105,10 +105,10 @@ final class DatabaseSchema
         }
 
         $state = self::createTable($schema, $collection->stateTable, $level->identifier);
-        $state->addColumn('owner', Types::GUID);
-        $state->addColumn('position', Types::INTEGER);
-        $state->setPrimaryKey(['owner', 'position']);
-        $state->addForeignKeyConstraint($collection->table, ['owner', 'position'], ['owner', 'position'], ['onDelete' => 'CASCADE']);
+        $state->addColumn(ColumnNames::OWNER, Types::GUID);
+        $state->addColumn(ColumnNames::POSITION, Types::INTEGER);
+        $state->setPrimaryKey([ColumnNames::OWNER, ColumnNames::POSITION]);
+        $state->addForeignKeyConstraint($collection->table, [ColumnNames::OWNER, ColumnNames::POSITION], [ColumnNames::OWNER, ColumnNames::POSITION], ['onDelete' => 'CASCADE']);
         foreach ($collection->itemColumns as $column) {
             self::addColumn($state, $column->name, Types::BOOLEAN, ['default' => false]);
         }
