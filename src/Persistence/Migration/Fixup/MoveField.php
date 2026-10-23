@@ -3,57 +3,47 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Migration\Fixup;
 
 use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\UniqueGroups;
+use XyloIsCoding\CoconutCms\Persistence\Migration\InvalidFixup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 
 /**
- * A value moved between two paths of a type's aggregate: across levels, into
- * or out of an Embed, across an owned boundary. A move is about data. On the
- * schemas, it only accounts for its own type losing `from` and gaining `to`,
- * when they are that type's own fields; any other type's change is a
- * difference of its own.
+ * A field's declaration moved to another type of the same chain: up to an
+ * ancestor, or down to a descendant. Its path doesn't change, so its values
+ * follow on their own: moved up, every entity keeps its value; moved down,
+ * an entity no longer of a type declaring it loses its value. A unique group
+ * over it on the type it leaves goes with it.
  */
 final readonly class MoveField implements Fixup
 {
-    public FieldPath $from;
-    public FieldPath $to;
+    public FieldName $field;
 
     public function __construct(
-        public string $type,
-        string $from,
-        string $to,
+        public string $from,
+        string $field,
+        public string $to,
     ) {
-        $this->from = FieldPath::fromString($from);
-        $this->to = FieldPath::fromString($to);
+        $this->field = FieldName::of($field);
     }
 
     public function applyTo(SchemaState $schemas): SchemaState {
-        $schema = $schemas->get($this->type);
-
-        $from = self::ownFieldOf($this->from);
-        if ($from !== null && $schema->fields->has($from)) {
-            $schema = $schema
-                ->withFields($schema->fields->without($from))
-                ->withUniqueGroups(UniqueGroups::withoutField($schema->uniqueGroups, $from));
+        $schemas->field($this->from, $this->field);
+        $schemas->assertNoField($this->to, $this->field);
+        if (!in_array($this->to, $schemas->codeAncestorsOf($this->from), true) && !in_array($this->from, $schemas->codeAncestorsOf($this->to), true)) {
+            throw new InvalidFixup(sprintf('"%s" and "%s" are not in one chain: a field only moves up or down its own chain.', $this->from, $this->to));
         }
 
-        $to = self::ownFieldOf($this->to);
-        if ($to !== null && !$schema->fields->has($to) && $schemas->code($this->type)->fields->has($to)) {
-            $schema = $schema->withFields($schema->fields->with($to, $schemas->codeField($this->type, $to)));
-        }
+        $from = $schemas->get($this->from);
+        $schemas = $schemas->with($from
+            ->withFields($from->fields->without($this->field))
+            ->withUniqueGroups(UniqueGroups::withoutField($from->uniqueGroups, $this->field)));
 
-        return $schemas->with($schema);
+        $to = $schemas->get($this->to);
+
+        return $schemas->with($to->withFields($to->fields->with($this->field, $schemas->codeField($this->to, $this->field))));
     }
 
     public function describe(): string {
-        return sprintf('MoveField(%s, %s → %s)', $this->type, $this->from, $this->to);
-    }
-
-    /** The field $path names on the type itself, or null when it reaches past one. */
-    private static function ownFieldOf(FieldPath $path): ?FieldName {
-        $head = $path->head();
-
-        return $path->tail() === null && $head instanceof FieldName ? $head : null;
+        return sprintf('MoveField(%s, %s → %s)', $this->field, $this->from, $this->to);
     }
 }

@@ -7,7 +7,8 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 
 /**
- * A field removed from a type with its values, and everything an owned field
+ * A field's declaration removed from a type. Its values go wherever their path
+ * no longer exists in the new schemas, along with everything an owned field
  * owned. A unique group over it goes with it.
  */
 final readonly class DropField implements Fixup

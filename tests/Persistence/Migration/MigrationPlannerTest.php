@@ -7,7 +7,9 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\AddField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\DropField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\DropType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\Fixup;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MoveTable;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MoveValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\RenameType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\Reparent;
@@ -237,6 +239,42 @@ final class MigrationPlannerTest extends TestCase
             self::code(),
             [self::step('drop', new DropType('test:car'), new MoveTable('test:car'))],
         );
+    }
+
+    public function testMoveFieldExplainsADeclarationMovingUpItsChain(): void {
+        $plan = (new MigrationPlanner())->plan(
+            [self::stored(self::schema('test:vehicle')), self::stored(self::schema('test:car', ['price' => self::int('price')], parent: 'test:vehicle'))],
+            self::code(self::schema('test:vehicle', ['price' => self::int('price')]), self::schema('test:car', parent: 'test:vehicle')),
+            [self::step('price-up', new MoveField('test:car', 'price', 'test:vehicle'))],
+        );
+
+        self::assertSame(['MoveField(price, test:car → test:vehicle)'], self::described($plan->fixups));
+    }
+
+    public function testMoveFieldOutsideOneChainIsRejected(): void {
+        $this->expectException(InvalidFixup::class);
+        $this->expectExceptionMessage('are not in one chain');
+
+        (new MigrationPlanner())->plan(
+            [self::stored(self::schema('test:bike')), self::stored(self::schema('test:car', ['price' => self::int('price')]))],
+            self::code(self::schema('test:bike', ['price' => self::int('price')]), self::schema('test:car')),
+            [self::step('price-to-bike', new MoveField('test:car', 'price', 'test:bike'))],
+        );
+    }
+
+    public function testMoveValuesChangesNoSchemaSoTheDropStillNeedsDeclaring(): void {
+        $stored = [self::stored(self::schema('test:car', ['price' => self::int('price')]))];
+        $code = self::code(self::schema('test:car', ['cost' => self::int('cost')]));
+
+        try {
+            (new MigrationPlanner())->plan($stored, $code, [self::step('move', new MoveValues('test:car', 'price', 'cost'))]);
+            self::fail('Moving values alone should not explain the removed field.');
+        } catch (MigrationBlocked $blocked) {
+            self::assertStringContainsString('Field "price" was removed from type "test:car".', $blocked->getMessage());
+        }
+
+        $plan = (new MigrationPlanner())->plan($stored, $code, [self::step('move', new MoveValues('test:car', 'price', 'cost'), new DropField('test:car', 'price'))]);
+        self::assertSame(['MoveValues(test:car, price → cost)', 'DropField(test:car, price)', 'AddField(test:car, cost)'], self::described($plan->fixups));
     }
 
     public function testReparentTakesTheCodesParent(): void {

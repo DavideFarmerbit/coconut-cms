@@ -689,13 +689,13 @@ The common fixups are shorthands:
 - `AddField(type, field, initializer)`: gives existing entities a value other
   than the default.
 - `DropField(type, field)`.
-- `RenameField(type, old, new)`, and `MoveField(type, from, to)` for any two
-  paths: across levels, into or out of an Embed, across an owned boundary. A
-  move is about data. On the schemas, it only accounts for its own type losing
-  `from` and gaining `to`, when they are that type's own fields. A change to
-  any other type's schema stays a difference of its own: moving
-  `engine.horsepower` up to the car still needs the engine type's `DropField`,
-  since every engine loses it, not just the ones under cars.
+- `RenameField(type, old, new)`: the shorthand for moving the values from the
+  old name to the new, the old field dropped, the new one added.
+- `MoveField(from, field, to)`: a field's declaration moved up or down its own
+  chain. Its path doesn't change, so its values follow on their own.
+- `MoveValues(type, from, to)`: values moved between any two paths of an
+  aggregate: across levels, into or out of an Embed, across an owned boundary.
+  Data only: the schema changes it goes with are declared next to it.
 - `RetypeField(type, field, converter)`: a retype always has a converter,
   even where the old and new stored forms look alike. Nothing converts from
   one type to another implicitly.
@@ -709,6 +709,20 @@ and adds `firstName` and `lastName`.
 
 A fixup names things as they are when it runs. Within a step, fixups run in
 the order listed.
+
+Fixups come in two kinds. A data fixup moves or reshapes values and changes
+no schema: `MoveValues`, a converter, a general transformation. A schema fixup
+explains a declaration: `AddField`, `DropField`, `RenameType`, `Reparent`, and
+the rest. A shorthand like `RenameField` or `RetypeField` is both, for
+readability.
+
+Data follows paths: a value survives when its path still exists in the new
+schemas, and goes when it doesn't. Data fixups change paths; the new schemas
+decide the rest. So `DropField` deletes nothing by itself: a value goes
+because its path is gone. `MoveField` from `Car` up to `Vehicle` keeps every
+car's value, since a car still has the path. Moved down from `Vehicle` to
+`Car`, a vehicle that isn't a car loses its value, since it no longer has the
+path.
 
 A transformation sees a whole aggregate, so it can move a value across an
 owned boundary. An owned type's own fixups run first, wherever its entities

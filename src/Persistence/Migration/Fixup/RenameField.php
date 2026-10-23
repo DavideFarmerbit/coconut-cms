@@ -6,7 +6,11 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\UniqueGroups;
 use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 
-/** A type's own field renamed, its values kept. A unique group over it follows. */
+/**
+ * A type's own field renamed, its values kept. A unique group over it follows.
+ * The shorthand for MoveValues from the old name to the new, the old field
+ * dropped, the new one added.
+ */
 final readonly class RenameField implements Fixup
 {
     public FieldName $old;

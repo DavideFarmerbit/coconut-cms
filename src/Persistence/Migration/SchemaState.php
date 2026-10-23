@@ -93,6 +93,19 @@ final readonly class SchemaState
         return $schema->fields->get($name);
     }
 
+    /**
+     * $identifier's ancestors in code, nearest first.
+     * @return list<string>
+     */
+    public function codeAncestorsOf(string $identifier): array {
+        $ancestors = [];
+        for ($parent = $this->code($identifier)->parent; $parent !== null; $parent = $this->code($parent)->parent) {
+            $ancestors[] = $parent;
+        }
+
+        return $ancestors;
+    }
+
     /** $schema replacing the type with its identifier, keeping its source. */
     public function with(EntitySchema $schema): self {
         $this->get($schema->identifier);
