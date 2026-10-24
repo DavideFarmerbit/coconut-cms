@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Tests\Persistence\Migration;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\AddField;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MakeNotNullable;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\DropField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\DropType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MoveField;
@@ -25,6 +26,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\StoredSchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
@@ -48,7 +50,7 @@ final class MigrationPlannerTest extends TestCase
     }
 
     private static function int(string $name): FieldDescriptor {
-        return FieldDescriptor::scalar($name, ScalarType::Int);
+        return FieldDescriptor::scalar($name, ScalarType::Int, Nullability::Nullable);
     }
 
     private static function stored(EntitySchema $schema, SchemaSource $source = SchemaSource::Native): StoredSchema {
@@ -193,7 +195,7 @@ final class MigrationPlannerTest extends TestCase
     public function testResetExplainsAChangedField(): void {
         $plan = (new MigrationPlanner())->plan(
             [self::stored(self::schema('test:car', ['speed' => self::int('speed')]))],
-            self::code(self::schema('test:car', ['speed' => FieldDescriptor::scalar('speed', ScalarType::Float)])),
+            self::code(self::schema('test:car', ['speed' => FieldDescriptor::scalar('speed', ScalarType::Float, Nullability::Nullable)])),
             MigrationSteps::none()->add('reset-speed', [RetypeField::reset('test:car', 'speed')]),
         );
 
@@ -217,13 +219,38 @@ final class MigrationPlannerTest extends TestCase
     public function testUnsafeResolvesEverythingByDroppingAndResetting(): void {
         $plan = (new MigrationPlanner(new UnsafePolicy()))->plan(
             [self::stored(self::schema('test:car', ['price' => self::int('price'), 'speed' => self::int('speed')])), self::stored(self::schema('test:bike'))],
-            self::code(self::schema('test:car', ['cost' => self::int('cost'), 'speed' => FieldDescriptor::scalar('speed', ScalarType::Float)])),
+            self::code(self::schema('test:car', ['cost' => self::int('cost'), 'speed' => FieldDescriptor::scalar('speed', ScalarType::Float, Nullability::Nullable)])),
             MigrationSteps::none(),
         );
 
         self::assertSame(
             ['AddField(test:car, cost)', 'RetypeField::reset(test:car, speed)', 'DropField(test:car, price)', 'DropType(test:bike)'],
             self::described($plan->fixups),
+        );
+    }
+
+    public function testOnlyUnsafeTakesNullsAwayFromAFieldWithoutAStep(): void {
+        $stored = [self::stored(self::schema('test:car', ['speed' => self::int('speed')]))];
+        $code = self::code(self::schema('test:car', ['speed' => FieldDescriptor::scalar('speed', ScalarType::Int, Nullability::NotNullable)]));
+
+        $unsafe = (new MigrationPlanner(new UnsafePolicy()))->plan($stored, $code, MigrationSteps::none());
+        self::assertSame(['MakeNotNullable(test:car, speed)'], self::described($unsafe->fixups));
+
+        $declared = (new MigrationPlanner())->plan($stored, $code, MigrationSteps::none()->add('speed-required', [new MakeNotNullable('test:car', 'speed')]));
+        self::assertSame(['MakeNotNullable(test:car, speed)'], self::described($declared->fixups));
+
+        $this->expectException(MigrationBlocked::class);
+        (new MigrationPlanner(new DeveloperPolicy()))->plan($stored, $code, MigrationSteps::none());
+    }
+
+    public function testMakeNotNullableNamesAFieldThatCanHoldNull(): void {
+        $this->expectException(InvalidFixup::class);
+        $this->expectExceptionMessage('field "speed" of type "test:car" can\'t hold null at this point.');
+
+        (new MigrationPlanner())->plan(
+            [self::stored(self::schema('test:car', ['speed' => FieldDescriptor::scalar('speed', ScalarType::Int, Nullability::NotNullable)]))],
+            self::code(self::schema('test:car', ['speed' => FieldDescriptor::scalar('speed', ScalarType::Int, Nullability::NotNullable)])),
+            MigrationSteps::none()->add('speed-required', [new MakeNotNullable('test:car', 'speed')]),
         );
     }
 

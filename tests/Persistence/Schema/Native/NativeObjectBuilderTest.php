@@ -14,6 +14,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
@@ -109,13 +110,13 @@ final class BuilderCar
     #[OwningReference]
     public ?BuilderEngine $engine;
 
-    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: BuilderEngine::class)]
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: BuilderEngine::class, itemNullability: Nullability::Nullable)]
     public array $spares = [];
 
     #[Collection(itemKind: FieldKind::Embed, itemTarget: BuilderPiston::class)]
     public array $pistons = [];
 
-    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Enum, itemEnumClass: BuilderFuel::class)]
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Enum, itemEnumClass: BuilderFuel::class, itemNullability: Nullability::NotNullable)]
     public array $fuels = [];
 
     #[Reference]

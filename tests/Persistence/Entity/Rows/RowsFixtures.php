@@ -10,6 +10,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReferenc
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 
 #[Entity]
@@ -72,13 +73,13 @@ final class RowsCar extends RowsVehicle
     #[OwningReference]
     public ?RowsEngine $engine;
 
-    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: RowsEngine::class)]
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: RowsEngine::class, itemNullability: Nullability::Nullable)]
     public array $spares = [];
 
     #[Collection(itemKind: FieldKind::Embed, itemTarget: RowsWheel::class)]
     public array $wheels = [];
 
-    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String)]
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String, itemNullability: Nullability::NotNullable)]
     public array $tags = [];
 
     #[Reference]

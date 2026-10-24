@@ -13,6 +13,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\EntityIds;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LayoutBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
+use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationMarker;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateReader;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateValues;
@@ -34,6 +35,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolve
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Overrides;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Subject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\StoredForm;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
 
 /**
@@ -41,7 +43,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
  * migration, then expands the tables, moves every aggregate and stores the
  * new schemas in one transaction, and contracts the tables. A fresh database
  * is a migration from nothing. One migration at a time: a second waits for
- * the first.
+ * the first. From expand to contract, the MigrationMarker is set, so entities
+ * can't be read or written; one that fails leaves it set, until a migration
+ * finishes.
  */
 final readonly class Migrator
 {
@@ -53,6 +57,7 @@ final readonly class Migrator
 
     private SchemaCompiler $compiler;
     private MigrationLog $log;
+    private MigrationMarker $marker;
     private TableChanges $tables;
 
     public function __construct(
@@ -64,6 +69,7 @@ final readonly class Migrator
     ) {
         $this->compiler = new SchemaCompiler($registry, $values, $schemas);
         $this->log = new MigrationLog($connection);
+        $this->marker = new MigrationMarker($connection);
         $this->tables = new TableChanges($connection);
     }
 
@@ -91,6 +97,7 @@ final readonly class Migrator
         $this->schemas->ensureTable();
         $this->values->ensureTable();
         $this->log->ensureTable();
+        $this->marker->ensureTable();
 
         $stored = $this->schemas->all();
         $fresh = $stored === [];
@@ -116,17 +123,22 @@ final readonly class Migrator
         if (!$fresh && $plan->isEmpty() && !self::anyFingerprintChanged($stored, $batch)) {
             // Nothing to move, but an earlier run may have stopped before contract.
             $this->tables->contract($targetTables, $storedTables);
+            $this->marker->clear();
 
             return new MigrationResult(false, $plan, [], 0);
         }
 
+        $this->marker->set();
         $movedAside = $this->tables->expand($targetTables);
         (new EntityTables($this->connection))->seed($targetLevels);
 
         $recorded = $fresh ? $steps->ids() : $pending->ids();
         try {
-            $moved = $this->connection->transactional(function () use ($fresh, $plan, $batch, $stored, $target, $targetSchemas, $storedSchemas, $movedAside, $recorded): int {
+            $moved = $this->connection->transactional(function () use ($fresh, $plan, $batch, $stored, $target, $targetSchemas, $targetLevels, $storedSchemas, $movedAside, $recorded): int {
                 $moved = $fresh || $plan->isEmpty() ? 0 : $this->moveAggregates($plan, $batch, $target, $targetSchemas, $storedSchemas, $movedAside);
+                if ($moved > 0) {
+                    (new ReferenceCheck($this->connection))->assertTargetsMatch($targetLevels, $target);
+                }
 
                 $gone = array_values(array_diff(
                     array_map(static fn (StoredSchema $each): string => $each->schema->identifier, array_filter($stored, static fn (StoredSchema $each): bool => $each->source === SchemaSource::Native)),
@@ -154,6 +166,7 @@ final readonly class Migrator
         }
 
         $this->tables->contract($targetTables, $storedTables);
+        $this->marker->clear();
 
         return new MigrationResult($fresh, $plan, $recorded, $moved);
     }
@@ -170,6 +183,7 @@ final readonly class Migrator
         $reader = new AggregateReader($this->connection, $this->registry, $this->values, $movedAside);
         $writer = EntityWriter::forMigration($this->connection, $targetSchemas, $storedSchemas);
         $resolver = (new FieldValueResolver($this->registry, $this->values))->withBatch($target, $batch->values);
+        $storedForm = new StoredForm($targetSchemas);
 
         $roots = $this->connection->fetchFirstColumn(sprintf("SELECT id FROM %s WHERE owner_field = '' ORDER BY id", DatabaseSchema::ENTITIES));
         foreach ($roots as $id) {
@@ -182,6 +196,7 @@ final readonly class Migrator
                     continue;
                 }
 
+                self::checkWritten($aggregate, $storedForm);
                 $writer->write(self::entityValuesOf($aggregate, $targetSchemas, $resolver), $id, static fn (FieldPath $path): string => $aggregate->ownedIdAt($path) ?? EntityIds::generate());
             } catch (Throwable $failure) {
                 throw new RuntimeException(sprintf('Moving entity %s failed: %s', $id, $failure->getMessage()), 0, $failure);
@@ -189,6 +204,31 @@ final readonly class Migrator
         }
 
         return count($roots);
+    }
+
+    /**
+     * Checks every value about to be written, touched or converted, against
+     * its field in the new schemas, and puts it in canonical form. One a
+     * fixup wrote where no field is fails; one only carried along there is
+     * dropped, as its path is gone. An untouched value is never written: the
+     * entity follows the new default, checked when it was compiled.
+     */
+    private static function checkWritten(AggregateValues $aggregate, StoredForm $storedForm): void {
+        $values = $aggregate->values();
+        $marks = $aggregate->marks();
+
+        foreach ($storedForm->unknownPaths($aggregate->identifier, $values) as $path) {
+            if ($marks[$path] === ValueMark::Converted) {
+                throw new InvalidArgumentException(sprintf('"%s" was written where "%s" has no field.', $path, $aggregate->identifier));
+            }
+        }
+
+        $written = array_values(array_map('strval', array_keys(array_filter($marks, static fn (ValueMark $mark): bool => $mark !== ValueMark::Untouched))));
+        foreach ($storedForm->checked($aggregate->identifier, $values, $written) as $path => $value) {
+            if ($value !== $values[$path]) {
+                $aggregate->set(FieldPath::fromString((string) $path), $value, $marks[$path]);
+            }
+        }
     }
 
     /**

@@ -21,7 +21,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolve
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Subject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Overrides;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\StoredForm;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
 
 /**
@@ -99,9 +101,11 @@ final class SchemaCompiler
         // Every value each class's default instance holds, inherited fields
         // included. For a class in this batch, these are its effective values.
         $flattener = new ValueFlattener($lookup);
+        $storedForm = new StoredForm($lookup);
         $denseByIdentifier = [];
         foreach ($order as $identifier => $blueprint) {
             $denseByIdentifier[$identifier] = $flattener->flatten($identifier, $blueprint->defaultValues);
+            $this->assertValidDefaults($identifier, $denseByIdentifier[$identifier], $storedForm);
         }
 
         // We only want to store values that differ from what FieldValueResolver would otherwise already resolve to.
@@ -176,6 +180,20 @@ final class SchemaCompiler
                     $name,
                 ));
             }
+        }
+    }
+
+    /**
+     * Throws when one of $identifier's default values isn't valid for its
+     * field: a null where the field doesn't allow it, most of all. A native
+     * property's type rules out most of that, but never a Collection's items,
+     * and an editor-created type has no property at all.
+     */
+    private function assertValidDefaults(string $identifier, FieldValues $defaults, StoredForm $storedForm): void {
+        try {
+            $storedForm->checked($identifier, $defaults->toArray());
+        } catch (InvalidArgumentException $invalid) {
+            throw new InvalidArgumentException(sprintf('%s: its default %s', $identifier, lcfirst($invalid->getMessage())), 0, $invalid);
         }
     }
 

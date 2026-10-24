@@ -9,6 +9,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
@@ -20,7 +21,7 @@ final class SchemaLookupTest extends TestCase
     private static function schema(string $identifier, ?string $parent, array $fieldNames): EntitySchema {
         $fields = FieldDescriptorCollection::empty();
         foreach ($fieldNames as $name) {
-            $fields = $fields->with(FieldName::of($name), FieldDescriptor::scalar($name, ScalarType::String));
+            $fields = $fields->with(FieldName::of($name), FieldDescriptor::scalar($name, ScalarType::String, Nullability::Nullable));
         }
 
         return new EntitySchema(

@@ -26,6 +26,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
@@ -164,12 +165,44 @@ final class NativeEntityReader
 
         return match (true) {
             $attribute instanceof Scalar => self::resolveScalar($name, $attribute, $property),
-            $attribute instanceof ValueObject => self::valueObjectDescriptor($name, self::resolveValueObjectClass(self::declaredClassOf($property), $property)),
-            $attribute instanceof Embed => FieldDescriptor::embed($name, self::resolveEntityTarget(self::declaredClassOf($property), $property)),
-            $attribute instanceof Reference => FieldDescriptor::reference($name, self::resolveEntityTarget(self::declaredClassOf($property), $property)),
-            $attribute instanceof OwningReference => FieldDescriptor::owningReference($name, self::resolveEntityTarget(self::declaredClassOf($property), $property)),
-            $attribute instanceof Collection => FieldDescriptor::collection($name, self::resolveCollectionItemDescriptor($name, $attribute, $property)),
+            $attribute instanceof ValueObject => self::valueObjectDescriptor($name, self::resolveValueObjectClass(self::declaredClassOf($property), $property), self::nullabilityOf($property)),
+            $attribute instanceof Embed => FieldDescriptor::embed($name, self::resolveEntityTarget(self::declaredClassOf(self::assertNotNullable($property, 'an Embed is never null')), $property)),
+            $attribute instanceof Reference => FieldDescriptor::reference($name, self::resolveEntityTarget(self::declaredClassOf(self::assertNullable($property)), $property)),
+            $attribute instanceof OwningReference => FieldDescriptor::owningReference($name, self::resolveEntityTarget(self::declaredClassOf($property), $property), self::nullabilityOf($property)),
+            $attribute instanceof Collection => FieldDescriptor::collection($name, self::resolveCollectionItemDescriptor($name, $attribute, self::assertNotNullable($property, 'a Collection is never null'))),
         };
+    }
+
+    /** Whether $property's declared type allows null. */
+    private static function nullabilityOf(ReflectionProperty $property): Nullability {
+        return ($property->getType()?->allowsNull() ?? true) ? Nullability::Nullable : Nullability::NotNullable;
+    }
+
+    /** Returns $property, once its type doesn't allow null. */
+    private static function assertNotNullable(ReflectionProperty $property, string $because): ReflectionProperty {
+        if ($property->getType()?->allowsNull() ?? false) {
+            throw new InvalidArgumentException(sprintf(
+                '%s::$%s is declared nullable, but %s.',
+                $property->getDeclaringClass()->getName(),
+                $property->getName(),
+                $because,
+            ));
+        }
+
+        return $property;
+    }
+
+    /** Returns $property, once its type allows null: deleting a Reference's target nulls it. */
+    private static function assertNullable(ReflectionProperty $property): ReflectionProperty {
+        if (!($property->getType()?->allowsNull() ?? true)) {
+            throw new InvalidArgumentException(sprintf(
+                '%s::$%s is a Reference, so it must be declared nullable: deleting its target nulls it.',
+                $property->getDeclaringClass()->getName(),
+                $property->getName(),
+            ));
+        }
+
+        return $property;
     }
 
     /**
@@ -210,8 +243,8 @@ final class NativeEntityReader
     }
 
     /** @param class-string<StorableValue> $class */
-    private static function valueObjectDescriptor(string $name, string $class): FieldDescriptor {
-        return FieldDescriptor::valueObject($name, $class, $class::indexable());
+    private static function valueObjectDescriptor(string $name, string $class, Nullability $nullability): FieldDescriptor {
+        return FieldDescriptor::valueObject($name, $class, $class::indexable(), $nullability);
     }
 
     /** A value object class must store and rebuild itself. */
@@ -257,7 +290,7 @@ final class NativeEntityReader
             ));
         }
 
-        return FieldDescriptor::scalar($name, $attribute->type, $enumClass, self::enumBackingOf($enumClass));
+        return FieldDescriptor::scalar($name, $attribute->type, self::nullabilityOf($property), $enumClass, self::enumBackingOf($enumClass));
     }
 
     /**
@@ -316,15 +349,44 @@ final class NativeEntityReader
             FieldKind::Scalar => FieldDescriptor::scalar(
                 $name,
                 $attribute->itemScalarType,
+                self::resolveItemNullability($attribute, $property),
                 self::assertBackedEnum($attribute->itemEnumClass, $property),
                 self::enumBackingOf($attribute->itemEnumClass),
             ),
-            FieldKind::ValueObject => self::valueObjectDescriptor($name, self::resolveValueObjectClass(self::resolveItemTarget($attribute, $property), $property)),
-            FieldKind::Embed => FieldDescriptor::embed($name, self::resolveEntityItemTarget($attribute, $property)),
-            FieldKind::Reference => FieldDescriptor::reference($name, self::resolveEntityItemTarget($attribute, $property)),
-            FieldKind::OwningReference => FieldDescriptor::owningReference($name, self::resolveEntityItemTarget($attribute, $property)),
+            FieldKind::ValueObject => self::valueObjectDescriptor(
+                $name,
+                self::resolveValueObjectClass(self::resolveItemTarget($attribute, $property), $property),
+                self::resolveItemNullability($attribute, $property),
+            ),
+            FieldKind::Embed => FieldDescriptor::embed($name, self::resolveEntityItemTarget(self::assertNoItemNullability($attribute, $property, 'an Embed item is never null'), $property)),
+            FieldKind::Reference => FieldDescriptor::reference($name, self::resolveEntityItemTarget(self::assertNoItemNullability($attribute, $property, 'a Reference item is always Nullable'), $property)),
+            FieldKind::OwningReference => FieldDescriptor::owningReference($name, self::resolveEntityItemTarget($attribute, $property), self::resolveItemNullability($attribute, $property)),
             FieldKind::Collection => throw new InvalidArgumentException('A Collection item cannot itself be a Collection.'),
         };
+    }
+
+    /** A Collection's $itemNullability, required for the item kinds that have a choice. */
+    private static function resolveItemNullability(Collection $attribute, ReflectionProperty $property): Nullability {
+        return $attribute->itemNullability ?? throw new InvalidArgumentException(sprintf(
+            '%s::$%s is a Collection of %s items, which needs $itemNullability.',
+            $property->getDeclaringClass()->getName(),
+            $property->getName(),
+            $attribute->itemKind->name,
+        ));
+    }
+
+    /** Returns $attribute, once it doesn't set $itemNullability. */
+    private static function assertNoItemNullability(Collection $attribute, ReflectionProperty $property, string $because): Collection {
+        if ($attribute->itemNullability !== null) {
+            throw new InvalidArgumentException(sprintf(
+                '%s::$%s sets $itemNullability, but %s.',
+                $property->getDeclaringClass()->getName(),
+                $property->getName(),
+                $because,
+            ));
+        }
+
+        return $attribute;
     }
 
     /** The identifier of a Collection item target that must be an #[Entity]-marked class. */

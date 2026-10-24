@@ -8,6 +8,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
@@ -122,10 +123,18 @@ final readonly class EntitySchemaCodec
                 'scalarType' => $field->scalarType()->value,
                 'enum' => $field->enumClass() === null ? null : (string) $this->enums->identifierOf($field->enumClass()),
                 'enumBacking' => $field->enumBacking()?->value,
+                'nullability' => $field->nullability()->value,
             ],
-            FieldKind::ValueObject => ['kind' => $field->kind()->value, 'name' => $field->name(), 'target' => (string) $this->valueObjects->identifierOf($field->target()), 'indexable' => $field->indexable()],
+            FieldKind::ValueObject => [
+                'kind' => $field->kind()->value,
+                'name' => $field->name(),
+                'target' => (string) $this->valueObjects->identifierOf($field->target()),
+                'indexable' => $field->indexable(),
+                'nullability' => $field->nullability()->value,
+            ],
+            FieldKind::OwningReference => ['kind' => $field->kind()->value, 'name' => $field->name(), 'target' => $field->target(), 'nullability' => $field->nullability()->value],
             FieldKind::Collection => ['kind' => $field->kind()->value, 'name' => $field->name(), 'item' => $this->encodeDescriptor($field->itemDescriptor())],
-            default => ['kind' => $field->kind()->value, 'name' => $field->name(), 'target' => $field->target()],
+            FieldKind::Embed, FieldKind::Reference => ['kind' => $field->kind()->value, 'name' => $field->name(), 'target' => $field->target()],
         };
     }
 
@@ -135,13 +144,19 @@ final readonly class EntitySchemaCodec
             FieldKind::Scalar => FieldDescriptor::scalar(
                 $field['name'],
                 ScalarType::from($field['scalarType']),
+                Nullability::from($field['nullability']),
                 $field['enum'] === null ? null : $this->enums->resolve(Identifier::fromString($field['enum'])),
                 ScalarType::tryFrom($field['enumBacking'] ?? ''),
             ),
-            FieldKind::ValueObject => FieldDescriptor::valueObject($field['name'], $this->valueObjects->resolve(Identifier::fromString($field['target'])), $field['indexable']),
+            FieldKind::ValueObject => FieldDescriptor::valueObject(
+                $field['name'],
+                $this->valueObjects->resolve(Identifier::fromString($field['target'])),
+                $field['indexable'],
+                Nullability::from($field['nullability']),
+            ),
             FieldKind::Embed => FieldDescriptor::embed($field['name'], $field['target']),
             FieldKind::Reference => FieldDescriptor::reference($field['name'], $field['target']),
-            FieldKind::OwningReference => FieldDescriptor::owningReference($field['name'], $field['target']),
+            FieldKind::OwningReference => FieldDescriptor::owningReference($field['name'], $field['target'], Nullability::from($field['nullability'])),
             FieldKind::Collection => FieldDescriptor::collection($field['name'], $this->decodeDescriptor($field['item'])),
         };
     }

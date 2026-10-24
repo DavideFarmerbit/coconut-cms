@@ -17,6 +17,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Values;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\AddField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\DropField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\DropType;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MakeNotNullable;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\Fixup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MoveValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\RenameField;
@@ -31,6 +32,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\StoredSchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
@@ -114,7 +116,7 @@ final class MovingValuesTest extends TestCase
     }
 
     private static function int(string $name): FieldDescriptor {
-        return FieldDescriptor::scalar($name, ScalarType::Int);
+        return FieldDescriptor::scalar($name, ScalarType::Int, Nullability::Nullable);
     }
 
     /** @return array<string, FieldDescriptor> A car's own fields: a chassis Embed, an owned engine, Embed wheels, owned spares. */
@@ -122,9 +124,9 @@ final class MovingValuesTest extends TestCase
         return [
             'price' => self::int('price'),
             'chassis' => FieldDescriptor::embed('chassis', 'test:chassis'),
-            'engine' => FieldDescriptor::owningReference('engine', 'test:engine'),
+            'engine' => FieldDescriptor::owningReference('engine', 'test:engine', Nullability::Nullable),
             'wheels' => FieldDescriptor::collection('wheels', FieldDescriptor::embed('wheels', 'test:wheel')),
-            'spares' => FieldDescriptor::collection('spares', FieldDescriptor::owningReference('spares', 'test:engine')),
+            'spares' => FieldDescriptor::collection('spares', FieldDescriptor::owningReference('spares', 'test:engine', Nullability::Nullable)),
         ];
     }
 
@@ -226,7 +228,7 @@ final class MovingValuesTest extends TestCase
     }
 
     public function testAConverterSeesTouchedAndDefaultValuesAndDecidesForBoth(): void {
-        $fields = ['price' => FieldDescriptor::scalar('price', ScalarType::String)] + self::carFields();
+        $fields = ['price' => FieldDescriptor::scalar('price', ScalarType::String, Nullability::Nullable)] + self::carFields();
         $plan = self::plan(self::types(self::carFields()), self::types($fields), RetypeField::converting('test:car', 'price', new MovingPriceToText()));
 
         $touched = self::aggregate(['price' => 150]);
@@ -251,7 +253,7 @@ final class MovingValuesTest extends TestCase
     }
 
     public function testResetDropsEveryValueOfTheField(): void {
-        $fields = ['price' => FieldDescriptor::scalar('price', ScalarType::String)] + self::carFields();
+        $fields = ['price' => FieldDescriptor::scalar('price', ScalarType::String, Nullability::Nullable)] + self::carFields();
         $plan = self::plan(self::types(self::carFields()), self::types($fields), RetypeField::reset('test:car', 'price'));
         $car = self::aggregate(['price' => 150, 'chassis:weight' => 1200]);
 
@@ -279,9 +281,9 @@ final class MovingValuesTest extends TestCase
             'test:car' => self::schema('test:car', [
                 'price' => self::int('price'),
                 'chassis' => FieldDescriptor::embed('chassis', 'test:chassis'),
-                'engine' => FieldDescriptor::owningReference('engine', 'test:motor'),
+                'engine' => FieldDescriptor::owningReference('engine', 'test:motor', Nullability::Nullable),
                 'wheels' => FieldDescriptor::collection('wheels', FieldDescriptor::embed('wheels', 'test:wheel')),
-                'spares' => FieldDescriptor::collection('spares', FieldDescriptor::owningReference('spares', 'test:motor')),
+                'spares' => FieldDescriptor::collection('spares', FieldDescriptor::owningReference('spares', 'test:motor', Nullability::Nullable)),
             ]),
         ];
         $plan = self::plan(self::types(self::carFields()), $renamed, new RenameType('test:engine', 'test:motor'));
@@ -311,6 +313,37 @@ final class MovingValuesTest extends TestCase
         self::assertSame(['spares.0' => 'spare-id'], $car->ownedIds());
     }
 
+    public function testMakingAFieldNotNullableUntouchesItsNullsAndKeepsEveryOtherValue(): void {
+        $fields = ['price' => FieldDescriptor::scalar('price', ScalarType::Int, Nullability::NotNullable)] + self::carFields();
+        $plan = self::plan(self::types(self::carFields()), self::types($fields), new MakeNotNullable('test:car', 'price'));
+
+        $nulled = self::aggregate(['price' => null, 'chassis:weight' => 1200]);
+        $plan->moveValues($nulled);
+        self::assertSame(['chassis:weight' => [1200, 'Touched']], self::valuesOf($nulled));
+
+        $priced = self::aggregate(['price' => 150]);
+        $plan->moveValues($priced);
+        self::assertSame(['price' => [150, 'Touched']], self::valuesOf($priced));
+    }
+
+    public function testMakingItemsNotNullableRemovesTheNullOnesAndMovesTheRestUp(): void {
+        $fields = ['spares' => FieldDescriptor::collection('spares', FieldDescriptor::owningReference('spares', 'test:engine', Nullability::NotNullable))] + self::carFields();
+        $plan = self::plan(self::types(self::carFields()), self::types($fields), new MakeNotNullable('test:car', 'spares'));
+        $car = self::aggregate(
+            ['spares' => 3, 'spares.0' => null, 'spares.1' => 'test:engine', 'spares.1.horsepower' => 200, 'spares.2' => 'test:turbo_engine'],
+            [],
+            ['spares.1' => 'first-id', 'spares.2' => 'second-id'],
+        );
+
+        $plan->moveValues($car);
+
+        self::assertSame(
+            ['spares' => [2, 'Touched'], 'spares.0' => ['test:engine', 'Touched'], 'spares.0.horsepower' => [200, 'Touched'], 'spares.1' => ['test:turbo_engine', 'Touched']],
+            self::valuesOf($car),
+        );
+        self::assertSame(['spares.0' => 'first-id', 'spares.1' => 'second-id'], $car->ownedIds());
+    }
+
     public function testAnInitializerFillsAnAddedFieldFromWhatsThere(): void {
         $fields = self::carFields() + ['rating' => self::int('rating')];
         $plan = self::plan(self::types(self::carFields()), self::types($fields), new AddField('test:car', 'rating', new MovingRatingFromPrice()));
@@ -336,8 +369,8 @@ final class MovingValuesTest extends TestCase
     }
 
     public function testATransformationRewritesWhatNoShorthandCan(): void {
-        $stored = self::types(self::carFields() + ['owner' => FieldDescriptor::scalar('owner', ScalarType::String)]);
-        $code = self::types(self::carFields() + ['first' => FieldDescriptor::scalar('first', ScalarType::String), 'last' => FieldDescriptor::scalar('last', ScalarType::String)]);
+        $stored = self::types(self::carFields() + ['owner' => FieldDescriptor::scalar('owner', ScalarType::String, Nullability::Nullable)]);
+        $code = self::types(self::carFields() + ['first' => FieldDescriptor::scalar('first', ScalarType::String, Nullability::Nullable), 'last' => FieldDescriptor::scalar('last', ScalarType::String, Nullability::Nullable)]);
         $plan = self::plan($stored, $code, new Transform('test:car', new MovingSplitName()));
         $car = self::aggregate(['owner' => 'Ada Lovelace']);
 
@@ -347,8 +380,8 @@ final class MovingValuesTest extends TestCase
     }
 
     public function testATypeNestedInItselfIsRenamedDeepestFirst(): void {
-        $stored = ['test:node' => self::schema('test:node', ['child' => FieldDescriptor::owningReference('child', 'test:node'), 'label' => self::int('label')])];
-        $code = ['test:node' => self::schema('test:node', ['next' => FieldDescriptor::owningReference('next', 'test:node'), 'label' => self::int('label')])];
+        $stored = ['test:node' => self::schema('test:node', ['child' => FieldDescriptor::owningReference('child', 'test:node', Nullability::Nullable), 'label' => self::int('label')])];
+        $code = ['test:node' => self::schema('test:node', ['next' => FieldDescriptor::owningReference('next', 'test:node', Nullability::Nullable), 'label' => self::int('label')])];
         $plan = self::plan($stored, $code, new RenameField('test:node', 'child', 'next'));
         $node = self::aggregate(['child' => 'test:node', 'child.child' => 'test:node', 'child.child.label' => 3], [], ['child' => 'a', 'child.child' => 'b'], 'test:node');
 

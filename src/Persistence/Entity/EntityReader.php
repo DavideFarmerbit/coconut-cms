@@ -23,13 +23,15 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
  * Reads entities back, native or editor-created alike: an entity's stored
  * rows, with everything it didn't touch resolved from its type's defaults.
  * Reads schemas and rows only, never a PHP class: building an object from
- * what it reads is a native loader's job.
+ * what it reads is a native loader's job. Refuses to read while a migration
+ * is unfinished.
  */
 final readonly class EntityReader
 {
     private SchemaLookup $schemas;
     private EntityRowsReader $rows;
     private FieldValueResolver $resolver;
+    private MigrationMarker $migration;
 
     public function __construct(
         private Connection $connection,
@@ -39,10 +41,12 @@ final readonly class EntityReader
         $this->schemas = new SchemaLookup($registry);
         $this->rows = new EntityRowsReader($connection, $this->schemas);
         $this->resolver = new FieldValueResolver($registry, $store);
+        $this->migration = new MigrationMarker($connection);
     }
 
     /** Null when no entity has $id. */
     public function read(string $id): ?LoadedEntity {
+        $this->migration->assertSettled();
         $stored = $this->rows->read($id);
         if ($stored === null) {
             return null;
@@ -63,6 +67,8 @@ final readonly class EntityReader
         if ($ids === []) {
             return [];
         }
+
+        $this->migration->assertSettled();
 
         return $this->connection->fetchAllKeyValue(
             sprintf('SELECT id, concrete_identifier FROM %s WHERE id IN (?)', DatabaseSchema::ENTITIES),

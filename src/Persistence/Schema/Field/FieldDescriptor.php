@@ -22,6 +22,7 @@ final readonly class FieldDescriptor
         private ?string $target = null,
         private ?self $itemDescriptor = null,
         private bool $indexable = false,
+        private ?Nullability $nullability = null,
     ) {
     }
 
@@ -29,6 +30,7 @@ final readonly class FieldDescriptor
      * A built-in primitive value: string, int, bool, and so on.
      * @param string $name The field's own name.
      * @param ScalarType $type Which primitive the field holds.
+     * @param Nullability $nullability Whether it may hold null.
      * @param string|null $enumClass The backed enum class the field holds. Required
      *        when $type is ScalarType::Enum, and invalid for every other $type.
      * @param ScalarType|null $enumBacking What the enum is backed by: ScalarType::Int
@@ -37,7 +39,7 @@ final readonly class FieldDescriptor
      *        shows up as a schema change. Required with $enumClass.
      * @return self
      */
-    public static function scalar(string $name, ScalarType $type, ?string $enumClass = null, ?ScalarType $enumBacking = null): self {
+    public static function scalar(string $name, ScalarType $type, Nullability $nullability, ?string $enumClass = null, ?ScalarType $enumBacking = null): self {
         if ($type === ScalarType::Enum) {
             if ($enumClass === null || $enumBacking === null) {
                 throw new InvalidArgumentException('ScalarType::Enum requires $enumClass and $enumBacking.');
@@ -50,7 +52,7 @@ final readonly class FieldDescriptor
             throw new InvalidArgumentException('$enumClass and $enumBacking only apply to ScalarType::Enum.');
         }
 
-        return new self(FieldKind::Scalar, $name, scalarType: $type, enumClass: $enumClass, enumBacking: $enumBacking);
+        return new self(FieldKind::Scalar, $name, scalarType: $type, enumClass: $enumClass, enumBacking: $enumBacking, nullability: $nullability);
     }
 
     /**
@@ -61,10 +63,11 @@ final readonly class FieldDescriptor
      *        stores and rebuilds itself.
      * @param bool $indexable What $type's own indexable() said when this was
      *        compiled: recorded here, so a change to it shows up as a schema change.
+     * @param Nullability $nullability Whether it may hold null.
      * @return self
      */
-    public static function valueObject(string $name, string $type, bool $indexable): self {
-        return new self(FieldKind::ValueObject, $name, target: $type, indexable: $indexable);
+    public static function valueObject(string $name, string $type, bool $indexable, Nullability $nullability): self {
+        return new self(FieldKind::ValueObject, $name, target: $type, indexable: $indexable, nullability: $nullability);
     }
 
     /**
@@ -82,12 +85,13 @@ final readonly class FieldDescriptor
     /**
      * A Shared, singular pointer to another entity: a real, always-nullable foreign
      * key column on this field's own side, never required at the schema level.
+     * Always Nullable: deleting its target nulls it.
      * @param string $name The field's own name.
      * @param string $type The referenced shape's identifier.
      * @return self
      */
     public static function reference(string $name, string $type): self {
-        return new self(FieldKind::Reference, $name, target: $type);
+        return new self(FieldKind::Reference, $name, target: $type, nullability: Nullability::Nullable);
     }
 
     /**
@@ -95,10 +99,11 @@ final readonly class FieldDescriptor
      * through the owned entity's own owner/owner_field instead of a foreign key.
      * @param string $name The field's own name.
      * @param string $type The owned shape's identifier.
+     * @param Nullability $nullability Whether the slot may be empty.
      * @return self
      */
-    public static function owningReference(string $name, string $type): self {
-        return new self(FieldKind::OwningReference, $name, target: $type);
+    public static function owningReference(string $name, string $type, Nullability $nullability): self {
+        return new self(FieldKind::OwningReference, $name, target: $type, nullability: $nullability);
     }
 
     /**
@@ -175,6 +180,43 @@ final readonly class FieldDescriptor
         return $this->itemDescriptor;
     }
 
+    /** Valid for Scalar, ValueObject, Reference and OwningReference: an Embed and a Collection are never null. */
+    public function nullability(): Nullability {
+        if ($this->nullability === null) {
+            throw new LogicException(sprintf('nullability() is not valid for FieldKind::%s.', $this->kind->name));
+        }
+
+        return $this->nullability;
+    }
+
+    /** Whether null is a valid value here: never for an Embed or a Collection. */
+    public function allowsNull(): bool {
+        return $this->nullability?->allowsNull() ?? false;
+    }
+
+    /**
+     * Its own nullability, or its items' for a Collection: what
+     * withNullability() changes. Null when there's none: an Embed, or a
+     * Collection of Embeds.
+     */
+    public function ownOrItemNullability(): ?Nullability {
+        return $this->kind === FieldKind::Collection ? $this->itemDescriptor->nullability : $this->nullability;
+    }
+
+    /** Whether $other is this field with only its own or its items' nullability changed, or not at all. */
+    public function differsOnlyInNullability(self $other): bool {
+        if ($this->kind !== $other->kind || $this->itemDescriptor?->kind !== $other->itemDescriptor?->kind) {
+            return false;
+        }
+
+        $nullability = $other->ownOrItemNullability();
+        if ($nullability === null || $this->ownOrItemNullability() === null) {
+            return $this == $other;
+        }
+
+        return $this->withNullability($nullability) == $other;
+    }
+
     private function assertKind(FieldKind $expected): void {
         if ($this->kind !== $expected) {
             throw new LogicException(sprintf(
@@ -202,6 +244,7 @@ final readonly class FieldDescriptor
             $this->target,
             $this->itemDescriptor?->renamed($name),
             $this->indexable,
+            $this->nullability,
         );
     }
 
@@ -222,6 +265,35 @@ final readonly class FieldDescriptor
             $retargets ? $to : $this->target,
             $this->itemDescriptor?->retargeted($from, $to),
             $this->indexable,
+            $this->nullability,
+        );
+    }
+
+    /**
+     * The same field with $nullability: its own, or its items' for a
+     * Collection. Throws for a kind that has none, and for a Reference made
+     * NotNullable.
+     */
+    public function withNullability(Nullability $nullability): self {
+        if ($this->kind === FieldKind::Collection) {
+            return self::collection($this->name, $this->itemDescriptor->withNullability($nullability));
+        }
+
+        $this->nullability();
+        if ($this->kind === FieldKind::Reference && !$nullability->allowsNull()) {
+            throw new InvalidArgumentException('A Reference is always Nullable: deleting its target nulls it.');
+        }
+
+        return new self(
+            $this->kind,
+            $this->name,
+            $this->scalarType,
+            $this->enumClass,
+            $this->enumBacking,
+            $this->target,
+            null,
+            $this->indexable,
+            $nullability,
         );
     }
 

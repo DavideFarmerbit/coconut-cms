@@ -29,6 +29,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
  * longer wanted is deleted, along with everything it owns: one replaced by
  * another, one dropped from an Owned Collection, one back at its defaults.
  * Every other row is rewritten whole.
+ *
+ * Refuses to write while a migration is unfinished, except for the
+ * migration's own writes.
  */
 final class EntityWriter
 {
@@ -39,11 +42,14 @@ final class EntityWriter
      * @param SchemaLookup $schemas The shape rows are written in.
      * @param SchemaLookup $storedSchemas The shape stored rows are in: where
      *        an entity's old rows are deleted from.
+     * @param MigrationMarker|null $migration Checked before each write and
+     *        delete; null for the migration's own writer.
      */
     private function __construct(
         private readonly Connection $connection,
         SchemaLookup $schemas,
         SchemaLookup $storedSchemas,
+        private readonly ?MigrationMarker $migration,
     ) {
         $this->rows = new EntityRowsBuilder($schemas);
         $this->storedChains = new LevelChains($storedSchemas);
@@ -53,7 +59,7 @@ final class EntityWriter
     public static function of(Connection $connection, SchemaRegistry $registry): self {
         $schemas = new SchemaLookup($registry);
 
-        return new self($connection, $schemas, $schemas);
+        return new self($connection, $schemas, $schemas, new MigrationMarker($connection));
     }
 
     /**
@@ -62,7 +68,7 @@ final class EntityWriter
      * included.
      */
     public static function forMigration(Connection $connection, SchemaLookup $target, SchemaLookup $stored): self {
-        return new self($connection, $target, $stored);
+        return new self($connection, $target, $stored, null);
     }
 
     /**
@@ -117,12 +123,15 @@ final class EntityWriter
     /**
      * Runs $work in a transaction, read committed when it's the outermost
      * one: locking an id not stored yet then locks nothing else, and every
-     * read after a lock sees what the save holding it committed.
+     * read after a lock sees what the save holding it committed. Throws
+     * first while a migration is unfinished.
      * @template T
      * @param Closure(): T $work
      * @return T
      */
     private function transactional(Closure $work): mixed {
+        $this->migration?->assertSettled();
+
         if (!$this->connection->isTransactionActive()) {
             $this->connection->executeStatement('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
         }

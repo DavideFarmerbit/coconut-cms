@@ -16,6 +16,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReferenc
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
 
@@ -41,7 +42,7 @@ final class LayoutWheelWithHolder
 #[Unique('tags')]
 final class LayoutUniqueCollection
 {
-    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String)]
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String, itemNullability: Nullability::NotNullable)]
     private array $tags = [];
 }
 

@@ -144,7 +144,7 @@ final class DatabaseSchema
     /** @return array{string, array<string, mixed>} */
     private static function scalarTypeOf(FieldDescriptor $field): array {
         return match ($field->scalarType()) {
-            ScalarType::String => [Types::STRING, ['length' => 255]],
+            ScalarType::String => [Types::STRING, ['length' => ScalarValues::MAX_STRING_LENGTH]],
             ScalarType::Text => [Types::TEXT, []],
             ScalarType::Int => [Types::BIGINT, []],
             ScalarType::Bool => [Types::BOOLEAN, []],
@@ -152,7 +152,7 @@ final class DatabaseSchema
             ScalarType::Date => [Types::DATE_IMMUTABLE, []],
             ScalarType::DateTime => [Types::DATETIME_IMMUTABLE, []],
             ScalarType::Decimal => [Types::DECIMAL, ['precision' => ScalarValues::DECIMAL_PRECISION, 'scale' => ScalarValues::DECIMAL_SCALE]],
-            ScalarType::Enum => $field->enumBacking() === ScalarType::Int ? [Types::BIGINT, []] : [Types::STRING, ['length' => 255]],
+            ScalarType::Enum => $field->enumBacking() === ScalarType::Int ? [Types::BIGINT, []] : [Types::STRING, ['length' => ScalarValues::MAX_STRING_LENGTH]],
         };
     }
 

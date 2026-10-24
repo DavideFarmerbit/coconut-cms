@@ -7,21 +7,23 @@ use LogicException;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 
 final class FieldDescriptorTest extends TestCase
 {
     public function testScalarStoresKindNameAndType(): void {
-        $field = FieldDescriptor::scalar('title', ScalarType::String);
+        $field = FieldDescriptor::scalar('title', ScalarType::String, Nullability::NotNullable);
 
         self::assertSame(FieldKind::Scalar, $field->kind());
         self::assertSame('title', $field->name());
         self::assertSame(ScalarType::String, $field->scalarType());
+        self::assertSame(Nullability::NotNullable, $field->nullability());
         self::assertNull($field->enumClass());
     }
 
     public function testScalarEnumStoresEnumClassAndBacking(): void {
-        $field = FieldDescriptor::scalar('status', ScalarType::Enum, FieldDescriptorTestStatus::class, ScalarType::String);
+        $field = FieldDescriptor::scalar('status', ScalarType::Enum, Nullability::Nullable, FieldDescriptorTestStatus::class, ScalarType::String);
 
         self::assertSame(ScalarType::Enum, $field->scalarType());
         self::assertSame(FieldDescriptorTestStatus::class, $field->enumClass());
@@ -31,32 +33,33 @@ final class FieldDescriptorTest extends TestCase
     public function testScalarEnumWithoutEnumClassThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        FieldDescriptor::scalar('status', ScalarType::Enum);
+        FieldDescriptor::scalar('status', ScalarType::Enum, Nullability::Nullable);
     }
 
     public function testScalarEnumWithoutBackingThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        FieldDescriptor::scalar('status', ScalarType::Enum, FieldDescriptorTestStatus::class);
+        FieldDescriptor::scalar('status', ScalarType::Enum, Nullability::Nullable, FieldDescriptorTestStatus::class);
     }
 
     public function testScalarEnumBackedByAnythingButIntOrStringThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        FieldDescriptor::scalar('status', ScalarType::Enum, FieldDescriptorTestStatus::class, ScalarType::Bool);
+        FieldDescriptor::scalar('status', ScalarType::Enum, Nullability::Nullable, FieldDescriptorTestStatus::class, ScalarType::Bool);
     }
 
     public function testScalarNonEnumWithEnumClassThrows(): void {
         $this->expectException(InvalidArgumentException::class);
 
-        FieldDescriptor::scalar('title', ScalarType::String, FieldDescriptorTestStatus::class);
+        FieldDescriptor::scalar('title', ScalarType::String, Nullability::Nullable, FieldDescriptorTestStatus::class);
     }
 
     public function testValueObjectStoresTarget(): void {
-        $field = FieldDescriptor::valueObject('price', 'Money', true);
+        $field = FieldDescriptor::valueObject('price', 'Money', true, Nullability::Nullable);
 
         self::assertSame(FieldKind::ValueObject, $field->kind());
         self::assertSame('Money', $field->target());
+        self::assertSame(Nullability::Nullable, $field->nullability());
     }
 
     public function testEmbedStoresTarget(): void {
@@ -74,10 +77,11 @@ final class FieldDescriptorTest extends TestCase
     }
 
     public function testOwningReferenceStoresTarget(): void {
-        $field = FieldDescriptor::owningReference('engine', 'Engine');
+        $field = FieldDescriptor::owningReference('engine', 'Engine', Nullability::NotNullable);
 
         self::assertSame(FieldKind::OwningReference, $field->kind());
         self::assertSame('Engine', $field->target());
+        self::assertSame(Nullability::NotNullable, $field->nullability());
     }
 
     public function testCollectionStoresItemDescriptor(): void {
@@ -105,7 +109,7 @@ final class FieldDescriptorTest extends TestCase
     }
 
     public function testTargetOnWrongKindThrows(): void {
-        $field = FieldDescriptor::scalar('title', ScalarType::String);
+        $field = FieldDescriptor::scalar('title', ScalarType::String, Nullability::Nullable);
 
         $this->expectException(LogicException::class);
 
@@ -113,11 +117,36 @@ final class FieldDescriptorTest extends TestCase
     }
 
     public function testItemDescriptorOnWrongKindThrows(): void {
-        $field = FieldDescriptor::scalar('title', ScalarType::String);
+        $field = FieldDescriptor::scalar('title', ScalarType::String, Nullability::Nullable);
 
         $this->expectException(LogicException::class);
 
         $field->itemDescriptor();
+    }
+
+    public function testAReferenceIsAlwaysNullable(): void {
+        self::assertSame(Nullability::Nullable, FieldDescriptor::reference('category', 'Category')->nullability());
+    }
+
+    public function testAnEmbedAndACollectionAreNeverNull(): void {
+        self::assertFalse(FieldDescriptor::embed('address', 'Address')->allowsNull());
+        self::assertFalse(FieldDescriptor::collection('tags', FieldDescriptor::reference('tags', 'Tag'))->allowsNull());
+
+        $this->expectException(LogicException::class);
+
+        FieldDescriptor::embed('address', 'Address')->nullability();
+    }
+
+    public function testWithNullabilityChangesACollectionsItems(): void {
+        $field = FieldDescriptor::collection('sizes', FieldDescriptor::scalar('sizes', ScalarType::Int, Nullability::Nullable));
+
+        self::assertSame(Nullability::NotNullable, $field->withNullability(Nullability::NotNullable)->itemDescriptor()->nullability());
+    }
+
+    public function testWithNullabilityNeverMakesAReferenceNotNullable(): void {
+        $this->expectException(InvalidArgumentException::class);
+
+        FieldDescriptor::reference('category', 'Category')->withNullability(Nullability::NotNullable);
     }
 }
 

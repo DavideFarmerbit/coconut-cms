@@ -14,6 +14,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldValidator
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
@@ -154,7 +155,7 @@ final class EntityAttributesTest extends TestCase
     public function testFieldValidatorRuleAcceptsAMatchingField(): void {
         $rule = new EntityAttributesMaxLength(10);
 
-        $rule->checkUsage(FieldDescriptor::scalar('wholesaleCost', ScalarType::String));
+        $rule->checkUsage(FieldDescriptor::scalar('wholesaleCost', ScalarType::String, Nullability::Nullable));
 
         self::assertTrue($rule->validate('short')->isValid());
     }
@@ -164,7 +165,7 @@ final class EntityAttributesTest extends TestCase
 
         $this->expectException(InvalidArgumentException::class);
 
-        $rule->checkUsage(FieldDescriptor::scalar('quantity', ScalarType::Int));
+        $rule->checkUsage(FieldDescriptor::scalar('quantity', ScalarType::Int, Nullability::Nullable));
     }
 
     public function testFieldValidatorRuleValidateFailsOverMax(): void {
@@ -188,8 +189,8 @@ final class EntityAttributesTest extends TestCase
         $rule = new EntityAttributesGreaterThan('endDate', 'startDate');
 
         $rule->checkUsage(FieldDescriptorCollection::fromArray([
-            'startDate' => FieldDescriptor::scalar('startDate', ScalarType::Int),
-            'endDate' => FieldDescriptor::scalar('endDate', ScalarType::Int),
+            'startDate' => FieldDescriptor::scalar('startDate', ScalarType::Int, Nullability::Nullable),
+            'endDate' => FieldDescriptor::scalar('endDate', ScalarType::Int, Nullability::Nullable),
         ]));
 
         self::assertTrue($rule->validate(new EntityAttributesSubject())->isValid());
@@ -201,8 +202,8 @@ final class EntityAttributesTest extends TestCase
         $this->expectException(InvalidArgumentException::class);
 
         $rule->checkUsage(FieldDescriptorCollection::fromArray([
-            'startDate' => FieldDescriptor::scalar('startDate', ScalarType::Int),
-            'endDate' => FieldDescriptor::scalar('endDate', ScalarType::Int),
+            'startDate' => FieldDescriptor::scalar('startDate', ScalarType::Int, Nullability::Nullable),
+            'endDate' => FieldDescriptor::scalar('endDate', ScalarType::Int, Nullability::Nullable),
         ]));
     }
 

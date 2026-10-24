@@ -3,12 +3,14 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Migration\Diff;
 
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 
 /**
  * Every way the schemas in code differ from the ones stored, as data. Compares
  * only what stored content depends on: types, parents, tables, unique groups
- * and each type's own fields. Defaults, validators, permissions and
- * editorExtensible are never differences.
+ * and each type's own fields. Defaults, validators, permissions,
+ * editorExtensible and a field becoming Nullable are never differences.
  */
 final class SchemaDiff
 {
@@ -56,7 +58,7 @@ final class SchemaDiff
         foreach ($new->fields as $name => $field) {
             if (!$old->fields->has($name)) {
                 $differences[] = new FieldAdded($identifier, $name, $field);
-            } elseif ($old->fields->get($name) != $field) {
+            } elseif ($old->fields->get($name) != $field && !self::onlyWidens($old->fields->get($name), $field)) {
                 $differences[] = new FieldChanged($identifier, $name, $old->fields->get($name), $field);
             }
         }
@@ -77,5 +79,15 @@ final class SchemaDiff
         }
 
         return $differences;
+    }
+
+    /**
+     * Whether $new only lets $old hold null where it couldn't: every stored
+     * value stays valid, so that's no difference.
+     */
+    private static function onlyWidens(FieldDescriptor $old, FieldDescriptor $new): bool {
+        return $old->ownOrItemNullability() === Nullability::NotNullable
+            && $new->ownOrItemNullability() === Nullability::Nullable
+            && $old->differsOnlyInNullability($new);
     }
 }

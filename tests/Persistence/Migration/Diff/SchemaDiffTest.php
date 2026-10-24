@@ -19,6 +19,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\UniqueGroup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
@@ -44,7 +45,7 @@ final class SchemaDiffTest extends TestCase
     }
 
     private static function int(string $name): FieldDescriptor {
-        return FieldDescriptor::scalar($name, ScalarType::Int);
+        return FieldDescriptor::scalar($name, ScalarType::Int, Nullability::Nullable);
     }
 
     /**
@@ -70,18 +71,48 @@ final class SchemaDiffTest extends TestCase
 
     public function testAFieldOnlyInCodeIsAddedOneOnlyStoredIsRemovedAndOneDeclaredDifferentlyChanged(): void {
         $stored = self::schema('test:car', ['speed' => self::int('speed'), 'price' => self::int('price')]);
-        $code = self::schema('test:car', ['speed' => FieldDescriptor::scalar('speed', ScalarType::Float), 'cost' => self::int('cost')]);
+        $code = self::schema('test:car', ['speed' => FieldDescriptor::scalar('speed', ScalarType::Float, Nullability::Nullable), 'cost' => self::int('cost')]);
 
         self::assertEquals([
-            new FieldChanged('test:car', FieldName::of('speed'), self::int('speed'), FieldDescriptor::scalar('speed', ScalarType::Float)),
+            new FieldChanged('test:car', FieldName::of('speed'), self::int('speed'), FieldDescriptor::scalar('speed', ScalarType::Float, Nullability::Nullable)),
             new FieldAdded('test:car', FieldName::of('cost'), self::int('cost')),
             new FieldRemoved('test:car', FieldName::of('price'), self::int('price')),
         ], SchemaDiff::between(['test:car' => $stored], ['test:car' => $code]));
     }
 
+    public function testAFieldBecomingNullableIsNoDifference(): void {
+        $notNullable = FieldDescriptor::scalar('speed', ScalarType::Int, Nullability::NotNullable);
+        $items = static fn (Nullability $nullability): FieldDescriptor => FieldDescriptor::collection('sizes', FieldDescriptor::scalar('sizes', ScalarType::Int, $nullability));
+
+        self::assertSame([], SchemaDiff::between(
+            ['test:car' => self::schema('test:car', ['speed' => $notNullable, 'sizes' => $items(Nullability::NotNullable)])],
+            ['test:car' => self::schema('test:car', ['speed' => self::int('speed'), 'sizes' => $items(Nullability::Nullable)])],
+        ));
+    }
+
+    public function testAFieldThatCanNoLongerHoldNullHasChangedAndSaysSo(): void {
+        $stored = self::schema('test:car', ['speed' => self::int('speed')]);
+        $code = self::schema('test:car', ['speed' => FieldDescriptor::scalar('speed', ScalarType::Int, Nullability::NotNullable)]);
+
+        $differences = SchemaDiff::between(['test:car' => $stored], ['test:car' => $code]);
+
+        self::assertInstanceOf(FieldChanged::class, $differences[0]);
+        self::assertTrue($differences[0]->onlyNarrows());
+        self::assertSame('Field "speed" of type "test:car" can no longer hold null.', $differences[0]->describe());
+    }
+
+    public function testNarrowingAlongWithAnotherChangeIsNotOnlyNarrowing(): void {
+        $stored = self::schema('test:car', ['speed' => self::int('speed')]);
+        $code = self::schema('test:car', ['speed' => FieldDescriptor::scalar('speed', ScalarType::Float, Nullability::NotNullable)]);
+
+        $differences = SchemaDiff::between(['test:car' => $stored], ['test:car' => $code]);
+
+        self::assertFalse($differences[0]->onlyNarrows());
+    }
+
     public function testAFieldTargetingAnotherTypeHasChanged(): void {
-        $stored = self::schema('test:car', ['engine' => FieldDescriptor::owningReference('engine', 'test:engine')]);
-        $code = self::schema('test:car', ['engine' => FieldDescriptor::owningReference('engine', 'test:motor')]);
+        $stored = self::schema('test:car', ['engine' => FieldDescriptor::owningReference('engine', 'test:engine', Nullability::Nullable)]);
+        $code = self::schema('test:car', ['engine' => FieldDescriptor::owningReference('engine', 'test:motor', Nullability::Nullable)]);
 
         self::assertSame(['Field "engine" of type "test:car" changed what it holds.'], self::described(['test:car' => $stored], ['test:car' => $code]));
     }

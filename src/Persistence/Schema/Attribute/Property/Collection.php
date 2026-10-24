@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property;
 
 use Attribute;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 
 /**
@@ -26,12 +27,18 @@ final readonly class Collection
      *        FieldKind::OwningReference. PHP has no generic arrays, so unlike
      *        a singular field this can't be read off the property's own type. For
      *        FieldKind::ValueObject, a class implementing StorableValue.
+     * @param Nullability|null $itemNullability Whether an item may be null: PHP
+     *        can't say it for an array's items. Set when $itemKind is
+     *        FieldKind::Scalar, FieldKind::ValueObject or
+     *        FieldKind::OwningReference. Never for an Embed item, never null,
+     *        or a Reference item, always Nullable.
      */
     public function __construct(
         public FieldKind $itemKind,
         public ?ScalarType $itemScalarType = null,
         public ?string $itemEnumClass = null,
         public ?string $itemTarget = null,
+        public ?Nullability $itemNullability = null,
     ) {
     }
 }

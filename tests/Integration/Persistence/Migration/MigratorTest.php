@@ -8,6 +8,8 @@ use RuntimeException;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
+use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationMarker;
+use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationUnfinished;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityLoader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Captured;
@@ -40,6 +42,22 @@ final class MigFailingPriceToText implements FieldConverter
         }
 
         return (new MigPriceToText())->convert($old);
+    }
+}
+
+/** Keeps the price an int: not what a String field holds. */
+final class MigPriceKeptAsInt implements FieldConverter
+{
+    public function convert(Captured $old): Conversion {
+        return Conversion::of($old->value());
+    }
+}
+
+/** Writes a value under the price, as if it were an Embed: no field is there. */
+final class MigPriceWithAStrayValue implements FieldConverter
+{
+    public function convert(Captured $old): Conversion {
+        return Conversion::of('0 EUR', ['currency' => 'EUR']);
     }
 }
 
@@ -134,6 +152,36 @@ final class MigratorTest extends TestCase
         return $this->connection->createSchemaManager()->listTableNames();
     }
 
+    /** V2's steps, with the price turned into the cost by $converter. */
+    private static function stepsConvertingPriceWith(FieldConverter $converter): MigrationSteps {
+        $steps = MigrationSteps::none()
+            ->add('rename-price', [new RenameField('migtest:car', 'price', 'cost')])
+            ->add('cost-as-text', [RetypeField::converting('migtest:car', 'cost', $converter)]);
+        foreach (MigratorV2::steps()->all() as $step) {
+            if ($step->id === 'restructure') {
+                $steps = $steps->add($step->id, $step->fixups);
+            }
+        }
+
+        return $steps;
+    }
+
+    /** Migrates V1 cars with $steps, expecting the move to fail with a message holding $message. */
+    private function assertMoveFails(MigrationSteps $steps, string $message): void {
+        $this->migrate(MigratorV1::CLASSES, MigrationSteps::none());
+        $this->saveV1Cars();
+
+        try {
+            $this->migrate(MigratorV2::CLASSES, $steps);
+            self::fail('The move should have failed.');
+        } catch (RuntimeException $failure) {
+            self::assertStringContainsString($message, $failure->getMessage());
+        }
+
+        [$schemas] = $this->stores();
+        self::assertNotNull($schemas->load('migtest:engine'), 'Nothing moved.');
+    }
+
     public function testAFreshDatabaseIsCreatedFromTheCodeWithEveryStepRecordedAsApplied(): void {
         $result = $this->migrate(MigratorV2::CLASSES, MigratorV2::steps());
 
@@ -190,6 +238,7 @@ final class MigratorTest extends TestCase
         $this->migrate(MigratorV2::CLASSES, MigratorV2::steps());
 
         self::assertSame([], $this->movedAside());
+        self::assertFalse($this->connection->fetchOne(sprintf('SELECT 1 FROM %s', MigrationMarker::TABLE)));
         self::assertNotContains('migtest_engine', $this->tables());
         self::assertNotContains('migtest_turbo_engine', $this->tables());
         self::assertContains('migtest_motor', $this->tables());
@@ -220,17 +269,8 @@ final class MigratorTest extends TestCase
         $this->connection->executeStatement("UPDATE migtest_car SET price = 999 WHERE _id = ?", [$ids['racer']]);
         $this->connection->executeStatement("UPDATE _state__migtest_car SET price = 1 WHERE _id = ?", [$ids['racer']]);
 
-        $broken = MigrationSteps::none()
-            ->add('rename-price', [new RenameField('migtest:car', 'price', 'cost')])
-            ->add('cost-as-text', [RetypeField::converting('migtest:car', 'cost', new MigFailingPriceToText())]);
-        foreach (MigratorV2::steps()->all() as $step) {
-            if ($step->id === 'restructure') {
-                $broken = $broken->add($step->id, $step->fixups);
-            }
-        }
-
         try {
-            $this->migrate(MigratorV2::CLASSES, $broken);
+            $this->migrate(MigratorV2::CLASSES, self::stepsConvertingPriceWith(new MigFailingPriceToText()));
             self::fail('The move should have failed.');
         } catch (RuntimeException $failure) {
             self::assertStringContainsString(sprintf('Moving entity %s failed: cannot convert 999', $ids['racer']), $failure->getMessage());
@@ -242,11 +282,56 @@ final class MigratorTest extends TestCase
         self::assertSame([], $this->connection->fetchFirstColumn('SELECT id FROM migration_steps'));
         self::assertSame(1200, (int) $this->connection->fetchOne('SELECT _old__chassis__weight FROM migtest_car WHERE _id = ?', [$ids['family']]));
 
+        // Until a migration finishes, entities can't be read or written.
+        try {
+            $this->loadV2($ids['family']);
+            self::fail('Reading should be refused.');
+        } catch (MigrationUnfinished) {
+        }
+        [, , $registry] = $this->stores();
+        try {
+            EntityWriter::of($this->connection, $registry)->delete($ids['family']);
+            self::fail('Writing should be refused.');
+        } catch (MigrationUnfinished) {
+        }
+
         // The fixed step runs over what expand already did, and finishes.
         $this->migrate(MigratorV2::CLASSES, MigratorV2::steps());
 
         self::assertSame('999 EUR', $this->loadV2($ids['racer'])->cost);
         self::assertSame('150 EUR', $this->loadV2($ids['family'])->cost);
         self::assertSame([], $this->movedAside());
+        self::assertFalse($this->connection->fetchOne(sprintf('SELECT 1 FROM %s', MigrationMarker::TABLE)));
+    }
+
+    public function testAConvertedValueTheNewFieldCantHoldFailsTheMove(): void {
+        $this->assertMoveFails(self::stepsConvertingPriceWith(new MigPriceKeptAsInt()), '"cost" must hold a string of 255 characters at most, got 150.');
+    }
+
+    public function testAReferenceLeftPointingAtTheWrongTypeFailsTheMigration(): void {
+        $this->migrate(MigratorReferences::V1, MigrationSteps::none());
+        [, $values, $registry] = $this->stores();
+        $writer = new NativeEntityWriter(EntityWriter::of($this->connection, $registry), $registry, $values, new IdentityMap());
+        $car = new MigRefCar();
+        $carId = $writer->save($car);
+        $garage = new MigRefV1Garage();
+        $garage->vehicle = $car;
+        $garageId = $writer->save($garage);
+
+        try {
+            $this->migrate(MigratorReferences::V2, MigratorReferences::steps());
+            self::fail('The migration should have failed.');
+        } catch (RuntimeException $failure) {
+            self::assertSame(
+                sprintf('Entity %s: "vehicle" points at %s, a "migref:car", which is neither "migref:bike" nor a type extending it.', $garageId, $carId),
+                $failure->getMessage(),
+            );
+        }
+
+        self::assertSame([], $this->connection->fetchFirstColumn('SELECT id FROM migration_steps'));
+    }
+
+    public function testAValueConvertedWhereNoFieldIsFailsTheMove(): void {
+        $this->assertMoveFails(self::stepsConvertingPriceWith(new MigPriceWithAStrayValue()), '"cost.currency" was written where "migtest:car" has no field.');
     }
 }

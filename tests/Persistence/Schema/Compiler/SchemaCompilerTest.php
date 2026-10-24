@@ -21,6 +21,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\OwnedNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\SchemaCompiler;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
@@ -166,7 +167,7 @@ final class CompilerTunedEngine extends CompilerOwnedEngine
 #[Entity]
 class CompilerTagged
 {
-    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String)]
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String, itemNullability: Nullability::NotNullable)]
     protected array $tags = ['a'];
 }
 
@@ -197,13 +198,13 @@ final class CompilerOwner
 #[Entity]
 final class CompilerCollectionOwner
 {
-    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String)]
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String, itemNullability: Nullability::NotNullable)]
     private array $tags = ['a', 'b'];
 
     #[Collection(itemKind: FieldKind::Embed, itemTarget: CompilerPiston::class)]
     private array $pistons;
 
-    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: CompilerOwnedEngine::class)]
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: CompilerOwnedEngine::class, itemNullability: Nullability::Nullable)]
     private array $engines;
 
     public function __construct() {
@@ -222,7 +223,7 @@ final class CompilerOwnerOfAbsentTarget
 #[Entity]
 final class CompilerCollectionOwnerOfAbsentTarget
 {
-    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: CompilerPiston::class)]
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: CompilerPiston::class, itemNullability: Nullability::Nullable)]
     private array $pistons = [];
 }
 
@@ -328,7 +329,7 @@ final class CompilerHubWithBolt
 #[Entity]
 final class CompilerHubWithBolts
 {
-    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Int)]
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Int, itemNullability: Nullability::NotNullable)]
     private array $bolts = [];
 }
 
@@ -367,7 +368,7 @@ final class CompilerCarWithNestedItems
 #[Entity]
 final class CompilerCarWithOwnedHubs
 {
-    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: CompilerHubWithBolts::class)]
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: CompilerHubWithBolts::class, itemNullability: Nullability::Nullable)]
     private array $hubs = [];
 }
 
@@ -407,8 +408,23 @@ final class CompilerDatedSame extends CompilerDatedBase
 {
 }
 
+/** Its items can't be null, but its default holds one: PHP can't tell. */
+#[Entity]
+final class CompilerNullItemDefault
+{
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Int, itemNullability: Nullability::NotNullable)]
+    private array $sizes = [17, null];
+}
+
 final class SchemaCompilerTest extends TestCase
 {
+    public function testCompileRejectsADefaultThatBreaksItsFieldsNullability(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('default:compiler_null_item_default: its default "sizes.1" can\'t be null.');
+
+        $this->compiler->compile(self::blueprintsOf([CompilerNullItemDefault::class]));
+    }
+
     private SchemaCompiler $compiler;
 
     protected function setUp(): void {

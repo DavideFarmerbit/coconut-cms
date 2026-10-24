@@ -28,6 +28,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
@@ -433,7 +434,7 @@ final class EntityRegistrarCarWithEmbed
 #[Entity]
 final class EntityRegistrarGarage
 {
-    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: EntityRegistrarEngineBase::class)]
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: EntityRegistrarEngineBase::class, itemNullability: Nullability::Nullable)]
     private array $engines;
 
     public function __construct() {
@@ -531,7 +532,7 @@ final class EntityRegistrarPureEnumField
 #[Entity]
 final class EntityRegistrarPureEnumItems
 {
-    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Enum, itemEnumClass: EntityRegistrarPureEnum::class)]
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Enum, itemEnumClass: EntityRegistrarPureEnum::class, itemNullability: Nullability::NotNullable)]
     private array $statuses = [];
 }
 
@@ -565,7 +566,7 @@ final class EntityRegistrarOverLongPrice
 #[Entity]
 final class EntityRegistrarOverLongHistory
 {
-    #[Collection(itemKind: FieldKind::ValueObject, itemTarget: EntityRegistrarMoney::class)]
+    #[Collection(itemKind: FieldKind::ValueObject, itemTarget: EntityRegistrarMoney::class, itemNullability: Nullability::NotNullable)]
     private array $history;
 
     public function __construct() {
@@ -582,7 +583,7 @@ final class EntityRegistrarPriced
     #[ValueObject]
     private ?EntityRegistrarMoney $discount = null;
 
-    #[Collection(itemKind: FieldKind::ValueObject, itemTarget: EntityRegistrarMoney::class)]
+    #[Collection(itemKind: FieldKind::ValueObject, itemTarget: EntityRegistrarMoney::class, itemNullability: Nullability::NotNullable)]
     private array $history;
 
     public function __construct() {
@@ -619,14 +620,14 @@ final class EntityRegistrarCollectionOfReferenceNonEntity
 #[Entity]
 final class EntityRegistrarCollectionOfOwningReferenceNonEntity
 {
-    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: EntityRegistrarNotAnEntity::class)]
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: EntityRegistrarNotAnEntity::class, itemNullability: Nullability::Nullable)]
     private array $items = [];
 }
 
 #[Entity]
 final class EntityRegistrarCollectionOfValueObjectNotStorable
 {
-    #[Collection(itemKind: FieldKind::ValueObject, itemTarget: EntityRegistrarNotStorable::class)]
+    #[Collection(itemKind: FieldKind::ValueObject, itemTarget: EntityRegistrarNotStorable::class, itemNullability: Nullability::NotNullable)]
     private array $items = [];
 }
 
@@ -634,7 +635,7 @@ final class EntityRegistrarCollectionOfValueObjectNotStorable
 final class EntityRegistrarEmbedTypedAsObject
 {
     #[Embed]
-    private ?object $target = null;
+    private object $target;
 }
 
 #[Entity]
@@ -644,8 +645,99 @@ final class EntityRegistrarReferenceTypedAsUnion
     private EntityRegistrarCategory|EntityRegistrarEngine|null $target = null;
 }
 
+#[Entity]
+final class EntityRegistrarNullabilities
+{
+    #[Scalar(ScalarType::String)]
+    private string $title = '';
+
+    #[Scalar(ScalarType::String)]
+    private ?string $subtitle = null;
+
+    #[OwningReference]
+    private EntityRegistrarEngineBase $engine;
+
+    #[OwningReference]
+    private ?EntityRegistrarEngineBase $spare = null;
+
+    #[Reference]
+    private ?EntityRegistrarCategory $category = null;
+
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Int, itemNullability: Nullability::Nullable)]
+    private array $sizes = [];
+
+    public function __construct() {
+        $this->engine = new EntityRegistrarEngineBase();
+    }
+}
+
+#[Entity]
+final class EntityRegistrarNotNullableReference
+{
+    #[Reference]
+    private EntityRegistrarCategory $category;
+}
+
+#[Entity]
+final class EntityRegistrarNullableEmbed
+{
+    #[Embed]
+    private ?EntityRegistrarCategory $category = null;
+}
+
+#[Entity]
+final class EntityRegistrarNullableCollection
+{
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Int, itemNullability: Nullability::Nullable)]
+    private ?array $sizes = null;
+}
+
+#[Entity]
+final class EntityRegistrarCollectionWithoutItemNullability
+{
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Int)]
+    private array $sizes = [];
+}
+
+#[Entity]
+final class EntityRegistrarReferenceCollectionWithItemNullability
+{
+    #[Collection(itemKind: FieldKind::Reference, itemTarget: EntityRegistrarCategory::class, itemNullability: Nullability::Nullable)]
+    private array $categories = [];
+}
+
 final class NativeEntityReaderTest extends TestCase
 {
+    public function testReadTakesNullabilityFromThePropertyType(): void {
+        $fields = NativeEntityReader::read(EntityRegistrarNullabilities::class)->fields;
+
+        self::assertSame(Nullability::NotNullable, $fields->get(FieldName::of('title'))->nullability());
+        self::assertSame(Nullability::Nullable, $fields->get(FieldName::of('subtitle'))->nullability());
+        self::assertSame(Nullability::NotNullable, $fields->get(FieldName::of('engine'))->nullability());
+        self::assertSame(Nullability::Nullable, $fields->get(FieldName::of('spare'))->nullability());
+        self::assertSame(Nullability::Nullable, $fields->get(FieldName::of('category'))->nullability());
+        self::assertSame(Nullability::Nullable, $fields->get(FieldName::of('sizes'))->itemDescriptor()->nullability());
+    }
+
+    /** @return array<string, array{class-string, string}> */
+    public static function nullabilityMisdeclarations(): array {
+        return [
+            'a Reference not nullable' => [EntityRegistrarNotNullableReference::class, '/must be declared nullable: deleting its target nulls it/'],
+            'an Embed nullable' => [EntityRegistrarNullableEmbed::class, '/declared nullable, but an Embed is never null/'],
+            'a Collection nullable' => [EntityRegistrarNullableCollection::class, '/declared nullable, but a Collection is never null/'],
+            'items without nullability' => [EntityRegistrarCollectionWithoutItemNullability::class, '/needs \$itemNullability/'],
+            'Reference items with nullability' => [EntityRegistrarReferenceCollectionWithItemNullability::class, '/sets \$itemNullability, but a Reference item is always Nullable/'],
+        ];
+    }
+
+    #[DataProvider('nullabilityMisdeclarations')]
+    public function testReadRejectsAMisdeclaredNullability(string $class, string $message): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageMatches($message);
+
+        NativeEntityReader::read($class);
+    }
+
     /** The plain value a blueprint's default instance holds at $field. */
     private static function leafAt(EntityBlueprint $blueprint, string $field): mixed {
         return LeafNode::valueOf($blueprint->defaultValues->get(FieldName::of($field)));

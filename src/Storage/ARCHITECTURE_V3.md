@@ -172,6 +172,22 @@ real data is read. A Collection still names its `itemTarget`: `array` says nothi
 items. Editor-created fields have no property, so their descriptors carry the
 target explicitly.
 
+Every field records whether it may hold null, as a `Nullability`: `Nullable`
+or `NotNullable`. A native field takes it from its property's type. A
+Collection's items declare it as `itemNullability`, since `array` can't say
+it. It's required for Scalar, ValueObject and OwningReference items, and
+rejected for the rest. A Reference is always `Nullable`, singular or as items:
+deleting its target nulls it. So a Reference property must be declared
+nullable. An Embed and a Collection are never null, so neither property may be
+declared nullable, and an Embed item takes no `itemNullability`. A
+`NotNullable` OwningReference is allowed: a car always has an engine. The
+descriptor factories take it as a required argument, never a default.
+
+The compiler checks every default value against its field the same way a
+migration checks what it writes (see "Checking what's written"). PHP's types
+already rule out most mistakes, but never a Collection's items. An
+editor-created type has no property at all.
+
 A value object class implements `StorableValue`: `toStorage()` gives the one
 string it's stored as, plain or JSON, and `fromStorage()` rebuilds it. Two
 value objects are equal when they store as the same string. Its static
@@ -568,11 +584,9 @@ was stored. `Migrator::migrate()` runs one, from the native classes read with
 database is a migration from nothing. One migration runs at a time: each
 holds a MySQL lock.
 
-**Built**, except where noted inline: storing a `NoType` value; migrating
+**Built**, except where noted inline: storing a `NoType` value; and migrating
 editor-created types' content and stored values, which stops a migration
-that would need it; and checking every output against the new field's stored
-form before writing, where for now the database's own strict mode rejects
-what doesn't fit, the error naming the entity that failed.
+that would need it.
 
 ### What a change costs
 
@@ -597,7 +611,8 @@ A migration policy decides what happens to a difference no fixup declares:
 - **Developer**: a difference that can't lose stored data applies by itself.
   One that can must still be declared, or the migration throws.
 - **Unsafe**: everything applies as best effort. An undeclared rename becomes
-  a drop and an add; an undeclared retype resets to the default.
+  a drop and an add; an undeclared retype resets to the default; a field that
+  can no longer hold null loses its nulls.
 
 A policy turns each difference left unexplained into the fixup that resolves
 it, or into nothing, which blocks the migration. Those fixups run after the
@@ -608,7 +623,9 @@ declared steps, and nothing may differ afterwards:
   and a parent changed only by inserting levels, the new chain holding the
   whole old one;
 - unsafe resolves everything: a removal is dropped, a change is reset, and a
-  rename is a drop and an add.
+  rename is a drop and an add. A change that only stops a field, or its
+  items, holding null gets `MakeNotNullable` instead of a reset: only the
+  nulls go. A field changing in another way too is reset, as before.
 
 Other policies implement the same interface. Boot code passes the policy as an
 object, and strict applies when it passes none. So a looser policy is always a
@@ -630,7 +647,13 @@ policy:
   caught on its next save;
 - a changed `editorExtensible`: an editor-created type whose parent stops
   allowing it falls back to having no parent until it's fixed, and nothing
-  stored changes.
+  stored changes;
+- a field, or its items, becoming `Nullable`: every value stored stays valid.
+
+The opposite, a field that can no longer hold null, is a difference: a stored
+null would break. It needs `RetypeField::converting`, or `MakeNotNullable`
+declared or chosen by the unsafe policy. The developer policy never applies
+it by itself: it can lose data, even where no null is stored.
 
 ### Defaults normalize on the next save
 
@@ -746,6 +769,11 @@ The common fixups are shorthands:
   converts from one type to another implicitly.
 - `RetypeField::reset(type, field)`: a readable name for `DropField` followed
   by the field added again, following its default.
+- `MakeNotNullable(type, field)`: the field, or a Collection's items, can no
+  longer hold null. A singular null becomes untouched, so it follows the new
+  default. A null item is removed, and the Collection gets shorter. Every
+  other value stays. The unsafe policy chooses it; a step declares it to
+  accept that rule on a database whose content matters.
 
 A general transformation covers what no shorthand does: splitting a field,
 merging several into one, deriving one from others. It declares its effect on
@@ -847,8 +875,44 @@ interface Transformation {               // Transform(type, transformation)
 adds `set(path, Conversion)`, `remove` and `move`, scoped to one call.
 Converters, initializers and transformations are always classes, never
 closures: named, testable, and readable in a step. Every output is checked
-against the new field's stored form before anything is written: one that
-doesn't fit fails the migration, naming the type, the field and the entity.
+before anything is written; see "Checking what's written".
+
+### Checking what's written
+
+Before an aggregate is written, `StoredForm` checks every value about to be
+written, touched or converted, against the field at its path in the new
+schemas. One that doesn't fit fails the migration, naming the entity and the
+path: `Moving entity 0193… failed: "cost" must hold a string of 255
+characters at most, got 150.` The database alone isn't enough: MySQL stores
+the int 150 in a string column as "150" without complaint.
+
+The rules, kind by kind, are what a save produces:
+
+- String: a string of 255 characters at most. Text: any string.
+- Int: an int. Float: a float, or an int, widened. Bool: a bool.
+- Decimal: a number as a string, put in canonical form: `"12.5"` is written
+  `"12.500000"`. More than six decimal places fails.
+- Date and DateTime: exactly `Y-m-d` and `Y-m-d H:i:s`, UTC.
+- Enum: the backing value of a case of the enum in code.
+- ValueObject: a string its class's `fromStorage()` accepts, 255 characters at
+  most when it's indexable.
+- Reference: an id. The foreign key says the entity exists.
+- OwningReference: the identifier of the target type or a type extending it.
+- Collection: the item count, an int. Its items follow their own rules.
+- Null only where the field, or the item, is `Nullable`.
+
+A value a fixup wrote where the new schemas have no field fails too: it's
+almost always a typo in a converter's `under` paths. A value only carried
+along to such a path is dropped, as "data follows paths" says.
+
+An untouched value isn't checked: it's never written. The entity follows the
+new default there, and the compiler checked that default.
+
+Once every aggregate has moved, still in the same transaction, each Reference
+column is checked against the type of the entity it points at: one query per
+column. Nothing in the database says a referenced entity's type, and only
+then does every entity carry its new identifier. A Reference pointing at the
+wrong type fails the migration, naming both entities.
 
 An initializer runs at every place its type lives, including objects that
 only exist as defaults: an owned object never touched, an Embed with nothing
@@ -946,6 +1010,19 @@ and the next run finishes it. `_old__` follows the system-name rule, so it
 never collides with a field. It adds six characters, so the layout caps every
 table and column name at 58, keeping the renamed one within MySQL's 64.
 
+From expand to contract, the stored schemas and the tables don't match. A read
+would see a moved-aside column as null, and a write would fail or land in a
+half-moved shape. So a migration sets a marker before expand, a row in
+`migration_state`, and clears it after contract. While it's set,
+`EntityReader` and `EntityWriter` throw `MigrationUnfinished`. A migration
+that fails leaves it set: entities stay unreadable until a migration finishes.
+The migration's own writer skips the check. Each reader and writer queries the
+marker once, on its first read or write, and not again once it found it clear.
+The boot will check it too, once per request, so a request fails before it
+renders anything (not built yet).
+
 One transaction for all the data is long on a large database. That's
 acceptable for now. If it isn't one day, the fix is batches with a record of
-which entities have moved.
+which entities have moved. Every aggregate is rewritten, even when no fixup
+moves data and no stored type's layout changes. Skipping the move then is the
+same kind of optimization, so it waits for the same work (not built yet).

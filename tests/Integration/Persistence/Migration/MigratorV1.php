@@ -9,6 +9,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 
 #[Entity(identifier: 'migtest:vehicle')]
@@ -51,10 +52,10 @@ final class MigV1Car extends MigV1Vehicle
     #[OwningReference]
     public ?MigV1Engine $engine;
 
-    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: MigV1Engine::class)]
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: MigV1Engine::class, itemNullability: Nullability::Nullable)]
     public array $spares = [];
 
-    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String)]
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String, itemNullability: Nullability::NotNullable)]
     public array $tags = [];
 
     public function __construct() {

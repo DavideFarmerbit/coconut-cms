@@ -12,6 +12,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReferenc
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolver;
@@ -78,10 +79,10 @@ class ResolverGarage
     #[Collection(itemKind: FieldKind::Embed, itemTarget: ResolverPiston::class)]
     private array $pistons = [];
 
-    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: ResolverEngine::class)]
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: ResolverEngine::class, itemNullability: Nullability::Nullable)]
     private array $engines = [];
 
-    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String)]
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String, itemNullability: Nullability::NotNullable)]
     private array $tags = [];
 }
 

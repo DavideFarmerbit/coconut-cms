@@ -13,6 +13,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
@@ -130,7 +131,7 @@ final class LayoutChassis
     #[OwningReference]
     private ?LayoutEngine $spare = null;
 
-    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String)]
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String, itemNullability: Nullability::NotNullable)]
     private array $tags = [];
 }
 
@@ -157,7 +158,7 @@ final class LayoutCar extends LayoutVehicle
     #[OwningReference]
     private ?LayoutEngine $engine = null;
 
-    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: LayoutEngine::class)]
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: LayoutEngine::class, itemNullability: Nullability::Nullable)]
     private array $engines = [];
 
     #[Collection(itemKind: FieldKind::Embed, itemTarget: LayoutWheel::class)]

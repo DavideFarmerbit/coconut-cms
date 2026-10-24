@@ -23,6 +23,9 @@ final class ScalarValues
     /** How many digits a Decimal keeps in total: its column's precision. */
     public const DECIMAL_PRECISION = 20;
 
+    /** How many characters a String, or a string-backed Enum, holds at most: its column's length. */
+    public const MAX_STRING_LENGTH = 255;
+
     /**
      * $value as stored for $type: an Enum as its backing value, a Date as
      * "Y-m-d", a DateTime converted to UTC as "Y-m-d H:i:s", whole seconds.
