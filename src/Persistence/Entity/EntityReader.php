@@ -31,7 +31,7 @@ final readonly class EntityReader
     private SchemaLookup $schemas;
     private EntityRowsReader $rows;
     private FieldValueResolver $resolver;
-    private MigrationMarker $migration;
+    private MigrationState $migration;
 
     public function __construct(
         private Connection $connection,
@@ -41,7 +41,7 @@ final readonly class EntityReader
         $this->schemas = new SchemaLookup($registry);
         $this->rows = new EntityRowsReader($connection, $this->schemas);
         $this->resolver = new FieldValueResolver($registry, $store);
-        $this->migration = new MigrationMarker($connection);
+        $this->migration = new MigrationState($connection);
     }
 
     /** Null when no entity has $id. */

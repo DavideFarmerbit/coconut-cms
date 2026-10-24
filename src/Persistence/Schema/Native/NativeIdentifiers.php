@@ -6,6 +6,7 @@ use InvalidArgumentException;
 use ReflectionClass;
 use XyloIsCoding\CoconutCms\Core\Identifier;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\StoredAs;
 
 /**
  * The identifier a native entity class is stored under: the one its #[Entity]
@@ -43,6 +44,21 @@ final class NativeIdentifiers
             : Identifier::fromString($declared);
 
         return self::$byClass[$class] = (string) $identifier;
+    }
+
+    /**
+     * The identifier a value object, enum or validator rule class is stored
+     * under: the one its #[StoredAs] declares, or "default:" and its short
+     * name, snake-cased.
+     * @param class-string $class
+     */
+    public static function storedAs(string $class): Identifier {
+        $reflection = new ReflectionClass($class);
+        $attributes = $reflection->getAttributes(StoredAs::class);
+
+        return $attributes === []
+            ? Identifier::of(self::DEFAULT_NAMESPACE, self::snakeCase($reflection->getShortName()))
+            : Identifier::fromString($attributes[0]->newInstance()->identifier);
     }
 
     /**

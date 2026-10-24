@@ -1,0 +1,27 @@
+<?php
+
+namespace XyloIsCoding\CoconutCms\Persistence;
+
+use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
+
+/**
+ * A group of native entity classes with the migration steps that brought
+ * them where they are: the CMS's own, a plugin's, a project's. Booted in
+ * order, core first, and migrated in that order. Each step is recorded under
+ * its module's name, "app:rename-price", so two modules' ids never collide.
+ */
+interface Module
+{
+    /** What its step ids are recorded under: lowercase letters, digits and "-". */
+    public function name(): string;
+
+    /**
+     * Every native entity class it declares. The value objects, enums and
+     * validator rules they use are found through them.
+     * @return list<class-string>
+     */
+    public function classes(): array;
+
+    /** Every step it ever declared, applied or not, in order. */
+    public function steps(): MigrationSteps;
+}
