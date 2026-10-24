@@ -2,13 +2,13 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Entity;
 
-use RuntimeException;
+use XyloIsCoding\CoconutCms\Persistence\PersistenceUnavailable;
 
 /**
  * Thrown by a read or a write while a migration is reshaping the tables, or
  * after one crashed. Running the migration again finishes it.
  */
-final class MigrationUnfinished extends RuntimeException
+final class MigrationUnfinished extends PersistenceUnavailable
 {
     /** @param string $startedAt When the migration started, UTC, as stored. */
     public function __construct(string $startedAt) {

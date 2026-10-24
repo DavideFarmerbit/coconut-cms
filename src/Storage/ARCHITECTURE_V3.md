@@ -1023,17 +1023,101 @@ table and column name at 58, keeping the renamed one within MySQL's 64.
 
 From expand to contract, the stored schemas and the tables don't match. A read
 would see a moved-aside column as null, and a write would fail or land in a
-half-moved shape. So a migration sets a marker before expand, a row in
-`migration_state`, and clears it after contract. While it's set,
-`EntityReader` and `EntityWriter` throw `MigrationUnfinished`. A migration
-that fails leaves it set: entities stay unreadable until a migration finishes.
-The migration's own writer skips the check. Each reader and writer queries the
-marker once, on its first read or write, and not again once it found it clear.
-The boot will check it too, once per request, so a request fails before it
-renders anything (not built yet).
+half-moved shape. So `MigrationState`, one row in `migration_state`, marks a
+migration started before expand and finished after contract. While it's
+started, `EntityReader` and `EntityWriter` throw `MigrationUnfinished`. A
+migration that fails stays started: entities stay unreadable until a
+migration finishes. The migration's own writer skips the check. Each reader
+and writer queries it once, on its first read or write, and not again once it
+found none started. `Persistence` checks it first, once per request (see
+"Booting").
+
+A finished migration also stores the code's `StateKey` in that row: a hash of
+every native type's fingerprint and every declared step id. Step ids count,
+since a step can move data with no schema change. While the code's key differs
+from the stored one, a migration is pending.
 
 One transaction for all the data is long on a large database. That's
 acceptable for now. If it isn't one day, the fix is batches with a record of
 which entities have moved. Every aggregate is rewritten, even when no fixup
 moves data and no stored type's layout changes. Skipping the move then is the
 same kind of optimization, so it waits for the same work (not built yet).
+
+## Booting
+
+`Persistence::boot()` wires the persistence layer: registries, stores, the
+reader, the writer and the loader. It touches neither the database nor any
+class. A project hands it its modules, a cache directory, when to migrate,
+and the policy:
+
+```php
+$persistence = Persistence::boot(
+    connection: $connection,
+    modules: [new AppModule()],
+    cacheDirectory: __DIR__ . '/var/cache',
+    migrateOn: MigrateOn::Command,       // MigrateOn::Request in development
+    policy: new StrictPolicy(),          // the default
+);
+
+$persistence->status();                  // PersistenceStatus::Ready, MigrationPending or MigrationUnfinished
+$persistence->load($id);
+$persistence->save($car);
+$persistence->delete($car);
+$persistence->migrate();                 // what a deploy command calls
+```
+
+### Modules
+
+A `Module` groups native entity classes with the migration steps that
+brought them where they are: `name()`, `classes()`, `steps()`. The CMS's own
+types are `CoreModule`, always booted first. Modules migrate in boot order.
+Each step is recorded under its module's name, `app:rename-price`, so two
+modules never collide. A fixup may name any module's types: they form one set
+of schemas.
+
+The value objects, enums and validator rules a module's classes use are found
+through their fields and validators, never listed. Each is registered under
+the identifier its `#[StoredAs]` declares, or `default:` and its short class
+name, snake-cased: the same rule as an `#[Entity]` identifier.
+
+### When a request may read and write
+
+Every request checks, once, on its first `status()`, `load()`, `save()` or
+`delete()`, whether the database matches the code:
+
+- a migration started and not finished: `MigrationUnfinished`;
+- the code's state key differs from the stored one, or none is stored:
+  `MigrationPending`;
+- otherwise: ready.
+
+Both exceptions extend `PersistenceUnavailable`, so a project catches one
+type to show a "back soon" page. `status()` lets it decide before touching
+anything. Pages that need no entities keep working. Any pending change blocks
+every read and write, whichever types it touches. Blocking only the affected
+types may come later, on the same fingerprints.
+
+`MigrateOn` decides what runs a pending migration. With `Command`, only an
+explicit `migrate()` does, from a deploy script: nothing heavy runs in a
+visitor's request, and a blocked migration fails where the developer deploys.
+With `Request`, the first check finding one pending runs it: for development.
+
+### The code's state, cached
+
+Computing the code's state key reads every class and compiles it: about
+0.14 ms a type, so 15 to 30 ms a request for a real site. So `CodeStateCache`
+keeps it in a JSON file in the cache directory, with the classes to register,
+and the modification time and size of every file it came from: each module's,
+each entity class's and its ancestors', and each registered class's. A
+request stats those files and reads that one file. A file changed, a module
+added or removed: it's read and compiled again, and rewritten. JSON, never
+PHP: opcache with timestamp checks off would keep serving a rewritten PHP
+file's old content.
+
+A file outside that set can still change a default: a helper class a default
+instance's constructor calls. The cache doesn't see that. A changed default is
+never a migration difference, so nothing breaks: the new default is stored on
+the next migration. `migrate()` never trusts the cache: it reads every class,
+and rewrites the cache from what it found.
+
+Without a cache directory, every request's first check reads every class.
+That's correct, and fine for tests and small sites.

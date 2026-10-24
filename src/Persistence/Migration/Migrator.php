@@ -13,7 +13,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\EntityIds;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LayoutBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
-use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationMarker;
+use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationState;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateReader;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateValues;
@@ -43,9 +43,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
  * migration, then expands the tables, moves every aggregate and stores the
  * new schemas in one transaction, and contracts the tables. A fresh database
  * is a migration from nothing. One migration at a time: a second waits for
- * the first. From expand to contract, the MigrationMarker is set, so entities
- * can't be read or written; one that fails leaves it set, until a migration
- * finishes.
+ * the first. From expand to contract, the MigrationState says a migration is
+ * started, so entities can't be read or written; one that fails stays
+ * started, until a migration finishes. A finished one records the code's
+ * StateKey, so a request can tell whether another is pending.
  */
 final readonly class Migrator
 {
@@ -57,7 +58,7 @@ final readonly class Migrator
 
     private SchemaCompiler $compiler;
     private MigrationLog $log;
-    private MigrationMarker $marker;
+    private MigrationState $state;
     private TableChanges $tables;
 
     public function __construct(
@@ -69,7 +70,7 @@ final readonly class Migrator
     ) {
         $this->compiler = new SchemaCompiler($registry, $values, $schemas);
         $this->log = new MigrationLog($connection);
-        $this->marker = new MigrationMarker($connection);
+        $this->state = new MigrationState($connection);
         $this->tables = new TableChanges($connection);
     }
 
@@ -97,11 +98,12 @@ final readonly class Migrator
         $this->schemas->ensureTable();
         $this->values->ensureTable();
         $this->log->ensureTable();
-        $this->marker->ensureTable();
+        $this->state->ensureTable();
 
         $stored = $this->schemas->all();
         $fresh = $stored === [];
         $batch = $this->compiler->compute($blueprints);
+        $stateKey = StateKey::of($batch, $steps);
         $pending = $fresh ? MigrationSteps::none() : $steps->pending($this->log->applied());
         $plan = (new MigrationPlanner($this->policy))->plan($stored, $batch->schemas, $pending);
         $this->assertNoEditorSchemaChanged($stored, $plan);
@@ -123,12 +125,12 @@ final readonly class Migrator
         if (!$fresh && $plan->isEmpty() && !self::anyFingerprintChanged($stored, $batch)) {
             // Nothing to move, but an earlier run may have stopped before contract.
             $this->tables->contract($targetTables, $storedTables);
-            $this->marker->clear();
+            $this->state->finish($stateKey);
 
-            return new MigrationResult(false, $plan, [], 0);
+            return new MigrationResult(false, $plan, [], 0, $stateKey);
         }
 
-        $this->marker->set();
+        $this->state->start();
         $movedAside = $this->tables->expand($targetTables);
         (new EntityTables($this->connection))->seed($targetLevels);
 
@@ -166,9 +168,9 @@ final readonly class Migrator
         }
 
         $this->tables->contract($targetTables, $storedTables);
-        $this->marker->clear();
+        $this->state->finish($stateKey);
 
-        return new MigrationResult($fresh, $plan, $recorded, $moved);
+        return new MigrationResult($fresh, $plan, $recorded, $moved, $stateKey);
     }
 
     /**

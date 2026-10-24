@@ -8,7 +8,7 @@ use RuntimeException;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
-use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationMarker;
+use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationState;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationUnfinished;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityLoader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityWriter;
@@ -195,6 +195,18 @@ final class MigratorTest extends TestCase
         self::assertFalse($again->fresh);
         self::assertSame([], $again->recorded);
         self::assertTrue($again->plan->isEmpty());
+        self::assertSame($result->stateKey, $again->stateKey);
+        self::assertSame($result->stateKey, (new MigrationState($this->connection))->read()['stateKey']);
+    }
+
+    public function testAStepWithNoSchemaChangeStillChangesTheStateKey(): void {
+        $before = $this->migrate(MigratorV2::CLASSES, MigratorV2::steps());
+
+        $after = $this->migrate(MigratorV2::CLASSES, MigratorV2::steps()->add('data-only', []));
+
+        self::assertNotSame($before->stateKey, $after->stateKey);
+        self::assertSame(['data-only'], $after->recorded);
+        self::assertSame($after->stateKey, (new MigrationState($this->connection))->read()['stateKey']);
     }
 
     public function testMigratingMovesEveryAggregateIntoTheNewShape(): void {
@@ -238,7 +250,7 @@ final class MigratorTest extends TestCase
         $this->migrate(MigratorV2::CLASSES, MigratorV2::steps());
 
         self::assertSame([], $this->movedAside());
-        self::assertFalse($this->connection->fetchOne(sprintf('SELECT 1 FROM %s', MigrationMarker::TABLE)));
+        self::assertNull((new MigrationState($this->connection))->read()['startedAt']);
         self::assertNotContains('migtest_engine', $this->tables());
         self::assertNotContains('migtest_turbo_engine', $this->tables());
         self::assertContains('migtest_motor', $this->tables());
@@ -301,7 +313,7 @@ final class MigratorTest extends TestCase
         self::assertSame('999 EUR', $this->loadV2($ids['racer'])->cost);
         self::assertSame('150 EUR', $this->loadV2($ids['family'])->cost);
         self::assertSame([], $this->movedAside());
-        self::assertFalse($this->connection->fetchOne(sprintf('SELECT 1 FROM %s', MigrationMarker::TABLE)));
+        self::assertNull((new MigrationState($this->connection))->read()['startedAt']);
     }
 
     public function testAConvertedValueTheNewFieldCantHoldFailsTheMove(): void {

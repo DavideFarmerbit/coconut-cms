@@ -44,14 +44,14 @@ final class EntityWriter
      * @param SchemaLookup $schemas The shape rows are written in.
      * @param SchemaLookup $storedSchemas The shape stored rows are in: where
      *        an entity's old rows are deleted from.
-     * @param MigrationMarker|null $migration Checked before each write and
+     * @param MigrationState|null $migration Checked before each write and
      *        delete; null for the migration's own writer.
      */
     private function __construct(
         private readonly Connection $connection,
         SchemaLookup $schemas,
         SchemaLookup $storedSchemas,
-        private readonly ?MigrationMarker $migration,
+        private readonly ?MigrationState $migration,
     ) {
         $this->rows = new EntityRowsBuilder($schemas);
         $this->storedChains = new LevelChains($storedSchemas);
@@ -61,7 +61,7 @@ final class EntityWriter
     public static function of(Connection $connection, SchemaRegistry $registry): self {
         $schemas = new SchemaLookup($registry);
 
-        return new self($connection, $schemas, $schemas, new MigrationMarker($connection));
+        return new self($connection, $schemas, $schemas, new MigrationState($connection));
     }
 
     /**
