@@ -301,14 +301,28 @@ final class MigrationPlannerTest extends TestCase
         $code = self::code(self::schema('test:car', ['cost' => self::int('cost')]));
 
         try {
-            (new MigrationPlanner())->plan($stored, $code, MigrationSteps::none()->add('move', [new MoveValues('test:car', 'price', 'cost')]));
+            (new MigrationPlanner())->plan($stored, $code, MigrationSteps::none()->add('move', [new AddField('test:car', 'cost'), new MoveValues('test:car', 'price', 'cost')]));
             self::fail('Moving values alone should not explain the removed field.');
         } catch (MigrationBlocked $blocked) {
             self::assertStringContainsString('Field "price" was removed from type "test:car".', $blocked->getMessage());
         }
 
-        $plan = (new MigrationPlanner())->plan($stored, $code, MigrationSteps::none()->add('move', [new MoveValues('test:car', 'price', 'cost'), new DropField('test:car', 'price')]));
-        self::assertSame(['MoveValues(test:car, price → cost)', 'DropField(test:car, price)', 'AddField(test:car, cost)'], self::described($plan->fixups));
+        $plan = (new MigrationPlanner())->plan($stored, $code, MigrationSteps::none()->add('move', [
+            new AddField('test:car', 'cost'),
+            new MoveValues('test:car', 'price', 'cost'),
+            new DropField('test:car', 'price'),
+        ]));
+        self::assertSame(['AddField(test:car, cost)', 'MoveValues(test:car, price → cost)', 'DropField(test:car, price)'], self::described($plan->fixups));
+    }
+
+    public function testMoveValuesNeedsBothPathsToExistWhenItRuns(): void {
+        $stored = [self::stored(self::schema('test:car', ['price' => self::int('price')]))];
+        $code = self::code(self::schema('test:car', ['price' => self::int('price'), 'cost' => self::int('cost')]));
+
+        $this->expectException(InvalidFixup::class);
+        $this->expectExceptionMessage('Step "move", MoveValues(test:car, price → cost): type "test:car" has no path "cost" at this point.');
+
+        (new MigrationPlanner())->plan($stored, $code, MigrationSteps::none()->add('move', [new MoveValues('test:car', 'price', 'cost')]));
     }
 
     public function testReparentTakesTheCodesParent(): void {

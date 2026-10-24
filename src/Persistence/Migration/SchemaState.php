@@ -6,9 +6,11 @@ use Closure;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\StoredSchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 
 /**
  * The stored schemas as the fixups so far have transformed them, next to the
@@ -70,6 +72,70 @@ final readonly class SchemaState
         }
 
         return $schema->fields->get($name);
+    }
+
+    /**
+     * Throws unless $path leads somewhere in type $identifier's aggregate at
+     * this point: each name a field where it stands, ":" only into an Embed,
+     * "." only into an owned object or after a Collection's index. Past an
+     * owned slot, a field of any type extending its target counts.
+     */
+    public function assertPath(string $identifier, FieldPath $path): void {
+        if (!$this->leadsSomewhere([$identifier], $path)) {
+            throw new InvalidFixup(sprintf('type "%s" has no path "%s" at this point.', $identifier, $path));
+        }
+    }
+
+    /** @param list<string> $types The types $path may start in. */
+    private function leadsSomewhere(array $types, FieldPath $path): bool {
+        $field = null;
+        foreach ($types as $type) {
+            $fields = $this->hierarchyFieldsOf($type);
+            if (!is_int($path->head()) && $fields->has($path->head())) {
+                $field = $fields->get($path->head());
+                break;
+            }
+        }
+
+        $rest = $path->tail();
+        if ($field === null || $rest === null) {
+            return $field !== null;
+        }
+
+        $join = $path->headJoin();
+
+        return match ($field->kind()) {
+            FieldKind::Embed => $join === FieldPath::EMBED && $this->leadsSomewhere([$field->target()], $rest),
+            FieldKind::OwningReference => $join === FieldPath::TRAVERSE && $this->leadsSomewhere($this->descendantsOf($field->target()), $rest),
+            FieldKind::Collection => $join === FieldPath::TRAVERSE && is_int($rest->head()) && $this->leadsIntoItem($field->itemDescriptor(), $rest),
+            default => false,
+        };
+    }
+
+    /** Whether $path, starting at an item's index, leads somewhere in the item. */
+    private function leadsIntoItem(FieldDescriptor $item, FieldPath $path): bool {
+        $rest = $path->tail();
+        if ($rest === null) {
+            return true;
+        }
+
+        if ($path->headJoin() !== FieldPath::TRAVERSE) {
+            return false;
+        }
+
+        return match ($item->kind()) {
+            FieldKind::Embed => $this->leadsSomewhere([$item->target()], $rest),
+            FieldKind::OwningReference => $this->leadsSomewhere($this->descendantsOf($item->target()), $rest),
+            default => false,
+        };
+    }
+
+    /**
+     * $identifier and every type extending it, at this point.
+     * @return list<string>
+     */
+    private function descendantsOf(string $identifier): array {
+        return array_values(array_filter(array_keys($this->schemas), fn (string $each): bool => $this->isA($each, $identifier)));
     }
 
     /** Throws when type $identifier already has a field $name. */

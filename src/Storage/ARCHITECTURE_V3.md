@@ -771,7 +771,10 @@ The common fixups are shorthands:
   chain. Its path doesn't change, so its values follow on their own.
 - `MoveValues(type, from, to)`: values moved between any two paths of an
   aggregate: across levels, into or out of an Embed, across an owned boundary.
-  Data only: the schema changes it goes with are declared next to it.
+  Data only: the schema changes it goes with are declared next to it. Both
+  paths must exist when it runs, like any name a fixup gives: a field it
+  moves into is added before it, with `AddField` or `RenameField`. Past an
+  owned slot, a field of any type extending the target counts.
 - `RetypeField::converting(type, field, converter)`: a retype always has a
   converter, even where the old and new stored forms look alike. Nothing
   converts from one type to another implicitly.

@@ -11,7 +11,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
  * Values moved between two paths of a type's aggregate: across levels, into
  * or out of an Embed, across an owned boundary. Data only: it changes no
  * schema, so whatever the move goes with, a field dropped or added, is
- * declared next to it. Whatever was at `to` is replaced.
+ * declared next to it: an added `to` before it, since both paths must exist
+ * when it runs. Whatever was at `to` is replaced.
  */
 final readonly class MoveValues implements Fixup, MovesValues
 {
@@ -27,8 +28,10 @@ final readonly class MoveValues implements Fixup, MovesValues
         $this->to = FieldPath::fromString($to);
     }
 
+    /** Changes no schema; both paths must exist at this point. */
     public function applyTo(SchemaState $schemas): SchemaState {
-        $schemas->get($this->type);
+        $schemas->assertPath($this->type, $this->from);
+        $schemas->assertPath($this->type, $this->to);
 
         return $schemas;
     }
