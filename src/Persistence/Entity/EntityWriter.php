@@ -28,7 +28,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
  * Writing reconciles what's stored with what's wanted now. An owned entity no
  * longer wanted is deleted, along with everything it owns: one replaced by
  * another, one dropped from an Owned Collection, one back at its defaults.
- * Every other row is rewritten whole.
+ * Every other row is rewritten whole. A Reference in the aggregate to an
+ * entity the write deletes is written null, the way a Reference from
+ * anywhere else is nulled by its foreign key.
  *
  * Refuses to write while a migration is unfinished, except for the
  * migration's own writes.
@@ -101,9 +103,11 @@ final class EntityWriter
 
             $deleted = $this->deleteDeepestFirst(array_diff_key($stored, $wanted));
 
+            // A Reference to an entity just deleted is null, as its foreign
+            // key would have made it, had its row existed already.
             foreach ($wanted as $entity) {
                 foreach ($entity->contentRows() as $row) {
-                    $this->insert($row);
+                    $this->insert($row->withoutReferencesTo($deleted));
                 }
             }
 

@@ -9,7 +9,9 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\OwnedLayout;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ValueColumn;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntityValues;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
@@ -60,7 +62,7 @@ final class EntityRowsBuilder
         $owned = [];
 
         foreach ($this->chains->of($identifier) as $level) {
-            $rows[] = new Row($level->table, $this->levelRowOf($level, $touched, $id, $placement));
+            $rows[] = new Row($level->table, $this->levelRowOf($level, $touched, $id, $placement), self::referenceColumnsOf($level->columns));
             $rows[] = new Row($level->stateTable, $this->stateRowOf($level, $touched, $id));
 
             foreach ($level->collections as $collection) {
@@ -73,6 +75,17 @@ final class EntityRowsBuilder
         }
 
         return [new EntityRows($id, $identifier, $rows), ...$owned];
+    }
+
+    /**
+     * @param list<ValueColumn> $columns
+     * @return list<string> The names of those holding a Reference's id.
+     */
+    private static function referenceColumnsOf(array $columns): array {
+        return array_values(array_map(
+            static fn (ValueColumn $column): string => $column->name,
+            array_filter($columns, static fn (ValueColumn $column): bool => $column->field->kind() === FieldKind::Reference),
+        ));
     }
 
     /** @return array<string, mixed> */
@@ -134,7 +147,7 @@ final class EntityRowsBuilder
                 $stateRow[$column->name] = $item->has($column->path);
             }
 
-            $rows[] = new Row($collection->table, $row);
+            $rows[] = new Row($collection->table, $row, self::referenceColumnsOf($collection->itemColumns));
             if ($collection->stateTable !== null) {
                 $stateRows[] = new Row($collection->stateTable, $stateRow);
             }

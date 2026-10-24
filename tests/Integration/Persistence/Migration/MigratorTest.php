@@ -331,6 +331,32 @@ final class MigratorTest extends TestCase
         self::assertSame([], $this->connection->fetchFirstColumn('SELECT id FROM migration_steps'));
     }
 
+    public function testAReferenceToAnEntityItsOwnAggregateDropsBecomesNull(): void {
+        $this->migrate(MigratorDroppedTarget::V1, MigrationSteps::none());
+        [, $values, $registry] = $this->stores();
+        $writer = new NativeEntityWriter(EntityWriter::of($this->connection, $registry), $registry, $values, new IdentityMap());
+        $car = new MigDropV1Car();
+        $kept = new MigDropEngine();
+        $turbo = new MigDropTurboEngine();
+        $car->spares = [$kept, $turbo];
+        $carId = $writer->save($car);
+        $car->favorite = $turbo;
+        $writer->save($car);
+
+        $this->migrate(MigratorDroppedTarget::V2, MigratorDroppedTarget::steps());
+
+        [, $values, $registry] = $this->stores();
+        $classes = new NativeEntityRegistry();
+        foreach (MigratorDroppedTarget::V2 as $class) {
+            $classes->register($class);
+        }
+        $loaded = (new NativeEntityLoader(new EntityReader($this->connection, $registry, $values), $classes, new IdentityMap()))->load($carId);
+
+        self::assertNull($loaded->favorite, 'Its target is gone.');
+        self::assertInstanceOf(MigDropEngine::class, $loaded->spares[0]);
+        self::assertNull($loaded->spares[1], 'A turbo engine: its type is gone.');
+    }
+
     public function testAValueConvertedWhereNoFieldIsFailsTheMove(): void {
         $this->assertMoveFails(self::stepsConvertingPriceWith(new MigPriceWithAStrayValue()), '"cost.currency" was written where "migtest:car" has no field.');
     }

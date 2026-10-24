@@ -576,6 +576,14 @@ null. A failed save leaves both as they were.
 Deleting an entity deletes everything it owns, deepest first. A Reference to
 it is set to null by its foreign key, and loads as null.
 
+The foreign key only reaches rows that exist. A save deletes what its
+aggregate no longer owns before it inserts the aggregate's new rows, so a
+Reference in those rows to an entity just deleted would fail its foreign key.
+The writer writes it null instead: the same rule, applied by the code inside
+the aggregate it holds. The foreign key applies it to every other aggregate,
+which the writer never touches. A migration's `DropType` relies on the same
+rule.
+
 ## Migrations
 
 A migration brings stored content in line with schemas that changed after it
