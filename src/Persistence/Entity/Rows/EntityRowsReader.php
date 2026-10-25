@@ -17,9 +17,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValuesBuilder;
 
 /**
- * Reads an entity's rows back into its touched values, the reverse of
- * EntityRowsBuilder: only flagged values count, each in its stored form, and
- * an owned object's values are read from its own rows, under its path.
+ * Reads an entity's rows back into its values, the reverse of
+ * EntityRowsBuilder: every value, each in its stored form, and which of them
+ * are flagged touched. An owned object's values are read from its own rows,
+ * under its path.
  */
 final class EntityRowsReader
 {
@@ -47,20 +48,22 @@ final class EntityRowsReader
             return null;
         }
 
+        $values = new FieldValuesBuilder();
         $touched = new FieldValuesBuilder();
         $ownedIds = [];
-        $this->readInto($id, $identifier, null, $touched, $ownedIds);
+        $this->readInto($id, $identifier, null, $values, $touched, $ownedIds);
 
-        return new StoredEntity($identifier, $touched->build(), $ownedIds);
+        return new StoredEntity($identifier, $values->build(), $touched->build(), $ownedIds);
     }
 
     /**
-     * Adds what entity $id holds to $touched, under $prefix.
+     * Adds what entity $id holds to $values, and what of it is flagged to
+     * $touched, under $prefix.
      * @param FieldPath|null $prefix Where the entity sits, as a path from the
      *        one read() was called for; null for that one itself.
      * @param array<string, string> $ownedIds
      */
-    private function readInto(string $id, string $identifier, ?FieldPath $prefix, FieldValuesBuilder $touched, array &$ownedIds): void {
+    private function readInto(string $id, string $identifier, ?FieldPath $prefix, FieldValuesBuilder $values, FieldValuesBuilder $touched, array &$ownedIds): void {
         $at = static fn (FieldPath $path): FieldPath => $prefix === null ? $path : $prefix->append(FieldPath::TRAVERSE, $path);
 
         foreach ($this->chains->of($identifier) as $level) {
@@ -68,29 +71,34 @@ final class EntityRowsReader
             $state = $this->restored($this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $this->tableOf($level->stateTable), ColumnNames::ID), [$id]));
             $flags = $level->stateColumns();
             $isTouched = static fn (FieldPath $path): bool => (bool) $state[$flags[(string) $path]];
+            // Sets a value, and marks it touched when its path is flagged.
+            $set = static function (FieldPath $path, mixed $value, bool $isTouched) use ($at, $values, $touched): void {
+                $values->set($at($path), $value);
+                if ($isTouched) {
+                    $touched->set($at($path), $value);
+                }
+            };
 
             foreach ($level->columns as $column) {
-                if ($isTouched($column->path)) {
-                    $touched->set($at($column->path), self::fromDatabase($column->field, $row[$column->name]));
-                }
+                $set($column->path, self::fromDatabase($column->field, $row[$column->name]), $isTouched($column->path));
             }
 
             foreach ($level->collections as $collection) {
-                if ($isTouched($collection->path)) {
-                    $this->readCollection($collection, $id, $at, $touched);
-                }
+                $this->readCollection($collection, $id, $isTouched($collection->path), $set);
             }
 
             foreach ($level->owned as $owned) {
-                if ($isTouched($owned->path)) {
-                    $this->readOwned($owned, $row, $id, $at, $touched, $ownedIds);
-                }
+                $this->readOwned($owned, $row, $id, $isTouched($owned->path), $at, $values, $touched, $ownedIds);
             }
         }
     }
 
-    /** @param Closure(FieldPath): FieldPath $at Turns a path on the owner into one from the entity being read. */
-    private function readCollection(CollectionLayout $collection, string $ownerId, Closure $at, FieldValuesBuilder $touched): void {
+    /**
+     * Reads every item. A Scalar, ValueObject or Reference item is touched
+     * with its Collection; an Embed item's field by its own flag.
+     * @param Closure(FieldPath, mixed, bool): void $set Sets a value at a path on the owner.
+     */
+    private function readCollection(CollectionLayout $collection, string $ownerId, bool $isTouched, Closure $set): void {
         $rows = array_map($this->restored(...), $this->connection->fetchAllAssociative(
             sprintf('SELECT * FROM %s WHERE %s = ? ORDER BY %s', $this->tableOf($collection->table), ColumnNames::OWNER, ColumnNames::POSITION),
             [$ownerId],
@@ -103,16 +111,16 @@ final class EntityRowsReader
             }
         }
 
-        $touched->set($at($collection->path), count($rows));
+        $set($collection->path, count($rows), $isTouched);
         foreach ($rows as $row) {
             $position = $row[ColumnNames::POSITION];
             $itemPath = $collection->path->traverse((int) $position);
 
             foreach ($collection->itemColumns as $column) {
                 if ($column->path === null) {
-                    $touched->set($at($itemPath), self::fromDatabase($column->field, $row[$column->name]));
-                } elseif ($states[$position][$column->name]) {
-                    $touched->set($at($itemPath->append(FieldPath::TRAVERSE, $column->path)), self::fromDatabase($column->field, $row[$column->name]));
+                    $set($itemPath, self::fromDatabase($column->field, $row[$column->name]), $isTouched);
+                } else {
+                    $set($itemPath->append(FieldPath::TRAVERSE, $column->path), self::fromDatabase($column->field, $row[$column->name]), (bool) $states[$position][$column->name]);
                 }
             }
         }
@@ -120,12 +128,13 @@ final class EntityRowsReader
 
     /**
      * The identifier each owned object holds, or null, then everything it holds of
-     * its own, from its own rows.
+     * its own, from its own rows. The slot, or the Owned Collection's count, is
+     * touched by its owner's flag.
      * @param array<string, mixed> $ownerRow The owner's row at the level declaring $owned.
      * @param Closure(FieldPath): FieldPath $at
      * @param array<string, string> $ownedIds
      */
-    private function readOwned(OwnedLayout $owned, array $ownerRow, string $ownerId, Closure $at, FieldValuesBuilder $touched, array &$ownedIds): void {
+    private function readOwned(OwnedLayout $owned, array $ownerRow, string $ownerId, bool $isTouched, Closure $at, FieldValuesBuilder $values, FieldValuesBuilder $touched, array &$ownedIds): void {
         $rows = $this->connection->fetchAllAssociative(
             sprintf('SELECT id, concrete_identifier, position FROM %s WHERE owner = ? AND owner_field = ?', DatabaseSchema::ENTITIES),
             [$ownerId, $owned->ownerField()],
@@ -133,31 +142,40 @@ final class EntityRowsReader
         $byPosition = array_column($rows, null, 'position');
 
         if ($owned->countColumn === null) {
-            $this->readOwnedObject($owned->path, $byPosition[-1] ?? null, $at, $touched, $ownedIds);
+            $this->readOwnedObject($owned->path, $byPosition[-1] ?? null, $isTouched, $at, $values, $touched, $ownedIds);
 
             return;
         }
 
         $count = (int) $ownerRow[$owned->countColumn];
-        $touched->set($at($owned->path), $count);
+        $values->set($at($owned->path), $count);
+        if ($isTouched) {
+            $touched->set($at($owned->path), $count);
+        }
+
         for ($index = 0; $index < $count; $index++) {
-            $this->readOwnedObject($owned->path->traverse($index), $byPosition[$index] ?? null, $at, $touched, $ownedIds);
+            $this->readOwnedObject($owned->path->traverse($index), $byPosition[$index] ?? null, $isTouched, $at, $values, $touched, $ownedIds);
         }
     }
 
     /**
      * @param array<string, mixed>|null $row Its entities row; null for an empty slot.
+     * @param bool $isTouched Whether its slot is: its identifier is then touched too.
      * @param Closure(FieldPath): FieldPath $at
      * @param array<string, string> $ownedIds
      */
-    private function readOwnedObject(FieldPath $path, ?array $row, Closure $at, FieldValuesBuilder $touched, array &$ownedIds): void {
-        $touched->set($at($path), $row['concrete_identifier'] ?? null);
+    private function readOwnedObject(FieldPath $path, ?array $row, bool $isTouched, Closure $at, FieldValuesBuilder $values, FieldValuesBuilder $touched, array &$ownedIds): void {
+        $values->set($at($path), $row['concrete_identifier'] ?? null);
+        if ($isTouched) {
+            $touched->set($at($path), $row['concrete_identifier'] ?? null);
+        }
+
         if ($row === null) {
             return;
         }
 
         $ownedIds[(string) $at($path)] = $row['id'];
-        $this->readInto($row['id'], $row['concrete_identifier'], $at($path), $touched, $ownedIds);
+        $this->readInto($row['id'], $row['concrete_identifier'], $at($path), $values, $touched, $ownedIds);
     }
 
     /** Where $table's rows are read from: its "_old__" name when a migration moved it aside. */

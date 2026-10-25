@@ -21,7 +21,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
 
 /**
  * Reads entities back, native or editor-created alike: an entity's stored
- * rows, with everything it didn't touch resolved from its type's defaults.
+ * rows, every value as stored, touched or not.
  * Reads schemas and rows only, never a PHP class: building an object from
  * what it reads is a native loader's job. Refuses to read while a migration
  * is unfinished.
@@ -52,7 +52,9 @@ final readonly class EntityReader
             return null;
         }
 
-        $tree = $this->resolver->resolveTree(Subject::ofInstance($stored->identifier, $stored->touched));
+        // Content is dense: the stored values are every value, so nothing
+        // falls back to a default; the resolver only shapes them into a tree.
+        $tree = $this->resolver->resolveTree(Subject::ofInstance($stored->identifier, $stored->values));
 
         return new LoadedEntity($id, $stored->identifier, $tree, $stored->ownedIds, $this->referencedIdsIn($stored->identifier, $tree));
     }

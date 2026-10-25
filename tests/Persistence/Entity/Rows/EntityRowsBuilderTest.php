@@ -34,8 +34,8 @@ final class EntityRowsBuilderTest extends TestCase
     }
 
     /** @return list<EntityRows> */
-    private function rowsOf(RowsCar $car): array {
-        return $this->builder->rowsOf($this->values->of($car), 'car-id', Placement::standalone(), function (FieldPath $path): string {
+    private function rowsOf(object $entity): array {
+        return $this->builder->rowsOf($this->values->of($entity), 'car-id', Placement::standalone(), function (FieldPath $path): string {
             $this->askedFor[] = (string) $path;
 
             return 'id-of-' . $path;
@@ -64,10 +64,10 @@ final class EntityRowsBuilderTest extends TestCase
         ));
     }
 
-    public function testAnUntouchedEntityGetsOnlyItsOwnRowsAllNull(): void {
+    public function testAnUntouchedEntityIsStoredWholeWithEveryFlagClear(): void {
         $all = $this->rowsOf(new RowsCar());
 
-        self::assertCount(1, $all);
+        self::assertCount(2, $all, 'The car, and its default engine.');
         self::assertSame(
             ['entities', 'rows_vehicle', '_state__rows_vehicle', 'rows_car', '_state__rows_car'],
             array_map(static fn (Row $row): string => $row->table, $all[0]->rows),
@@ -77,13 +77,24 @@ final class EntityRowsBuilderTest extends TestCase
             self::rowIn($all[0]->rows, 'entities'),
         );
         self::assertSame(
-            ['_id' => 'car-id', '_owner' => EntityIds::NIL, '_owner_field' => '', 'chassis__weight' => null, 'maker' => null, '_spares_count' => 0],
+            ['_id' => 'car-id', '_owner' => EntityIds::NIL, '_owner_field' => '', 'chassis__weight' => 1000, 'maker' => null, '_spares_count' => 0],
             self::rowIn($all[0]->rows, 'rows_car'),
         );
         self::assertSame(
             ['_id' => 'car-id', 'chassis__weight' => false, 'maker' => false, 'engine' => false, 'spares' => false, 'wheels' => false, 'tags' => false],
             self::rowIn($all[0]->rows, '_state__rows_car'),
         );
+    }
+
+    public function testAnUntouchedOwnedObjectIsStoredWithItsFlagsClear(): void {
+        $all = $this->rowsOf(new RowsCar());
+
+        self::assertSame(['engine'], $this->askedFor);
+        self::assertSame(
+            ['_id' => 'id-of-engine', '_owner' => 'car-id', '_owner_field' => 'engine', 'horsepower' => 300],
+            self::rowIn($all[1]->rows, 'rows_engine'),
+        );
+        self::assertSame(['_id' => 'id-of-engine', 'horsepower' => false, 'turbo' => false], self::rowIn($all[1]->rows, '_state__rows_engine'));
     }
 
     public function testATouchedValueLandsOnTheLevelDeclaringItWithItsFlagSet(): void {
@@ -150,18 +161,21 @@ final class EntityRowsBuilderTest extends TestCase
 
         self::assertSame(3, self::rowIn($all[0]->rows, 'rows_car')['_spares_count']);
         self::assertTrue(self::rowIn($all[0]->rows, '_state__rows_car')['spares']);
-        self::assertSame(['spares.0', 'spares.2'], $this->askedFor);
+        self::assertSame(['engine', 'spares.0', 'spares.2'], $this->askedFor);
         self::assertSame(
             [['spares', 0], ['spares', 2]],
-            array_map(static fn (EntityRows $entity): array => [self::rowIn($entity->rows, 'entities')['owner_field'], self::rowIn($entity->rows, 'entities')['position']], array_slice($all, 1)),
+            array_map(static fn (EntityRows $entity): array => [self::rowIn($entity->rows, 'entities')['owner_field'], self::rowIn($entity->rows, 'entities')['position']], array_slice($all, 2)),
         );
     }
 
-    public function testAnUntouchedCollectionGetsNoRows(): void {
-        $rows = $this->rowsOf(new RowsCar())[0]->rows;
+    public function testAnUntouchedCollectionStoresItsDefaultItemsUnflagged(): void {
+        $rows = $this->rowsOf(new RowsGarage())[0]->rows;
 
-        self::assertSame([], self::rowsIn($rows, 'rows_car__tags'));
-        self::assertSame([], self::rowsIn($rows, 'rows_car__wheels'));
+        self::assertFalse(self::rowIn($rows, '_state__rows_garage')['tools']);
+        self::assertSame(
+            [['_owner' => 'car-id', '_position' => 0, '_value' => 'jack'], ['_owner' => 'car-id', '_position' => 1, '_value' => 'wrench']],
+            self::rowsIn($rows, 'rows_garage__tools'),
+        );
     }
 
     public function testAScalarCollectionStoresEveryItemWhole(): void {
@@ -175,14 +189,14 @@ final class EntityRowsBuilderTest extends TestCase
         );
     }
 
-    public function testAnEmbedCollectionFlagsOnlyTheItemFieldsThatDiffer(): void {
+    public function testAnEmbedCollectionStoresEveryItemFieldAndFlagsOnlyTheOnesThatDiffer(): void {
         $car = new RowsCar();
         $car->wheels = [new RowsWheel(), new RowsWheel()];
         $car->wheels[1]->size = 19;
         $rows = $this->rowsOf($car)[0]->rows;
 
         self::assertSame(
-            [['_owner' => 'car-id', '_position' => 0, 'size' => null, 'maker' => null], ['_owner' => 'car-id', '_position' => 1, 'size' => 19, 'maker' => null]],
+            [['_owner' => 'car-id', '_position' => 0, 'size' => 17, 'maker' => null], ['_owner' => 'car-id', '_position' => 1, 'size' => 19, 'maker' => null]],
             self::rowsIn($rows, 'rows_car__wheels'),
         );
         self::assertSame(

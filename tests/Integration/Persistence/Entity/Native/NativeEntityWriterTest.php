@@ -179,7 +179,7 @@ final class NativeEntityWriterTest extends TestCase
         self::assertSame(5, $this->freshLoad($id)->spares[0]->turbo->boost);
     }
 
-    public function testAnOwnedObjectBackAtItsDefaultsLosesItsRows(): void {
+    public function testAnOwnedObjectBackAtItsDefaultsKeepsItsRowsUnflagged(): void {
         $car = new RowsCar();
         $car->engine->horsepower = 450;
         $this->writer->save($car);
@@ -188,9 +188,20 @@ final class NativeEntityWriterTest extends TestCase
         $car->engine->horsepower = 300;
         $id = $this->writer->save($car);
 
-        self::assertFalse($this->exists($engineId));
-        self::assertNull($car->engine->id);
-        self::assertEquals(new RowsEngine(), $this->freshLoad($id)->engine);
+        self::assertTrue($this->exists($engineId));
+        self::assertSame($engineId, $car->engine->id);
+        self::assertSame(300, (int) $this->connection->fetchOne('SELECT horsepower FROM rows_engine WHERE _id = ?', [$engineId]));
+        self::assertSame(0, (int) $this->connection->fetchOne('SELECT horsepower FROM _state__rows_engine WHERE _id = ?', [$engineId]));
+        self::assertSame(0, (int) $this->connection->fetchOne('SELECT engine FROM _state__rows_car WHERE _id = ?', [$id]));
+        self::assertSame(300, $this->freshLoad($id)->engine->horsepower);
+    }
+
+    public function testAnUntouchedEntityIsStoredWhole(): void {
+        $id = $this->writer->save(new RowsCar());
+
+        self::assertSame(1000, (int) $this->connection->fetchOne('SELECT chassis__weight FROM rows_car WHERE _id = ?', [$id]));
+        self::assertSame('vehicle', $this->connection->fetchOne('SELECT name FROM rows_vehicle WHERE _id = ?', [$id]));
+        self::assertSame(1, (int) $this->connection->fetchOne("SELECT COUNT(*) FROM entities WHERE owner = ? AND owner_field = 'engine'", [$id]), 'Its default engine.');
     }
 
     public function testAnItemDroppedFromAnOwnedCollectionIsDeleted(): void {
@@ -296,11 +307,12 @@ final class NativeEntityWriterTest extends TestCase
         $car = new RowsCar();
         $car->name = 'before';
         $id = $this->writer->save($car);
+        $engineId = $car->engine->id;
 
         // The maker vanishes behind the writer's back: pointing at it fails.
         $this->connection->delete(DatabaseSchema::ENTITIES, ['id' => $this->identities->idOf($maker)]);
         $car->name = 'after';
-        $car->engine->horsepower = 450;
+        $car->engine = new RowsEngine();
         $car->maker = $maker;
 
         try {
@@ -310,7 +322,8 @@ final class NativeEntityWriterTest extends TestCase
         }
 
         self::assertSame('before', $this->freshLoad($id)->name);
-        self::assertNull($car->engine->id);
+        self::assertTrue($this->exists($engineId), 'The engine it replaced is still stored.');
+        self::assertNull($car->engine->id, 'The new engine got no id.');
         self::assertNull($this->identities->idOf($car->engine));
     }
 }

@@ -369,6 +369,68 @@ final class MigratorTest extends TestCase
         self::assertNull($loaded->spares[1], 'A turbo engine: its type is gone.');
     }
 
+    /** @return array{untouched: string, touched: string} Two V1 cars: one all defaults, one with its color and engine set. */
+    private function saveDefaultsCars(): array {
+        $this->migrate(MigratorDefaults::V1, MigrationSteps::none());
+        [, $values, $registry] = $this->stores();
+        $writer = new NativeEntityWriter(EntityWriter::of($this->connection, $registry), $registry, $values, new IdentityMap());
+        $touched = new MigDefV1Car();
+        $touched->color = 'green';
+        $touched->engine->horsepower = 500;
+
+        return ['untouched' => $writer->save(new MigDefV1Car()), 'touched' => $writer->save($touched)];
+    }
+
+    /** @return array{id: string, concrete_identifier: string} The engine stored under car $carId. */
+    private function engineOf(string $carId): array {
+        return $this->connection->fetchAssociative("SELECT id, concrete_identifier FROM entities WHERE owner = ? AND owner_field = 'engine'", [$carId]);
+    }
+
+    public function testAChangedDefaultRewritesWhatFollowsItAndNothingElse(): void {
+        $cars = $this->saveDefaultsCars();
+        $engines = array_map($this->engineOf(...), $cars);
+
+        $result = $this->migrate(MigratorDefaults::V2, MigrationSteps::none());
+
+        self::assertTrue($result->plan->isEmpty(), 'A default is never a difference.');
+        self::assertSame(3, $result->moved, 'Cms and both cars.');
+        $color = fn (string $id): string => $this->connection->fetchOne('SELECT color FROM migdef_car WHERE _id = ?', [$id]);
+        $power = fn (string $id): int => (int) $this->connection->fetchOne('SELECT horsepower FROM migdef_engine WHERE _id = ?', [$id]);
+        self::assertSame('blue', $color($cars['untouched']));
+        self::assertSame(200, $power($engines['untouched']['id']));
+        self::assertSame('green', $color($cars['touched']));
+        self::assertSame(500, $power($engines['touched']['id']));
+        self::assertSame($engines, array_map($this->engineOf(...), $cars), 'Still the same engines.');
+        self::assertSame(0, (int) $this->connection->fetchOne('SELECT color FROM _state__migdef_car WHERE _id = ?', [$cars['untouched']]));
+    }
+
+    public function testATouchedValueTheNewDefaultEqualsFollowsItFromThen(): void {
+        $this->migrate(MigratorDefaults::V1, MigrationSteps::none());
+        [, $values, $registry] = $this->stores();
+        $car = new MigDefV1Car();
+        $car->color = 'blue';
+        $id = (new NativeEntityWriter(EntityWriter::of($this->connection, $registry), $registry, $values, new IdentityMap()))->save($car);
+        self::assertSame(1, (int) $this->connection->fetchOne('SELECT color FROM _state__migdef_car WHERE _id = ?', [$id]));
+
+        $this->migrate(MigratorDefaults::V2, MigrationSteps::none());
+
+        self::assertSame(0, (int) $this->connection->fetchOne('SELECT color FROM _state__migdef_car WHERE _id = ?', [$id]), 'Blue is the default now.');
+        self::assertSame('blue', $this->connection->fetchOne('SELECT color FROM migdef_car WHERE _id = ?', [$id]));
+    }
+
+    public function testADefaultNamingAnotherClassReplacesAnUntouchedOwnedObject(): void {
+        $cars = $this->saveDefaultsCars();
+        $engines = array_map($this->engineOf(...), $cars);
+
+        $this->migrate(MigratorDefaults::V3, MigrationSteps::none());
+
+        $untouched = $this->engineOf($cars['untouched']);
+        self::assertSame('migdef:turbo_engine', $untouched['concrete_identifier']);
+        self::assertNotSame($engines['untouched']['id'], $untouched['id'], 'Another object: a new id.');
+        self::assertFalse($this->connection->fetchOne('SELECT 1 FROM entities WHERE id = ?', [$engines['untouched']['id']]));
+        self::assertSame($engines['touched'], $this->engineOf($cars['touched']), 'Set by hand: it stays.');
+    }
+
     public function testAValueConvertedWhereNoFieldIsFailsTheMove(): void {
         $this->assertMoveFails(self::stepsConvertingPriceWith(new MigPriceWithAStrayValue()), '"cost.currency" was written where "migtest:car" has no field.');
     }

@@ -122,30 +122,33 @@ final class NativeEntityLoaderTest extends TestCase
         self::assertEquals($car, $loaded);
     }
 
-    public function testAnUntouchedValueFollowsItsClassDefaultWhenItChanges(): void {
+    public function testALoadShowsWhatsStoredEvenWhereADefaultChangedBehindItsBack(): void {
         $identities = new IdentityMap();
         $car = new RowsCar();
         $car->name = 'mine';
         $id = $this->save($car, $identities);
 
-        // RowsChassis's default weight changes after the car was saved.
+        // RowsChassis's default weight changes without a migration: content
+        // is dense, so only a migration rewrites what follows the default.
         $this->stores->values->save('default:rows_chassis', FieldValues::fromArray(['weight' => 2000]));
         $loaded = $this->freshLoader()->load($id);
 
         self::assertSame('mine', $loaded->name);
-        self::assertSame(2000, $loaded->chassis->weight);
+        self::assertSame(1000, $loaded->chassis->weight);
     }
 
-    public function testAnOwnedObjectNeverTouchedIsBuiltFromItsDefaultWithNoId(): void {
+    public function testAnOwnedObjectNeverTouchedLoadsWithItsId(): void {
         $identities = new IdentityMap();
-        $id = $this->save(new RowsCar(), $identities);
+        $saved = new RowsCar();
+        $id = $this->save($saved, $identities);
         $loaded = new IdentityMap();
         $loader = $this->loaderWith($loaded);
 
         $car = $loader->load($id);
 
-        self::assertEquals(new RowsEngine(), $car->engine);
-        self::assertNull($loaded->idOf($car->engine));
+        self::assertEquals(300, $car->engine->horsepower);
+        self::assertNotNull($saved->engine->id);
+        self::assertSame($saved->engine->id, $loaded->idOf($car->engine));
     }
 
     public function testAReferenceLoadsAsAGhostUntilFirstRead(): void {

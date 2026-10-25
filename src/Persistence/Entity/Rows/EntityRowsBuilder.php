@@ -20,12 +20,11 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
  * Works out every row an entity's values should be stored as, and every row
  * of what it owns: plain data, never touching the database.
  *
- * A touched value lands in its column with its flag set; anything untouched
- * is null with its flag unset, and resolves to its default. An owned object
- * gets rows of its own once anything at or under it is touched, its
- * identifier included: from then on its identifier is touched too, and stops
- * following the default. A Collection gets rows only when touched, and then
- * all of them.
+ * Every value lands in its column, touched or not: content is dense. Its flag
+ * says which: set when touched, clear when it follows its default. Every
+ * owned object and every Collection item gets its rows, the default ones
+ * included. An owned slot or a Collection is flagged when anything at or
+ * under it is touched.
  */
 final class EntityRowsBuilder
 {
@@ -62,11 +61,11 @@ final class EntityRowsBuilder
         $owned = [];
 
         foreach ($this->chains->of($identifier) as $level) {
-            $rows[] = new Row($level->table, $this->levelRowOf($level, $touched, $id, $placement), self::referenceColumnsOf($level->columns));
+            $rows[] = new Row($level->table, $this->levelRowOf($level, $dense, $id, $placement), self::referenceColumnsOf($level->columns));
             $rows[] = new Row($level->stateTable, $this->stateRowOf($level, $touched, $id));
 
             foreach ($level->collections as $collection) {
-                array_push($rows, ...$this->collectionRows($collection, $touched, $id));
+                array_push($rows, ...$this->collectionRows($collection, $dense, $touched, $id));
             }
 
             foreach ($level->owned as $ownedLayout) {
@@ -88,17 +87,20 @@ final class EntityRowsBuilder
         ));
     }
 
-    /** @return array<string, mixed> */
-    private function levelRowOf(LevelLayout $level, FieldValues $touched, string $id, Placement $placement): array {
+    /**
+     * Every value $level's columns hold, touched or not.
+     * @return array<string, mixed>
+     */
+    private function levelRowOf(LevelLayout $level, FieldValues $dense, string $id, Placement $placement): array {
         $row = [ColumnNames::ID => $id, ColumnNames::OWNER => $placement->owner, ColumnNames::OWNER_FIELD => $placement->ownerField];
 
         foreach ($level->columns as $column) {
-            $row[$column->name] = $touched->has($column->path) ? $touched->get($column->path) : null;
+            $row[$column->name] = $dense->get($column->path);
         }
 
         foreach ($level->owned as $owned) {
             if ($owned->countColumn !== null) {
-                $row[$owned->countColumn] = $touched->has($owned->path) ? $touched->get($owned->path) : 0;
+                $row[$owned->countColumn] = $dense->get($owned->path);
             }
         }
 
@@ -120,31 +122,29 @@ final class EntityRowsBuilder
     }
 
     /**
-     * One row per item, and one state row per item for Embed items: none at
-     * all for a Collection left untouched.
+     * One row per item, and one state row per item for Embed items, whether
+     * the Collection is touched or follows its default.
      * @return list<Row>
      */
-    private function collectionRows(CollectionLayout $collection, FieldValues $touched, string $id): array {
-        if (!$touched->has($collection->path)) {
-            return [];
-        }
-
+    private function collectionRows(CollectionLayout $collection, FieldValues $dense, FieldValues $touched, string $id): array {
         $rows = [];
         $stateRows = [];
-        for ($index = 0; $index < $touched->get($collection->path); $index++) {
-            $item = $touched->within($collection->path->traverse($index));
+        for ($index = 0; $index < $dense->get($collection->path); $index++) {
+            $itemPath = $collection->path->traverse($index);
+            $item = $dense->within($itemPath);
+            $touchedItem = $touched->within($itemPath);
             $row = [ColumnNames::OWNER => $id, ColumnNames::POSITION => $index];
             $stateRow = [ColumnNames::OWNER => $id, ColumnNames::POSITION => $index];
 
             foreach ($collection->itemColumns as $column) {
                 if ($column->path === null) {
-                    // A Scalar, ValueObject or Reference item: always stored whole.
-                    $row[$column->name] = $touched->get($collection->path->traverse($index));
+                    // A Scalar, ValueObject or Reference item: the value itself.
+                    $row[$column->name] = $dense->get($itemPath);
                     continue;
                 }
 
-                $row[$column->name] = $item->has($column->path) ? $item->get($column->path) : null;
-                $stateRow[$column->name] = $item->has($column->path);
+                $row[$column->name] = $item->get($column->path);
+                $stateRow[$column->name] = $touchedItem->has($column->path);
             }
 
             $rows[] = new Row($collection->table, $row, self::referenceColumnsOf($collection->itemColumns));
@@ -157,24 +157,18 @@ final class EntityRowsBuilder
     }
 
     /**
-     * The rows of what's owned at $owned's path: nothing while it's untouched
-     * or holds nothing; otherwise the owned object's own rows, or each item's
-     * for an Owned Collection.
+     * The rows of what's owned at $owned's path, touched or not: the owned
+     * object's own rows, or each item's for an Owned Collection; nothing for
+     * an empty slot.
      * @return list<EntityRows>
      */
     private function ownedRows(OwnedLayout $owned, FieldValues $dense, FieldValues $touched, string $ownerId, ?FieldPath $prefix, Closure $ownedIdOf): array {
         if ($owned->countColumn === null) {
-            $isTouched = $touched->under($owned->path)->count() > 0;
-
-            return $isTouched ? $this->ownedObjectRows($owned->path, $dense, $touched, Placement::owned($ownerId, $owned->path), $prefix, $ownedIdOf) : [];
-        }
-
-        if (!$touched->has($owned->path)) {
-            return [];
+            return $this->ownedObjectRows($owned->path, $dense, $touched, Placement::owned($ownerId, $owned->path), $prefix, $ownedIdOf);
         }
 
         $rows = [];
-        for ($index = 0; $index < $touched->get($owned->path); $index++) {
+        for ($index = 0; $index < $dense->get($owned->path); $index++) {
             $placement = Placement::owned($ownerId, $owned->path, $index);
             array_push($rows, ...$this->ownedObjectRows($owned->path->traverse($index), $dense, $touched, $placement, $prefix, $ownedIdOf));
         }

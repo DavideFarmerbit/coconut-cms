@@ -6,34 +6,25 @@ use Doctrine\DBAL\Connection;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolver;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Subject;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
 
 /**
- * Reads a stored aggregate into AggregateValues, before it moves: its touched
- * values with the schemas still stored, and every other value resolved from
- * the defaults still stored. Must run before the migration stores its new
- * schemas and values. Reads what expand moved aside, "_old__" columns and
- * tables, as what they were.
+ * Reads a stored aggregate into AggregateValues, before it moves, with the
+ * schemas still stored: every value as stored, each marked touched or not.
+ * Content is dense, so what's stored is each value's effective one under the
+ * old defaults. Must run before the migration stores its new schemas. Reads
+ * what expand moved aside, "_old__" columns and tables, as what they were.
  */
 final readonly class AggregateReader
 {
-    private SchemaLookup $schemas;
     private EntityRowsReader $rows;
-    private FieldValueResolver $resolver;
 
     /** @param list<string> $tablesMovedAside Tables expand moved aside, by their stored name. */
     public function __construct(
         Connection $connection,
         SchemaRegistry $registry,
-        SchemaFieldValueStore $values,
         array $tablesMovedAside = [],
     ) {
-        $this->schemas = new SchemaLookup($registry);
-        $this->rows = new EntityRowsReader($connection, $this->schemas, readsMovedAside: true, tablesMovedAside: $tablesMovedAside);
-        $this->resolver = new FieldValueResolver($registry, $values);
+        $this->rows = new EntityRowsReader($connection, new SchemaLookup($registry), readsMovedAside: true, tablesMovedAside: $tablesMovedAside);
     }
 
     /** Null when no entity has $id. */
@@ -43,12 +34,9 @@ final readonly class AggregateReader
             return null;
         }
 
-        $tree = $this->resolver->resolveTree(Subject::ofInstance($stored->identifier, $stored->touched));
-        $effective = (new ValueFlattener($this->schemas))->flatten($stored->identifier, $tree);
-
         $values = [];
         $marks = [];
-        foreach ($effective as $path => $value) {
+        foreach ($stored->values as $path => $value) {
             $values[(string) $path] = $value;
             $marks[(string) $path] = $stored->touched->has($path) ? ValueMark::Touched : ValueMark::Untouched;
         }

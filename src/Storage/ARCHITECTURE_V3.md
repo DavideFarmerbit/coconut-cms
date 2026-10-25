@@ -393,17 +393,17 @@ its columns keep plain names. Without this, a field named `owner`, a
 Collection named `state`, or a field named `spares_count` next to an Owned
 Collection `spares` would each land on a name already taken.
 
-A Collection is all or nothing. Untouched, it has no rows, and resolves from
-defaults. Touched, its rows are the whole Collection. Inside a touched
-Collection, an Embed item's fields still follow the item class's default
-until set, the same as the compiler stores a class's default Collection. So
-the first touch writes every item the current default implies: a field that
-differs from the item class is stored and flagged, any other stays null and
-keeps following the item class. Scalar, ValueObject and Reference items are
-the value themselves, so they're always stored and need no flags.
+A Collection is touched or not as a whole. Its rows are always every item,
+its default's while it's untouched (see "Content is dense"). Inside a
+touched Collection, an Embed item's fields still follow the item class's
+default until set, the same as the compiler stores a class's default
+Collection: a field that differs from the item class is flagged, any other
+isn't, and both are stored. Scalar, ValueObject and Reference items are the
+value themselves, so they need no flags of their own.
 
-Every content column is nullable: an untouched value is null and resolves to
-its default. Column types follow the field: `VARCHAR(255)` for String, `TEXT`
+Every content column is nullable, so old and new shapes can share a table
+during a migration; it holds null only where the value is null. Column types
+follow the field: `VARCHAR(255)` for String, `TEXT`
 for Text, `BIGINT` for Int, `DECIMAL(20, 6)` for Decimal, an enum's backing
 type for Enum. A ValueObject is `VARCHAR(255)` when `indexable()`, `TEXT`
 otherwise.
@@ -422,6 +422,70 @@ any more, and the second only through an explicit table name. A migration
 lays out every schema from code before anything else, a fresh install
 included, so a collision fails it before any DDL runs, naming the type. The
 compiler doesn't check this: the schema side never depends on the layout.
+
+## Content is dense
+
+Every row holds every effective value: a touched value, and an untouched one
+too, as its default gives it. The state tables still say which is which: a
+flag set means touched, pinned; clear means the value follows its default.
+
+This replaces sparse content, where an untouched value was null and resolved
+live. Sparse content followed a changed default for free, which mattered
+while nothing noticed a default changing. Now every change is noticed: a
+native default changes a fingerprint, so a migration runs, and an
+editor-created one changes through the editor. So a changed default rewrites
+the untouched values instead, and the database always holds what a load
+shows. In exchange:
+
+- A query filters and sorts on real columns, with indexes. It never needs to
+  know about defaults.
+- A unique group covers effective values: two entities holding the same
+  value collide, touched or not. Sparse content let two untouched ones share
+  a default unseen, since a unique index ignores null. So a unique field with
+  a non-null default lets only one entity keep that default. A field meant to
+  be optional but unique is nullable and defaults to null: a unique index
+  ignores nulls.
+- A load reads rows; nothing resolves defaults on the way.
+- What the database holds reads plainly, in SQL or in a database tool.
+
+Nothing is virtual any more. An untouched owned object is stored like any
+other: an `entities` row with an id, and its level rows. An untouched
+Collection's default items are stored as rows. So every car has its engine
+stored from its first save, flagged untouched.
+
+A changed default rewrites what follows it:
+
+- an untouched value: set to the new default;
+- an untouched owned slot: its object rewritten as the new default gives it.
+  Still the same class, it's the same object: it keeps its id. Another class
+  makes it another object, as assigning one does on a save: the old one is
+  deleted, the new one gets a new id, and a Reference to the old one becomes
+  null;
+- an untouched Collection: its items replaced by the new default's;
+- inside a touched Collection, an Embed item's untouched field: set to the
+  item class's new default.
+
+For a native type, the migration does it: a changed default changes the
+type's fingerprint, so the migration moves every aggregate, with or without
+a fixup, and writes it with the new defaults. A default is still never a
+difference: it needs no step under any policy. For an editor-created type,
+changing a default will be a migration of that type (not built yet). A
+default changed any other way, behind the migration's back, isn't seen: a
+load shows what's stored.
+
+How it's built:
+
+- `EntityRowsBuilder` writes every value, and every owned object and
+  Collection item, touched or not, from the entity's dense values; the flags
+  come from its touched ones. An owned object back at its defaults keeps its
+  rows and its id, flagged untouched.
+- `EntityRowsReader` reads every stored value, and the touched ones apart.
+  `EntityReader` builds the tree from the stored values: every path holds a
+  value, so nothing falls back to a default. `AggregateReader` takes the
+  stored values as they are: they're each value's effective one under the
+  old defaults.
+- On a move, an owned object keeps its id while it holds the same class.
+  One whose class changed gets a new id, and so does everything it owns.
 
 ## Identity
 
@@ -475,17 +539,16 @@ be stored as, and every row of what it owns. It's plain data: writing it is
 `EntityWriter`'s job.
 
 - The entity's `entities` row, then each level's row and state row, root
-  level first. A value lands on the level whose class declares its field.
-  Touched, it's stored and flagged. Untouched, it's null and unflagged, and
-  resolves to its default.
-- A Collection gets rows only once touched, and then all of them: one per
-  item, plus one state row per Embed item.
-- An owned object gets rows of its own once anything at or under it is
-  touched, its class included. Its `owner` is the entity owning it directly,
-  `owner_field` the path it's held at, `position` its index in an Owned
-  Collection or -1. An empty slot gets no row. From then on its path is
-  flagged touched, so it stops following the default, even if its class
-  still matches it: the same as any other value set by the instance.
+  level first. A value lands on the level whose class declares its field,
+  touched or not. Touched, it's flagged; untouched, it isn't.
+- A Collection gets all its rows, touched or not: one per item, plus one
+  state row per Embed item.
+- An owned object gets rows of its own, touched or not. Its `owner` is the
+  entity owning it directly, `owner_field` the path it's held at, `position`
+  its index in an Owned Collection or -1. An empty slot gets no row. Its path
+  is flagged touched once anything at or under it is, its class included:
+  from then on it stops following the default, even if its class still
+  matches it, the same as any other value set by the instance.
 
 Each `Row` says how to bind its values, from their own PHP kind: PDO would
 otherwise send `false` as an empty string, which no boolean column accepts.
@@ -494,13 +557,12 @@ otherwise send `false` as an empty string, which no boolean column accepts.
 
 Loading is split in two. `EntityReader` reads any entity, native or
 editor-created, and never touches a PHP class: `EntityRowsReader` reads its
-rows into its touched values (only flagged columns count, each back in its
-stored form: MySQL gives a boolean back as `0` or `1`), with an owned
-object's values from its own rows, under its path. The resolver then resolves
-the whole tree on `Subject::ofInstance()`: anything untouched comes from the
-type's defaults as they are now, not as they were when the entity was saved.
-It returns a `LoadedEntity`: that tree, the ids of its owned objects, and the
-ids its References hold.
+rows into its values (each back in its stored form: MySQL gives a boolean
+back as `0` or `1`), with an owned object's values from its own rows, under
+its path. The resolver then shapes them into a tree on
+`Subject::ofInstance()`; content is dense, so every path holds a value and
+nothing falls back to a default. It returns a `LoadedEntity`: that tree, the
+ids of its owned objects, and the ids its References hold.
 
 `NativeEntityLoader` builds a PHP object from a `LoadedEntity`. Everything
 native lives in `Entity/Native/`, so the line between the shared pipeline and
@@ -514,8 +576,8 @@ set from the tree. So a constructor runs once per class, not once per load.
 A non-field object every instance must own a copy of is copied by the class's
 own `__clone()`. A field is set exactly once, so a readonly one works too.
 
-Owned objects load with their owner. One never touched is built from its
-default and has no id until it's touched and saved. A Reference loads as a
+Owned objects load with their owner, each with its id, touched or not. A
+Reference loads as a
 lazy ghost of its target's concrete class, looked up for every referenced id
 in one query, since a ghost must be created as its final class. Its fields
 load when first read; its `#[Id]` is readable before that. The `IdentityMap`
@@ -559,8 +621,8 @@ A save reconciles what's stored with what's wanted now:
    and stops pointing at its old owner before that one is deleted.
 4. Every entity no longer wanted is deleted, deepest first, since
    `entities.owner` restricts deleting an owner. This covers an owned object
-   replaced by another, one dropped from an Owned Collection, and one back at
-   its defaults: it has no rows to keep, so it follows its default again.
+   replaced by another, and one dropped from an Owned Collection. One back at
+   its defaults is still wanted: it keeps its rows and its id, unflagged.
 5. Every wanted level, side table and Collection row is inserted.
 
 An owned object keeps its id while it's the same object, from the
@@ -598,15 +660,19 @@ that would need it.
 
 ### What a change costs
 
-Content is sparse: an untouched value is null and unflagged, and resolves
-live. So most changes cost stored content nothing:
+Content is dense: every value is stored, flagged when touched. So every
+change that alters what's stored rewrites it:
 
-- An added type, field, Collection or owned field gets new columns, tables or
-  flags, all empty. Its content follows its default.
-- A changed default needs nothing: untouched content follows it live.
+- An added type needs nothing: it has no content yet.
+- An added field, Collection or owned field gets new columns, tables or
+  flags, filled with its default on every entity, unflagged.
+- A changed default rewrites every value following it.
+- A removed field or type, a rename, a retype, and a reparent or Embed
+  target change move or drop what's stored.
 
-Only these touch stored data: a removed field or type, a rename, a retype, and
-a reparent or Embed target change that removes a level or columns.
+Every migration that changes a fingerprint moves every aggregate, so all of
+these happen the same way: the aggregate is read, the fixups run, and it's
+written whole with the new schemas and defaults.
 
 ### Policies
 
@@ -663,15 +729,12 @@ null would break. It needs `RetypeField::converting`, or `MakeNotNullable`
 declared or chosen by the unsafe policy. The developer policy never applies
 it by itself: it can lose data, even where no null is stored.
 
-### Defaults normalize on the next save
+### Defaults normalize in the migration
 
-A changed default needs no declaration under any policy. A touched value that now equals the new default stays touched until
-the entity is next saved. Saving compares again, so it becomes untouched then.
-Until that save, it keeps its value through any further default change.
-
-This is intentional for now. Revisit later: a migration step could re-save
-every affected entity's touched values against the new defaults. It needs no
-new machinery, and changes nothing already stored.
+A changed default needs no declaration under any policy. The migration moves
+every aggregate, and compares each touched value with its new default the
+way a save does: one that now equals it becomes untouched, and follows the
+default from then on.
 
 ### What a migration touches
 
@@ -823,9 +886,9 @@ transformation on the car.
 
 For each root entity:
 
-1. Its touched values are read with the old schemas, owned objects included,
-   and resolved against the old defaults: every value in effective form,
-   each marked touched or not.
+1. Its values are read with the old schemas, owned objects included. Content
+   is dense, so they're every value in effective form under the old
+   defaults, each marked touched or not by its flag.
 2. Each fixup's data side runs, in order, over the whole aggregate. It finds
    where its field lives from the schemas as the fixups before it left them.
    Renames and moves change paths, keeping each value's mark and each owned

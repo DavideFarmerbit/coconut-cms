@@ -91,9 +91,17 @@ final class RowsCar extends RowsVehicle
     }
 }
 
+/** A Collection whose default isn't empty. */
+#[Entity(table: 'rows_garage')]
+final class RowsGarage
+{
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String, itemNullability: Nullability::NotNullable)]
+    public array $tools = ['jack', 'wrench'];
+}
+
 /** A car aggregate holding every field kind, shared by the row tests. */
 final class RowsFixtures
 {
     /** Every fixture class, in an order compile() accepts. */
-    public const CLASSES = [RowsMaker::class, RowsTurbo::class, RowsEngine::class, RowsWheel::class, RowsChassis::class, RowsVehicle::class, RowsCar::class];
+    public const CLASSES = [RowsMaker::class, RowsTurbo::class, RowsEngine::class, RowsWheel::class, RowsChassis::class, RowsVehicle::class, RowsCar::class, RowsGarage::class];
 }

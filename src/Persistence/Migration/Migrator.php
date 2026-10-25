@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Migration;
 use Doctrine\DBAL\Connection;
 use InvalidArgumentException;
 use RuntimeException;
+use Closure;
 use Throwable;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Cms;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityTables;
@@ -137,7 +138,9 @@ final readonly class Migrator
         $recorded = $fresh ? $steps->ids() : $pending->ids();
         try {
             $moved = $this->connection->transactional(function () use ($fresh, $plan, $batch, $stored, $target, $targetSchemas, $targetLevels, $storedSchemas, $movedAside, $recorded): int {
-                $moved = $fresh || $plan->isEmpty() ? 0 : $this->moveAggregates($plan, $batch, $target, $targetSchemas, $storedSchemas, $movedAside);
+                // Content is dense: with no fixup, a changed default still
+                // rewrites every value that follows it.
+                $moved = $fresh ? 0 : $this->moveAggregates($plan, $batch, $target, $targetSchemas, $storedSchemas, $movedAside);
                 if ($moved > 0) {
                     (new ReferenceCheck($this->connection))->assertTargetsMatch($targetLevels, $target);
                 }
@@ -182,7 +185,7 @@ final readonly class Migrator
      * @return int How many aggregates moved.
      */
     private function moveAggregates(MigrationPlan $plan, CompiledBatch $batch, array $target, SchemaLookup $targetSchemas, SchemaLookup $storedSchemas, array $movedAside): int {
-        $reader = new AggregateReader($this->connection, $this->registry, $this->values, $movedAside);
+        $reader = new AggregateReader($this->connection, $this->registry, $movedAside);
         $writer = EntityWriter::forMigration($this->connection, $targetSchemas, $storedSchemas);
         $resolver = (new FieldValueResolver($this->registry, $this->values))->withBatch($target, $batch->values);
         $storedForm = new StoredForm($targetSchemas);
@@ -199,13 +202,42 @@ final readonly class Migrator
                 }
 
                 self::checkWritten($aggregate, $storedForm);
-                $writer->write(self::entityValuesOf($aggregate, $targetSchemas, $resolver), $id, static fn (FieldPath $path): string => $aggregate->ownedIdAt($path) ?? EntityIds::generate());
+                $values = self::entityValuesOf($aggregate, $targetSchemas, $resolver);
+                $writer->write($values, $id, self::ownedIdsOf($aggregate, $values));
             } catch (Throwable $failure) {
                 throw new RuntimeException(sprintf('Moving entity %s failed: %s', $id, $failure->getMessage()), 0, $failure);
             }
         }
 
         return count($roots);
+    }
+
+    /**
+     * The id of the object owned at each path once $aggregate is written as
+     * $values. An owned object still holding the class it held keeps its id.
+     * One whose class changed, an untouched slot following a default that
+     * now names another class, is another object: it gets a new id, and so
+     * does everything it owns.
+     * @return Closure(FieldPath): string Called owners first.
+     */
+    private static function ownedIdsOf(AggregateValues $aggregate, EntityValues $values): Closure {
+        $replaced = [];
+
+        return static function (FieldPath $path) use ($aggregate, $values, &$replaced): string {
+            foreach ($replaced as $owner) {
+                if ($path->startsWith($owner)) {
+                    return EntityIds::generate();
+                }
+            }
+
+            if ($aggregate->get($path) !== $values->dense->get($path)) {
+                $replaced[] = $path;
+
+                return EntityIds::generate();
+            }
+
+            return $aggregate->ownedIdAt($path) ?? EntityIds::generate();
+        };
     }
 
     /**
