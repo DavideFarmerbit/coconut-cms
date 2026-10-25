@@ -40,7 +40,7 @@ final readonly class EntityTables
      */
     public function seed(array $levels): void {
         $cms = $this->cmsLevelIn($levels);
-        if ($this->connection->fetchOne(sprintf('SELECT 1 FROM %s WHERE id = ?', DatabaseSchema::ENTITIES), [EntityIds::NIL]) !== false) {
+        if ($this->connection->fetchOne(sprintf('SELECT 1 FROM %s WHERE id = ?', $this->connection->quoteSingleIdentifier(DatabaseSchema::ENTITIES)), [EntityIds::NIL]) !== false) {
             return;
         }
 

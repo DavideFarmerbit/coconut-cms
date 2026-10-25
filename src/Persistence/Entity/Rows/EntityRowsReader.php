@@ -12,6 +12,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\OwnedLayout;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValuesBuilder;
@@ -43,7 +44,7 @@ final class EntityRowsReader
 
     /** Null when no entity has $id. */
     public function read(string $id): ?StoredEntity {
-        $identifier = $this->connection->fetchOne(sprintf('SELECT concrete_identifier FROM %s WHERE id = ?', DatabaseSchema::ENTITIES), [$id]);
+        $identifier = $this->connection->fetchOne(sprintf('SELECT concrete_identifier FROM %s WHERE id = ?', $this->quoted(DatabaseSchema::ENTITIES)), [$id]);
         if ($identifier === false) {
             return null;
         }
@@ -67,8 +68,8 @@ final class EntityRowsReader
         $at = static fn (FieldPath $path): FieldPath => $prefix === null ? $path : $prefix->append(FieldPath::TRAVERSE, $path);
 
         foreach ($this->chains->of($identifier) as $level) {
-            $row = $this->restored($this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $this->tableOf($level->table), ColumnNames::ID), [$id]));
-            $state = $this->restored($this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $this->tableOf($level->stateTable), ColumnNames::ID), [$id]));
+            $row = $this->restored($this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $this->tableOf($level->table), $this->quoted(ColumnNames::ID)), [$id]));
+            $state = $this->restored($this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $this->tableOf($level->stateTable), $this->quoted(ColumnNames::ID)), [$id]));
             $flags = $level->stateColumns();
             $isTouched = static fn (FieldPath $path): bool => (bool) $state[$flags[(string) $path]];
             // Sets a value, and marks it touched when its path is flagged.
@@ -100,12 +101,12 @@ final class EntityRowsReader
      */
     private function readCollection(CollectionLayout $collection, string $ownerId, bool $isTouched, Closure $set): void {
         $rows = array_map($this->restored(...), $this->connection->fetchAllAssociative(
-            sprintf('SELECT * FROM %s WHERE %s = ? ORDER BY %s', $this->tableOf($collection->table), ColumnNames::OWNER, ColumnNames::POSITION),
+            sprintf('SELECT * FROM %s WHERE %s = ? ORDER BY %s', $this->tableOf($collection->table), $this->quoted(ColumnNames::OWNER), $this->quoted(ColumnNames::POSITION)),
             [$ownerId],
         ));
         $states = [];
         if ($collection->stateTable !== null) {
-            foreach ($this->connection->fetchAllAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $this->tableOf($collection->stateTable), ColumnNames::OWNER), [$ownerId]) as $state) {
+            foreach ($this->connection->fetchAllAssociative(sprintf('SELECT * FROM %s WHERE %s = ?', $this->tableOf($collection->stateTable), $this->quoted(ColumnNames::OWNER)), [$ownerId]) as $state) {
                 $state = $this->restored($state);
                 $states[$state[ColumnNames::POSITION]] = $state;
             }
@@ -136,7 +137,7 @@ final class EntityRowsReader
      */
     private function readOwned(OwnedLayout $owned, array $ownerRow, string $ownerId, bool $isTouched, Closure $at, FieldValuesBuilder $values, FieldValuesBuilder $touched, array &$ownedIds): void {
         $rows = $this->connection->fetchAllAssociative(
-            sprintf('SELECT id, concrete_identifier, position FROM %s WHERE owner = ? AND owner_field = ?', DatabaseSchema::ENTITIES),
+            sprintf('SELECT id, concrete_identifier, position FROM %s WHERE owner = ? AND owner_field = ?', $this->quoted(DatabaseSchema::ENTITIES)),
             [$ownerId, $owned->ownerField()],
         );
         $byPosition = array_column($rows, null, 'position');
@@ -178,9 +179,14 @@ final class EntityRowsReader
         $this->readInto($row['id'], $row['concrete_identifier'], $at($path), $values, $touched, $ownedIds);
     }
 
-    /** Where $table's rows are read from: its "_old__" name when a migration moved it aside. */
+    /** Where $table's rows are read from, quoted: its "_old__" name when a migration moved it aside. */
     private function tableOf(string $table): string {
-        return in_array($table, $this->tablesMovedAside, true) ? ColumnNames::old($table) : $table;
+        return $this->quoted(in_array($table, $this->tablesMovedAside, true) ? ColumnNames::old($table) : $table);
+    }
+
+    /** $name quoted for this database: a project's table or field may be named like a keyword. */
+    private function quoted(string $name): string {
+        return $this->connection->quoteSingleIdentifier($name);
     }
 
     /**
@@ -205,7 +211,9 @@ final class EntityRowsReader
 
     /**
      * $value as the database gave it back, in its stored form again: a
-     * boolean comes back as 0 or 1, a number may come back as a string.
+     * boolean comes back as 0 or 1, a number may come back as a string, and
+     * SQLite gives a Decimal back as a number, which is written canonically
+     * again.
      */
     private static function fromDatabase(FieldDescriptor $field, mixed $value): mixed {
         if ($value === null || $field->kind() !== FieldKind::Scalar) {
@@ -217,6 +225,7 @@ final class EntityRowsReader
             ScalarType::Int => (int) $value,
             ScalarType::Float => (float) $value,
             ScalarType::Enum => $field->enumBacking() === ScalarType::Int ? (int) $value : (string) $value,
+            ScalarType::Decimal => ScalarValues::toStorage(ScalarType::Decimal, is_string($value) ? $value : number_format((float) $value, ScalarValues::DECIMAL_SCALE, '.', '')),
             default => $value,
         };
     }

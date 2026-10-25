@@ -50,28 +50,52 @@ final class MigrationState
         $schemaManager->createTable($table);
     }
 
-    /** Marks a migration started. One left started by a crash keeps its start time. */
+    /**
+     * Marks a migration started. One left started by a crash keeps its start
+     * time. Only a migration calls it, holding the migration lock, so a plain
+     * update-or-insert never races.
+     */
     public function start(): void {
-        $this->connection->executeStatement(
-            sprintf(
-                'INSERT INTO %s (id, migration_started_at) VALUES (?, ?) ON DUPLICATE KEY UPDATE migration_started_at = COALESCE(migration_started_at, VALUES(migration_started_at))',
-                self::TABLE,
-            ),
-            [self::ROW, new DateTimeImmutable('now', new DateTimeZone('UTC'))],
-            [Types::SMALLINT, Types::DATETIME_IMMUTABLE],
+        $table = $this->connection->quoteSingleIdentifier(self::TABLE);
+        $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        $updated = $this->connection->executeStatement(
+            sprintf('UPDATE %s SET migration_started_at = COALESCE(migration_started_at, ?) WHERE id = ?', $table),
+            [$now, self::ROW],
+            [Types::DATETIME_IMMUTABLE, Types::SMALLINT],
         );
+        if ($this->exists($updated)) {
+            return;
+        }
+
+        $this->connection->insert($table, ['id' => self::ROW, 'migration_started_at' => $now], ['id' => Types::SMALLINT, 'migration_started_at' => Types::DATETIME_IMMUTABLE]);
     }
 
-    /** Marks the migration finished, the database now matching the code whose state key is $stateKey. */
+    /**
+     * Marks the migration finished, the database now matching the code whose
+     * state key is $stateKey. Holds the migration lock too.
+     */
     public function finish(string $stateKey): void {
-        $this->connection->executeStatement(
-            sprintf(
-                'INSERT INTO %s (id, state_key, migration_started_at) VALUES (?, ?, NULL) ON DUPLICATE KEY UPDATE state_key = VALUES(state_key), migration_started_at = NULL',
-                self::TABLE,
-            ),
-            [self::ROW, $stateKey],
-            [Types::SMALLINT, Types::STRING],
+        $table = $this->connection->quoteSingleIdentifier(self::TABLE);
+
+        $updated = $this->connection->executeStatement(
+            sprintf('UPDATE %s SET state_key = ?, migration_started_at = NULL WHERE id = ?', $table),
+            [$stateKey, self::ROW],
+            [Types::STRING, Types::SMALLINT],
         );
+        if ($this->exists($updated)) {
+            return;
+        }
+
+        $this->connection->insert($table, ['id' => self::ROW, 'state_key' => $stateKey], ['id' => Types::SMALLINT, 'state_key' => Types::STRING]);
+    }
+
+    /**
+     * Whether the row exists, after an update touched $updated rows. MySQL
+     * counts only rows it changed, so a matching row left as it was counts 0.
+     */
+    private function exists(int|string $updated): bool {
+        return (int) $updated > 0 || $this->connection->fetchOne(sprintf('SELECT 1 FROM %s WHERE id = ?', $this->connection->quoteSingleIdentifier(self::TABLE)), [self::ROW]) !== false;
     }
 
     /**
@@ -82,7 +106,7 @@ final class MigrationState
      */
     public function read(): array {
         try {
-            $row = $this->connection->fetchAssociative(sprintf('SELECT state_key, migration_started_at FROM %s WHERE id = ?', self::TABLE), [self::ROW]);
+            $row = $this->connection->fetchAssociative(sprintf('SELECT state_key, migration_started_at FROM %s WHERE id = ?', $this->connection->quoteSingleIdentifier(self::TABLE)), [self::ROW]);
         } catch (TableNotFoundException) {
             $row = false;
         }

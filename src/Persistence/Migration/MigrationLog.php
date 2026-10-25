@@ -38,7 +38,7 @@ final readonly class MigrationLog
 
     /** @return list<string> Every applied step's id. */
     public function applied(): array {
-        return $this->connection->fetchFirstColumn(sprintf('SELECT id FROM %s', self::TABLE));
+        return $this->connection->fetchFirstColumn(sprintf('SELECT id FROM %s', $this->connection->quoteSingleIdentifier(self::TABLE)));
     }
 
     /** @param list<string> $ids Steps just applied. */

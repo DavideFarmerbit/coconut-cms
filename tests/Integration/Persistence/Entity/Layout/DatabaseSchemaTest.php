@@ -40,16 +40,11 @@ final class DatabaseSchemaTest extends TestCase
         $this->connection->close();
     }
 
-    /** Drops every table the schema has, whichever of them exist. */
     private function dropTables(): void {
-        $this->connection->executeStatement('SET FOREIGN_KEY_CHECKS = 0');
-        foreach ($this->schema->getTables() as $table) {
-            $this->connection->executeStatement(sprintf('DROP TABLE IF EXISTS %s', $table->getName()));
-        }
-        $this->connection->executeStatement('SET FOREIGN_KEY_CHECKS = 1');
+        TestDatabase::dropEverything($this->connection);
     }
 
-    public function testMysqlAcceptsEveryTableAndCreatesThemAsDescribed(): void {
+    public function testTheDatabaseAcceptsEveryTableAndReadsThemBackAsDescribed(): void {
         $this->connection->createSchemaManager()->createSchemaObjects($this->schema);
 
         $schemaManager = $this->connection->createSchemaManager();

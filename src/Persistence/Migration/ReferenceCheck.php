@@ -58,11 +58,11 @@ final readonly class ReferenceCheck
         $target = $column->field->target();
         $wrong = $this->connection->fetchAssociative(
             sprintf(
-                'SELECT holder.`%s` AS entity, referenced.id AS referenced, referenced.concrete_identifier AS type FROM `%s` holder JOIN %s referenced ON referenced.id = holder.`%s` WHERE referenced.concrete_identifier NOT IN (?) LIMIT 1',
-                $idColumn,
-                $table,
-                DatabaseSchema::ENTITIES,
-                $column->name,
+                'SELECT holder.%s AS entity, referenced.id AS referenced, referenced.concrete_identifier AS type FROM %s holder JOIN %s referenced ON referenced.id = holder.%s WHERE referenced.concrete_identifier NOT IN (?) LIMIT 1',
+                $this->connection->quoteSingleIdentifier($idColumn),
+                $this->connection->quoteSingleIdentifier($table),
+                $this->connection->quoteSingleIdentifier(DatabaseSchema::ENTITIES),
+                $this->connection->quoteSingleIdentifier($column->name),
             ),
             [self::targetAndDescendants($target, $schemas)],
             [ArrayParameterType::STRING],

@@ -76,11 +76,7 @@ final class MigratorTest extends TestCase
     }
 
     private function dropEverything(): void {
-        $this->connection->executeStatement('SET FOREIGN_KEY_CHECKS = 0');
-        foreach ($this->connection->createSchemaManager()->listTableNames() as $table) {
-            $this->connection->executeStatement(sprintf('DROP TABLE `%s`', $table));
-        }
-        $this->connection->executeStatement('SET FOREIGN_KEY_CHECKS = 1');
+        TestDatabase::dropEverything($this->connection);
     }
 
     /** @return array{SchemaStore, SchemaFieldValueStore, SchemaRegistry} What a new request starts with. */

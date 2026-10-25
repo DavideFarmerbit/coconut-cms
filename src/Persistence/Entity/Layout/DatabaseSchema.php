@@ -30,6 +30,13 @@ final class DatabaseSchema
      */
     private const MAX_NAME_LENGTH = 64 - 6;
 
+    /**
+     * A Collection item's position. Not INTEGER: Doctrine reads an INTEGER
+     * column back from SQLite as auto-incremented whenever it's the only
+     * integer in the primary key, so every migration would see it changed.
+     */
+    private const POSITION_TYPE = Types::BIGINT;
+
     /** @param list<LevelLayout> $levels */
     public static function of(array $levels): Schema {
         $schema = new Schema();
@@ -92,7 +99,7 @@ final class DatabaseSchema
     private static function addCollection(Schema $schema, LevelLayout $level, CollectionLayout $collection): void {
         $table = self::createTable($schema, $collection->table, $level->identifier);
         $table->addColumn(ColumnNames::OWNER, Types::GUID);
-        $table->addColumn(ColumnNames::POSITION, Types::INTEGER);
+        $table->addColumn(ColumnNames::POSITION, self::POSITION_TYPE);
         $table->setPrimaryKey([ColumnNames::OWNER, ColumnNames::POSITION]);
         $table->addForeignKeyConstraint($level->table, [ColumnNames::OWNER], [ColumnNames::ID], ['onDelete' => 'CASCADE']);
 
@@ -110,7 +117,7 @@ final class DatabaseSchema
 
         $state = self::createTable($schema, $collection->stateTable, $level->identifier);
         $state->addColumn(ColumnNames::OWNER, Types::GUID);
-        $state->addColumn(ColumnNames::POSITION, Types::INTEGER);
+        $state->addColumn(ColumnNames::POSITION, self::POSITION_TYPE);
         $state->setPrimaryKey([ColumnNames::OWNER, ColumnNames::POSITION]);
         $state->addForeignKeyConstraint($collection->table, [ColumnNames::OWNER, ColumnNames::POSITION], [ColumnNames::OWNER, ColumnNames::POSITION], ['onDelete' => 'CASCADE']);
         foreach ($collection->itemColumns as $column) {

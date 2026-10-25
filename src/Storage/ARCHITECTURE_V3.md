@@ -1184,3 +1184,39 @@ and rewrites the cache from what it found.
 
 Without a cache directory, every request's first check reads every class.
 That's correct, and fine for tests and small sites.
+
+## Databases
+
+Persistence runs on MySQL 8 and MariaDB 10.6 in production, and on SQLite for
+tests, demos and small sites. SQLite lets one writer in at a time, so it's
+never for production with several editors at once. Any other database fails
+at the first check, naming it. PostgreSQL isn't supported, but nothing rules
+it out: adding it is a new platform class.
+
+Everything the databases do differently sits in one `DatabasePlatform`
+each, picked by `Platforms::of()`:
+
+| | MySQL, MariaDB | SQLite |
+|---|---|---|
+| Readying a connection | nothing | foreign keys on, a busy timeout |
+| One migration at a time | a named lock, `GET_LOCK` | a lock file next to the database; none in memory |
+| Before a write's transaction | read committed | nothing: only serializable exists |
+| Locking an aggregate's root | `SELECT … FOR UPDATE` | a write to its `entities` row, which takes the database's write lock |
+| Schema changes | run as they are | foreign keys off while Doctrine rebuilds tables, every key checked after |
+
+Every other statement is plain SQL all of them run, and every table and
+column name in it is quoted by Doctrine: a project's table or field may be
+named like a keyword. Expand and contract are table diffs Doctrine writes for
+each database: an `ALTER` on MySQL, a rebuilt table on SQLite. A
+`MigrationState` row is updated, or inserted when there's none, instead of
+upserted: only a migration writes it, holding the migration lock.
+
+SQLite stores a Decimal as a floating-point number, so it keeps 15
+significant digits; reading writes it in canonical form again. A Collection
+item's `_position` is a `BIGINT`, not an `INTEGER`: Doctrine reads an
+`INTEGER` back from SQLite as auto-incremented whenever it's the only integer
+in the primary key, and every migration would then see the column changed.
+
+The integration tests run on MySQL by default, and on SQLite with
+`COCONUT_TEST_DB=sqlite`. MariaDB needs a server to run them against (not set
+up yet).

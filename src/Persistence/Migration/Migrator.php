@@ -21,6 +21,8 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\ValueMark;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\MigrationPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\StrictPolicy;
+use XyloIsCoding\CoconutCms\Persistence\Platform\DatabasePlatform;
+use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\CompiledBatch;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\SchemaCompiler;
@@ -51,9 +53,6 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
  */
 final readonly class Migrator
 {
-    /** The MySQL lock every migration holds while it runs. */
-    private const LOCK = 'coconut-cms-migration';
-
     /** How long a migration waits for one already running, in seconds. */
     private const LOCK_TIMEOUT = 60;
 
@@ -61,6 +60,7 @@ final readonly class Migrator
     private MigrationLog $log;
     private MigrationState $state;
     private TableChanges $tables;
+    private DatabasePlatform $platform;
 
     public function __construct(
         private Connection $connection,
@@ -73,6 +73,7 @@ final readonly class Migrator
         $this->log = new MigrationLog($connection);
         $this->state = new MigrationState($connection);
         $this->tables = new TableChanges($connection);
+        $this->platform = Platforms::of($connection);
     }
 
     /**
@@ -86,11 +87,15 @@ final readonly class Migrator
             throw new InvalidArgumentException(sprintf('The code must include %s, the row every entity without an owner points at.', Cms::IDENTIFIER));
         }
 
-        $this->lock();
+        $this->platform->prepare($this->connection);
+        if (!$this->platform->lockMigrations($this->connection, self::LOCK_TIMEOUT)) {
+            throw new RuntimeException(sprintf('Another migration has held the lock for over %d seconds.', self::LOCK_TIMEOUT));
+        }
+
         try {
             return $this->migrateLocked($blueprints, $steps);
         } finally {
-            $this->connection->fetchOne('SELECT RELEASE_LOCK(?)', [self::LOCK]);
+            $this->platform->unlockMigrations($this->connection);
         }
     }
 
@@ -190,7 +195,7 @@ final readonly class Migrator
         $resolver = (new FieldValueResolver($this->registry, $this->values))->withBatch($target, $batch->values);
         $storedForm = new StoredForm($targetSchemas);
 
-        $roots = $this->connection->fetchFirstColumn(sprintf("SELECT id FROM %s WHERE owner_field = '' ORDER BY id", DatabaseSchema::ENTITIES));
+        $roots = $this->connection->fetchFirstColumn(sprintf("SELECT id FROM %s WHERE owner_field = '' ORDER BY id", $this->connection->quoteSingleIdentifier(DatabaseSchema::ENTITIES)));
         foreach ($roots as $id) {
             try {
                 $aggregate = $reader->read($id);
@@ -324,11 +329,5 @@ final readonly class Migrator
         }
 
         return false;
-    }
-
-    private function lock(): void {
-        if ((int) $this->connection->fetchOne('SELECT GET_LOCK(?, ?)', [self::LOCK, self::LOCK_TIMEOUT]) !== 1) {
-            throw new RuntimeException(sprintf('Another migration has held the lock for over %d seconds.', self::LOCK_TIMEOUT));
-        }
     }
 }

@@ -19,6 +19,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Migrator;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\MigrationPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\StrictPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Migration\StateKey;
+use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\SchemaCompiler;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
@@ -129,6 +130,7 @@ final class Persistence
             return PersistenceStatus::Ready;
         }
 
+        Platforms::of($this->connection)->prepare($this->connection);
         ['stateKey' => $stored, 'startedAt' => $startedAt] = $this->migrationState->read();
         if ($startedAt !== null) {
             return PersistenceStatus::MigrationUnfinished;

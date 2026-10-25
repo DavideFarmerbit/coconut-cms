@@ -56,11 +56,7 @@ final class EntityRowsInsertTest extends TestCase
     }
 
     private function dropTables(): void {
-        $this->connection->executeStatement('SET FOREIGN_KEY_CHECKS = 0');
-        foreach (DatabaseSchema::of($this->levels)->getTables() as $table) {
-            $this->connection->executeStatement(sprintf('DROP TABLE IF EXISTS %s', $table->getName()));
-        }
-        $this->connection->executeStatement('SET FOREIGN_KEY_CHECKS = 1');
+        TestDatabase::dropEverything($this->connection);
     }
 
     public function testEveryRowOfAFullyTouchedCarInsertsInTheOrderGiven(): void {

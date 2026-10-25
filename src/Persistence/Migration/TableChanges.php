@@ -3,13 +3,17 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Migration;
 
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Schema\ColumnDiff;
 use Doctrine\DBAL\Schema\Comparator;
 use Doctrine\DBAL\Schema\ComparatorConfig;
+use Doctrine\DBAL\Schema\ForeignKeyConstraint;
+use Doctrine\DBAL\Schema\Index;
 use Doctrine\DBAL\Schema\Name\UnqualifiedName;
 use Doctrine\DBAL\Schema\Schema;
 use Doctrine\DBAL\Schema\Table;
 use Doctrine\DBAL\Schema\TableDiff;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
+use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
 
 /**
  * The DDL around a migration's move: expand before it, contract after. Each
@@ -116,52 +120,47 @@ final readonly class TableChanges
         return $sql;
     }
 
-    /** Renames $column out of the way, once nothing but data hangs on it. */
+    /**
+     * Renames $column out of the way, once nothing but data hangs on it: its
+     * foreign keys and indexes are dropped with the rename. As a table diff,
+     * Doctrine writes it as each database needs: an ALTER on MySQL, a
+     * rebuilt table on SQLite.
+     */
     private function moveColumnAside(Table $table, string $column): void {
-        $platform = $this->connection->getDatabasePlatform();
-        $sql = [];
+        $old = $table->getColumn($column);
+        $renamed = $old->edit()->setUnquotedName(ColumnNames::old($column))->create();
 
-        foreach ($table->getForeignKeys() as $foreignKey) {
-            if (in_array($column, $foreignKey->getLocalColumns(), true)) {
-                $sql[] = $platform->getDropForeignKeySQL($foreignKey->getName(), $table->getName());
-            }
-        }
-
-        foreach ($table->getIndexes() as $index) {
-            if (!$index->isPrimary() && in_array($column, $index->getColumns(), true)) {
-                $sql[] = $platform->getDropIndexSQL($index->getName(), $table->getName());
-            }
-        }
-
-        $sql[] = sprintf(
-            'ALTER TABLE %s RENAME COLUMN %s TO %s',
-            $platform->quoteSingleIdentifier($table->getName()),
-            $platform->quoteSingleIdentifier($column),
-            $platform->quoteSingleIdentifier(ColumnNames::old($column)),
+        $diff = new TableDiff(
+            $table,
+            changedColumns: [$column => new ColumnDiff($old, $renamed)],
+            droppedIndexes: array_values(array_filter($table->getIndexes(), static fn (Index $index): bool => !$index->isPrimary() && in_array($column, $index->getColumns(), true))),
+            droppedForeignKeys: array_values(array_filter($table->getForeignKeys(), static fn (ForeignKeyConstraint $foreignKey): bool => in_array($column, $foreignKey->getLocalColumns(), true))),
         );
 
-        $this->execute($sql);
+        $this->execute($this->connection->getDatabasePlatform()->getAlterTableSQL($diff));
     }
 
     /**
      * Renames $table out of the way. Its own foreign keys, and every other
      * table's pointing at it, go first: a foreign key's name is unique across
-     * the database, and one pointing at it would follow the rename.
+     * a MySQL database, and one pointing at it would follow the rename.
      */
     private function moveTableAside(Table $table, Schema $current): void {
         $platform = $this->connection->getDatabasePlatform();
         $sql = [];
 
         foreach ($current->getTables() as $other) {
-            foreach ($other->getForeignKeys() as $foreignKey) {
-                if ($other->getName() === $table->getName() || $foreignKey->getForeignTableName() === $table->getName()) {
-                    $sql[] = $platform->getDropForeignKeySQL($foreignKey->getName(), $other->getName());
-                }
+            $dropped = array_values(array_filter(
+                $other->getForeignKeys(),
+                static fn (ForeignKeyConstraint $foreignKey): bool => $other->getName() === $table->getName() || $foreignKey->getForeignTableName() === $table->getName(),
+            ));
+            if ($dropped !== []) {
+                array_push($sql, ...$platform->getAlterTableSQL(new TableDiff($other, droppedForeignKeys: $dropped)));
             }
         }
 
         $sql[] = $platform->getRenameTableSQL($table->getName(), ColumnNames::old($table->getName()));
-        $this->execute(array_values(array_unique($sql)));
+        $this->execute($sql);
     }
 
     /** @return list<string> $table's primary key columns: what tells a level, a side and a Collection table apart. */
@@ -185,10 +184,16 @@ final readonly class TableChanges
         ));
     }
 
-    /** @param list<string> $sql */
+    /** @param list<string> $sql Run the way the database needs schema changes run. */
     private function execute(array $sql): void {
-        foreach ($sql as $statement) {
-            $this->connection->executeStatement($statement);
+        if ($sql === []) {
+            return;
         }
+
+        Platforms::of($this->connection)->changingSchema($this->connection, function () use ($sql): void {
+            foreach ($sql as $statement) {
+                $this->connection->executeStatement($statement);
+            }
+        });
     }
 }

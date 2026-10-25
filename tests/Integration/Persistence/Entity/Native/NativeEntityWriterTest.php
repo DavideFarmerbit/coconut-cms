@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Entity\Native;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\ForeignKeyConstraintViolationException;
 use Doctrine\DBAL\Exception\LockWaitTimeoutException;
+use Doctrine\DBAL\Platforms\SQLitePlatform;
 use LogicException;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Cms;
@@ -17,6 +18,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LayoutBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityLoader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityWriter;
+use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
@@ -70,11 +72,7 @@ final class NativeEntityWriterTest extends TestCase
     }
 
     private function dropTables(): void {
-        $this->connection->executeStatement('SET FOREIGN_KEY_CHECKS = 0');
-        foreach (DatabaseSchema::of($this->levels)->getTables() as $table) {
-            $this->connection->executeStatement(sprintf('DROP TABLE IF EXISTS %s', $table->getName()));
-        }
-        $this->connection->executeStatement('SET FOREIGN_KEY_CHECKS = 1');
+        TestDatabase::dropEverything($this->connection);
     }
 
     /** A loader with nothing in memory yet: what a fresh request starts with. */
@@ -288,8 +286,11 @@ final class NativeEntityWriterTest extends TestCase
 
         $other = TestDatabase::connect();
         $other->beginTransaction();
-        $other->fetchOne(sprintf('SELECT id FROM %s WHERE id = ? FOR UPDATE', DatabaseSchema::ENTITIES), [$id]);
-        $this->connection->executeStatement('SET SESSION innodb_lock_wait_timeout = 1');
+        Platforms::of($other)->lockEntity($other, $id);
+        // Waits one second rather than the default, then gives up.
+        $this->connection->executeStatement($this->connection->getDatabasePlatform() instanceof SQLitePlatform
+            ? 'PRAGMA busy_timeout = 1000'
+            : 'SET SESSION innodb_lock_wait_timeout = 1');
 
         try {
             $car->name = 'blocked';

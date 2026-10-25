@@ -73,7 +73,7 @@ final readonly class EntityReader
         $this->migration->assertSettled();
 
         return $this->connection->fetchAllKeyValue(
-            sprintf('SELECT id, concrete_identifier FROM %s WHERE id IN (?)', DatabaseSchema::ENTITIES),
+            sprintf('SELECT id, concrete_identifier FROM %s WHERE id IN (?)', $this->connection->quoteSingleIdentifier(DatabaseSchema::ENTITIES)),
             [array_values(array_unique($ids))],
             [ArrayParameterType::STRING],
         );

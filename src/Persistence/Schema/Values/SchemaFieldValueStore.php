@@ -119,7 +119,7 @@ final class SchemaFieldValueStore
         }
 
         $rows = $this->connection->fetchAllAssociative(
-            sprintf('SELECT field_name, value_json FROM %s WHERE identifier = ?', self::TABLE),
+            sprintf('SELECT field_name, value_json FROM %s WHERE identifier = ?', $this->connection->quoteSingleIdentifier(self::TABLE)),
             [$identifier],
         );
 

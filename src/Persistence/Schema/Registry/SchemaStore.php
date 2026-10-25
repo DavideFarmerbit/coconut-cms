@@ -126,7 +126,7 @@ final class SchemaStore
         }
 
         $row = $this->connection->fetchAssociative(
-            sprintf('SELECT source, schema_json, fingerprint, dependencies_json FROM %s WHERE identifier = ?', self::TABLE),
+            sprintf('SELECT source, schema_json, fingerprint, dependencies_json FROM %s WHERE identifier = ?', $this->connection->quoteSingleIdentifier(self::TABLE)),
             [$identifier],
         );
 
@@ -144,7 +144,7 @@ final class SchemaStore
      * @return list<StoredSchema>
      */
     public function all(): array {
-        $identifiers = $this->connection->fetchFirstColumn(sprintf('SELECT identifier FROM %s ORDER BY identifier', self::TABLE));
+        $identifiers = $this->connection->fetchFirstColumn(sprintf('SELECT identifier FROM %s ORDER BY identifier', $this->connection->quoteSingleIdentifier(self::TABLE)));
 
         return array_map(fn (string $identifier): StoredSchema => $this->load($identifier), $identifiers);
     }

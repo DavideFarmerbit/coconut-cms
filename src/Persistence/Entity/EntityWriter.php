@@ -14,6 +14,8 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\Placement;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\Row;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntityValues;
+use XyloIsCoding\CoconutCms\Persistence\Platform\DatabasePlatform;
+use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
@@ -39,6 +41,7 @@ final class EntityWriter
 {
     private readonly EntityRowsBuilder $rows;
     private readonly LevelChains $storedChains;
+    private readonly DatabasePlatform $platform;
 
     /**
      * @param SchemaLookup $schemas The shape rows are written in.
@@ -55,6 +58,7 @@ final class EntityWriter
     ) {
         $this->rows = new EntityRowsBuilder($schemas);
         $this->storedChains = new LevelChains($storedSchemas);
+        $this->platform = Platforms::of($connection);
     }
 
     /** Writes and deletes with the schemas $registry serves: what every request does. */
@@ -125,10 +129,9 @@ final class EntityWriter
     }
 
     /**
-     * Runs $work in a transaction, read committed when it's the outermost
-     * one: locking an id not stored yet then locks nothing else, and every
-     * read after a lock sees what the save holding it committed. Throws
-     * first while a migration is unfinished.
+     * Runs $work in a transaction, readied by the platform when it's the
+     * outermost one (read committed on MySQL). Throws first while a migration
+     * is unfinished.
      * @template T
      * @param Closure(): T $work
      * @return T
@@ -137,21 +140,21 @@ final class EntityWriter
         $this->migration?->assertSettled();
 
         if (!$this->connection->isTransactionActive()) {
-            $this->connection->executeStatement('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+            $this->platform->beforeWriteTransaction($this->connection);
         }
 
         return $this->connection->transactional($work);
     }
 
     /**
-     * Locks entity $id's row until the transaction ends, then reads it and
+     * Locks entity $id until the transaction ends, then reads it and
      * everything stored as owned by it, at any depth. Every write and delete
      * of an aggregate locks its root first, so two never run at once. Empty
      * when $id was never stored. Throws when $id is itself owned.
      * @return array<string, array{concrete_identifier: string, depth: int}> Keyed by id.
      */
     private function lockedAggregateOf(string $id): array {
-        $this->connection->fetchOne(sprintf('SELECT id FROM %s WHERE id = ? FOR UPDATE', DatabaseSchema::ENTITIES), [$id]);
+        $this->platform->lockEntity($this->connection, $id);
 
         // A standalone entity is owned by the Cms row through no field: only
         // a row with an owner field counts as owned.
@@ -163,7 +166,7 @@ final class EntityWriter
             . ' FROM %1$s owned JOIN aggregate ON owned.owner = aggregate.id'
             . " WHERE owned.owner_field <> ''"
             . ') SELECT id, concrete_identifier, owner_field, depth FROM aggregate',
-            DatabaseSchema::ENTITIES,
+            $this->connection->quoteSingleIdentifier(DatabaseSchema::ENTITIES),
         ), [$id]);
 
         $aggregate = [];
@@ -189,7 +192,7 @@ final class EntityWriter
         }
 
         $found = $this->connection->fetchFirstColumn(
-            sprintf('SELECT id FROM %s WHERE id IN (?)', DatabaseSchema::ENTITIES),
+            sprintf('SELECT id FROM %s WHERE id IN (?)', $this->connection->quoteSingleIdentifier(DatabaseSchema::ENTITIES)),
             [$ids],
             [ArrayParameterType::STRING],
         );
@@ -214,7 +217,7 @@ final class EntityWriter
         $values = $row->values;
         unset($values['id']);
         $update = new Row($row->table, $values);
-        $this->connection->update($update->table, $update->values, ['id' => $entity->id], $update->types());
+        $this->connection->update($this->quoted($update->table), $this->quotedKeys($update->values), ['id' => $entity->id], $this->quotedKeys($update->types()));
     }
 
     /**
@@ -223,7 +226,7 @@ final class EntityWriter
      */
     private function deleteContentRows(string $id, string $identifier): void {
         foreach ($this->storedChains->of($identifier) as $level) {
-            $this->connection->delete($level->table, [ColumnNames::ID => $id]);
+            $this->connection->delete($this->quoted($level->table), [$this->quoted(ColumnNames::ID) => $id]);
         }
     }
 
@@ -237,13 +240,33 @@ final class EntityWriter
         uasort($entities, static fn (array $a, array $b): int => $b['depth'] <=> $a['depth']);
 
         foreach (array_keys($entities) as $id) {
-            $this->connection->delete(DatabaseSchema::ENTITIES, ['id' => $id]);
+            $this->connection->delete($this->quoted(DatabaseSchema::ENTITIES), ['id' => $id]);
         }
 
         return array_keys($entities);
     }
 
     private function insert(Row $row): void {
-        $this->connection->insert($row->table, $row->values, $row->types());
+        $this->connection->insert($this->quoted($row->table), $this->quotedKeys($row->values), $this->quotedKeys($row->types()));
+    }
+
+    /** $name quoted for this database: a project's table may be named like a keyword. */
+    private function quoted(string $name): string {
+        return $this->connection->quoteSingleIdentifier($name);
+    }
+
+    /**
+     * $byColumn with every column name quoted.
+     * @template T
+     * @param array<string, T> $byColumn
+     * @return array<string, T>
+     */
+    private function quotedKeys(array $byColumn): array {
+        $quoted = [];
+        foreach ($byColumn as $column => $value) {
+            $quoted[$this->quoted((string) $column)] = $value;
+        }
+
+        return $quoted;
     }
 }
