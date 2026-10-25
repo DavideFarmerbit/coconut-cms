@@ -125,7 +125,11 @@ final class DatabaseSchema
         }
     }
 
-    /** Every content column is nullable: an untouched value is null, and resolves to its default. */
+    /**
+     * Every value column is nullable, whatever its field: a migration's move
+     * rewrites rows whole in the new shape, giving no value to a column on its
+     * way out. The code guarantees a field that can't hold null never does.
+     */
     private static function addValueColumn(Table $table, ValueColumn $column): void {
         [$type, $options] = self::typeOf($column->field);
         self::addColumn($table, $column->name, $type, ['notnull' => false, ...$options]);

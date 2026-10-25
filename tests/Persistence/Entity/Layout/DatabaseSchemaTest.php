@@ -123,7 +123,7 @@ final class DatabaseSchemaTest extends TestCase
         );
     }
 
-    public function testEveryContentColumnIsNullable(): void {
+    public function testEveryValueColumnIsNullableWhateverItsField(): void {
         $car = self::carSchema()->getTable('car');
 
         foreach (['color', 'fuel', 'chassis__weight', 'chassis__maker'] as $column) {

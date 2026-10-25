@@ -401,9 +401,14 @@ Collection: a field that differs from the item class is flagged, any other
 isn't, and both are stored. Scalar, ValueObject and Reference items are the
 value themselves, so they need no flags of their own.
 
-Every content column is nullable, so old and new shapes can share a table
-during a migration; it holds null only where the value is null. Column types
-follow the field: `VARCHAR(255)` for String, `TEXT`
+Every value column is nullable, whatever its field: a migration's move
+rewrites rows whole in the new shape, giving no value to a column on its way
+out, and old and new shapes share a table while it runs. Making a column
+`NOT NULL` where its field is would mean temporary defaults through every
+migration, and MySQL gives a `TEXT` column none: too fragile for a guarantee
+the code already gives. A field that can't hold null never does: a native
+save reads typed properties, and a migration checks every value it writes.
+Column types follow the field: `VARCHAR(255)` for String, `TEXT`
 for Text, `BIGINT` for Int, `DECIMAL(20, 6)` for Decimal, an enum's backing
 type for Enum. A ValueObject is `VARCHAR(255)` when `indexable()`, `TEXT`
 otherwise.
@@ -1065,7 +1070,7 @@ MySQL commits every DDL statement on its own, so a migration can't be one
 transaction. It runs in three steps instead:
 
 1. **Expand.** Add every new table, column and index. The old ones stay.
-   Every content column is nullable, so old and new shapes coexist in one
+   Every value column is nullable, so old and new shapes coexist in one
    table. A column keeping its name but changing its type is renamed out of
    the way first, `weight` to `_old__weight`, then added again in its new
    type; its indexes and foreign keys go, since they're no data. In MySQL 8

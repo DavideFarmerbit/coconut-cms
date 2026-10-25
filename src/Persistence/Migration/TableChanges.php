@@ -20,6 +20,8 @@ use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
  * compares the database as it is with the target, so running either again
  * after an interruption only does what's left. Never moves data: DDL can't be
  * rolled back, so it only ever adds, moves aside, or drops what's unused.
+ * Every value column is nullable, so a row the move rewrites in the new shape
+ * can leave a column on its way out empty.
  */
 final readonly class TableChanges
 {
@@ -54,9 +56,7 @@ final readonly class TableChanges
                 continue;
             }
 
-            foreach ($this->comparator()->compareTables($existing, $table)->getChangedColumns() as $change) {
-                $this->moveColumnAside($existing, $change->getOldColumn()->getName());
-            }
+            $this->moveColumnsAside($existing, $table);
         }
 
         // Moved aside by an earlier run that was cut short.
@@ -121,20 +121,28 @@ final readonly class TableChanges
     }
 
     /**
-     * Renames $column out of the way, once nothing but data hangs on it: its
-     * foreign keys and indexes are dropped with the rename. As a table diff,
-     * Doctrine writes it as each database needs: an ALTER on MySQL, a
-     * rebuilt table on SQLite.
+     * Renames each column of $existing whose type $target changes out of the
+     * way, once nothing but data hangs on it: its foreign keys and indexes
+     * are dropped with the rename, in one table diff. Doctrine writes it as
+     * each database needs: an ALTER on MySQL, a rebuilt table on SQLite.
      */
-    private function moveColumnAside(Table $table, string $column): void {
-        $old = $table->getColumn($column);
-        $renamed = $old->edit()->setUnquotedName(ColumnNames::old($column))->create();
+    private function moveColumnsAside(Table $existing, Table $target): void {
+        $renamed = [];
+        foreach ($this->comparator()->compareTables($existing, $target)->getChangedColumns() as $change) {
+            $old = $change->getOldColumn();
+            $renamed[$old->getName()] = new ColumnDiff($old, $old->edit()->setUnquotedName(ColumnNames::old($old->getName()))->create());
+        }
 
+        if ($renamed === []) {
+            return;
+        }
+
+        $moved = array_keys($renamed);
         $diff = new TableDiff(
-            $table,
-            changedColumns: [$column => new ColumnDiff($old, $renamed)],
-            droppedIndexes: array_values(array_filter($table->getIndexes(), static fn (Index $index): bool => !$index->isPrimary() && in_array($column, $index->getColumns(), true))),
-            droppedForeignKeys: array_values(array_filter($table->getForeignKeys(), static fn (ForeignKeyConstraint $foreignKey): bool => in_array($column, $foreignKey->getLocalColumns(), true))),
+            $existing,
+            changedColumns: $renamed,
+            droppedIndexes: array_values(array_filter($existing->getIndexes(), static fn (Index $index): bool => !$index->isPrimary() && array_intersect($moved, $index->getColumns()) !== [])),
+            droppedForeignKeys: array_values(array_filter($existing->getForeignKeys(), static fn (ForeignKeyConstraint $foreignKey): bool => array_intersect($moved, $foreignKey->getLocalColumns()) !== [])),
         );
 
         $this->execute($this->connection->getDatabasePlatform()->getAlterTableSQL($diff));
