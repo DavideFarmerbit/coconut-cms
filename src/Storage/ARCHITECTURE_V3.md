@@ -658,6 +658,12 @@ holds a MySQL lock.
 editor-created types' content and stored values, which stops a migration
 that would need it.
 
+A change to the CMS's own tables or system columns (`_id`, `_owner`,
+`_position`, a count) isn't migrated. Expand would take a changed system
+column for a field's, move it aside, and fail. While nothing but development
+databases exist, such a change means resetting them. How to migrate one is
+decided once a real database needs it.
+
 ### What a change costs
 
 Content is dense: every value is stored, flagged when touched. So every
