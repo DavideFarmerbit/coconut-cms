@@ -2,6 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Schema;
 
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\TypePermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
@@ -25,6 +26,8 @@ final readonly class EntitySchema
      *        ...)] override, or the derived default when none was given.
      * @param list<UniqueGroup> $uniqueGroups
      * @param PrototypeValidatorRule[] $prototypeValidators
+     * @param TypePermission|null $typePermission This type's own declaration,
+     *        null for none: its ancestors' still apply.
      */
     public function __construct(
         public string $identifier,
@@ -36,6 +39,7 @@ final readonly class EntitySchema
         public FieldValidatorCollection $fieldValidators,
         public array $uniqueGroups,
         public array $prototypeValidators,
+        public ?TypePermission $typePermission = null,
     ) {
     }
 
@@ -78,6 +82,7 @@ final readonly class EntitySchema
             fieldValidators: $this->fieldValidators,
             uniqueGroups: $uniqueGroups,
             prototypeValidators: $this->prototypeValidators,
+            typePermission: $this->typePermission,
         );
     }
 

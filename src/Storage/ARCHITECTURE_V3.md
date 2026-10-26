@@ -16,9 +16,9 @@ Not covered yet:
 
 - migrations, when a schema changes after content is stored;
 - editor-created entities, decided in `PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`;
-- namespaces, undo, and permissions beyond fields (on a whole type, on
-  schemas, on history), for which `archive/ARCHITECTURE_V2.md` and
-  `archive/CLEANUP_FOR_V2_ROUND17.md` still hold the latest design.
+- namespaces, undo, and permissions on schemas and on history, for which
+  `archive/ARCHITECTURE_V2.md` and `archive/CLEANUP_FOR_V2_ROUND17.md` still
+  hold the latest design.
 
 Everything in `archive/` is superseded: the v1 and v2 designs, their roadmaps,
 and their cleanup rounds. Read it for history, or for an area this document
@@ -43,7 +43,7 @@ source requires, is entirely the caller's job, before compile() is ever called.
 
 `EntitySchema` holds only what gets persisted: identifier, parent, table,
 editorExtensible, fields, fieldPermissions, fieldValidators, uniqueGroups,
-prototypeValidators. No object factory, no default values of any kind. Those are
+prototypeValidators, typePermission. No object factory, no default values of any kind. Those are
 the producers' own concern; the compiler reads them off a blueprint, flattens
 them into one key per leaf, and writes the result to `SchemaFieldValueStore`
 (see below) rather than ever carrying them on `EntitySchema` itself.
@@ -716,10 +716,68 @@ $session->save($car);
 $session->query(Car::class)->where('price', Is::lessThan(100))->page();
 ```
 
+Permissions come in two layers. A type's permission decides what an actor may
+do to the type's entities at all. A field's permission then narrows what it
+may read and write, field by field. An action must pass both. A missing role
+means everyone, in both layers.
+
+### Type permissions
+
+A type declares a role per action with `#[TypePermission(read: 'staff',
+create: 'editor', update: 'editor', delete: 'admin')]`:
+
+- `read`: loading one, querying the type.
+- `create`: saving a new one.
+- `update`: saving a stored one with any value changed. A save that changes
+  nothing needs no right.
+- `delete`: deleting one, with everything it owns.
+
+A refused action throws `PermissionDenied`, which names the type and the
+action. Nothing is read or written.
+
+A subtype may declare its own `#[TypePermission]`. Every declaration from the
+type up to its root must hold. So a subtype can only add restrictions: a
+`Truck` can require `fleet` on top of what `Vehicle` requires, but it can't
+open up what `Vehicle` closes. One role per action is enough: "editor or
+admin" is the role system's job, since `hasRole()` can answer true for an
+admin asked about `editor`.
+
+An owned object follows the root of its aggregate. Only the root's type
+permission applies: reading, updating or deleting a car covers its engine. An
+`Engine` type's own permission applies only to an engine saved on its own. A
+stricter rule inside an aggregate is a field permission: on the owning field
+(`#[OwningReference, FieldPermission(write: 'mechanic')] $engine`), or on the
+owned type's fields.
+
+A Reference to an entity the actor may not read loads as a ghost. Its id can
+be read. Any other use throws `PermissionDenied`. Saving the entity holding
+the Reference writes it back unchanged, since a save only needs the id. The
+actor may still point the field elsewhere, if it may write the field.
+`load()` of that entity throws `PermissionDenied`. A null would be worse: it
+means "no target", and a save would then erase the Reference.
+
+Querying:
+
+- A query on a type the actor may not read throws `PermissionDenied`.
+- A subtype it may not read is left out, as if it had no entities. `count()`
+  and pages agree, and every item listed is one it can load. Refusing the
+  query instead would break every `Vehicle` list the day a restricted subtype
+  is added.
+- A path past a Reference to a type it may not read fails like an unknown
+  field.
+- Past a Reference to a type it may read, a target of a subtype it may not
+  read joins as missing: every field past it reads null. A condition on it
+  would otherwise show values the actor can't load.
+
+Finding the subtypes reads every stored schema once per session. That's
+acceptable for now; anything faster is performance work (not built yet).
+
+### Field permissions
+
 A field declares its roles with `#[FieldPermission(read: 'admin', write:
-'editor')]`. A missing role means everyone. The type that declares the field
-holds its permission, and a subtype can't change it. A permission on an
-Embed's field or an owned type's field applies wherever that type is used.
+'editor')]`. The type that declares the field holds its permission, and a
+subtype can't change it. A permission on an Embed's field or an owned type's
+field applies wherever that type is used.
 
 Reading:
 
@@ -757,9 +815,7 @@ a field that doesn't exist, at every step. It fails in a condition, a sort, a
 Collection condition, and inside an `Item`. A condition on a hidden field
 would show its value through which entities match, or in what order.
 
-Field permissions don't cover deleting: a delete changes no field. Deleting
-will need a permission on the whole type, which is decided but not built
-yet. Permissions on a schema or on history are not built yet either.
+Permissions on a schema or on history are not built yet.
 
 ## Querying
 

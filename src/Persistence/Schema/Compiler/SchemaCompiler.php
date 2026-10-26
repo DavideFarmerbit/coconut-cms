@@ -89,6 +89,7 @@ final class SchemaCompiler
                 fieldValidators: $blueprint->fieldValidators,
                 uniqueGroups: $blueprint->uniqueGroups,
                 prototypeValidators: $blueprint->prototypeValidators,
+                typePermission: $blueprint->typePermission,
             );
         }
 

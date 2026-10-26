@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Registry;
 
 use XyloIsCoding\CoconutCms\Core\Identifier;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\TypePermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
@@ -63,6 +64,12 @@ final readonly class EntitySchemaCodec
             'editorExtensible' => $schema->editorExtensible,
             'fields' => $fields,
             'fieldPermissions' => $permissions,
+            'typePermission' => $schema->typePermission === null ? null : [
+                'read' => $schema->typePermission->read,
+                'create' => $schema->typePermission->create,
+                'update' => $schema->typePermission->update,
+                'delete' => $schema->typePermission->delete,
+            ],
             'fieldValidators' => $validators,
             'uniqueGroups' => array_map(
                 static fn (UniqueGroup $group): array => array_map('strval', $group->fields()),
@@ -110,6 +117,12 @@ final readonly class EntitySchemaCodec
             prototypeValidators: array_map(
                 fn (array $rule): object => $this->prototypeValidators->resolve(Identifier::fromString($rule['rule']))::fromStorage($rule['config']),
                 $encoded['prototypeValidators'],
+            ),
+            typePermission: $encoded['typePermission'] === null ? null : new TypePermission(
+                $encoded['typePermission']['read'],
+                $encoded['typePermission']['create'],
+                $encoded['typePermission']['update'],
+                $encoded['typePermission']['delete'],
             ),
         );
     }

@@ -2,6 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Compiler;
 
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\TypePermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ObjectNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
@@ -34,6 +35,7 @@ final readonly class EntityBlueprint
      * @param PrototypeValidatorRule[] $prototypeValidators
      * @param ObjectNode $defaultValues This class's own default instance, every field
      *        it declares or inherits, already read into ValueNodes.
+     * @param TypePermission|null $typePermission This type's own declaration, null for none.
      */
     public function __construct(
         public string $identifier,
@@ -47,6 +49,7 @@ final readonly class EntityBlueprint
         public array $uniqueGroups,
         public array $prototypeValidators,
         public ObjectNode $defaultValues,
+        public ?TypePermission $typePermission = null,
     ) {
     }
 }

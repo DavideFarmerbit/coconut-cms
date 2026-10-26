@@ -40,6 +40,14 @@ final class SchemaRegistry
     }
 
     /**
+     * Every type known: stored, or registered this request.
+     * @return list<string>
+     */
+    public function identifiers(): array {
+        return array_values(array_unique([...$this->store->identifiers(), ...array_keys($this->schemas)]));
+    }
+
+    /**
      * @throws InvalidArgumentException When nothing is stored for $identifier.
      * @throws StaleSchemaException When a stored schema was compiled against a
      *         dependency that has changed since.

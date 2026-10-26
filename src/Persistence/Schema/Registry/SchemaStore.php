@@ -26,6 +26,9 @@ final class SchemaStore
     /** @var array<string, StoredSchema|null> Keyed by identifier. */
     private array $loaded = [];
 
+    /** @var list<string>|null Every stored identifier, once listed; null until then. */
+    private ?array $identifiers = null;
+
     public function __construct(
         private readonly Connection $connection,
         private readonly EntitySchemaCodec $codec,
@@ -42,7 +45,7 @@ final class SchemaStore
         $table->setPrimaryKey(['identifier']);
 
         $this->connection->createSchemaManager()->createTable($table);
-        $this->loaded = [];
+        $this->forgetLoaded();
     }
 
     /** Creates the table unless it exists: what a migration does on any database. */
@@ -58,7 +61,7 @@ final class SchemaStore
             $schemaManager->dropTable(self::TABLE);
         }
 
-        $this->loaded = [];
+        $this->forgetLoaded();
     }
 
     /**
@@ -84,6 +87,7 @@ final class SchemaStore
         foreach ($schemas as $stored) {
             unset($this->loaded[$stored->schema->identifier]);
         }
+        $this->identifiers = null;
 
         $this->connection->transactional(function (Connection $connection) use ($schemas): void {
             foreach ($schemas as $stored) {
@@ -105,6 +109,7 @@ final class SchemaStore
      * @param list<string> $identifiers
      */
     public function deleteAll(array $identifiers): void {
+        $this->identifiers = null;
         foreach ($identifiers as $identifier) {
             unset($this->loaded[$identifier]);
             $this->connection->delete(self::TABLE, ['identifier' => $identifier]);
@@ -117,6 +122,7 @@ final class SchemaStore
      */
     public function forgetLoaded(): void {
         $this->loaded = [];
+        $this->identifiers = null;
     }
 
     /** Null when nothing is stored for $identifier. */
@@ -144,9 +150,16 @@ final class SchemaStore
      * @return list<StoredSchema>
      */
     public function all(): array {
-        $identifiers = $this->connection->fetchFirstColumn(sprintf('SELECT identifier FROM %s ORDER BY identifier', $this->connection->quoteSingleIdentifier(self::TABLE)));
+        return array_map(fn (string $identifier): StoredSchema => $this->load($identifier), $this->identifiers());
+    }
 
-        return array_map(fn (string $identifier): StoredSchema => $this->load($identifier), $identifiers);
+    /**
+     * Every stored identifier, of every source, in order: remembered like a
+     * load.
+     * @return list<string>
+     */
+    public function identifiers(): array {
+        return $this->identifiers ??= $this->connection->fetchFirstColumn(sprintf('SELECT identifier FROM %s ORDER BY identifier', $this->connection->quoteSingleIdentifier(self::TABLE)));
     }
 
     /**

@@ -11,6 +11,7 @@ use ReflectionNamedType;
 use ReflectionProperty;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\PrototypeValidator;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\TypePermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Unique;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
@@ -87,6 +88,8 @@ final class NativeEntityReader
             uniqueGroups: $uniqueGroups,
             prototypeValidators: $prototypeValidators,
             defaultValues: self::defaultValuesReader()->read($defaultInstance),
+            // The class's own only: an ancestor's applies through the ancestor.
+            typePermission: ($reflection->getAttributes(TypePermission::class)[0] ?? null)?->newInstance(),
         );
     }
 

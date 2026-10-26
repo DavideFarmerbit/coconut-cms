@@ -8,11 +8,13 @@ use XyloIsCoding\CoconutCms\Persistence\Module;
 use XyloIsCoding\CoconutCms\Persistence\Permission\Actor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\PrototypeValidator;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\TypePermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Id;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
@@ -52,7 +54,8 @@ final readonly class PermSecretNeedsInternal implements PrototypeValidatorRule
     }
 }
 
-#[Entity(identifier: 'perm:engine')]
+/** Guarded on its own; owned by a car or a document, it follows them. */
+#[Entity(identifier: 'perm:engine'), TypePermission(read: 'engine-room', create: 'engine-room', update: 'engine-room', delete: 'engine-room')]
 final class PermEngine
 {
     #[Id]
@@ -84,6 +87,43 @@ final class PermLabel
     public string $note = '';
 }
 
+/** Open to everyone. */
+#[Entity(identifier: 'perm:maker')]
+class PermMaker
+{
+    #[Id]
+    public ?string $id = null;
+
+    #[Scalar(ScalarType::String)]
+    public string $name = '';
+}
+
+/** A subtype only admins read. */
+#[Entity(identifier: 'perm:secret_maker'), TypePermission(read: 'admin')]
+class PermSecretMaker extends PermMaker
+{
+}
+
+/** Declares its own role too: both must hold, so it can't open up its parent. */
+#[Entity(identifier: 'perm:partner_maker'), TypePermission(read: 'partner')]
+final class PermPartnerMaker extends PermSecretMaker
+{
+}
+
+/** A role for each action. */
+#[Entity(identifier: 'perm:document'), TypePermission(read: 'reader', create: 'creator', update: 'editor', delete: 'remover')]
+final class PermDocument
+{
+    #[Id]
+    public ?string $id = null;
+
+    #[Scalar(ScalarType::String)]
+    public string $title = '';
+
+    #[OwningReference]
+    public ?PermEngine $engine = null;
+}
+
 #[Entity(identifier: 'perm:car'), PrototypeValidator(new PermSecretNeedsInternal())]
 final class PermCar
 {
@@ -112,6 +152,12 @@ final class PermCar
     #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String, itemNullability: Nullability::NotNullable), FieldPermission(read: 'admin')]
     public array $codes = [];
 
+    #[Reference]
+    public ?PermMaker $maker = null;
+
+    #[Reference]
+    public ?PermDocument $document = null;
+
     public function __construct() {
         $this->chassis = new PermChassis();
     }
@@ -128,7 +174,7 @@ final class PermReadonlySecret
 /** The permission tests' types. */
 final class PermissionFixtures
 {
-    public const CLASSES = [PermEngine::class, PermChassis::class, PermLabel::class, PermCar::class];
+    public const CLASSES = [PermEngine::class, PermChassis::class, PermLabel::class, PermMaker::class, PermSecretMaker::class, PermPartnerMaker::class, PermDocument::class, PermCar::class];
 }
 
 final class PermissionModule implements Module

@@ -13,7 +13,9 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
+use XyloIsCoding\CoconutCms\Persistence\Permission\PermissionDenied;
 use XyloIsCoding\CoconutCms\Persistence\Permission\Permissions;
+use XyloIsCoding\CoconutCms\Persistence\Permission\TypeAction;
 use XyloIsCoding\CoconutCms\Persistence\Platform\DatabasePlatform;
 use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
@@ -35,6 +37,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
  * Pages are keyset pages: a cursor holds the last entity's sort values and
  * id, and the next page starts strictly after them. A null sorts lowest, on
  * every supported database.
+ *
+ * A query on a type its actor may not read throws PermissionDenied; a
+ * subtype it may not read is left out.
  */
 final class QueryRunner
 {
@@ -143,10 +148,20 @@ final class QueryRunner
             throw new InvalidArgumentException(sprintf('There is no type "%s" to query.', $query->identifier));
         }
 
+        if (!$this->permissions->may($query->identifier, TypeAction::Read)) {
+            throw PermissionDenied::ofType($query->identifier, TypeAction::Read);
+        }
+
         $builder = $this->connection->createQueryBuilder()
             ->from($this->quoted(DatabaseSchema::ENTITIES), 'e')
             // A standalone entity is owned by Cms through no field.
             ->where("e.owner_field = ''");
+
+        // A subtype the actor may not read is left out, as if it had no entities.
+        $unreadable = $this->permissions->unreadableUnder($query->identifier);
+        if ($unreadable !== []) {
+            $builder->andWhere(sprintf('e.concrete_identifier NOT IN (%s)', $builder->createNamedParameter($unreadable, ArrayParameterType::STRING)));
+        }
         $joins = Joins::forEntities($builder, $builder, $this->connection, $this->chains, $this->schemas, $this->permissions, $query->identifier, 'e', '');
 
         foreach ($query->conditions as [$path, $condition]) {

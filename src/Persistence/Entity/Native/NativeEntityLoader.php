@@ -8,7 +8,9 @@ use ReflectionProperty;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
 use XyloIsCoding\CoconutCms\Persistence\Entity\LoadedEntity;
+use XyloIsCoding\CoconutCms\Persistence\Permission\PermissionDenied;
 use XyloIsCoding\CoconutCms\Persistence\Permission\Permissions;
+use XyloIsCoding\CoconutCms\Persistence\Permission\TypeAction;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\IdProperty;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
@@ -23,6 +25,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
  * One object per id: loading an id already in the IdentityMap gives that
  * object. A field its reader may not read stays unset; its stored value waits
  * in HiddenValues for the save.
+ *
+ * An entity whose aggregate root's type the reader may not read is refused:
+ * load() throws PermissionDenied, and a Reference to it holds a ghost whose
+ * id can be read and whose first other use throws.
  */
 final class NativeEntityLoader
 {
@@ -31,16 +37,20 @@ final class NativeEntityLoader
     /** @var array<string, string> Each referenced id's concrete identifier, looked up while loading. */
     private array $referencedIdentifiers = [];
 
+    /** @var array<string, string> Each id seen whose root type the reader may not read, with that type. */
+    private array $denied = [];
+
     /**
      * @param NativeEntityRegistry $classes Turns a stored identifier into the class to build.
-     * @param Permissions|null $permissions What the reader may read: a field it
-     *        may not stays unset, its value kept in $hidden. Null for everything.
+     * @param Permissions|null $permissions What the reader may read: a type it
+     *        may not is refused; a field it may not stays unset, its value kept
+     *        in $hidden. Null for everything.
      */
     public function __construct(
         private readonly EntityReader $reader,
         private readonly NativeEntityRegistry $classes,
         private readonly IdentityMap $identities,
-        ?Permissions $permissions = null,
+        private readonly ?Permissions $permissions = null,
         private readonly ?HiddenValues $hidden = null,
     ) {
         $readable = $permissions === null ? null : static fn (ReflectionProperty $property): bool => $permissions->canRead(
@@ -50,11 +60,27 @@ final class NativeEntityLoader
         $this->builder = new NativeObjectBuilder($classes, $this->referenceOf(...), $readable);
     }
 
-    /** The entity with $id, or null when there's none. */
+    /** The entity with $id, or null when there's none. Throws PermissionDenied for one the reader may not read. */
     public function load(string $id): ?object {
+        if (isset($this->denied[$id])) {
+            throw PermissionDenied::ofType($this->denied[$id], TypeAction::Read);
+        }
+
         $known = $this->identities->objectOf($id);
         if ($known !== null) {
             return $known;
+        }
+
+        if ($this->permissions !== null) {
+            $root = $this->reader->rootIdentifiersOf([$id])[$id] ?? null;
+            if ($root === null) {
+                return null;
+            }
+
+            if (!$this->permissions->may($root, TypeAction::Read)) {
+                $this->denied[$id] = $root;
+                throw PermissionDenied::ofType($root, TypeAction::Read);
+            }
         }
 
         $loaded = $this->reader->read($id);
@@ -108,7 +134,12 @@ final class NativeEntityLoader
         }
 
         $class = $this->classes->classOf($identifier);
-        $ghost = (new ReflectionClass($class))->newLazyGhost(function (object $ghost) use ($id): void {
+        $denied = $this->denied[$id] ?? null;
+        $ghost = (new ReflectionClass($class))->newLazyGhost(function (object $ghost) use ($id, $denied): void {
+            if ($denied !== null) {
+                throw PermissionDenied::ofType($denied, TypeAction::Read);
+            }
+
             $loaded = $this->reader->read($id) ?? throw new LogicException(sprintf('Entity %s was deleted before its reference was first used.', $id));
             $this->build($ghost, $loaded);
         });
@@ -136,7 +167,8 @@ final class NativeEntityLoader
 
     /**
      * Looks up the concrete identifier of every id in $ids not known yet, in
-     * one query: a ghost must be created as its final class.
+     * one query: a ghost must be created as its final class. Then which of
+     * them the reader may not read, by their roots' types.
      * @param list<string> $ids
      */
     private function lookUpReferencedIdentifiers(array $ids): void {
@@ -146,5 +178,13 @@ final class NativeEntityLoader
         ));
 
         $this->referencedIdentifiers = [...$this->referencedIdentifiers, ...$this->reader->identifiersOf($unknown)];
+
+        if ($this->permissions !== null) {
+            foreach ($this->reader->rootIdentifiersOf($unknown) as $id => $root) {
+                if (!$this->permissions->may($root, TypeAction::Read)) {
+                    $this->denied[$id] = $root;
+                }
+            }
+        }
     }
 }

@@ -2,6 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Query;
 
+use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Query\QueryBuilder;
 use InvalidArgumentException;
@@ -12,6 +13,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\OwnedLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ValueColumn;
 use XyloIsCoding\CoconutCms\Persistence\Permission\Permissions;
+use XyloIsCoding\CoconutCms\Persistence\Permission\TypeAction;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
@@ -32,7 +34,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
  *
  * A field the actor may not read is refused the same way as one that doesn't
  * exist, at every step of a path: a condition or a sort on it would show its
- * values through which entities match, or in what order.
+ * values through which entities match, or in what order. So is a step past a
+ * Reference to a type it may not read; a target of a subtype it may not read
+ * joins as missing.
  */
 final class Joins
 {
@@ -236,10 +240,15 @@ final class Joins
     /**
      * Throws, as for a field that doesn't exist, unless the actor may read
      * every field $step names in $place, through any Embeds:
-     * "chassis:weight" is both chassis and its weight.
-     * @param array{type: ?string, id: ?string, levels: list<string>, columns?: list<array{string, ValueColumn}>, itemType?: ?string} $place
+     * "chassis:weight" is both chassis and its weight. Throws for any step
+     * in a place of a type it may not read.
+     * @param array{type: ?string, id: ?string, levels: list<string>, columns?: list<array{string, ValueColumn}>, itemType?: ?string, denied?: true} $place
      */
     private function assertReadable(array $place, string $step, string $path): void {
+        if ($place['denied'] ?? false) {
+            throw self::unknown($path, sprintf('its actor may not read a %s', $place['type']));
+        }
+
         $type = $place['type'] ?? $place['itemType'] ?? null;
         foreach (explode(':', $step) as $segment) {
             if ($type === null || !$this->schemas->hierarchyFieldsOf($type)->has(FieldName::of($segment))) {
@@ -325,11 +334,31 @@ final class Joins
     }
 
     /**
-     * Joins the levels of the $type entity a Reference column points at.
-     * @return array{type: string, id: string, levels: list<string>}
+     * Joins the levels of the $type entity a Reference column points at. A
+     * $type the actor may not read joins nothing: any path past it is
+     * refused. A target of a subtype it may not read joins as missing, so
+     * every field past it reads null.
+     * @return array{type: string, id: string, levels: list<string>, denied?: true}
      */
     private function joinReferenced(string $referenceColumn, string $type): array {
-        return ['type' => $type, 'id' => $referenceColumn, 'levels' => $this->joinLevels($type, $referenceColumn)];
+        if (!$this->permissions->may($type, TypeAction::Read)) {
+            return ['type' => $type, 'id' => $referenceColumn, 'levels' => [], 'denied' => true];
+        }
+
+        $unreadable = $this->permissions->unreadableUnder($type);
+        if ($unreadable === []) {
+            return ['type' => $type, 'id' => $referenceColumn, 'levels' => $this->joinLevels($type, $referenceColumn)];
+        }
+
+        $alias = $this->prefix . 'r' . $this->joined++;
+        $this->builder->leftJoin($this->from, $this->quoted(DatabaseSchema::ENTITIES), $alias, sprintf(
+            '%1$s.id = %2$s AND %1$s.concrete_identifier NOT IN (%3$s)',
+            $alias,
+            $referenceColumn,
+            $this->parameters->createNamedParameter($unreadable, ArrayParameterType::STRING),
+        ));
+
+        return ['type' => $type, 'id' => $alias . '.id', 'levels' => $this->joinLevels($type, $alias . '.id')];
     }
 
     /**

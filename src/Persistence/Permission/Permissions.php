@@ -10,16 +10,64 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 
 /**
- * What one actor may read and write, field by field, as each field's
- * #[FieldPermission] declares it on the type declaring the field. A field
- * declaring no role for an access is open to everyone.
+ * What one actor may do: to a type's entities, as each #[TypePermission]
+ * from the type up to its root declares it; and to each field, as its
+ * #[FieldPermission] declares it on the type declaring the field. No role
+ * declared for an action means everyone.
  */
-final readonly class Permissions
+final class Permissions
 {
+    /** @var array<string, list<string>> unreadableUnder()'s answers, by type. */
+    private array $unreadable = [];
+
     public function __construct(
-        private SchemaLookup $schemas,
-        private Actor $actor,
+        private readonly SchemaLookup $schemas,
+        private readonly Actor $actor,
     ) {
+    }
+
+    /** Whether the actor may do $action to a $type: every declaration from $type up to its root must hold. */
+    public function may(string $type, TypeAction $action): bool {
+        for ($current = $type; $current !== null; $current = $schema->parent) {
+            $schema = $this->schemas->get($current);
+            $role = $schema->typePermission?->roleFor($action);
+            if ($role !== null && !$this->actor->hasRole($role)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * $type and every type extending it that the actor may not read: what a
+     * query on $type, or a Reference to it, leaves out.
+     * @return list<string>
+     */
+    public function unreadableUnder(string $type): array {
+        if (isset($this->unreadable[$type])) {
+            return $this->unreadable[$type];
+        }
+
+        $unreadable = [];
+        foreach ($this->schemas->identifiers() as $candidate) {
+            if ($this->extends($candidate, $type) && !$this->may($candidate, TypeAction::Read)) {
+                $unreadable[] = $candidate;
+            }
+        }
+
+        return $this->unreadable[$type] = $unreadable;
+    }
+
+    /** Whether $type is $ancestor or extends it. */
+    private function extends(string $type, string $ancestor): bool {
+        for ($current = $type; $current !== null; $current = $this->schemas->get($current)->parent) {
+            if ($current === $ancestor) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Whether the actor may read field $name of type $type, declared on it or an ancestor. */

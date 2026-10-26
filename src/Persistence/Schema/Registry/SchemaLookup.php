@@ -28,6 +28,14 @@ final readonly class SchemaLookup
         return $this->batch[$identifier] ?? $this->registry->get($identifier);
     }
 
+    /**
+     * Every type known: the batch's and the registry's.
+     * @return list<string>
+     */
+    public function identifiers(): array {
+        return array_values(array_unique([...array_keys($this->batch), ...$this->registry->identifiers()]));
+    }
+
     /** $identifier's own fields plus everything it inherits, all the way up. */
     public function hierarchyFieldsOf(string $identifier): FieldDescriptorCollection {
         $schema = $this->get($identifier);

@@ -16,6 +16,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsReader;
 use XyloIsCoding\CoconutCms\Persistence\Permission\PermissionDenied;
 use XyloIsCoding\CoconutCms\Persistence\Permission\Permissions;
+use XyloIsCoding\CoconutCms\Persistence\Permission\TypeAction;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolver;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Subject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
@@ -194,32 +195,61 @@ final class EntityWriter
     }
 
     /**
-     * Throws PermissionDenied when $values change a field the writer may not
-     * write: from what's stored, or from the type's defaults for a new entity.
-     * Read after the aggregate is locked, so nothing changes it meanwhile.
+     * Throws PermissionDenied when the writer may not create a new entity of
+     * the type, may not update a stored one that $values change, or when
+     * $values change a field it may not write: from what's stored, or from the
+     * type's defaults for a new entity. Read after the aggregate is locked, so
+     * nothing changes it meanwhile.
      */
     private function assertPermitted(EntityValues $values, string $id, bool $isStored): void {
         if ($this->permissions === null) {
             return;
         }
 
+        if (!$isStored && !$this->permissions->may($values->identifier, TypeAction::Create)) {
+            throw PermissionDenied::ofType($values->identifier, TypeAction::Create);
+        }
+
         $old = $isStored
             ? (new EntityRowsReader($this->connection, $this->schemas))->read($id)->values
             : (new ValueFlattener($this->schemas))->flatten($values->identifier, $this->defaults->resolveTree(Subject::of($values->identifier)));
 
+        // A save changing nothing is no update: it needs no right.
+        if ($isStored && !$this->permissions->may($values->identifier, TypeAction::Update) && self::sorted($values->dense->toArray()) !== self::sorted($old->toArray())) {
+            throw PermissionDenied::ofType($values->identifier, TypeAction::Update);
+        }
+
         $denied = $this->permissions->deniedWrites($values->identifier, $values->dense, $old);
         if ($denied !== []) {
-            throw new PermissionDenied($values->identifier, $denied);
+            throw PermissionDenied::ofFields($values->identifier, $denied);
         }
     }
 
     /**
+     * @param array<string, mixed> $values
+     * @return array<string, mixed> $values by path: two sets compare the same whatever order they were built in.
+     */
+    private static function sorted(array $values): array {
+        ksort($values, SORT_STRING);
+
+        return $values;
+    }
+
+    /**
      * Deletes entity $id and everything it owns. Nothing happens when it was
-     * never stored.
+     * never stored. Throws PermissionDenied when the writer may not delete
+     * its type.
      * @return list<string> The id of every entity deleted, $id included.
      */
     public function delete(string $id): array {
-        return $this->transactional(fn (): array => $this->deleteDeepestFirst($this->lockedAggregateOf($id)));
+        return $this->transactional(function () use ($id): array {
+            $aggregate = $this->lockedAggregateOf($id);
+            if ($aggregate !== [] && $this->permissions !== null && !$this->permissions->may($aggregate[$id]['concrete_identifier'], TypeAction::Delete)) {
+                throw PermissionDenied::ofType($aggregate[$id]['concrete_identifier'], TypeAction::Delete);
+            }
+
+            return $this->deleteDeepestFirst($aggregate);
+        });
     }
 
     /**
