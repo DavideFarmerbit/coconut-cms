@@ -28,7 +28,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
  * default instance is built once, then for every object a clone of it gives
  * the non-field state, fresh where the class's __clone() says so, and every
  * field is set from the tree. Fields are set exactly once, so a readonly one
- * works too.
+ * works too. A field its reader may not read is never set: the property stays
+ * uninitialized, and reading it fails loudly.
  */
 final class NativeObjectBuilder
 {
@@ -41,10 +42,13 @@ final class NativeObjectBuilder
      * @param Closure(class-string, string): ?object $referenceOf The object a
      *        Reference holds: given the field's declared class and the stored
      *        id. Null when the target no longer exists.
+     * @param Closure(ReflectionProperty): bool|null $readable Whether a field
+     *        may be read; null for every field.
      */
     public function __construct(
         private readonly NativeEntityRegistry $classes,
         private readonly Closure $referenceOf,
+        private readonly ?Closure $readable = null,
     ) {
     }
 
@@ -54,17 +58,22 @@ final class NativeObjectBuilder
      *        as a lazy ghost being initialized; a new one when null.
      * @param Closure(FieldPath, object): void|null $onOwned Told about every
      *        owned object built, with its path from $class.
+     * @param Closure(object, string, FieldPath, ?ValueNode): void|null $onHidden
+     *        Told about every field left unset, with its object, its name, its
+     *        path from $class, and what it holds.
      */
-    public function build(string $class, ObjectNode $tree, ?object $into = null, ?Closure $onOwned = null): object {
-        return $this->buildAs(new ReflectionClass($class), $tree, $into, FieldPath::of(...), $onOwned ?? static function (): void {
-        });
+    public function build(string $class, ObjectNode $tree, ?object $into = null, ?Closure $onOwned = null, ?Closure $onHidden = null): object {
+        $nothing = static function (): void {
+        };
+
+        return $this->buildAs(new ReflectionClass($class), $tree, $into, FieldPath::of(...), $onOwned ?? $nothing, $onHidden ?? $nothing);
     }
 
     /**
      * @param ReflectionClass<object> $class
      * @param Closure(FieldName): FieldPath $pathOf Turns one of $class's field names into its path.
      */
-    private function buildAs(ReflectionClass $class, ObjectNode $tree, ?object $into, Closure $pathOf, Closure $onOwned): object {
+    private function buildAs(ReflectionClass $class, ObjectNode $tree, ?object $into, Closure $pathOf, Closure $onOwned, Closure $onHidden): object {
         $object = $into ?? $class->newInstanceWithoutConstructor();
         $fields = NativeFields::of($class);
 
@@ -77,22 +86,39 @@ final class NativeObjectBuilder
 
         foreach ($fields as $property) {
             $name = FieldName::of($property->getName());
+            if ($this->readable !== null && !($this->readable)($property)) {
+                self::unset($object, $property);
+                $onHidden($object, $property->getName(), $pathOf($name), $tree->find($name));
+                continue;
+            }
+
             $attribute = NativeFields::kindAttributesOf($property)[0]->newInstance();
-            $property->setValue($object, $this->valueOf($attribute, $property, $tree->find($name), $pathOf($name), $onOwned));
+            $property->setValue($object, $this->valueOf($attribute, $property, $tree->find($name), $pathOf($name), $onOwned, $onHidden));
         }
 
         return $object;
     }
 
     /** Dispatches on the field's kind. */
-    private function valueOf(object $attribute, ReflectionProperty $property, ?ValueNode $node, FieldPath $path, Closure $onOwned): mixed {
+    /**
+     * Leaves $property of $object unset. A property with a default holds it
+     * from the start, in a new instance and in a ghost being initialized.
+     */
+    private static function unset(object $object, ReflectionProperty $property): void {
+        // Bound to the declaring class, so a private property can be unset too.
+        Closure::bind(static function (object $object, string $name): void {
+            unset($object->{$name});
+        }, null, $property->getDeclaringClass()->getName())($object, $property->getName());
+    }
+
+    private function valueOf(object $attribute, ReflectionProperty $property, ?ValueNode $node, FieldPath $path, Closure $onOwned, Closure $onHidden): mixed {
         return match (true) {
             $attribute instanceof Scalar => ScalarValues::fromStorage($attribute->type, self::declaredClassOf($property), LeafNode::valueOf($node)),
             $attribute instanceof ValueObject => self::valueObjectOf(self::declaredClassOf($property), LeafNode::valueOf($node)),
             $attribute instanceof Reference => $this->referenceOf(self::declaredClassOf($property), LeafNode::valueOf($node)),
-            $attribute instanceof Embed => $this->buildAs(new ReflectionClass(self::declaredClassOf($property)), ObjectNode::from($node) ?? ObjectNode::empty(), null, $path->embed(...), $onOwned),
-            $attribute instanceof OwningReference => $this->ownedOf(OwnedNode::from($node), $path, $onOwned),
-            $attribute instanceof Collection => $this->itemsOf($attribute, CollectionNode::from($node)?->items ?? [], $path, $onOwned),
+            $attribute instanceof Embed => $this->buildAs(new ReflectionClass(self::declaredClassOf($property)), ObjectNode::from($node) ?? ObjectNode::empty(), null, $path->embed(...), $onOwned, $onHidden),
+            $attribute instanceof OwningReference => $this->ownedOf(OwnedNode::from($node), $path, $onOwned, $onHidden),
+            $attribute instanceof Collection => $this->itemsOf($attribute, CollectionNode::from($node)?->items ?? [], $path, $onOwned, $onHidden),
         };
     }
 
@@ -100,7 +126,7 @@ final class NativeObjectBuilder
      * @param list<ValueNode|null> $items
      * @return list<mixed>
      */
-    private function itemsOf(Collection $attribute, array $items, FieldPath $path, Closure $onOwned): array {
+    private function itemsOf(Collection $attribute, array $items, FieldPath $path, Closure $onOwned, Closure $onHidden): array {
         $built = [];
         foreach ($items as $index => $item) {
             $itemPath = $path->traverse($index);
@@ -108,20 +134,20 @@ final class NativeObjectBuilder
                 FieldKind::Scalar => ScalarValues::fromStorage($attribute->itemScalarType, $attribute->itemEnumClass, LeafNode::valueOf($item)),
                 FieldKind::ValueObject => self::valueObjectOf($attribute->itemTarget, LeafNode::valueOf($item)),
                 FieldKind::Reference => $this->referenceOf($attribute->itemTarget, LeafNode::valueOf($item)),
-                FieldKind::Embed => $this->buildAs(new ReflectionClass($attribute->itemTarget), ObjectNode::from($item) ?? ObjectNode::empty(), null, $itemPath->traverse(...), $onOwned),
-                FieldKind::OwningReference => $this->ownedOf(OwnedNode::from($item), $itemPath, $onOwned),
+                FieldKind::Embed => $this->buildAs(new ReflectionClass($attribute->itemTarget), ObjectNode::from($item) ?? ObjectNode::empty(), null, $itemPath->traverse(...), $onOwned, $onHidden),
+                FieldKind::OwningReference => $this->ownedOf(OwnedNode::from($item), $itemPath, $onOwned, $onHidden),
             };
         }
 
         return $built;
     }
 
-    private function ownedOf(?OwnedNode $node, FieldPath $path, Closure $onOwned): ?object {
+    private function ownedOf(?OwnedNode $node, FieldPath $path, Closure $onOwned, Closure $onHidden): ?object {
         if ($node === null) {
             return null;
         }
 
-        $owned = $this->buildAs(new ReflectionClass($this->classes->classOf($node->identifier)), $node->fields, null, $path->traverse(...), $onOwned);
+        $owned = $this->buildAs(new ReflectionClass($this->classes->classOf($node->identifier)), $node->fields, null, $path->traverse(...), $onOwned, $onHidden);
         $onOwned($path, $owned);
 
         return $owned;

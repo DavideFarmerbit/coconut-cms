@@ -13,6 +13,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
+use XyloIsCoding\CoconutCms\Persistence\Permission\Permissions;
 use XyloIsCoding\CoconutCms\Persistence\Platform\DatabasePlatform;
 use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
@@ -49,10 +50,12 @@ final class QueryRunner
     /**
      * @param Closure(string): ?object $load Loads an entity by id, the way Persistence::load() does.
      * @param Closure(): void $guard Throws while entities can't be read.
+     * @param Permissions $permissions What the actor may read: a path through any other field is refused.
      */
     public function __construct(
         private readonly Connection $connection,
         private readonly SchemaLookup $schemas,
+        private readonly Permissions $permissions,
         private readonly IdentityMap $identities,
         private readonly Closure $load,
         private readonly Closure $guard,
@@ -144,7 +147,7 @@ final class QueryRunner
             ->from($this->quoted(DatabaseSchema::ENTITIES), 'e')
             // A standalone entity is owned by Cms through no field.
             ->where("e.owner_field = ''");
-        $joins = Joins::forEntities($builder, $builder, $this->connection, $this->chains, $this->schemas, $query->identifier, 'e', '');
+        $joins = Joins::forEntities($builder, $builder, $this->connection, $this->chains, $this->schemas, $this->permissions, $query->identifier, 'e', '');
 
         foreach ($query->conditions as [$path, $condition]) {
             [$column, $field] = $joins->column($path);
@@ -187,12 +190,12 @@ final class QueryRunner
             $items->from($this->quoted(DatabaseSchema::ENTITIES), $from)
                 ->where(sprintf('%s.owner = %s', $from, $collection['owner']))
                 ->andWhere(sprintf('%s.owner_field = %s', $from, $main->createNamedParameter($collection['owned']->ownerField())));
-            $itemJoins = Joins::forEntities($items, $main, $this->connection, $this->chains, $this->schemas, $collection['item']->target(), $from, $prefix);
+            $itemJoins = Joins::forEntities($items, $main, $this->connection, $this->chains, $this->schemas, $this->permissions, $collection['item']->target(), $from, $prefix);
         } else {
             $from = $prefix . 'c';
             $items->from($this->quoted($collection['values']->table), $from)
                 ->where(sprintf('%s.%s = %s', $from, $this->quoted(ColumnNames::OWNER), $collection['owner']));
-            $itemJoins = Joins::forItems($items, $main, $this->connection, $this->chains, $this->schemas, $collection['values'], $collection['item'], $from, $prefix);
+            $itemJoins = Joins::forItems($items, $main, $this->connection, $this->chains, $this->schemas, $this->permissions, $collection['values'], $collection['item'], $from, $prefix);
         }
 
         if ($condition->item !== null) {

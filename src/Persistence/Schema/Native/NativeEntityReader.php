@@ -424,7 +424,16 @@ final class NativeEntityReader
                 ));
             }
 
-            $permissions[$property->getName()] = $attributes[0]->newInstance();
+            $permission = $attributes[0]->newInstance();
+            if ($permission->read !== null && $property->isReadOnly()) {
+                throw new InvalidArgumentException(sprintf(
+                    '%s::$%s is readonly and has a read permission: a load hides a field from an actor by leaving it unset, which a readonly property can\'t be.',
+                    $reflection->getName(),
+                    $property->getName(),
+                ));
+            }
+
+            $permissions[$property->getName()] = $permission;
         }
 
         return FieldPermissionCollection::fromArray($permissions);

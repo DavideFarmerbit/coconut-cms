@@ -5,13 +5,15 @@ namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Validation;
 use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Entity\ValidationFailed;
+use XyloIsCoding\CoconutCms\Persistence\Permission\SystemActor;
 use XyloIsCoding\CoconutCms\Persistence\Persistence;
+use XyloIsCoding\CoconutCms\Persistence\PersistenceSession;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 
 final class ValidationTest extends TestCase
 {
     private Connection $connection;
-    private Persistence $persistence;
+    private PersistenceSession $session;
 
     protected function setUp(): void {
         $this->connection = TestDatabase::connect();
@@ -19,8 +21,9 @@ final class ValidationTest extends TestCase
         // The fixture file holds several classes: load it by its own.
         class_exists(ValidationFixtures::class);
 
-        $this->persistence = Persistence::boot($this->connection, [new ValidationModule()]);
-        $this->persistence->migrate();
+        $persistence = Persistence::boot($this->connection, [new ValidationModule()]);
+        $persistence->migrate();
+        $this->session = $persistence->as(new SystemActor());
     }
 
     protected function tearDown(): void {
@@ -39,7 +42,7 @@ final class ValidationTest extends TestCase
     /** @return array<string, list<string>> What saving $entity failed with. */
     private function errorsSaving(object $entity): array {
         try {
-            $this->persistence->save($entity);
+            $this->session->save($entity);
         } catch (ValidationFailed $failed) {
             return $failed->errors;
         }
@@ -70,7 +73,7 @@ final class ValidationTest extends TestCase
     }
 
     public function testAUniqueGroupTheDatabaseRefusesNamesItsField(): void {
-        $this->persistence->save(self::product('A-1'));
+        $this->session->save(self::product('A-1'));
 
         self::assertSame(['code' => ['must be unique: another entity already has it']], $this->errorsSaving(self::product('A-1')));
     }
@@ -78,17 +81,17 @@ final class ValidationTest extends TestCase
     public function testAnEntitySavedAgainNeverConflictsWithItself(): void {
         $product = self::product('A-1', 'first');
         $product->parts = [self::part('S-1')];
-        $this->persistence->save($product);
+        $this->session->save($product);
 
         $product->parts = [self::part('S-1')];
-        self::assertNotNull($this->persistence->save($product), 'A new part with the old one\'s serial, in the same save that drops it.');
+        self::assertNotNull($this->session->save($product), 'A new part with the old one\'s serial, in the same save that drops it.');
     }
 
     public function testNullsNeverConflict(): void {
-        $this->persistence->save(self::product('A-1'));
-        $this->persistence->save(self::product('A-2'));
+        $this->session->save(self::product('A-1'));
+        $this->session->save(self::product('A-2'));
 
-        self::assertSame(2, $this->persistence->query(ValProduct::class)->count());
+        self::assertSame(2, $this->session->query(ValProduct::class)->count());
     }
 
     public function testTwoItemsOfOneSaveConflictingNameTheSecond(): void {
@@ -107,14 +110,14 @@ final class ValidationTest extends TestCase
         $second = self::product('A-2');
         $second->parts = [self::part('S-1')];
 
-        $this->persistence->save($first);
-        self::assertNotNull($this->persistence->save($second));
+        $this->session->save($first);
+        self::assertNotNull($this->session->save($second));
     }
 
     public function testAValidEntityIsSaved(): void {
-        $id = $this->persistence->save(self::valid());
+        $id = $this->session->save(self::valid());
 
-        self::assertNotNull($this->persistence->load($id));
+        self::assertNotNull($this->session->load($id));
     }
 
     public function testAnUntouchedValueIsCheckedToo(): void {
@@ -144,7 +147,7 @@ final class ValidationTest extends TestCase
         self::assertSame(['engine' => [sprintf('must be a %s', ValTurboEngine::class)]], $this->errorsSaving($vehicle));
 
         $vehicle->engine = new ValTurboEngine();
-        self::assertNotNull($this->persistence->save($vehicle));
+        self::assertNotNull($this->session->save($vehicle));
     }
 
     public function testAnOwnedObjectIsCheckedWithItsOwnTypesRules(): void {

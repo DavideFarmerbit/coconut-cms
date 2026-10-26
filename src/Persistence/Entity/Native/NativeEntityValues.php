@@ -15,6 +15,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolve
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Overrides;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Subject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
 
 /**
@@ -43,10 +44,12 @@ final readonly class NativeEntityValues
     /**
      * @param Closure(FieldPath, object): void|null $onOwned Told about every
      *        owned object read, with its path from $entity's class.
+     * @param Closure(object, string, FieldPath): ?ValueNode|null $kept What
+     *        an uninitialized field holds: the value a load hid.
      */
-    public function of(object $entity, ?Closure $onOwned = null): EntityValues {
+    public function of(object $entity, ?Closure $onOwned = null, ?Closure $kept = null): EntityValues {
         $identifier = NativeIdentifiers::of($entity::class);
-        $tree = $this->reader->read($entity, $onOwned);
+        $tree = $this->reader->read($entity, $onOwned, $kept);
         $dense = (new ValueFlattener($this->schemas))->flatten($identifier, $tree);
 
         return new EntityValues(

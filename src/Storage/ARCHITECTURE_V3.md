@@ -16,7 +16,8 @@ Not covered yet:
 
 - migrations, when a schema changes after content is stored;
 - editor-created entities, decided in `PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`;
-- namespaces, undo and permissions, for which `archive/ARCHITECTURE_V2.md` and
+- namespaces, undo, and permissions beyond fields (on a whole type, on
+  schemas, on history), for which `archive/ARCHITECTURE_V2.md` and
   `archive/CLEANUP_FOR_V2_ROUND17.md` still hold the latest design.
 
 Everything in `archive/` is superseded: the v1 and v2 designs, their roadmaps,
@@ -699,13 +700,74 @@ rows of the save itself match, two items of one Collection. Each field of the
 group gets the error, under its full path. One the writer can't explain is
 rethrown as it came.
 
-## Querying
+## Permissions
 
-`Persistence::query()` lists a type's entities, filtered and sorted, a page
-at a time:
+Every load, save, delete and query has an actor. `$persistence->as($actor)`
+gives a `PersistenceSession` for it, and only a session loads, saves,
+deletes and queries. There is no default actor. An `Actor` answers one
+question: `hasRole($role)`. `SystemActor` holds every role. It is for code
+the site trusts, such as a deploy command or an import, and never for a
+request's user.
 
 ```php
-$page = $persistence->query(Car::class)
+$session = $persistence->as($currentUser);
+$car = $session->load($id);
+$session->save($car);
+$session->query(Car::class)->where('price', Is::lessThan(100))->page();
+```
+
+A field declares its roles with `#[FieldPermission(read: 'admin', write:
+'editor')]`. A missing role means everyone. The type that declares the field
+holds its permission, and a subtype can't change it. A permission on an
+Embed's field or an owned type's field applies wherever that type is used.
+
+Reading:
+
+- A field the actor may not read is left unset on load. Reading it throws
+  PHP's own error for an uninitialized property. So a template can't show it
+  by accident, and `isset()` tells the code it's hidden.
+- The session keeps the stored value it hid. A save writes it back as it
+  was. An owned object inside a hidden field keeps its id, so a save by an
+  actor who can't see it never replaces it.
+- A readonly property can't have a read permission: a readonly property can't
+  stay unset. Reading the class fails, saying so.
+- Each session has its own objects. One object per id holds within a session,
+  not across two: an object loaded as one actor never shows up in another
+  actor's session with hidden fields filled in.
+
+Writing:
+
+- A save changing a field the actor may not write throws `PermissionDenied`,
+  with every such field's path. Nothing is written.
+- "Changing" means a value differs from what's stored. For a new entity, it
+  means a value differs from its defaults. So an actor may save an entity
+  that holds a field it can't write, as long as the field keeps its value.
+- The check runs inside the write's transaction, after the aggregate is
+  locked: it compares with the stored values that the write replaces.
+- A field the actor may not write is compared whole, with everything under
+  it. A field it may write is compared field by field inside, through Embeds,
+  owned objects and Collection items.
+
+Validators run as the system. They see every value, hidden or not, since a
+rule must hold whoever saves. A refused rule names its path, which may be a
+field the actor can't read.
+
+Querying: a path through a field the actor may not read fails the same way as
+a field that doesn't exist, at every step. It fails in a condition, a sort, a
+Collection condition, and inside an `Item`. A condition on a hidden field
+would show its value through which entities match, or in what order.
+
+Field permissions don't cover deleting: a delete changes no field. Deleting
+will need a permission on the whole type, which is decided but not built
+yet. Permissions on a schema or on history are not built yet either.
+
+## Querying
+
+`PersistenceSession::query()` lists a type's entities, filtered and sorted, a
+page at a time:
+
+```php
+$page = $session->query(Car::class)
     ->where('maker', Is::equalTo($acme))
     ->where('chassis:weight', Is::greaterThan(1000))
     ->orderBy('price', Order::Descending)
@@ -713,7 +775,7 @@ $page = $persistence->query(Car::class)
     ->after($cursor)          // the previous page's nextCursor; null for the first
     ->page();                 // Page: items, nextCursor (null on the last page)
 
-$persistence->query(Car::class)->where(...)->count();
+$session->query(Car::class)->where(...)->count();
 ```
 
 A `Query` is immutable: each call gives a new one. Nothing runs until
@@ -782,7 +844,7 @@ page of 20. Loading a page in one batch is performance work (not built yet).
 ### Conditions on a Collection
 
 ```php
-$persistence->query(Car::class)
+$session->query(Car::class)
     ->whereHas('spares', Item::where('horsepower', Is::greaterThan(200))->andWhere('turbo.boost', Is::equalTo(5)))
     ->whereHas('tags', Item::is(Is::equalTo('red')))
     ->whereDoesntHave('wheels', Item::where('size', Is::lessThan(16)))
@@ -1297,10 +1359,12 @@ $persistence = Persistence::boot(
 );
 
 $persistence->status();                  // PersistenceStatus::Ready, MigrationPending or MigrationUnfinished
-$persistence->load($id);
-$persistence->save($car);
-$persistence->delete($car);
 $persistence->migrate();                 // what a deploy command calls
+
+$session = $persistence->as($actor);     // see "Permissions"
+$session->load($id);
+$session->save($car);
+$session->delete($car);
 ```
 
 ### Modules

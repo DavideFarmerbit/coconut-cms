@@ -10,6 +10,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Native\IdProperty;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
 
 /**
  * Saves and deletes native entities, through EntityWriter: the counterpart of
@@ -24,11 +25,13 @@ final readonly class NativeEntityWriter
 {
     private NativeEntityValues $values;
 
+    /** @param HiddenValues|null $hidden What a load hid, written back as it was; null when nothing was. */
     public function __construct(
         private EntityWriter $writer,
         SchemaRegistry $registry,
         SchemaFieldValueStore $store,
         private IdentityMap $identities,
+        private ?HiddenValues $hidden = null,
     ) {
         $this->values = new NativeEntityValues($registry, $store, $identities);
     }
@@ -39,14 +42,29 @@ final readonly class NativeEntityWriter
      */
     public function save(object $entity): string {
         $owned = [];
+        // The owned objects inside a value a load hid have no object here:
+        // they keep their ids, under the path the value is written to now.
+        $keptIds = [];
+        $kept = $this->hidden === null ? null : function (object $holder, string $name, FieldPath $path) use (&$keptIds): ?ValueNode {
+            [$node, $ownedIds] = $this->hidden->of($holder, $name);
+            foreach ($ownedIds as $relative => $ownedId) {
+                $keptIds[(string) $path . $relative] = $ownedId;
+            }
+
+            return $node;
+        };
         $values = $this->values->of($entity, static function (FieldPath $path, object $object) use (&$owned): void {
             $owned[(string) $path] = $object;
-        });
+        }, $kept);
 
         $id = $this->identities->idOf($entity) ?? EntityIds::generate();
         $written = [$id => $entity];
-        $deleted = $this->writer->write($values, $id, function (FieldPath $path) use ($owned, &$written): string {
-            $object = $owned[(string) $path];
+        $deleted = $this->writer->write($values, $id, function (FieldPath $path) use ($owned, $keptIds, &$written): string {
+            $object = $owned[(string) $path] ?? null;
+            if ($object === null) {
+                return $keptIds[(string) $path] ?? EntityIds::generate();
+            }
+
             $ownedId = $this->identities->idOf($object) ?? EntityIds::generate();
             $written[$ownedId] = $object;
 

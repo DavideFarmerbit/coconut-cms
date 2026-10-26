@@ -11,6 +11,7 @@ use XyloIsCoding\CoconutCms\Persistence\MigrateOn;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 use XyloIsCoding\CoconutCms\Persistence\MigrationPending;
 use XyloIsCoding\CoconutCms\Persistence\Module;
+use XyloIsCoding\CoconutCms\Persistence\Permission\SystemActor;
 use XyloIsCoding\CoconutCms\Persistence\Persistence;
 use XyloIsCoding\CoconutCms\Persistence\PersistenceStatus;
 use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Migration\MigratorV1;
@@ -89,7 +90,7 @@ final class PersistenceTest extends TestCase
 
         self::assertSame(PersistenceStatus::MigrationPending, $persistence->status());
         try {
-            $persistence->save(new MigV1Car());
+            $persistence->as(new SystemActor())->save(new MigV1Car());
             self::fail('Writing should be refused.');
         } catch (MigrationPending) {
         }
@@ -99,8 +100,8 @@ final class PersistenceTest extends TestCase
         self::assertSame(PersistenceStatus::Ready, $persistence->status());
         $car = new MigV1Car();
         $car->name = 'Family car';
-        $id = $persistence->save($car);
-        self::assertSame('Family car', $this->boot(new PersistenceV1Module())->load($id)->name);
+        $id = $persistence->as(new SystemActor())->save($car);
+        self::assertSame('Family car', $this->boot(new PersistenceV1Module())->as(new SystemActor())->load($id)->name);
     }
 
     public function testNewCodeIsPendingAndMigratingMovesTheContent(): void {
@@ -108,7 +109,7 @@ final class PersistenceTest extends TestCase
         $v1->migrate();
         $car = new MigV1Car();
         $car->price = 150;
-        $id = $v1->save($car);
+        $id = $v1->as(new SystemActor())->save($car);
 
         $v2 = $this->boot(new PersistenceV2Module());
         self::assertSame(PersistenceStatus::MigrationPending, $v2->status());
@@ -116,7 +117,7 @@ final class PersistenceTest extends TestCase
         $result = $v2->migrate();
 
         self::assertSame(['migtest:rename-price', 'migtest:cost-as-text', 'migtest:restructure'], $result->recorded);
-        $loaded = $this->boot(new PersistenceV2Module())->load($id);
+        $loaded = $this->boot(new PersistenceV2Module())->as(new SystemActor())->load($id);
         self::assertInstanceOf(MigV2Car::class, $loaded);
         self::assertSame('150 EUR', $loaded->cost);
     }
@@ -148,6 +149,6 @@ final class PersistenceTest extends TestCase
 
         self::assertSame(PersistenceStatus::MigrationUnfinished, $persistence->status());
         $this->expectException(MigrationUnfinished::class);
-        $persistence->load('0193a2b4-0000-7000-8000-000000000000');
+        $persistence->as(new SystemActor())->load('0193a2b4-0000-7000-8000-000000000000');
     }
 }

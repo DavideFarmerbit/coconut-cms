@@ -6,24 +6,16 @@ use Doctrine\DBAL\Connection;
 use InvalidArgumentException;
 use ReflectionClass;
 use XyloIsCoding\CoconutCms\Persistence\Boot\CodeStateCache;
-use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
-use XyloIsCoding\CoconutCms\Persistence\Entity\EntityWriter;
-use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationState;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationUnfinished;
-use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityLoader;
-use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationResult;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Migrator;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\MigrationPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\StrictPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Migration\StateKey;
+use XyloIsCoding\CoconutCms\Persistence\Permission\Actor;
 use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
-use XyloIsCoding\CoconutCms\Persistence\Query\Query;
-use XyloIsCoding\CoconutCms\Persistence\Query\QueryRunner;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\SchemaCompiler;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
@@ -38,10 +30,11 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegi
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
 
 /**
- * The persistence layer, wired: loads, saves and deletes native entities,
- * and migrates the database to the code. Booting does no work; the first
- * load, save, delete or status() checks, once, that the database matches the
- * code, and every one of them throws PersistenceUnavailable while it doesn't.
+ * The persistence layer, wired: gives sessions that load, save, delete and
+ * query native entities as an actor, and migrates the database to the code.
+ * Booting does no work; the first load, save, delete, query or status()
+ * checks, once, that the database matches the code, and every one of them
+ * throws PersistenceUnavailable while it doesn't.
  *
  * The check costs a few file stats and one query when a cache directory is
  * given: what reading the code found is remembered there until a watched
@@ -58,7 +51,6 @@ final class Persistence
     private readonly SchemaRegistry $registry;
     private readonly MigrationState $migrationState;
     private readonly CodeStateCache $cache;
-    private readonly IdentityMap $identities;
 
     /**
      * The classes registered so far, by kind, null before any.
@@ -69,9 +61,8 @@ final class Persistence
     /** Whether a check found the database matching the code: never checked again after that. */
     private bool $ready = false;
 
-    private ?NativeEntityLoader $loader = null;
-    private ?NativeEntityWriter $writer = null;
-    private ?QueryRunner $queries = null;
+    /** Every module's entity class, registered on the first session. */
+    private ?NativeEntityRegistry $entityClasses = null;
 
     /** @param list<Module> $modules Core first. */
     private function __construct(
@@ -90,7 +81,6 @@ final class Persistence
         $this->registry = new SchemaRegistry($this->schemas);
         $this->migrationState = new MigrationState($connection);
         $this->cache = new CodeStateCache($cacheDirectory);
-        $this->identities = new IdentityMap();
     }
 
     /**
@@ -155,44 +145,13 @@ final class Persistence
         return PersistenceStatus::Ready;
     }
 
-    /** The entity stored as $id, null when there's none. */
-    public function load(string $id): ?object {
-        $this->assertReady();
-
-        $this->loader ??= new NativeEntityLoader(new EntityReader($this->connection, $this->registry, $this->values), $this->entityClasses(), $this->identities);
-
-        return $this->loader->load($id);
-    }
-
-    /** Stores $entity with everything it owns. @return string Its id. */
-    public function save(object $entity): string {
-        $this->assertReady();
-
-        return $this->writer()->save($entity);
-    }
-
-    /** Deletes $entity with everything it owns. */
-    public function delete(object $entity): void {
-        $this->assertReady();
-        $this->writer()->delete($entity);
-    }
-
     /**
-     * A query over $class's standalone entities, its subclasses' included.
-     * Nothing runs until page(), ids() or count(), which throw
-     * PersistenceUnavailable the way load() does.
-     * @param class-string $class A native entity class.
+     * Entities as $actor sees them: every load, save, delete and query goes
+     * through a session. SystemActor may read and write everything: for code
+     * the site trusts, never for a request's user.
      */
-    public function query(string $class): Query {
-        $this->queries ??= new QueryRunner(
-            $this->connection,
-            new SchemaLookup($this->registry),
-            $this->identities,
-            $this->load(...),
-            $this->assertReady(...),
-        );
-
-        return new Query($this->queries, NativeIdentifiers::of($class));
+    public function as(Actor $actor): PersistenceSession {
+        return new PersistenceSession($this->connection, $this->registry, $this->values, $this->entityClasses(), $actor, $this->assertReady(...));
     }
 
     /**
@@ -306,16 +265,15 @@ final class Persistence
         return array_map(static fn (Module $module): string => $module::class, $this->modules);
     }
 
+    /** Every module's entity classes, registered once and shared by every session. */
     private function entityClasses(): NativeEntityRegistry {
-        $classes = new NativeEntityRegistry();
-        foreach ($this->allClasses() as $class) {
-            $classes->register($class);
+        if ($this->entityClasses === null) {
+            $this->entityClasses = new NativeEntityRegistry();
+            foreach ($this->allClasses() as $class) {
+                $this->entityClasses->register($class);
+            }
         }
 
-        return $classes;
-    }
-
-    private function writer(): NativeEntityWriter {
-        return $this->writer ??= new NativeEntityWriter(EntityWriter::of($this->connection, $this->registry), $this->registry, $this->values, $this->identities);
+        return $this->entityClasses;
     }
 }

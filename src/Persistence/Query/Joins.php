@@ -11,6 +11,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\OwnedLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ValueColumn;
+use XyloIsCoding\CoconutCms\Persistence\Permission\Permissions;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
@@ -28,6 +29,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
  * on its column; an owned object through its entities row, by owner and
  * owner field. Past a step, only the declared target's fields and its
  * ancestors' are known, the same as at the start.
+ *
+ * A field the actor may not read is refused the same way as one that doesn't
+ * exist, at every step of a path: a condition or a sort on it would show its
+ * values through which entities match, or in what order.
  */
 final class Joins
 {
@@ -47,7 +52,7 @@ final class Joins
      *        that runs, a subquery's parent included.
      * @param string $from The alias every join hangs off.
      * @param string $prefix Starts every alias made here, unique per subquery.
-     * @param array{type: ?string, id: ?string, levels: list<string>, columns?: list<array{string, ValueColumn}>} $start
+     * @param array{type: ?string, id: ?string, levels: list<string>, columns?: list<array{string, ValueColumn}>, itemType?: ?string} $start
      */
     private function __construct(
         private readonly QueryBuilder $builder,
@@ -55,6 +60,7 @@ final class Joins
         private readonly Connection $connection,
         private readonly LevelChains $chains,
         private readonly SchemaLookup $schemas,
+        private readonly Permissions $permissions,
         private readonly string $from,
         private readonly string $prefix,
         array $start,
@@ -66,8 +72,8 @@ final class Joins
      * Starting at the $identifier entities $from holds the entities rows of:
      * their levels inner joined, since every one has them.
      */
-    public static function forEntities(QueryBuilder $builder, QueryBuilder $parameters, Connection $connection, LevelChains $chains, SchemaLookup $schemas, string $identifier, string $from, string $prefix): self {
-        $joins = new self($builder, $parameters, $connection, $chains, $schemas, $from, $prefix, ['type' => $identifier, 'id' => $from . '.id', 'levels' => []]);
+    public static function forEntities(QueryBuilder $builder, QueryBuilder $parameters, Connection $connection, LevelChains $chains, SchemaLookup $schemas, Permissions $permissions, string $identifier, string $from, string $prefix): self {
+        $joins = new self($builder, $parameters, $connection, $chains, $schemas, $permissions, $from, $prefix, ['type' => $identifier, 'id' => $from . '.id', 'levels' => []]);
 
         $levels = [];
         foreach ($chains->of($identifier) as $index => $level) {
@@ -85,9 +91,10 @@ final class Joins
      * item's fields are its columns; a Reference item's paths are its
      * target's, joined on the item's value.
      */
-    public static function forItems(QueryBuilder $builder, QueryBuilder $parameters, Connection $connection, LevelChains $chains, SchemaLookup $schemas, CollectionLayout $collection, FieldDescriptor $item, string $from, string $prefix): self {
+    public static function forItems(QueryBuilder $builder, QueryBuilder $parameters, Connection $connection, LevelChains $chains, SchemaLookup $schemas, Permissions $permissions, CollectionLayout $collection, FieldDescriptor $item, string $from, string $prefix): self {
         $columns = array_map(static fn (ValueColumn $column): array => [$from, $column], $collection->itemColumns);
-        $joins = new self($builder, $parameters, $connection, $chains, $schemas, $from, $prefix, ['type' => null, 'id' => null, 'levels' => [], 'columns' => $columns]);
+        $itemType = $item->kind() === FieldKind::Embed ? $item->target() : null;
+        $joins = new self($builder, $parameters, $connection, $chains, $schemas, $permissions, $from, $prefix, ['type' => null, 'id' => null, 'levels' => [], 'columns' => $columns, 'itemType' => $itemType]);
 
         if ($item->kind() === FieldKind::Reference) {
             $joins->places[''] = $joins->joinReferenced(sprintf('%s.%s', $from, $joins->quoted(ColumnNames::VALUE)), $item->target());
@@ -105,6 +112,7 @@ final class Joins
      */
     public function column(string $path): array {
         [$place, $step, $at] = $this->walk($path);
+        $this->assertReadable($place, $step, $path);
 
         foreach ($this->columnsOf($place) as [$alias, $column]) {
             if ((string) $column->path === $step) {
@@ -137,6 +145,7 @@ final class Joins
      */
     public function collection(string $path): array {
         [$place, $step, $at] = $this->walk($path);
+        $this->assertReadable($place, $step, $path);
 
         foreach ($this->ownedOf($place) as [$alias, $owned]) {
             if ((string) $owned->path === $step) {
@@ -193,6 +202,8 @@ final class Joins
      * @return array{type: ?string, id: ?string, levels: list<string>, columns?: list<array{string, ValueColumn}>}
      */
     private function step(array $place, string $step, string $path, string $at): array {
+        $this->assertReadable($place, $step, $path);
+
         foreach ($this->columnsOf($place) as [$alias, $column]) {
             if ((string) $column->path === $step) {
                 if ($column->field->kind() !== FieldKind::Reference) {
@@ -220,6 +231,28 @@ final class Joins
         }
 
         throw self::unknown($path, self::noField($place, $step));
+    }
+
+    /**
+     * Throws, as for a field that doesn't exist, unless the actor may read
+     * every field $step names in $place, through any Embeds:
+     * "chassis:weight" is both chassis and its weight.
+     * @param array{type: ?string, id: ?string, levels: list<string>, columns?: list<array{string, ValueColumn}>, itemType?: ?string} $place
+     */
+    private function assertReadable(array $place, string $step, string $path): void {
+        $type = $place['type'] ?? $place['itemType'] ?? null;
+        foreach (explode(':', $step) as $segment) {
+            if ($type === null || !$this->schemas->hierarchyFieldsOf($type)->has(FieldName::of($segment))) {
+                return;
+            }
+
+            if (!$this->permissions->canRead($type, $segment)) {
+                throw self::unknown($path, self::noField($place, $step));
+            }
+
+            $field = $this->schemas->hierarchyFieldsOf($type)->get(FieldName::of($segment));
+            $type = $field->kind() === FieldKind::Embed ? $field->target() : null;
+        }
     }
 
     /**

@@ -6,12 +6,20 @@ use Closure;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
+use InvalidArgumentException;
 use LogicException;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRows;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsBuilder;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsReader;
+use XyloIsCoding\CoconutCms\Persistence\Permission\PermissionDenied;
+use XyloIsCoding\CoconutCms\Persistence\Permission\Permissions;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolver;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Subject;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\Placement;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\Row;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntityValues;
@@ -54,13 +62,19 @@ final class EntityWriter
      * @param EntityValidator|null $validator Run before each write; null for
      *        the migration's own writer: content breaking a new rule is caught
      *        on its next save.
+     * @param Permissions|null $permissions What the writer may change: a
+     *        write changing anything else is refused. Null for everything.
+     * @param FieldValueResolver|null $defaults What a new entity is compared
+     *        with for $permissions: its type's defaults.
      */
     private function __construct(
         private readonly Connection $connection,
-        SchemaLookup $schemas,
+        private readonly SchemaLookup $schemas,
         SchemaLookup $storedSchemas,
         private readonly ?MigrationState $migration,
         private readonly ?EntityValidator $validator,
+        private readonly ?Permissions $permissions,
+        private readonly ?FieldValueResolver $defaults,
     ) {
         $this->rows = new EntityRowsBuilder($schemas);
         $this->storedChains = new LevelChains($storedSchemas);
@@ -68,11 +82,26 @@ final class EntityWriter
         $this->uniqueConflicts = new UniqueConflicts($connection, new LevelChains($schemas));
     }
 
-    /** Writes and deletes with the schemas $registry serves: what every request does. */
-    public static function of(Connection $connection, SchemaRegistry $registry): self {
+    /**
+     * Writes and deletes with the schemas $registry serves: what every request
+     * does. With $permissions, a write changing what they don't allow is
+     * refused; $store gives a new entity's defaults to compare with.
+     */
+    public static function of(Connection $connection, SchemaRegistry $registry, ?Permissions $permissions = null, ?SchemaFieldValueStore $store = null): self {
         $schemas = new SchemaLookup($registry);
+        if ($permissions !== null && $store === null) {
+            throw new InvalidArgumentException('Checking permissions needs the value store: a new entity is compared with its defaults.');
+        }
 
-        return new self($connection, $schemas, $schemas, new MigrationState($connection), new EntityValidator($schemas));
+        return new self(
+            $connection,
+            $schemas,
+            $schemas,
+            new MigrationState($connection),
+            new EntityValidator($schemas),
+            $permissions,
+            $store === null ? null : new FieldValueResolver($registry, $store),
+        );
     }
 
     /**
@@ -81,7 +110,7 @@ final class EntityWriter
      * included.
      */
     public static function forMigration(Connection $connection, SchemaLookup $target, SchemaLookup $stored): self {
-        return new self($connection, $target, $stored, null, null);
+        return new self($connection, $target, $stored, null, null, null, null);
     }
 
     /**
@@ -130,6 +159,7 @@ final class EntityWriter
     private function writeWhole(EntityValues $values, string $id, Closure $ownedIdOf, array &$wanted, array &$stored): array {
         return $this->transactional(function () use ($values, $id, $ownedIdOf, &$wanted, &$stored): array {
             $stored = $this->lockedAggregateOf($id);
+            $this->assertPermitted($values, $id, $stored !== []);
             $wanted = [];
             foreach ($this->rows->rowsOf($values, $id, Placement::standalone(), $ownedIdOf) as $entity) {
                 $wanted[$entity->id] = $entity;
@@ -161,6 +191,26 @@ final class EntityWriter
 
             return $deleted;
         });
+    }
+
+    /**
+     * Throws PermissionDenied when $values change a field the writer may not
+     * write: from what's stored, or from the type's defaults for a new entity.
+     * Read after the aggregate is locked, so nothing changes it meanwhile.
+     */
+    private function assertPermitted(EntityValues $values, string $id, bool $isStored): void {
+        if ($this->permissions === null) {
+            return;
+        }
+
+        $old = $isStored
+            ? (new EntityRowsReader($this->connection, $this->schemas))->read($id)->values
+            : (new ValueFlattener($this->schemas))->flatten($values->identifier, $this->defaults->resolveTree(Subject::of($values->identifier)));
+
+        $denied = $this->permissions->deniedWrites($values->identifier, $values->dense, $old);
+        if ($denied !== []) {
+            throw new PermissionDenied($values->identifier, $denied);
+        }
     }
 
     /**

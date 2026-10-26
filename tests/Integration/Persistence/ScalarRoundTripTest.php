@@ -8,6 +8,7 @@ use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 use XyloIsCoding\CoconutCms\Persistence\Module;
+use XyloIsCoding\CoconutCms\Persistence\Permission\SystemActor;
 use XyloIsCoding\CoconutCms\Persistence\Persistence;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
@@ -90,9 +91,9 @@ final class ScalarRoundTripTest extends TestCase
         $sample->day = new DateTimeImmutable('2024-02-29');
         $sample->at = new DateTimeImmutable('2025-01-01 10:30:00', new DateTimeZone('UTC'));
         $sample->fuel = RoundTripFuel::Diesel;
-        $id = Persistence::boot($this->connection, [new RoundTripModule()])->save($sample);
+        $id = Persistence::boot($this->connection, [new RoundTripModule()])->as(new SystemActor())->save($sample);
 
-        $loaded = Persistence::boot($this->connection, [new RoundTripModule()])->load($id);
+        $loaded = Persistence::boot($this->connection, [new RoundTripModule()])->as(new SystemActor())->load($id);
 
         self::assertSame('Family car', $loaded->text);
         self::assertSame(9_000_000_000, $loaded->count);

@@ -6,7 +6,9 @@ use Doctrine\DBAL\Connection;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\MigrationPending;
+use XyloIsCoding\CoconutCms\Persistence\Permission\SystemActor;
 use XyloIsCoding\CoconutCms\Persistence\Persistence;
+use XyloIsCoding\CoconutCms\Persistence\PersistenceSession;
 use XyloIsCoding\CoconutCms\Persistence\Query\Is;
 use XyloIsCoding\CoconutCms\Persistence\Query\Item;
 use XyloIsCoding\CoconutCms\Persistence\Query\Order;
@@ -16,7 +18,7 @@ use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 final class QueryTest extends TestCase
 {
     private Connection $connection;
-    private Persistence $persistence;
+    private PersistenceSession $session;
     private QueryMaker $acme;
     private QueryMaker $zenith;
 
@@ -26,12 +28,13 @@ final class QueryTest extends TestCase
         // The fixture file holds several classes: load it by its own.
         class_exists(QueryFixtures::class);
 
-        $this->persistence = Persistence::boot($this->connection, [new QueryModule()]);
-        $this->persistence->migrate();
+        $persistence = Persistence::boot($this->connection, [new QueryModule()]);
+        $persistence->migrate();
+        $this->session = $persistence->as(new SystemActor());
 
         $italy = new QueryCountry();
         $italy->name = 'Italy';
-        $this->persistence->save($italy);
+        $this->session->save($italy);
         $this->acme = $this->maker('Acme', $italy);
         $this->zenith = $zenith = $this->maker('Zenith', null);
 
@@ -86,7 +89,7 @@ final class QueryTest extends TestCase
         $echo->previousMakers = [$this->acme];
 
         foreach ([$alpha, $bravo, $charlie, $delta, $echo] as $vehicle) {
-            $this->persistence->save($vehicle);
+            $this->session->save($vehicle);
         }
     }
 
@@ -115,13 +118,13 @@ final class QueryTest extends TestCase
         $maker = new QueryMaker();
         $maker->name = $name;
         $maker->country = $country;
-        $this->persistence->save($maker);
+        $this->session->save($maker);
 
         return $maker;
     }
 
     private function vehicles(): Query {
-        return $this->persistence->query(QueryVehicle::class);
+        return $this->session->query(QueryVehicle::class);
     }
 
     /** @return list<string> The names a query matches, in order: every page. */
@@ -165,8 +168,8 @@ final class QueryTest extends TestCase
         $page = $this->vehicles()->limit(10)->page();
 
         self::assertSame([QueryCar::class, QueryCar::class, QueryTruck::class, QueryVehicle::class, QueryCar::class], array_map(get_class(...), $page->items));
-        self::assertSame(['Alpha', 'Bravo', 'Echo'], self::names($this->persistence->query(QueryCar::class)));
-        self::assertSame(['Alpha'], self::names($this->persistence->query(QueryCar::class)->where('doors', Is::equalTo(2))));
+        self::assertSame(['Alpha', 'Bravo', 'Echo'], self::names($this->session->query(QueryCar::class)));
+        self::assertSame(['Alpha'], self::names($this->session->query(QueryCar::class)->where('doors', Is::equalTo(2))));
     }
 
     public function testAPathStepsThroughReferences(): void {
@@ -225,7 +228,7 @@ final class QueryTest extends TestCase
     }
 
     public function testOwnedEntitiesAreNeverListedOnTheirOwn(): void {
-        self::assertSame(0, $this->persistence->query(QueryEngine::class)->count());
+        self::assertSame(0, $this->session->query(QueryEngine::class)->count());
         self::assertGreaterThan(0, (int) $this->connection->fetchOne("SELECT COUNT(*) FROM entities WHERE owner_field = 'engine'"));
     }
 
@@ -273,7 +276,7 @@ final class QueryTest extends TestCase
         TestDatabase::dropEverything($this->connection);
 
         $this->expectException(MigrationPending::class);
-        Persistence::boot($this->connection, [new QueryModule()])->query(QueryVehicle::class)->count();
+        Persistence::boot($this->connection, [new QueryModule()])->as(new SystemActor())->query(QueryVehicle::class)->count();
     }
 
     /** @return array<string, array{\Closure(self): mixed, string}> */

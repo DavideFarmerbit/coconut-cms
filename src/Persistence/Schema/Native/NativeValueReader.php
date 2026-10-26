@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Native;
 
 use Closure;
+use LogicException;
 use ReflectionClass;
 use ReflectionNamedType;
 use ReflectionProperty;
@@ -47,53 +48,63 @@ final readonly class NativeValueReader
      * $object's fields, read through its own class.
      * @param Closure(FieldPath, object): void|null $onOwned Told about every
      *        owned object read, with its path from $object's class.
+     * @param Closure(object, string, FieldPath): ?ValueNode|null $kept What an
+     *        uninitialized field holds, given its object, its name and its
+     *        path: the value a load hid. Null when every field must be set.
      */
-    public function read(object $object, ?Closure $onOwned = null): ObjectNode {
+    public function read(object $object, ?Closure $onOwned = null, ?Closure $kept = null): ObjectNode {
+        $kept ??= static fn (object $owner, string $name): never => throw new LogicException(sprintf('%s::$%s is uninitialized: give it a value before saving.', $owner::class, $name));
+
         return $this->readAs(new ReflectionClass($object), $object, FieldPath::of(...), $onOwned ?? static function (): void {
-        });
+        }, $kept);
     }
 
     /**
      * @param ReflectionClass<object> $governingClass Whose fields to read off $object.
      * @param Closure(FieldName): FieldPath $pathOf Turns one of its field names into its path.
      */
-    private function readAs(ReflectionClass $governingClass, object $object, Closure $pathOf, Closure $onOwned): ObjectNode {
+    private function readAs(ReflectionClass $governingClass, object $object, Closure $pathOf, Closure $onOwned, Closure $kept): ObjectNode {
         $values = ObjectNode::empty();
 
         foreach (NativeFields::of($governingClass) as $property) {
             $name = FieldName::of($property->getName());
+            if (!$property->isInitialized($object)) {
+                $values = $values->with($name, $kept($object, $property->getName(), $pathOf($name)));
+                continue;
+            }
+
             $attribute = NativeFields::kindAttributesOf($property)[0]->newInstance();
-            $values = $values->with($name, $this->readField($attribute, $property, $property->getValue($object), $pathOf($name), $onOwned));
+            $values = $values->with($name, $this->readField($attribute, $property, $property->getValue($object), $pathOf($name), $onOwned, $kept));
         }
 
         return $values;
     }
 
     /** Dispatches on the field's kind. */
-    private function readField(object $attribute, ReflectionProperty $property, mixed $value, FieldPath $path, Closure $onOwned): ?ValueNode {
+    private function readField(object $attribute, ReflectionProperty $property, mixed $value, FieldPath $path, Closure $onOwned, Closure $kept): ?ValueNode {
         return match (true) {
             $attribute instanceof Scalar => new LeafNode(ScalarValues::toStorage($attribute->type, $value)),
             $attribute instanceof ValueObject => new LeafNode($value === null ? null : StorableValues::toStorage($value)),
             $attribute instanceof Reference => new LeafNode($value === null ? null : ($this->referenceId)($value)),
-            $attribute instanceof Embed => $value === null ? null : $this->readAs(new ReflectionClass(self::declaredClassOf($property)), $value, $path->embed(...), $onOwned),
-            $attribute instanceof OwningReference => $this->readOwned($value, $path, $onOwned),
-            $attribute instanceof Collection => $this->readItems($attribute, $value, $path, $onOwned),
+            $attribute instanceof Embed => $value === null ? null : $this->readAs(new ReflectionClass(self::declaredClassOf($property)), $value, $path->embed(...), $onOwned, $kept),
+            $attribute instanceof OwningReference => $this->readOwned($value, $path, $onOwned, $kept),
+            $attribute instanceof Collection => $this->readItems($attribute, $value, $path, $onOwned, $kept),
         };
     }
 
-    private function readOwned(?object $value, FieldPath $path, Closure $onOwned): ?OwnedNode {
+    private function readOwned(?object $value, FieldPath $path, Closure $onOwned, Closure $kept): ?OwnedNode {
         if ($value === null) {
             return null;
         }
 
-        $owned = new OwnedNode(NativeIdentifiers::of($value::class), $this->readAs(new ReflectionClass($value), $value, $path->traverse(...), $onOwned));
+        $owned = new OwnedNode(NativeIdentifiers::of($value::class), $this->readAs(new ReflectionClass($value), $value, $path->traverse(...), $onOwned, $kept));
         $onOwned($path, $value);
 
         return $owned;
     }
 
     /** @param array<mixed> $items */
-    private function readItems(Collection $attribute, array $items, FieldPath $path, Closure $onOwned): CollectionNode {
+    private function readItems(Collection $attribute, array $items, FieldPath $path, Closure $onOwned, Closure $kept): CollectionNode {
         $read = [];
         foreach (array_values($items) as $index => $item) {
             $itemPath = $path->traverse($index);
@@ -101,8 +112,8 @@ final readonly class NativeValueReader
                 FieldKind::Scalar => new LeafNode(ScalarValues::toStorage($attribute->itemScalarType, $item)),
                 FieldKind::ValueObject => new LeafNode($item === null ? null : StorableValues::toStorage($item)),
                 FieldKind::Reference => new LeafNode($item === null ? null : ($this->referenceId)($item)),
-                FieldKind::Embed => $item === null ? null : $this->readAs(new ReflectionClass($attribute->itemTarget), $item, $itemPath->traverse(...), $onOwned),
-                FieldKind::OwningReference => $this->readOwned($item, $itemPath, $onOwned),
+                FieldKind::Embed => $item === null ? null : $this->readAs(new ReflectionClass($attribute->itemTarget), $item, $itemPath->traverse(...), $onOwned, $kept),
+                FieldKind::OwningReference => $this->readOwned($item, $itemPath, $onOwned, $kept),
             };
         }
 
