@@ -31,6 +31,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
+use XyloIsCoding\CoconutCms\Persistence\Entity\EntityView;
 
 enum CodecStatus: string
 {
@@ -99,7 +100,7 @@ final class CodecNotEqual implements PrototypeValidatorRule
         return new static($stored['left'], $stored['right']);
     }
 
-    public function validate(object $entity): ValidationResult {
+    public function validate(EntityView $entity): ValidationResult {
         return ValidationResult::valid();
     }
 }

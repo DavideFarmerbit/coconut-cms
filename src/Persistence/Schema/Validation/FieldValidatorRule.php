@@ -18,7 +18,10 @@ interface FieldValidatorRule
     public function checkUsage(FieldDescriptor $field): void;
 
     /**
-     * Validates one field's own resolved value.
+     * Validates one field's value, before it's saved, as a property holds
+     * it: a scalar, an enum case, a DateTimeImmutable, a value object; an
+     * Embed or an owned object as an EntityView, or null for an empty slot.
+     * On a Collection, it runs once per item, each in that same form.
      */
     public function validate(mixed $value): ValidationResult;
 

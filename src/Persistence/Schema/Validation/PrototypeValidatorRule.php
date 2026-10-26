@@ -2,6 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Validation;
 
+use XyloIsCoding\CoconutCms\Persistence\Entity\EntityView;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 
 /**
@@ -20,9 +21,10 @@ interface PrototypeValidatorRule
     public function checkUsage(FieldDescriptorCollection $fields): void;
 
     /**
-     * Validates the whole candidate entity.
+     * Validates the whole candidate entity, before it's saved: its values,
+     * whatever its type's source.
      */
-    public function validate(object $entity): ValidationResult;
+    public function validate(EntityView $entity): ValidationResult;
 
     /**
      * This rule's own configuration as plain data, whatever its constructor

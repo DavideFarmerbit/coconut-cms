@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Validation;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use XyloIsCoding\CoconutCms\Core\Identifier;
+use XyloIsCoding\CoconutCms\Persistence\Entity\EntityView;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
@@ -23,7 +24,7 @@ final class PrototypeValidatorRegistryTestRule implements PrototypeValidatorRule
         return new static();
     }
 
-    public function validate(object $entity): ValidationResult {
+    public function validate(EntityView $entity): ValidationResult {
         return ValidationResult::valid();
     }
 }

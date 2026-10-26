@@ -19,6 +19,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
+use XyloIsCoding\CoconutCms\Persistence\Entity\EntityView;
 
 final class EntityAttributesMaxLength implements FieldValidatorRule
 {
@@ -70,12 +71,8 @@ final class EntityAttributesGreaterThan implements PrototypeValidatorRule
         return new static($stored['greaterField'], $stored['lesserField']);
     }
 
-    public function validate(object $entity): ValidationResult {
-        $reflection = new ReflectionClass($entity);
-        $greater = $reflection->getProperty($this->greaterField)->getValue($entity);
-        $lesser = $reflection->getProperty($this->lesserField)->getValue($entity);
-
-        return $greater > $lesser
+    public function validate(EntityView $entity): ValidationResult {
+        return $entity->get($this->greaterField) > $entity->get($this->lesserField)
             ? ValidationResult::valid()
             : ValidationResult::invalid(sprintf('%s must be greater than %s', $this->greaterField, $this->lesserField));
     }
@@ -98,6 +95,30 @@ final class EntityAttributesSubject
     #[DefaultInstance]
     private static function make(): self {
         return new self();
+    }
+}
+
+/** An EntityView of plain values, for a rule tested on its own. */
+final readonly class EntityAttributesView implements EntityView
+{
+    /** @param array<string, mixed> $values */
+    public function __construct(private array $values) {
+    }
+
+    public function type(): string {
+        return 'default:entity_attributes_subject';
+    }
+
+    public function isA(string $type): bool {
+        return $type === $this->type();
+    }
+
+    public function has(string $path): bool {
+        return array_key_exists($path, $this->values);
+    }
+
+    public function get(string $path): mixed {
+        return $this->values[$path];
     }
 }
 
@@ -193,7 +214,7 @@ final class EntityAttributesTest extends TestCase
             'endDate' => FieldDescriptor::scalar('endDate', ScalarType::Int, Nullability::Nullable),
         ]));
 
-        self::assertTrue($rule->validate(new EntityAttributesSubject())->isValid());
+        self::assertTrue($rule->validate(new EntityAttributesView(['startDate' => 1, 'endDate' => 2]))->isValid());
     }
 
     public function testPrototypeValidatorRuleRejectsAnUnknownFieldName(): void {
@@ -209,7 +230,7 @@ final class EntityAttributesTest extends TestCase
 
     public function testPrototypeValidatorRuleValidateFailsWhenOrderIsWrong(): void {
         $rule = new EntityAttributesGreaterThan('startDate', 'endDate');
-        $result = $rule->validate(new EntityAttributesSubject());
+        $result = $rule->validate(new EntityAttributesView(['startDate' => 1, 'endDate' => 2]));
 
         self::assertFalse($result->isValid());
         self::assertSame('startDate must be greater than endDate', $result->error());

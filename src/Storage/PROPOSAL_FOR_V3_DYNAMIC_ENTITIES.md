@@ -96,10 +96,24 @@ To know this, an object must remember what it's a view of. So the
   class instead.
 - **`IdentityMap`.** It gains the concrete identifier, next to the id.
 
+### Reading is an EntityView (decided)
+
+`DynamicEntity` implements `EntityView`, the read-only view of an entity's
+values that validators already receive: `type()`, `isA()`, `has()`, `get()`.
+So code that only reads, a validator, a template, an export, takes an
+`EntityView`, and works on a `DynamicEntity` and on a save's snapshot alike.
+`DynamicEntity` adds setting fields, saving, and its native view.
+
+`get()` gives a value as a property holds it: an enum case, a
+`DateTimeImmutable`, a value object. An Embed or an owned object comes back as
+another `EntityView`, always, even where its type is native: one shape for a
+field, whatever its type's source. Native code wanting the native object asks
+`DynamicEntity` for it. A path reaches through them: `get('engine.horsepower')`.
+
 ## Still open
 
-- `DynamicEntity`'s API: reading and setting fields, and checking a set
-  value against the field's descriptor.
+- `DynamicEntity`'s write side: setting fields, and checking a set value
+  against the field's descriptor.
 - Whether `loadDynamic()` on a fully native entity gives a `DynamicEntity`
   with an empty bag, or the native object.
 - How an editor-created entity is created and given its defaults, before it

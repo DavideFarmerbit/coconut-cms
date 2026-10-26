@@ -36,6 +36,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\UniqueGroup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
+use XyloIsCoding\CoconutCms\Persistence\Entity\EntityView;
 
 enum EntityRegistrarStatus: string
 {
@@ -107,7 +108,7 @@ final class EntityRegistrarGreaterThan implements PrototypeValidatorRule
         return new static($stored['greaterField'], $stored['lesserField']);
     }
 
-    public function validate(object $entity): ValidationResult {
+    public function validate(EntityView $entity): ValidationResult {
         return ValidationResult::valid();
     }
 }

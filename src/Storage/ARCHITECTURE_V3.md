@@ -655,6 +655,50 @@ the aggregate it holds. The foreign key applies it to every other aggregate,
 which the writer never touches. A migration's `DropType` relies on the same
 rule.
 
+## Validating a save
+
+Every save checks the rules its aggregate's types declare before it writes
+anything. A broken rule throws `ValidationFailed`, which holds every error by
+the path it's about: `name`, `chassis:weight`, `spares.1.horsepower`, or `""`
+for the entity itself. So a form can show them all at once. Nothing is
+written. A migration's own writes check nothing: content breaking a new rule
+is caught on its next save.
+
+What's checked is the whole aggregate, every value, touched or not: it's
+what's stored. "`name` is required" with a default of `''` refuses a car saved
+without a name.
+
+- Each type's prototype rules run on its entity, each field's rules on its
+  value. An Embed, an owned object and every Collection item are checked the
+  same way, with their own types' rules: a rule on `Chassis.weight` applies to
+  every car's chassis.
+- A field rule may sit on any field kind; its `checkUsage()` refuses a field
+  it doesn't fit. It receives the value as a property holds it: a scalar, an
+  enum case, a `DateTimeImmutable`, a value object. An Embed or an owned
+  object comes as an `EntityView`, an empty slot as null. On a Collection it
+  runs once per item. So a rule on an owned slot can narrow the classes it
+  takes, `$view->isA(...)`, and one on an Embed can check its fields
+  together, at that site only.
+- A prototype rule receives an `EntityView` of its entity.
+- A Reference field reads as its target's id: checking the target's fields
+  would mean loading it during the save.
+
+`EntityView` is the read-only view of an entity's values, whatever its type's
+source: `type()`, `isA()`, `has()`, `get(path)`. `get()` gives values as a
+property holds them, an Embed or owned object as another `EntityView`, and
+reaches through them: `get('engine.horsepower')`. During a save it's an
+`EntitySnapshot` of the values about to be written. `DynamicEntity` will
+implement it too (see `PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`), so a rule written
+once works on both.
+
+A unique group is still the database's to enforce: nothing can race it. When
+the database refuses a save, the writer works out which group was broken, so
+the error names fields, not an index. A group is broken when another entity
+stores the same values, the aggregate's own entities left out, or when two
+rows of the save itself match, two items of one Collection. Each field of the
+group gets the error, under its full path. One the writer can't explain is
+rethrown as it came.
+
 ## Querying
 
 `Persistence::query()` lists a type's entities, filtered and sorted, a page

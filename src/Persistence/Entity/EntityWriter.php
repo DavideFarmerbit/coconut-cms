@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Entity;
 use Closure;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use LogicException;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
@@ -42,6 +43,7 @@ final class EntityWriter
     private readonly EntityRowsBuilder $rows;
     private readonly LevelChains $storedChains;
     private readonly DatabasePlatform $platform;
+    private readonly UniqueConflicts $uniqueConflicts;
 
     /**
      * @param SchemaLookup $schemas The shape rows are written in.
@@ -49,23 +51,28 @@ final class EntityWriter
      *        an entity's old rows are deleted from.
      * @param MigrationState|null $migration Checked before each write and
      *        delete; null for the migration's own writer.
+     * @param EntityValidator|null $validator Run before each write; null for
+     *        the migration's own writer: content breaking a new rule is caught
+     *        on its next save.
      */
     private function __construct(
         private readonly Connection $connection,
         SchemaLookup $schemas,
         SchemaLookup $storedSchemas,
         private readonly ?MigrationState $migration,
+        private readonly ?EntityValidator $validator,
     ) {
         $this->rows = new EntityRowsBuilder($schemas);
         $this->storedChains = new LevelChains($storedSchemas);
         $this->platform = Platforms::of($connection);
+        $this->uniqueConflicts = new UniqueConflicts($connection, new LevelChains($schemas));
     }
 
     /** Writes and deletes with the schemas $registry serves: what every request does. */
     public static function of(Connection $connection, SchemaRegistry $registry): self {
         $schemas = new SchemaLookup($registry);
 
-        return new self($connection, $schemas, $schemas, new MigrationState($connection));
+        return new self($connection, $schemas, $schemas, new MigrationState($connection), new EntityValidator($schemas));
     }
 
     /**
@@ -74,17 +81,54 @@ final class EntityWriter
      * included.
      */
     public static function forMigration(Connection $connection, SchemaLookup $target, SchemaLookup $stored): self {
-        return new self($connection, $target, $stored, null);
+        return new self($connection, $target, $stored, null, null);
     }
 
     /**
-     * Stores $values as entity $id, a new one or one stored before.
+     * Stores $values as entity $id, a new one or one stored before. Throws
+     * ValidationFailed, writing nothing, when a rule its types declare is
+     * broken, or a unique group.
      * @param Closure(FieldPath): string $ownedIdOf The id of the object owned
      *        at a path from this entity: the one it had, or a new one.
      * @return list<string> The id of every owned entity it deleted.
      */
     public function write(EntityValues $values, string $id, Closure $ownedIdOf): array {
-        return $this->transactional(function () use ($values, $id, $ownedIdOf): array {
+        // Before anything is locked: a rule broken holds nothing up.
+        $this->validator?->assertValid($values);
+
+        // Each written entity's path in the aggregate, and every entity of
+        // it: what names a unique group the database refuses.
+        $paths = [$id => ''];
+        $recordingIdOf = static function (FieldPath $path) use ($ownedIdOf, &$paths): string {
+            $ownedId = $ownedIdOf($path);
+            $paths[$ownedId] = (string) $path;
+
+            return $ownedId;
+        };
+        $wanted = [];
+        $stored = [];
+
+        try {
+            return $this->writeWhole($values, $id, $recordingIdOf, $wanted, $stored);
+        } catch (UniqueConstraintViolationException $refused) {
+            $errors = $this->validator === null ? [] : $this->uniqueConflicts->of(array_values($wanted), $paths, array_keys([...$stored, ...$wanted]));
+            if ($errors === []) {
+                throw $refused;
+            }
+
+            throw new ValidationFailed($values->identifier, $errors);
+        }
+    }
+
+    /**
+     * write()'s transaction.
+     * @param Closure(FieldPath): string $ownedIdOf
+     * @param array<string, EntityRows> $wanted Filled in: every entity written, by id.
+     * @param array<string, array{concrete_identifier: string, depth: int}> $stored Filled in: every entity stored before, by id.
+     * @return list<string>
+     */
+    private function writeWhole(EntityValues $values, string $id, Closure $ownedIdOf, array &$wanted, array &$stored): array {
+        return $this->transactional(function () use ($values, $id, $ownedIdOf, &$wanted, &$stored): array {
             $stored = $this->lockedAggregateOf($id);
             $wanted = [];
             foreach ($this->rows->rowsOf($values, $id, Placement::standalone(), $ownedIdOf) as $entity) {
