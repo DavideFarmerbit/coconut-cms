@@ -36,6 +36,12 @@ interface DatabasePlatform
     public function lockEntity(Connection $connection, string $id): void;
 
     /**
+     * SQL true when $left and $right are equal, null included: two nulls are
+     * equal, a null and a value aren't.
+     */
+    public function nullSafeEquals(string $left, string $right): string;
+
+    /**
      * Runs $changes, schema changes Doctrine generated, the way this database
      * needs them run.
      * @template T

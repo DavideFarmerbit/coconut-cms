@@ -88,6 +88,10 @@ final class SqlitePlatform implements DatabasePlatform
         $connection->executeStatement(sprintf('UPDATE %s SET position = position WHERE id = ?', $connection->quoteSingleIdentifier(DatabaseSchema::ENTITIES)), [$id]);
     }
 
+    public function nullSafeEquals(string $left, string $right): string {
+        return sprintf('%s IS %s', $left, $right);
+    }
+
     /**
      * SQLite rebuilds a table for most changes: dropped and created again,
      * which with foreign keys on would delete or block what points at it. So

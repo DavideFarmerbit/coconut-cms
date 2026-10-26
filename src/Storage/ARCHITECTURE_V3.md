@@ -496,7 +496,11 @@ How it's built:
 
 An entity's id is a UUID, version 7, made by `EntityIds` without asking the
 database. Version 7 ids grow with time, so new rows land at the end of the
-primary key rather than at random places in it.
+primary key rather than at random places in it. Within one process each id
+is greater than the one before, even in the same millisecond: the 12 bits
+after the version count the ids of a millisecond (RFC 9562's counter
+method). So sorting by id gives creation order; across processes, only to the
+millisecond.
 
 `IdentityMap` is the source of truth for which object is which entity, for
 one request. It holds objects weakly, and keeps one object per id: loading the
@@ -650,6 +654,77 @@ The writer writes it null instead: the same rule, applied by the code inside
 the aggregate it holds. The foreign key applies it to every other aggregate,
 which the writer never touches. A migration's `DropType` relies on the same
 rule.
+
+## Querying
+
+`Persistence::query()` lists a type's entities, filtered and sorted, a page
+at a time:
+
+```php
+$page = $persistence->query(Car::class)
+    ->where('maker', Is::equalTo($acme))
+    ->where('chassis:weight', Is::greaterThan(1000))
+    ->orderBy('price', Order::Descending)
+    ->limit(20)
+    ->after($cursor)          // the previous page's nextCursor; null for the first
+    ->page();                 // Page: items, nextCursor (null on the last page)
+
+$persistence->query(Car::class)->where(...)->count();
+```
+
+A `Query` is immutable: each call gives a new one. Nothing runs until
+`page()`, `ids()` or `count()`, which throw `PersistenceUnavailable` the way
+`load()` does.
+
+What a query lists:
+
+- The queried type's entities and its subtypes', each loaded as its own
+  class.
+- Standalone entities only. An owned entity is saved and deleted through its
+  owner, and listed through it too: a query on a type only ever owned lists
+  nothing.
+
+How it names fields: by path, the way migrations do. `price`, and
+`chassis:weight` into an Embed. Only fields of the queried type and its
+ancestors: a `Vehicle` query can't filter on a field only `Car` declares. A
+path with no column fails at once, naming the type: a typo, a subtype's
+field, an owned object's or a Collection's.
+
+Conditions are objects, never strings: `Is::equalTo()`, `Is::notEqualTo()`,
+`Is::greaterThan()`, `Is::greaterThanOrEqualTo()`, `Is::lessThan()`,
+`Is::lessThanOrEqualTo()`, `Is::in()`, `Is::null()`, `Is::notNull()`,
+`Is::like()`. Every `where()` must hold. A value is given as the field's
+property holds it: an enum case, a `DateTimeImmutable`, a value object, a saved
+entity for a Reference. It's converted to stored form the way a save converts
+it, so a query and a save never disagree; a value of the wrong type fails,
+naming the path. Null is never a value: `Is::null()` asks for it.
+`Is::notEqualTo()` matches a null too, as PHP's `null != $value` does. An
+order condition applies only to a value with an order: a string, a number, a
+date. `Is::like()` applies only to a String or Text.
+
+Content is dense, so every column holds what a load shows: a condition is SQL
+on a real column, and an index serves it. The query joins the `entities` row
+with the queried type's level tables, root first. Joining the type's own
+level table keeps exactly its entities and its subtypes'.
+
+Pages are keyset pages, never `OFFSET`. `page()` needs a `limit()`, so a query
+never loads everything by accident. It fetches one more entity than a page:
+whether it's there says whether another page follows. The cursor holds the
+last entity's sort values and its id, which breaks ties, and the next page
+starts strictly after them. So a page never skips or repeats an entity, even
+through ties or while entities are added. A cursor remembers the ordering it
+came from: a query sorted any other way refuses it. Ties go by id: creation
+order. A null sorts lowest, first ascending and last descending, as both
+MySQL and SQLite sort it; a cursor compares with a null-safe equality, which
+each platform writes its own way.
+
+`count()` uses the same conditions, whatever the limit and cursor. `ids()`
+gives the ids, in order, nothing loaded.
+
+Loading a page loads each entity on its own, several queries each: fine for a
+page of 20. Loading a page in one batch is performance work (not built yet).
+So are paths through a Reference or an owned object (`maker.name`), and
+conditions on a Collection (`whereHas()`), both next.
 
 ## Migrations
 

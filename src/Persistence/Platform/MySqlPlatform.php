@@ -39,6 +39,10 @@ final readonly class MySqlPlatform implements DatabasePlatform
         $connection->fetchOne(sprintf('SELECT id FROM %s WHERE id = ? FOR UPDATE', $connection->quoteSingleIdentifier(DatabaseSchema::ENTITIES)), [$id]);
     }
 
+    public function nullSafeEquals(string $left, string $right): string {
+        return sprintf('%s <=> %s', $left, $right);
+    }
+
     /** MySQL changes tables in place; each statement commits on its own. */
     public function changingSchema(Connection $connection, Closure $changes): mixed {
         return $changes();

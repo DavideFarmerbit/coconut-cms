@@ -32,6 +32,17 @@ final class EntityIdsTest extends TestCase
         self::assertLessThan(0, strcmp($earlier, $later));
     }
 
+    public function testIdsGeneratedInOneMillisecondStillSortInOrder(): void {
+        $ids = [];
+        for ($i = 0; $i < 5000; $i++) {
+            $ids[] = EntityIds::generate();
+        }
+
+        $sorted = $ids;
+        sort($sorted, SORT_STRING);
+        self::assertSame($ids, $sorted);
+    }
+
     public function testTheNilIdIsValid(): void {
         self::assertTrue(EntityIds::isValid(EntityIds::NIL));
     }

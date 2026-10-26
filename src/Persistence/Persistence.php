@@ -20,6 +20,10 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\MigrationPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\StrictPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Migration\StateKey;
 use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
+use XyloIsCoding\CoconutCms\Persistence\Query\Query;
+use XyloIsCoding\CoconutCms\Persistence\Query\QueryRunner;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\SchemaCompiler;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
@@ -67,6 +71,7 @@ final class Persistence
 
     private ?NativeEntityLoader $loader = null;
     private ?NativeEntityWriter $writer = null;
+    private ?QueryRunner $queries = null;
 
     /** @param list<Module> $modules Core first. */
     private function __construct(
@@ -170,6 +175,24 @@ final class Persistence
     public function delete(object $entity): void {
         $this->assertReady();
         $this->writer()->delete($entity);
+    }
+
+    /**
+     * A query over $class's standalone entities, its subclasses' included.
+     * Nothing runs until page(), ids() or count(), which throw
+     * PersistenceUnavailable the way load() does.
+     * @param class-string $class A native entity class.
+     */
+    public function query(string $class): Query {
+        $this->queries ??= new QueryRunner(
+            $this->connection,
+            new SchemaLookup($this->registry),
+            $this->identities,
+            $this->load(...),
+            $this->assertReady(...),
+        );
+
+        return new Query($this->queries, NativeIdentifiers::of($class));
     }
 
     /**
