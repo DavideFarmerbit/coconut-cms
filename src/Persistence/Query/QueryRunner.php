@@ -10,7 +10,6 @@ use Doctrine\DBAL\Query\QueryBuilder;
 use InvalidArgumentException;
 use Throwable;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
-use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
 use XyloIsCoding\CoconutCms\Persistence\Platform\DatabasePlatform;
@@ -87,7 +86,7 @@ final class QueryRunner
 
     public function count(Query $query): int {
         ($this->guard)();
-        $builder = $this->filtered($query);
+        [$builder] = $this->filtered($query);
 
         return (int) $builder->select('COUNT(*)')->fetchOne();
     }
@@ -98,12 +97,12 @@ final class QueryRunner
      */
     private function rows(Query $query, ?int $limit): array {
         ($this->guard)();
-        $builder = $this->filtered($query);
+        [$builder, $joins] = $this->filtered($query);
         $builder->select('e.id');
 
         $sorts = [];
         foreach ($query->orders as $index => [$path, $order]) {
-            $column = $this->columnOf($query->identifier, $path)[0];
+            $column = $joins->column($path)[0];
             $builder->addSelect(sprintf('%s AS o%d', $column, $index));
             $builder->addOrderBy($column, $order === Order::Ascending ? 'ASC' : 'DESC');
             $sorts[] = [$column, $order];
@@ -126,8 +125,12 @@ final class QueryRunner
         return $builder->fetchAllAssociative();
     }
 
-    /** The query's entities, every condition applied: no select, no order. */
-    private function filtered(Query $query): QueryBuilder {
+    /**
+     * The query's entities, every condition applied: no select, no order;
+     * and the joins its paths took, for its sorts to reuse.
+     * @return array{QueryBuilder, Joins}
+     */
+    private function filtered(Query $query): array {
         if (!$this->schemas->has($query->identifier)) {
             throw new InvalidArgumentException(sprintf('There is no type "%s" to query.', $query->identifier));
         }
@@ -136,39 +139,14 @@ final class QueryRunner
             ->from($this->quoted(DatabaseSchema::ENTITIES), 'e')
             // A standalone entity is owned by Cms through no field.
             ->where("e.owner_field = ''");
-
-        foreach ($this->chains->of($query->identifier) as $index => $level) {
-            $builder->innerJoin('e', $this->quoted($level->table), 'l' . $index, sprintf('l%d.%s = e.id', $index, $this->quoted(ColumnNames::ID)));
-        }
+        $joins = new Joins($builder, $this->connection, $this->chains, $this->schemas, $query->identifier);
 
         foreach ($query->conditions as [$path, $condition]) {
-            [$column, $field] = $this->columnOf($query->identifier, $path);
+            [$column, $field] = $joins->column($path);
             $builder->andWhere($this->conditionSql($builder, $column, $field, $condition, $path));
         }
 
-        return $builder;
-    }
-
-    /**
-     * The column holding $path's value, qualified by its level's alias, and
-     * the field holding it. Throws for a path the type doesn't have a column
-     * for: a typo, a subtype's field, an owned or Collection field.
-     * @return array{string, FieldDescriptor}
-     */
-    private function columnOf(string $identifier, string $path): array {
-        foreach ($this->chains->of($identifier) as $index => $level) {
-            foreach ($level->columns as $column) {
-                if ((string) $column->path === $path) {
-                    return [sprintf('l%d.%s', $index, $this->quoted($column->name)), $column->field];
-                }
-            }
-        }
-
-        throw new InvalidArgumentException(sprintf(
-            '"%s" has no field "%s" a query can use: only a value of the type or its ancestors, an Embed\'s field written "embed:field".',
-            $identifier,
-            $path,
-        ));
+        return [$builder, $joins];
     }
 
     /** $condition on $column as SQL, its values bound to $builder. */

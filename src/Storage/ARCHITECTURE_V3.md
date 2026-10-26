@@ -687,8 +687,18 @@ What a query lists:
 How it names fields: by path, the way migrations do. `price`, and
 `chassis:weight` into an Embed. Only fields of the queried type and its
 ancestors: a `Vehicle` query can't filter on a field only `Car` declares. A
-path with no column fails at once, naming the type: a typo, a subtype's
-field, an owned object's or a Collection's.
+path leading to no value fails at once, saying why: a typo, a subtype's
+field, an owned object itself, a Collection.
+
+A path steps through a singular relationship with `.`: `maker.name` through
+a Reference, `engine.horsepower` through an owned object, as many steps as
+it takes (`maker.country.name`, `engine.turbo.boost`, `chassis:maker.name`).
+Past a step, the same rule holds: only the declared target's fields and its
+ancestors'. Each step is a `LEFT JOIN`, made once however many conditions and
+sorts use it: a Reference on its column, an owned object through its
+`entities` row by owner, owner field and position. So an entity whose
+relationship is empty still counts, and every field past it reads as null:
+`Is::null()` matches it, and it sorts lowest.
 
 Conditions are objects, never strings: `Is::equalTo()`, `Is::notEqualTo()`,
 `Is::greaterThan()`, `Is::greaterThanOrEqualTo()`, `Is::lessThan()`,
@@ -723,8 +733,7 @@ gives the ids, in order, nothing loaded.
 
 Loading a page loads each entity on its own, several queries each: fine for a
 page of 20. Loading a page in one batch is performance work (not built yet).
-So are paths through a Reference or an owned object (`maker.name`), and
-conditions on a Collection (`whereHas()`), both next.
+Conditions on a Collection, `whereHas()`, come next (not built yet).
 
 ## Migrations
 

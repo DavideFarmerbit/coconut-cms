@@ -5,10 +5,13 @@ namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Query;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 use XyloIsCoding\CoconutCms\Persistence\Module;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 
 enum QueryFuel: string
@@ -18,11 +21,21 @@ enum QueryFuel: string
     case Electric = 'electric';
 }
 
+#[Entity(identifier: 'qt:country')]
+final class QueryCountry
+{
+    #[Scalar(ScalarType::String)]
+    public string $name = '';
+}
+
 #[Entity(identifier: 'qt:maker')]
 final class QueryMaker
 {
     #[Scalar(ScalarType::String)]
     public string $name = '';
+
+    #[Reference]
+    public ?QueryCountry $country = null;
 }
 
 #[Entity(identifier: 'qt:chassis')]
@@ -32,12 +45,23 @@ final class QueryChassis
     public int $weight = 1000;
 }
 
+/** Owned by an engine. */
+#[Entity(identifier: 'qt:turbo')]
+final class QueryTurbo
+{
+    #[Scalar(ScalarType::Int)]
+    public int $boost = 2;
+}
+
 /** Only ever owned: a query never lists it. */
 #[Entity(identifier: 'qt:engine')]
 final class QueryEngine
 {
     #[Scalar(ScalarType::Int)]
     public int $horsepower = 100;
+
+    #[OwningReference]
+    public ?QueryTurbo $turbo = null;
 }
 
 #[Entity(identifier: 'qt:vehicle')]
@@ -67,6 +91,9 @@ class QueryVehicle
     #[Reference]
     public ?QueryMaker $maker = null;
 
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: QueryEngine::class, itemNullability: Nullability::Nullable)]
+    public array $spares = [];
+
     public function __construct() {
         $this->chassis = new QueryChassis();
     }
@@ -89,7 +116,7 @@ final class QueryTruck extends QueryVehicle
 /** The query tests' types: a vehicle and its subtypes, a maker, a chassis, an engine only ever owned. */
 final class QueryFixtures
 {
-    public const CLASSES = [QueryMaker::class, QueryChassis::class, QueryEngine::class, QueryVehicle::class, QueryCar::class, QueryTruck::class];
+    public const CLASSES = [QueryCountry::class, QueryMaker::class, QueryChassis::class, QueryTurbo::class, QueryEngine::class, QueryVehicle::class, QueryCar::class, QueryTruck::class];
 }
 
 final class QueryModule implements Module

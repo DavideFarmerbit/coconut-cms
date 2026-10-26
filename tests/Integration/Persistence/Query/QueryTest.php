@@ -27,8 +27,11 @@ final class QueryTest extends TestCase
         $this->persistence = Persistence::boot($this->connection, [new QueryModule()]);
         $this->persistence->migrate();
 
-        $this->acme = $this->maker('Acme');
-        $zenith = $this->maker('Zenith');
+        $italy = new QueryCountry();
+        $italy->name = 'Italy';
+        $this->persistence->save($italy);
+        $this->acme = $this->maker('Acme', $italy);
+        $zenith = $this->maker('Zenith', null);
 
         $alpha = new QueryCar();
         $alpha->name = 'Alpha';
@@ -36,6 +39,9 @@ final class QueryTest extends TestCase
         $alpha->nickname = 'al';
         $alpha->chassis->weight = 1200;
         $alpha->engine = new QueryEngine();
+        $alpha->engine->horsepower = 300;
+        $alpha->engine->turbo = new QueryTurbo();
+        $alpha->engine->turbo->boost = 5;
         $alpha->maker = $this->acme;
         $alpha->doors = 2;
 
@@ -53,6 +59,8 @@ final class QueryTest extends TestCase
         $charlie->sold = true;
         $charlie->fuel = QueryFuel::Diesel;
         $charlie->chassis->weight = 3000;
+        $charlie->engine = new QueryEngine();
+        $charlie->engine->horsepower = 500;
         $charlie->maker = $this->acme;
 
         $delta = new QueryVehicle();
@@ -76,9 +84,10 @@ final class QueryTest extends TestCase
         $this->connection->close();
     }
 
-    private function maker(string $name): QueryMaker {
+    private function maker(string $name, ?QueryCountry $country): QueryMaker {
         $maker = new QueryMaker();
         $maker->name = $name;
+        $maker->country = $country;
         $this->persistence->save($maker);
 
         return $maker;
@@ -131,6 +140,26 @@ final class QueryTest extends TestCase
         self::assertSame([QueryCar::class, QueryCar::class, QueryTruck::class, QueryVehicle::class, QueryCar::class], array_map(get_class(...), $page->items));
         self::assertSame(['Alpha', 'Bravo', 'Echo'], self::names($this->persistence->query(QueryCar::class)));
         self::assertSame(['Alpha'], self::names($this->persistence->query(QueryCar::class)->where('doors', Is::equalTo(2))));
+    }
+
+    public function testAPathStepsThroughReferences(): void {
+        self::assertSame(['Alpha', 'Charlie'], self::names($this->vehicles()->where('maker.name', Is::equalTo('Acme'))));
+        self::assertSame(['Alpha', 'Charlie'], self::names($this->vehicles()->where('maker.country.name', Is::equalTo('Italy'))));
+        self::assertSame(['Bravo', 'Delta', 'Echo'], self::names($this->vehicles()->where('maker.country.name', Is::null())), 'No maker, or a maker with no country: nothing there.');
+    }
+
+    public function testAPathStepsThroughOwnedObjects(): void {
+        self::assertSame(['Alpha', 'Charlie'], self::names($this->vehicles()->where('engine.horsepower', Is::greaterThan(200))));
+        self::assertSame(['Alpha'], self::names($this->vehicles()->where('engine.turbo.boost', Is::equalTo(5))));
+        self::assertSame(['Bravo', 'Delta', 'Echo'], self::names($this->vehicles()->where('engine.horsepower', Is::null())));
+    }
+
+    public function testSortingThroughAPathPutsAnEmptyRelationshipFirst(): void {
+        self::assertSame(
+            ['Delta', 'Echo', 'Alpha', 'Charlie', 'Bravo'],
+            self::pagedNames($this->vehicles()->where('maker.name', Is::notEqualTo('Nobody'))->orderBy('maker.name')),
+            'No maker sorts lowest; the condition and the sort share one join.',
+        );
     }
 
     public function testOwnedEntitiesAreNeverListedOnTheirOwn(): void {
@@ -196,6 +225,10 @@ final class QueryTest extends TestCase
             'an entity never saved' => [static fn (self $test): mixed => $test->vehicles()->where('maker', Is::equalTo(new QueryMaker()))->count(), 'was never saved'],
             'a cursor from another ordering' => [static fn (self $test): mixed => $test->vehicles()->orderBy('name')->limit(1)->after($test->vehicles()->orderBy('price')->limit(1)->page()->nextCursor)->page(), 'sorted by price asc, not name asc'],
             'a page without a limit' => [static fn (self $test): mixed => $test->vehicles()->page(), 'page() needs a limit()'],
+            'an owned object itself' => [static fn (self $test): mixed => $test->vehicles()->where('engine', Is::null())->count(), '"engine" is an owned object: name one of its fields'],
+            'a step into a Collection' => [static fn (self $test): mixed => $test->vehicles()->where('spares.horsepower', Is::equalTo(1))->count(), '"spares" is an Owned Collection'],
+            'a step through a value' => [static fn (self $test): mixed => $test->vehicles()->where('name.length', Is::equalTo(1))->count(), '"name" holds a value, not a relationship'],
+            'an unknown field past a step' => [static fn (self $test): mixed => $test->vehicles()->where('maker.doors', Is::equalTo(1))->count(), '"qt:maker" has no field "doors"'],
         ];
     }
 
