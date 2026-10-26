@@ -62,6 +62,16 @@ final class QueryEngine
 
     #[OwningReference]
     public ?QueryTurbo $turbo = null;
+
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String, itemNullability: Nullability::NotNullable)]
+    public array $parts = [];
+}
+
+#[Entity(identifier: 'qt:wheel')]
+final class QueryWheel
+{
+    #[Scalar(ScalarType::Int)]
+    public int $size = 17;
 }
 
 #[Entity(identifier: 'qt:vehicle')]
@@ -94,6 +104,15 @@ class QueryVehicle
     #[Collection(itemKind: FieldKind::OwningReference, itemTarget: QueryEngine::class, itemNullability: Nullability::Nullable)]
     public array $spares = [];
 
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String, itemNullability: Nullability::NotNullable)]
+    public array $tags = [];
+
+    #[Collection(itemKind: FieldKind::Embed, itemTarget: QueryWheel::class)]
+    public array $wheels = [];
+
+    #[Collection(itemKind: FieldKind::Reference, itemTarget: QueryMaker::class)]
+    public array $previousMakers = [];
+
     public function __construct() {
         $this->chassis = new QueryChassis();
     }
@@ -116,7 +135,7 @@ final class QueryTruck extends QueryVehicle
 /** The query tests' types: a vehicle and its subtypes, a maker, a chassis, an engine only ever owned. */
 final class QueryFixtures
 {
-    public const CLASSES = [QueryCountry::class, QueryMaker::class, QueryChassis::class, QueryTurbo::class, QueryEngine::class, QueryVehicle::class, QueryCar::class, QueryTruck::class];
+    public const CLASSES = [QueryCountry::class, QueryMaker::class, QueryChassis::class, QueryTurbo::class, QueryEngine::class, QueryWheel::class, QueryVehicle::class, QueryCar::class, QueryTruck::class];
 }
 
 final class QueryModule implements Module

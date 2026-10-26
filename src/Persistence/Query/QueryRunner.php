@@ -10,12 +10,14 @@ use Doctrine\DBAL\Query\QueryBuilder;
 use InvalidArgumentException;
 use Throwable;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
 use XyloIsCoding\CoconutCms\Persistence\Platform\DatabasePlatform;
 use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
@@ -40,6 +42,9 @@ final class QueryRunner
 
     private readonly LevelChains $chains;
     private readonly DatabasePlatform $platform;
+
+    /** How many subqueries were built: what makes each one's aliases unique. */
+    private int $subqueries = 0;
 
     /**
      * @param Closure(string): ?object $load Loads an entity by id, the way Persistence::load() does.
@@ -139,14 +144,83 @@ final class QueryRunner
             ->from($this->quoted(DatabaseSchema::ENTITIES), 'e')
             // A standalone entity is owned by Cms through no field.
             ->where("e.owner_field = ''");
-        $joins = new Joins($builder, $this->connection, $this->chains, $this->schemas, $query->identifier);
+        $joins = Joins::forEntities($builder, $builder, $this->connection, $this->chains, $this->schemas, $query->identifier, 'e', '');
 
         foreach ($query->conditions as [$path, $condition]) {
             [$column, $field] = $joins->column($path);
             $builder->andWhere($this->conditionSql($builder, $column, $field, $condition, $path));
         }
 
+        foreach ($query->collections as $collection) {
+            $builder->andWhere($this->collectionSql($builder, $joins, $collection));
+        }
+
         return [$builder, $joins];
+    }
+
+    /**
+     * $condition on the Collection it names, as SQL: an EXISTS or NOT EXISTS
+     * over its items, or its length compared. Parameters are bound to $main,
+     * the query that runs.
+     */
+    private function collectionSql(QueryBuilder $main, Joins $joins, CollectionCondition $condition): string {
+        $collection = $joins->collection($condition->path);
+
+        if ($condition->test === CollectionTest::Count) {
+            // An Owned Collection stores its length; any other one has a row per item.
+            $length = $collection['count'] ?? sprintf(
+                '(SELECT COUNT(*) FROM %s WHERE %s = %s)',
+                $this->quoted($collection['values']->table),
+                $this->quoted(ColumnNames::OWNER),
+                $collection['owner'],
+            );
+
+            return $this->conditionSql($main, $length, FieldDescriptor::scalar('count', ScalarType::Int, Nullability::NotNullable), $condition->count, $condition->path);
+        }
+
+        $prefix = 's' . $this->subqueries++ . '_';
+        $items = $this->connection->createQueryBuilder()->select('1');
+        if ($collection['owned'] !== null) {
+            // An owned item is an entity, owned by this one at this path;
+            // an empty slot has no row, so it's no item.
+            $from = $prefix . 'x';
+            $items->from($this->quoted(DatabaseSchema::ENTITIES), $from)
+                ->where(sprintf('%s.owner = %s', $from, $collection['owner']))
+                ->andWhere(sprintf('%s.owner_field = %s', $from, $main->createNamedParameter($collection['owned']->ownerField())));
+            $itemJoins = Joins::forEntities($items, $main, $this->connection, $this->chains, $this->schemas, $collection['item']->target(), $from, $prefix);
+        } else {
+            $from = $prefix . 'c';
+            $items->from($this->quoted($collection['values']->table), $from)
+                ->where(sprintf('%s.%s = %s', $from, $this->quoted(ColumnNames::OWNER), $collection['owner']));
+            $itemJoins = Joins::forItems($items, $main, $this->connection, $this->chains, $this->schemas, $collection['values'], $collection['item'], $from, $prefix);
+        }
+
+        if ($condition->item !== null) {
+            $this->applyItem($main, $items, $itemJoins, $collection['item'], $condition->item, $condition->path);
+        }
+
+        return sprintf('%s (%s)', $condition->test === CollectionTest::Has ? 'EXISTS' : 'NOT EXISTS', $items->getSQL());
+    }
+
+    /** Adds what $item asks of one item to $items, the subquery over them. */
+    private function applyItem(QueryBuilder $main, QueryBuilder $items, Joins $itemJoins, FieldDescriptor $itemField, Item $item, string $collectionPath): void {
+        foreach ($item->conditions as [$path, $condition]) {
+            [$column, $field] = $itemJoins->column($path);
+            $items->andWhere($this->conditionSql($main, $column, $field, $condition, $collectionPath . '[]' . '.' . $path));
+        }
+
+        if ($item->itself !== null) {
+            if (!in_array($itemField->kind(), [FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference], true)) {
+                throw new InvalidArgumentException(sprintf('The items of "%s" aren\'t values: Item::where() names their fields.', $collectionPath));
+            }
+
+            [$column, $field] = $itemJoins->itemValue($itemField);
+            $items->andWhere($this->conditionSql($main, $column, $field, $item->itself, $collectionPath . '[]'));
+        }
+
+        foreach ($item->collections as $nested) {
+            $items->andWhere($this->collectionSql($main, $itemJoins, $nested));
+        }
     }
 
     /** $condition on $column as SQL, its values bound to $builder. */

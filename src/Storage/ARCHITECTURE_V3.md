@@ -688,7 +688,8 @@ How it names fields: by path, the way migrations do. `price`, and
 `chassis:weight` into an Embed. Only fields of the queried type and its
 ancestors: a `Vehicle` query can't filter on a field only `Car` declares. A
 path leading to no value fails at once, saying why: a typo, a subtype's
-field, an owned object itself, a Collection.
+field, an owned object itself, a Collection (see "Conditions on a
+Collection").
 
 A path steps through a singular relationship with `.`: `maker.name` through
 a Reference, `engine.horsepower` through an owned object, as many steps as
@@ -733,7 +734,41 @@ gives the ids, in order, nothing loaded.
 
 Loading a page loads each entity on its own, several queries each: fine for a
 page of 20. Loading a page in one batch is performance work (not built yet).
-Conditions on a Collection, `whereHas()`, come next (not built yet).
+
+### Conditions on a Collection
+
+```php
+$persistence->query(Car::class)
+    ->whereHas('spares', Item::where('horsepower', Is::greaterThan(200))->andWhere('turbo.boost', Is::equalTo(5)))
+    ->whereHas('tags', Item::is(Is::equalTo('red')))
+    ->whereDoesntHave('wheels', Item::where('size', Is::lessThan(16)))
+    ->whereCount('tags', Is::greaterThanOrEqualTo(3));
+```
+
+`whereHas()` keeps an entity with at least one item meeting an `Item`;
+`whereDoesntHave()` keeps one with none. With no `Item`, any item counts: an
+empty Collection meets `whereDoesntHave()`. An `Item` is built the way a
+query is, never with a closure. Every condition in one `Item` holds for the
+same item; two `whereHas()` may be met by two different items.
+
+An `Item`'s paths are the item's own: an Embed item's fields, an owned item's,
+a Reference item's target's, each able to step on through a relationship
+(`turbo.boost`). An item that is a value, a Scalar, a ValueObject or a
+Reference, is tested itself with `Item::is()`. An owned item's own
+Collections can be asked about too: `Item::any()->whereHas('parts', ...)`.
+
+Each is a correlated `EXISTS` or `NOT EXISTS` over the items' rows: a
+Collection's table, or for an Owned Collection the `entities` rows it owns at
+that path. Content is dense, so a Collection still at its default has its
+items stored, and they count. An Owned Collection's empty slot has no row:
+there's no item there to meet anything.
+
+`whereCount()` compares a Collection's length as a load shows it, the same as
+PHP's `count()`: an Owned Collection's empty slots count. An Owned Collection
+stores its length in a column; any other Collection is counted.
+
+Sorting by something inside a Collection isn't supported, on purpose: an
+entity has many items, and none of them is "its" value to sort by.
 
 ## Migrations
 

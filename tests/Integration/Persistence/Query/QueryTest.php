@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\MigrationPending;
 use XyloIsCoding\CoconutCms\Persistence\Persistence;
 use XyloIsCoding\CoconutCms\Persistence\Query\Is;
+use XyloIsCoding\CoconutCms\Persistence\Query\Item;
 use XyloIsCoding\CoconutCms\Persistence\Query\Order;
 use XyloIsCoding\CoconutCms\Persistence\Query\Query;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
@@ -17,6 +18,7 @@ final class QueryTest extends TestCase
     private Connection $connection;
     private Persistence $persistence;
     private QueryMaker $acme;
+    private QueryMaker $zenith;
 
     protected function setUp(): void {
         $this->connection = TestDatabase::connect();
@@ -31,7 +33,7 @@ final class QueryTest extends TestCase
         $italy->name = 'Italy';
         $this->persistence->save($italy);
         $this->acme = $this->maker('Acme', $italy);
-        $zenith = $this->maker('Zenith', null);
+        $this->zenith = $zenith = $this->maker('Zenith', null);
 
         $alpha = new QueryCar();
         $alpha->name = 'Alpha';
@@ -44,6 +46,10 @@ final class QueryTest extends TestCase
         $alpha->engine->turbo->boost = 5;
         $alpha->maker = $this->acme;
         $alpha->doors = 2;
+        $alpha->spares = [self::engine(250, ['valve']), self::engine(150, [])];
+        $alpha->tags = ['red', 'fast'];
+        $alpha->wheels = [self::wheel(17), self::wheel(19)];
+        $alpha->previousMakers = [$zenith];
 
         $bravo = new QueryCar();
         $bravo->name = 'Bravo';
@@ -51,6 +57,7 @@ final class QueryTest extends TestCase
         $bravo->fuel = QueryFuel::Diesel;
         $bravo->chassis->weight = 900;
         $bravo->maker = $zenith;
+        $bravo->tags = ['red'];
 
         $charlie = new QueryTruck();
         $charlie->name = 'Charlie';
@@ -62,6 +69,8 @@ final class QueryTest extends TestCase
         $charlie->engine = new QueryEngine();
         $charlie->engine->horsepower = 500;
         $charlie->maker = $this->acme;
+        $charlie->spares = [self::engine(400, []), null];
+        $charlie->wheels = [self::wheel(22)];
 
         $delta = new QueryVehicle();
         $delta->name = 'Delta';
@@ -73,6 +82,8 @@ final class QueryTest extends TestCase
         $echo->price = 300;
         $echo->nickname = 'ec';
         $echo->fuel = QueryFuel::Electric;
+        $echo->tags = ['fast', 'blue', 'new'];
+        $echo->previousMakers = [$this->acme];
 
         foreach ([$alpha, $bravo, $charlie, $delta, $echo] as $vehicle) {
             $this->persistence->save($vehicle);
@@ -82,6 +93,22 @@ final class QueryTest extends TestCase
     protected function tearDown(): void {
         TestDatabase::dropEverything($this->connection);
         $this->connection->close();
+    }
+
+    /** @param list<string> $parts */
+    private static function engine(int $horsepower, array $parts): QueryEngine {
+        $engine = new QueryEngine();
+        $engine->horsepower = $horsepower;
+        $engine->parts = $parts;
+
+        return $engine;
+    }
+
+    private static function wheel(int $size): QueryWheel {
+        $wheel = new QueryWheel();
+        $wheel->size = $size;
+
+        return $wheel;
     }
 
     private function maker(string $name, ?QueryCountry $country): QueryMaker {
@@ -162,6 +189,41 @@ final class QueryTest extends TestCase
         );
     }
 
+    public function testWhereHasAsksAboutAnyItem(): void {
+        self::assertSame(['Alpha', 'Charlie'], self::names($this->vehicles()->whereHas('spares')));
+        self::assertSame(['Bravo', 'Delta', 'Echo'], self::names($this->vehicles()->whereDoesntHave('spares')));
+        self::assertSame(['Charlie'], self::names($this->vehicles()->whereHas('spares', Item::where('horsepower', Is::greaterThan(300)))));
+    }
+
+    public function testOneItemMeetsAllOfItsConditionsTwoWhereHasMayMeetThemApart(): void {
+        $between = Item::where('horsepower', Is::greaterThan(200))->andWhere('horsepower', Is::lessThan(200));
+
+        self::assertSame([], self::names($this->vehicles()->whereHas('spares', $between)), 'No one spare is both.');
+        self::assertSame(
+            ['Alpha'],
+            self::names($this->vehicles()->whereHas('spares', Item::where('horsepower', Is::greaterThan(200)))->whereHas('spares', Item::where('horsepower', Is::lessThan(200)))),
+            'Two spares, one each.',
+        );
+    }
+
+    public function testEveryKindOfItem(): void {
+        self::assertSame(['Alpha', 'Bravo'], self::names($this->vehicles()->whereHas('tags', Item::is(Is::equalTo('red')))));
+        self::assertSame(['Charlie', 'Delta', 'Echo'], self::names($this->vehicles()->whereDoesntHave('tags', Item::is(Is::equalTo('red')))));
+        self::assertSame(['Alpha', 'Charlie'], self::names($this->vehicles()->whereHas('wheels', Item::where('size', Is::greaterThanOrEqualTo(19)))));
+        self::assertSame(['Echo'], self::names($this->vehicles()->whereHas('previousMakers', Item::where('name', Is::equalTo('Acme')))));
+        self::assertSame(['Alpha'], self::names($this->vehicles()->whereHas('previousMakers', Item::is(Is::equalTo($this->zenith)))));
+    }
+
+    public function testAnItemsOwnCollectionCanBeAskedAboutToo(): void {
+        self::assertSame(['Alpha'], self::names($this->vehicles()->whereHas('spares', Item::any()->whereHas('parts', Item::is(Is::equalTo('valve'))))));
+    }
+
+    public function testWhereCountComparesTheLengthALoadShows(): void {
+        self::assertSame(['Alpha', 'Charlie'], self::names($this->vehicles()->whereCount('spares', Is::greaterThanOrEqualTo(2))), 'An empty slot counts.');
+        self::assertSame(['Echo'], self::names($this->vehicles()->whereCount('tags', Is::equalTo(3))));
+        self::assertSame(['Charlie', 'Delta'], self::names($this->vehicles()->whereCount('tags', Is::equalTo(0))));
+    }
+
     public function testOwnedEntitiesAreNeverListedOnTheirOwn(): void {
         self::assertSame(0, $this->persistence->query(QueryEngine::class)->count());
         self::assertGreaterThan(0, (int) $this->connection->fetchOne("SELECT COUNT(*) FROM entities WHERE owner_field = 'engine'"));
@@ -229,6 +291,10 @@ final class QueryTest extends TestCase
             'a step into a Collection' => [static fn (self $test): mixed => $test->vehicles()->where('spares.horsepower', Is::equalTo(1))->count(), '"spares" is an Owned Collection'],
             'a step through a value' => [static fn (self $test): mixed => $test->vehicles()->where('name.length', Is::equalTo(1))->count(), '"name" holds a value, not a relationship'],
             'an unknown field past a step' => [static fn (self $test): mixed => $test->vehicles()->where('maker.doors', Is::equalTo(1))->count(), '"qt:maker" has no field "doors"'],
+            'whereHas on a value' => [static fn (self $test): mixed => $test->vehicles()->whereHas('price')->count(), '"price" holds a value, not a Collection'],
+            'whereCount on a single owned object' => [static fn (self $test): mixed => $test->vehicles()->whereCount('engine', Is::equalTo(1))->count(), '"engine" is a single owned object, not a Collection'],
+            'Item::is() on owned items' => [static fn (self $test): mixed => $test->vehicles()->whereHas('spares', Item::is(Is::equalTo(1)))->count(), 'The items of "spares" aren\'t values'],
+            'a field an item lacks' => [static fn (self $test): mixed => $test->vehicles()->whereHas('wheels', Item::where('colour', Is::equalTo('red')))->count(), 'an item has no field "colour"'],
         ];
     }
 
