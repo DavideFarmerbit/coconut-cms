@@ -79,48 +79,17 @@ final readonly class EntityReader
         );
     }
 
-    /**
-     * The type of the aggregate root each of $ids belongs to: its own for a
-     * standalone entity, its outermost owner's for an owned one. One query per
-     * level of ownership. An id with no entity is left out.
-     * @param list<string> $ids
-     * @return array<string, string> Keyed by id.
-     */
-    public function rootIdentifiersOf(array $ids): array {
-        if ($ids === []) {
-            return [];
-        }
-
+    /** Whether entity $id is owned by another entity; null when no entity has $id. */
+    public function isOwned(string $id): ?bool {
         $this->migration->assertSettled();
 
-        $roots = [];
-        // Each id still being walked up, with the ids asked about that reached it.
-        $walking = [];
-        foreach (array_unique($ids) as $id) {
-            $walking[$id] = [$id];
-        }
+        // A standalone entity is owned by the Cms row through no field.
+        $ownerField = $this->connection->fetchOne(
+            sprintf('SELECT owner_field FROM %s WHERE id = ?', $this->connection->quoteSingleIdentifier(DatabaseSchema::ENTITIES)),
+            [$id],
+        );
 
-        while ($walking !== []) {
-            $rows = $this->connection->fetchAllAssociative(
-                sprintf('SELECT id, owner, owner_field, concrete_identifier FROM %s WHERE id IN (?)', $this->connection->quoteSingleIdentifier(DatabaseSchema::ENTITIES)),
-                [array_keys($walking)],
-                [ArrayParameterType::STRING],
-            );
-
-            $next = [];
-            foreach ($rows as $row) {
-                foreach ($walking[$row['id']] as $asked) {
-                    if ($row['owner_field'] === '') {
-                        $roots[$asked] = $row['concrete_identifier'];
-                    } else {
-                        $next[$row['owner']][] = $asked;
-                    }
-                }
-            }
-            $walking = $next;
-        }
-
-        return $roots;
+        return $ownerField === false ? null : $ownerField !== '';
     }
 
     /** @return list<string> */

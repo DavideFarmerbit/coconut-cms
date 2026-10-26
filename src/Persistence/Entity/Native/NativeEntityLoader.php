@@ -26,9 +26,14 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
  * object. A field its reader may not read stays unset; its stored value waits
  * in HiddenValues for the save.
  *
- * An entity whose aggregate root's type the reader may not read is refused:
- * load() throws PermissionDenied, and a Reference to it holds a ghost whose
- * id can be read and whose first other use throws.
+ * load() takes a standalone entity's id only: an owned object is reached
+ * through its owner, or through a Reference. A Reference may point at any
+ * entity, owned by another aggregate or not, and reaches it as itself: its
+ * own type decides whether the reader may read it. An entity of a type the
+ * reader may not read is refused: load() throws PermissionDenied, and a
+ * Reference to it holds a ghost whose id can be read and whose first other
+ * use throws. One entity is one object, however it was reached: an owned
+ * object a Reference reached first is the one its owner holds.
  */
 final class NativeEntityLoader
 {
@@ -71,21 +76,22 @@ final class NativeEntityLoader
             return $known;
         }
 
-        if ($this->permissions !== null) {
-            $root = $this->reader->rootIdentifiersOf([$id])[$id] ?? null;
-            if ($root === null) {
-                return null;
-            }
-
-            if (!$this->permissions->may($root, TypeAction::Read)) {
-                $this->denied[$id] = $root;
-                throw PermissionDenied::ofType($root, TypeAction::Read);
-            }
+        $owned = $this->reader->isOwned($id);
+        if ($owned === null) {
+            return null;
         }
 
-        $loaded = $this->reader->read($id);
+        if ($owned) {
+            throw new LogicException(sprintf('Entity %s is owned by another entity: load its owner, or reach it through a Reference.', $id));
+        }
 
-        return $loaded === null ? null : $this->build(null, $loaded);
+        $loaded = $this->reader->read($id) ?? throw new LogicException(sprintf('Entity %s was deleted while loading it.', $id));
+        if ($this->permissions !== null && !$this->permissions->may($loaded->identifier, TypeAction::Read)) {
+            $this->denied[$id] = $loaded->identifier;
+            throw PermissionDenied::ofType($loaded->identifier, TypeAction::Read);
+        }
+
+        return $this->build(null, $loaded);
     }
 
     /** Builds $loaded, into $into if given: a lazy ghost being initialized. */
@@ -110,6 +116,11 @@ final class NativeEntityLoader
             }
 
             $this->hidden?->hide($holder, $name, $node, $ownedIds);
+        }, function (FieldPath $path) use ($loaded): ?object {
+            // A Reference may have reached this owned object first.
+            $ownedId = $loaded->ownedIds[(string) $path] ?? null;
+
+            return $ownedId === null ? null : $this->identities->objectOf($ownedId);
         });
 
         $this->identities->remember($object, $loaded->id);
@@ -167,8 +178,9 @@ final class NativeEntityLoader
 
     /**
      * Looks up the concrete identifier of every id in $ids not known yet, in
-     * one query: a ghost must be created as its final class. Then which of
-     * them the reader may not read, by their roots' types.
+     * one query: a ghost must be created as its final class. Notes those the
+     * reader may not read: a Reference reaches its target as itself, so the
+     * target's own type decides, owned or not.
      * @param list<string> $ids
      */
     private function lookUpReferencedIdentifiers(array $ids): void {
@@ -177,13 +189,12 @@ final class NativeEntityLoader
             fn (string $id): bool => !isset($this->referencedIdentifiers[$id]) && $this->identities->objectOf($id) === null,
         ));
 
-        $this->referencedIdentifiers = [...$this->referencedIdentifiers, ...$this->reader->identifiersOf($unknown)];
+        $found = $this->reader->identifiersOf($unknown);
+        $this->referencedIdentifiers = [...$this->referencedIdentifiers, ...$found];
 
-        if ($this->permissions !== null) {
-            foreach ($this->reader->rootIdentifiersOf($unknown) as $id => $root) {
-                if (!$this->permissions->may($root, TypeAction::Read)) {
-                    $this->denied[$id] = $root;
-                }
+        foreach ($found as $id => $identifier) {
+            if ($this->permissions !== null && !$this->permissions->may($identifier, TypeAction::Read)) {
+                $this->denied[$id] = $identifier;
             }
         }
     }

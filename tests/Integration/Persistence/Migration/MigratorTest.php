@@ -365,6 +365,40 @@ final class MigratorTest extends TestCase
         self::assertNull($loaded->spares[1], 'A turbo engine: its type is gone.');
     }
 
+    public function testAReferenceIntoAnotherAggregateWhoseTargetIsDroppedBecomesNull(): void {
+        $this->migrate(MigratorDroppedTarget::V1, MigrationSteps::none());
+        [, $values, $registry] = $this->stores();
+        $writer = new NativeEntityWriter(EntityWriter::of($this->connection, $registry), $registry, $values, new IdentityMap());
+        // One pointing car saved before the owner, one after: whichever order
+        // the migration moves them in.
+        $before = new MigDropV1Car();
+        $writer->save($before);
+        $owner = new MigDropV1Car();
+        $owner->spares = [new MigDropEngine(), new MigDropTurboEngine()];
+        $ownerId = $writer->save($owner);
+        $after = new MigDropV1Car();
+        $keeper = new MigDropV1Car();
+        $before->favorite = $owner->spares[1];
+        $after->favorite = $owner->spares[1];
+        $keeper->favorite = $owner->spares[0];
+        $beforeId = $writer->save($before);
+        $afterId = $writer->save($after);
+        $keeperId = $writer->save($keeper);
+
+        $this->migrate(MigratorDroppedTarget::V2, MigratorDroppedTarget::steps());
+
+        [, $values, $registry] = $this->stores();
+        $classes = new NativeEntityRegistry();
+        foreach (MigratorDroppedTarget::V2 as $class) {
+            $classes->register($class);
+        }
+        $loader = new NativeEntityLoader(new EntityReader($this->connection, $registry, $values), $classes, new IdentityMap());
+
+        self::assertNull($loader->load($beforeId)->favorite, 'Its target is gone.');
+        self::assertNull($loader->load($afterId)->favorite, 'Its target is gone.');
+        self::assertSame($loader->load($ownerId)->spares[0], $loader->load($keeperId)->favorite, 'A kept target is still the same engine.');
+    }
+
     /** @return array{untouched: string, touched: string} Two V1 cars: one all defaults, one with its color and engine set. */
     private function saveDefaultsCars(): array {
         $this->migrate(MigratorDefaults::V1, MigrationSteps::none());

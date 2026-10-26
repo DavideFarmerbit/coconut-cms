@@ -587,12 +587,27 @@ A non-field object every instance must own a copy of is copied by the class's
 own `__clone()`. A field is set exactly once, so a readonly one works too.
 
 Owned objects load with their owner, each with its id, touched or not. A
-Reference loads as a
-lazy ghost of its target's concrete class, looked up for every referenced id
-in one query, since a ghost must be created as its final class. Its fields
-load when first read; its `#[Id]` is readable before that. The `IdentityMap`
-keeps one object per id: loading an id twice, or reaching it through two
-References, gives the same object.
+Reference loads as a lazy ghost of its target's concrete class, looked up for
+every referenced id in one query, since a ghost must be created as its final
+class. Its fields load when first read; its `#[Id]` is readable before that.
+
+A Reference may point at any entity: a standalone one, an owned object of its
+own aggregate, or an owned object of another aggregate. It's a Reference, so
+it reaches its target as itself: through it, the target loads on its own,
+with its own type's rules. Editing the target through a Reference saves
+nothing when the holder is saved; its owner saves it. The Reference becomes
+null whenever the target is gone: its owner replaced it or was deleted, or a
+migration dropped its type. That's what the foreign key does for any target.
+
+`load()` takes a standalone entity's id only. An owned object is reached
+through its owner, or through a Reference; loading its id throws.
+
+The `IdentityMap` keeps one object per id, however the entity was reached:
+loading an id twice, or reaching it through two References, or through a
+Reference and through its owner, gives the same object. When a Reference
+reached an owned object first, its owner's load reuses that object: a ghost
+not used yet is filled from the owner's rows; one already in use is kept as
+it is, the way loading a known entity gives it back.
 
 ## Saving an entity
 
@@ -742,12 +757,28 @@ open up what `Vehicle` closes. One role per action is enough: "editor or
 admin" is the role system's job, since `hasRole()` can answer true for an
 admin asked about `editor`.
 
-An owned object follows the root of its aggregate. Only the root's type
-permission applies: reading, updating or deleting a car covers its engine. An
-`Engine` type's own permission applies only to an engine saved on its own. A
-stricter rule inside an aggregate is a field permission: on the owning field
-(`#[OwningReference, FieldPermission(write: 'mechanic')] $engine`), or on the
-owned type's fields.
+An owned object reached through its owner follows the root of its
+aggregate. Only the root's type permission applies: reading, updating or
+deleting a car covers its engine. A stricter rule inside an aggregate is a
+field permission: on the owning field (`#[OwningReference,
+FieldPermission(write: 'mechanic')] $engine`), or on the owned type's fields.
+
+An entity reached through a Reference is judged as itself: its own type's
+permission and its own fields' permissions apply, owned or not. So an
+`Engine` type's own permission applies to an engine saved on its own, and to
+any engine reached through a Reference. One engine can give two answers:
+through its car, the car decides; through a garage's Reference, `Engine`
+decides. A type that is both owned and referenced needs its own
+`#[TypePermission]` set with that in mind.
+
+A Reference is an accessor. It reaches its target even where the owner hides
+it: a garage pointing at an engine in an admin-only field of a car shows that
+engine to whoever may read the garage and engines. Making that link is a
+choice of whoever made it. In the native API, an actor can only link an
+object it holds, and a hidden field never loads, so it can't link what it
+can't see. An API that sets a Reference by id must check, on save, that the
+actor may read a new target where it lives: its root's type and every field
+on the path to it (required there; no such API exists yet).
 
 A Reference to an entity the actor may not read loads as a ghost. Its id can
 be read. Any other use throws `PermissionDenied`. Saving the entity holding
@@ -755,6 +786,10 @@ the Reference writes it back unchanged, since a save only needs the id. The
 actor may still point the field elsewhere, if it may write the field.
 `load()` of that entity throws `PermissionDenied`. A null would be worse: it
 means "no target", and a save would then erase the Reference.
+
+One entity is one object per session, whichever route reached it. When the
+actor reaches a ghost's target through its owner too, the ghost is filled
+from the owner and becomes readable: the actor could read it there anyway.
 
 Querying:
 
@@ -768,6 +803,8 @@ Querying:
 - Past a Reference to a type it may read, a target of a subtype it may not
   read joins as missing: every field past it reads null. A condition on it
   would otherwise show values the actor can't load.
+- Past a Reference, the target's own type decides, owned or not, the same
+  as when loading through it.
 
 Finding the subtypes reads every stored schema once per session. That's
 acceptable for now; anything faster is performance work (not built yet).
