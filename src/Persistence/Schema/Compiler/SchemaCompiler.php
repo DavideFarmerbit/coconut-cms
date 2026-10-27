@@ -101,27 +101,49 @@ final class SchemaCompiler
 
         // Every value each type's default instance holds, inherited fields
         // included. For a type in this batch, these are its effective values.
-        // A type given only what it sets itself is laid over its ancestors as
-        // computed here, in dependency order, so what it inherits follows them.
+        // A native type gives them dense, from code: it never holds a type
+        // that isn't native, so nothing it holds can be stale.
         $flattener = new ValueFlattener($lookup);
         $storedForm = new StoredForm($lookup);
         $trees = [];
         $denseByIdentifier = [];
+        $known = [];
         foreach ($order as $identifier => $blueprint) {
-            $trees[$identifier] = $blueprint->defaults->dense ?? $this->resolver
-                ->withBatch($schemas, [...$denseByIdentifier, $identifier => $blueprint->defaults->own])
-                ->resolveTree(Subject::of($identifier));
-            $denseByIdentifier[$identifier] = $flattener->flatten($identifier, $trees[$identifier]);
+            if ($blueprint->defaults->dense !== null) {
+                $trees[$identifier] = $blueprint->defaults->dense;
+                $denseByIdentifier[$identifier] = $flattener->flatten($identifier, $trees[$identifier]);
+            }
+
+            $known[$identifier] = $denseByIdentifier[$identifier] ?? $blueprint->defaults->own;
+        }
+
+        // A type given only what it sets itself is laid over every other
+        // type's new values at once, never in sort order: what it holds in an
+        // owned slot may come later, or hold it back. Resolving is lazy, path
+        // by path, so such cycles end.
+        $resolver = $this->resolver->withBatch($schemas, $known);
+        foreach ($order as $identifier => $blueprint) {
+            if ($blueprint->defaults->own !== null) {
+                $trees[$identifier] = $resolver->resolveTree(Subject::of($identifier));
+                $denseByIdentifier[$identifier] = $flattener->flatten($identifier, $trees[$identifier]);
+            }
+
             $this->assertValidDefaults($identifier, $denseByIdentifier[$identifier], $storedForm);
         }
 
-        // We only want to store values that differ from what FieldValueResolver would otherwise already resolve to.
-        // This batch's own schemas and values take priority over the registry and the store:
-        // they're the new versions, and  neither is committed yet.
+        // A native type stores only what differs from what FieldValueResolver
+        // would otherwise resolve to: its class says what it sets only by
+        // value. A type given what it sets itself stores exactly that,
+        // pinned, whatever its ancestors hold now; only a path its schema no
+        // longer has goes. This batch's own schemas and values take priority
+        // over the registry and the store: they're the new versions, and
+        // neither is committed yet.
         $overrides = new Overrides($lookup, $this->resolver->withBatch($schemas, $denseByIdentifier));
         $sparseByIdentifier = [];
         foreach ($order as $identifier => $blueprint) {
-            $sparseByIdentifier[$identifier] = $overrides->of(Subject::of($identifier), $trees[$identifier], $denseByIdentifier[$identifier]);
+            $sparseByIdentifier[$identifier] = $blueprint->defaults->own === null
+                ? $overrides->of(Subject::of($identifier), $trees[$identifier], $denseByIdentifier[$identifier])
+                : FieldValues::fromArray(array_intersect_key($blueprint->defaults->own->toArray(), $denseByIdentifier[$identifier]->toArray()));
         }
 
         // Each schema's own fingerprint, then the fingerprint of every schema it

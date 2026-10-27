@@ -164,7 +164,7 @@ final class AggregateValues
         // type set anything of the field. A field it inherits, or one new to
         // it, never becomes its own.
         $before = $this->ownAtOrUnder((string) $path);
-        $existed = array_fill_keys(array_filter(array_map('strval', array_keys($this->values)), static fn (string $key): bool => self::isAtOrUnder($key, (string) $path)), true);
+        $existed = $this->valuesAtOrUnder((string) $path);
         $this->removeAt($path);
         if ($conversion->isDefault()) {
             return;
@@ -204,6 +204,21 @@ final class AggregateValues
         if ($wasOwn) {
             $this->own[(string) $path] = true;
         }
+    }
+
+    /**
+     * Every path at or under $path holding a value.
+     * @return array<string, true>
+     */
+    private function valuesAtOrUnder(string $path): array {
+        $found = [];
+        foreach (array_keys($this->values) as $key) {
+            if (self::isAtOrUnder((string) $key, $path)) {
+                $found[(string) $key] = true;
+            }
+        }
+
+        return $found;
     }
 
     /**

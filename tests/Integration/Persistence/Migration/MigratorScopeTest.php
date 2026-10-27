@@ -43,9 +43,11 @@ final class MigratorScopeTest extends TestCase
         $turboCar = new ScopeCar();
         $turboCar->name = 'Turbo car';
         $turboCar->engine = new ScopeTurbo();
+        $turboCar->engine->horsepower = 300;
         $plainCar = new ScopeCar();
         $plainCar->name = 'Plain car';
         $plainCar->engine = new ScopeEngine();
+        $plainCar->chassis->weight = 1300;
         $bareCar = new ScopeCar();
         $bareCar->name = 'Bare car';
         $maker = new ScopeMaker();
@@ -114,6 +116,21 @@ final class MigratorScopeTest extends TestCase
 
         self::assertSame(3, $result->moved, 'The three cars, though no schema changed.');
         self::assertSame('Plain car', $this->connection->fetchOne('SELECT nickname FROM scope_car WHERE _id = ?', [$this->ids['plainCar']]));
+    }
+
+    public function testAStepMovingDataAloneMovesItsSubtypesAndItsHoldersToo(): void {
+        $result = $this->migrate(MigratorScope::V1, MigrationSteps::none()->add('torque-from-horsepower', [new MoveValues('scope:engine', 'horsepower', 'torque')]));
+
+        self::assertSame(5, $result->moved, 'Both standalone engines, the turbo one included, and the three cars, which declare an engine.');
+        $turboOfCar = $this->connection->fetchOne("SELECT id FROM entities WHERE owner = ? AND owner_field = 'engine'", [$this->ids['turboCar']]);
+        self::assertSame(300, (int) $this->connection->fetchOne('SELECT torque FROM scope_engine WHERE _id = ?', [$turboOfCar]), 'A turbo is an engine: the step moves its values too.');
+    }
+
+    public function testAStepMovingDataAloneOnAnEmbedTargetMovesItsHolders(): void {
+        $result = $this->migrate(MigratorScope::V1, MigrationSteps::none()->add('grade-from-weight', [new MoveValues('scope:chassis', 'weight', 'grade')]));
+
+        self::assertSame(3, $result->moved, 'The three cars: a chassis has no entity of its own.');
+        self::assertSame(1300, (int) $this->connection->fetchOne('SELECT chassis__grade FROM scope_car WHERE _id = ?', [$this->ids['plainCar']]));
     }
 
     public function testNothingChangedMovesNothing(): void {

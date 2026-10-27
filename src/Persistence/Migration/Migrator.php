@@ -194,7 +194,8 @@ final readonly class Migrator
     /**
      * Every stored type whose aggregates must move, by its stored identifier:
      * its compiled schema or stored values changed, something it depends on
-     * changed, it's gone, or a fixup moves its values. A stored type records
+     * changed, it's gone, or a fixup moves the values of it or of a type it
+     * depends on. A stored type records
      * the fingerprint of everything it depends on, transitively, and every
      * type is compiled again, editor-created ones too: a change anywhere below
      * a type shows in its own record.
@@ -215,12 +216,22 @@ final readonly class Migrator
             }
         }
 
-        // A fixup can move values with no schema changing: a step may be data alone.
+        // A fixup can move values with no schema changing: a step may be data
+        // alone. It moves them wherever its type lives: in the type's
+        // subtypes, and in every type holding it, owned or as an Embed. Each
+        // of those depends on it.
+        $moved = [];
         foreach ($plan->fixups as $planned) {
             if ($planned->fixup instanceof MovesValues) {
                 foreach ($planned->fixup->movedTypes() as $type) {
-                    $changed[$type] = true;
+                    $moved[$type] = true;
                 }
+            }
+        }
+
+        foreach ($stored as $each) {
+            if (isset($moved[$each->schema->identifier]) || array_intersect_key($each->dependencies, $moved) !== []) {
+                $changed[$each->schema->identifier] = true;
             }
         }
 

@@ -147,6 +147,63 @@ final class StoredBlueprintReaderTest extends TestCase
         self::assertSame(['c'], [$this->resolve('stored:car', 'tags.0')], 'Its own Collection stays its own.');
     }
 
+    public function testWhatItHoldsFollowsAHeldTypeChangedInTheSameBatchWhicheverComesFirst(): void {
+        $turbo = $this->reader->read('stored:turbo');
+        $own = FieldValues::fromArray(['boost' => 9] + $turbo->defaults->own->toArray());
+
+        // The vehicle, holding a turbo in its engine slot, comes first: nothing orders it after the turbo.
+        $this->stores->compiler()->compile([
+            'stored:vehicle' => $this->reader->read('stored:vehicle'),
+            'stored:turbo' => StoredBlueprintReader::of($this->stores->schemas->load('stored:turbo')->schema, SchemaSource::Editor, $own),
+        ]);
+
+        self::assertSame(9, $this->resolve('stored:vehicle', 'engine.boost'));
+        self::assertArrayNotHasKey('engine.boost', $this->stores->values->load('stored:vehicle')->toArray(), 'Never set by the vehicle: it follows the turbo.');
+    }
+
+    public function testWhatItHoldsResolvesThroughAHeldTypeRenamedInTheSameBatch(): void {
+        $stored = $this->stores->schemas->load('stored:turbo')->schema;
+        $renamed = $stored->withFields($stored->fields->renamed(FieldName::of('boost'), FieldName::of('pressure')));
+        $own = $this->reader->read('stored:turbo')->defaults->own->toArray();
+        $own['pressure'] = $own['boost'] ?? 5;
+        unset($own['boost']);
+
+        // Only the batch knows "pressure": the store still has "boost".
+        $this->stores->compiler()->compile([
+            'stored:vehicle' => $this->reader->read('stored:vehicle'),
+            'stored:turbo' => StoredBlueprintReader::of($renamed, SchemaSource::Editor, FieldValues::fromArray($own)),
+        ]);
+
+        self::assertSame(5, $this->resolve('stored:vehicle', 'engine.pressure'));
+    }
+
+    public function testWhatItSetsStaysPinnedWhenItsParentComesToHoldTheSame(): void {
+        $car = $this->reader->read('stored:car');
+        // The car sets its wheels to 4, which is what the vehicle gives anyway.
+        $this->stores->compiler()->compile([
+            'stored:car' => StoredBlueprintReader::of($this->stores->schemas->load('stored:car')->schema, SchemaSource::Editor, FieldValues::fromArray(['wheels' => 4] + $car->defaults->own->toArray())),
+        ]);
+        self::assertSame(4, $this->stores->values->load('stored:car')->toArray()['wheels'] ?? null, 'Set, so kept: whether a value is set is never worked out by comparing.');
+
+        $this->stores->compiler()->compile([
+            'stored:vehicle' => self::withDefault(NativeEntityReader::read(StoredVehicle::class), 'wheels', 6),
+            'stored:car' => $this->reader->read('stored:car'),
+        ]);
+
+        self::assertSame(4, $this->resolve('stored:car', 'wheels'));
+        self::assertSame(6, $this->resolve('stored:vehicle', 'wheels'));
+    }
+
+    public function testWhatItSetsWhereItsSchemaHasNoFieldIsDropped(): void {
+        $car = $this->reader->read('stored:car');
+
+        $this->stores->compiler()->compile([
+            'stored:car' => StoredBlueprintReader::of($this->stores->schemas->load('stored:car')->schema, SchemaSource::Editor, FieldValues::fromArray(['gone' => 1] + $car->defaults->own->toArray())),
+        ]);
+
+        self::assertArrayNotHasKey('gone', $this->stores->values->load('stored:car')->toArray());
+    }
+
     public function testRebuiltFromStoredDefaultsThatFrozeTheParentItWouldStopFollowingIt(): void {
         // What a blueprint resolved from the stored state before the batch
         // would carry: the parent's old value, as if the car set it itself.

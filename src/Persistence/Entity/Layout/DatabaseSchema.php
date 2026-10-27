@@ -58,6 +58,8 @@ final class DatabaseSchema
         $table->addColumn('concrete_identifier', Types::STRING, ['length' => 255]);
         $table->setPrimaryKey(['id']);
         $table->addIndex(['owner', 'owner_field', 'position']);
+        // A migration finds every entity of the types it changes by this.
+        $table->addIndex(['concrete_identifier']);
         $table->addForeignKeyConstraint(self::ENTITIES, ['owner'], ['id'], ['onDelete' => 'RESTRICT']);
     }
 

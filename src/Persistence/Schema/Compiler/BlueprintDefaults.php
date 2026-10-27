@@ -8,9 +8,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ObjectNode;
 /**
  * A blueprint's default values, in one of two forms. Dense: every field's
  * default, inherited ones included, as a native class's default instance
- * holds them. Own: only what the type sets itself, as stored; the compiler
- * lays it over its ancestors as compiled in the same batch, so an inherited
- * default follows a parent whose default changed.
+ * holds them; the compiler keeps what differs from what the type inherits.
+ * Own: only what the type sets itself, as stored, kept exactly as it is,
+ * pinned; everything else follows its ancestors as compiled in the same
+ * batch, so an inherited default follows a parent whose default changed.
  */
 final readonly class BlueprintDefaults
 {

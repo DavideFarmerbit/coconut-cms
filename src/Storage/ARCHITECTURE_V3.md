@@ -1024,8 +1024,11 @@ stored type is changed when:
   owns or references. A stored type records the fingerprint of everything it
   depends on, transitively, and every type is compiled again, editor-created
   ones too, so a change anywhere below shows in its own record;
-- a pending fixup moves its values (`movedTypes()`), even with no schema
-  changing: a step can move data alone.
+- a pending fixup moves the values of it, or of a type it depends on
+  (`movedTypes()`), even with no schema changing: a step can move data
+  alone. A fixup moves values wherever its type lives, in its subtypes and
+  in every type holding it, and each of those depends on it. A type holding
+  it only through a Reference moves too: a harmless superset.
 
 The aggregates that move are those holding an entity of a changed type: as
 the root, or owned at any depth, found by walking up from each such entity
@@ -1144,7 +1147,8 @@ itself is carried over. Its default instance moves whole, every default
 included, so each fixup finds the shape it expects: a later fixup must see a
 renamed type's new identifier in an inherited owned slot too. But it keeps
 track of the paths the type sets itself (`AggregateValues::ofDefaults()`),
-and only those are kept (`ownValues()`):
+and only those are kept (`ownValues()`), then stored as they are, pinned
+(see below):
 
 - a rename or a move takes the path along;
 - a converter's output stays the type's own where the field was. In an
@@ -1176,12 +1180,23 @@ as stored. The editor uses it too, for every type a save doesn't change.
 
 A blueprint's defaults (`BlueprintDefaults`) come in two forms. A native
 class gives them dense: its default instance, inherited fields included,
-built from the code as it is now. A stored type gives only its own. The
-compiler lays those over the type's ancestors as it compiles them in the
-same batch, in dependency order, so an inherited default follows a parent
-whose default just changed, native or editor-created, at any depth. A dense
-tree resolved from the stored state instead would freeze the parent's old
-value into the child, as if the child set it.
+built from the code as it is now. The compiler keeps what differs from what
+the type inherits: the class says what it sets only by value. A stored type
+gives only its own, and those are **pinned**: the compiler stores them
+exactly as given, never compares them again. Each of its fields is either
+set, and keeps its value whatever its ancestors do, or inherited, and
+follows them. A value set equal to what the parent gives stays set, the same
+as a native subclass setting it in its constructor. Only the admin moves a
+field between the two, in the editor: "set" and "inherit" are operations of
+their own. A migration never does, except where the field itself is gone.
+
+To check a stored type's defaults and find the types they hold, the compiler
+still resolves its full default instance: its own values over everything it
+inherits. It resolves every stored type against every type's new values at
+once, never in sort order: a type held in an owned slot may come later in
+the batch, or hold the first one back. The resolver works path by path, so
+such cycles end. Resolving from the stored state instead would read a held
+type's old values, or miss a field it renamed in the same batch.
 
 The code's `StateKey` holds native fingerprints only. Editor-created types
 live in the database, not in code, so an editor save never makes a native
@@ -1229,6 +1244,12 @@ planner, the same lock, the same expand, move and contract, and the
 developer's policy (not built yet). While it runs, `migration_state` blocks
 the whole site, the same as a native migration. Moving only the aggregates
 it affects keeps that short. Blocking only the affected types is for later.
+
+A save stores exactly the defaults the admin set, pinned, and never works
+out what's set by comparing values: a field the admin set to what its
+parent gives stays set. "Set a field's default" and "inherit it" are
+operations of their own. Every type the save doesn't change is rebuilt from
+what's stored (see "Editor-created types").
 
 The save takes a list of operations, never a before-and-after diff: a diff
 can't tell a rename from a drop and an add. Each operation is one fixup, the

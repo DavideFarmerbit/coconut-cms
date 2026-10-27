@@ -14,6 +14,9 @@ class ScopeEngine
 {
     #[Scalar(ScalarType::Int)]
     public int $horsepower = 100;
+
+    #[Scalar(ScalarType::Int)]
+    public int $torque = 0;
 }
 
 #[Entity(identifier: 'scope:turbo')]
@@ -28,6 +31,9 @@ final class ScopeChassis
 {
     #[Scalar(ScalarType::Int)]
     public int $weight = 1000;
+
+    #[Scalar(ScalarType::Int)]
+    public int $grade = 0;
 }
 
 /** Holds an Embed and an owned engine, of any engine type. */
@@ -87,6 +93,9 @@ final class ScopeHeavierChassis
 {
     #[Scalar(ScalarType::Int)]
     public int $weight = 1100;
+
+    #[Scalar(ScalarType::Int)]
+    public int $grade = 0;
 }
 
 /** The engine, with another default its turbo inherits. */
@@ -95,6 +104,9 @@ class ScopeStrongerEngine
 {
     #[Scalar(ScalarType::Int)]
     public int $horsepower = 150;
+
+    #[Scalar(ScalarType::Int)]
+    public int $torque = 0;
 }
 
 #[Entity(identifier: 'scope:turbo')]
