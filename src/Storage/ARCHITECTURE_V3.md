@@ -10,12 +10,16 @@ Scope:
 - **Schemas:** reading native classes, compiling them, storing schemas and
   their default values, and catching stale ones.
 - **Content:** where an entity's values are stored, identity, and saving,
-  loading and deleting native entities.
+  loading, deleting, querying and validating native entities, and
+  permissions.
+- **Migrations:** when a schema changes after content is stored, native and
+  editor-created types alike.
+- **Booting** and the **databases** supported.
 
 Not covered yet:
 
-- migrations, when a schema changes after content is stored;
-- editor-created entities, decided in `PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`;
+- editor-created entities' content, decided in
+  `PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`;
 - namespaces, undo, and permissions on schemas and on history, for which
   `archive/ARCHITECTURE_V2.md` and `archive/CLEANUP_FOR_V2_ROUND17.md` still
   hold the latest design.
@@ -79,6 +83,10 @@ target, and the type an owned object holds in its default values. Attributes
 still name classes (`itemTarget: Engine::class`), so they stay checked by
 PHP; the reader turns them into identifiers.
 
+An editor-created type's identifier follows the same form, with the
+namespace the admin gives or `default` (see "Editor saves are migrations").
+One identifier is one type, whatever its source.
+
 `NativeEntityRegistry` is the way back: which class an identifier stands for.
 The native loader and object builder need it to build what's stored. Every
 native entity class is registered at boot. Two classes with one identifier
@@ -114,10 +122,11 @@ runs live for the changed classes, diffs the result against the last migrated
 schema, and either applies a migration automatically or refuses to proceed,
 depending on configuration (lockdown vs. best-effort; detail not yet decided).
 
-Editor-created: the admin action that creates or edits an entity type is the only
-moment its raw definition exists. The full pipeline runs once, there, and its
-result is written straight to the database as the already-compiled schema. Reading
-an editor-created schema never re-runs the pipeline.
+Editor-created: the admin action that creates or edits an entity type runs the
+pipeline, as a migration (see "Editor saves are migrations"), and stores the
+compiled schema. A native migration compiles every editor-created type again,
+from its stored schema and defaults (see "Editor-created types"). Reading an
+editor-created schema never runs the pipeline.
 
 Either way, the database always holds the last compiled, persisted `EntitySchema`
 for every identifier. Live recompilation from source only happens to detect or
@@ -977,9 +986,11 @@ was stored. `Migrator::migrate()` runs one, from the native classes read with
 database is a migration from nothing. One migration runs at a time: each
 holds a MySQL lock.
 
-**Built**, except where noted inline: storing a `NoType` value; and migrating
-editor-created types' content and stored values, which stops a migration
-that would need it.
+**Built**, except where noted inline. Decided but not built yet:
+editor-created types in every migration (see "Editor-created types"),
+`NoType` fields, `ReplaceType`, `MoveField`'s initializer, and moving only
+the aggregates a change affects. Until then, a migration that would change
+an editor-created type stops before it changes anything.
 
 A change to the CMS's own tables or system columns (`_id`, `_owner`,
 `_position`, a count) isn't migrated. Expand would take a changed system
@@ -999,9 +1010,14 @@ change that alters what's stored rewrites it:
 - A removed field or type, a rename, a retype, and a reparent or Embed
   target change move or drop what's stored.
 
-Every migration that changes a fingerprint moves every aggregate, so all of
-these happen the same way: the aggregate is read, the fixups run, and it's
-written whole with the new schemas and defaults.
+All of these happen the same way: the aggregate is read, the fixups run, and
+it's written whole with the new schemas and defaults.
+
+A migration moves only the aggregates a change affects: those holding a
+changed type anywhere, as the root, as an owned object, or at an Embed site
+(not built yet: today every aggregate moves on any fingerprint change). An
+editor save is a migration too, so it must not rewrite the whole database
+for one field.
 
 ### Policies
 
@@ -1032,7 +1048,8 @@ declared steps, and nothing may differ afterwards:
 
 Other policies implement the same interface. Boot code passes the policy as an
 object, and strict applies when it passes none. So a looser policy is always a
-visible line of code, never a setting someone can leave on in production.
+visible line of code, never a setting someone can leave on in production. The
+same policy applies to an editor save.
 
 The same change always follows the same rule, whatever the stored content
 holds: a removed field nobody ever touched still needs its declaration.
@@ -1048,10 +1065,11 @@ policy:
 - a changed default;
 - changed validators or permissions: content breaking a new validator is
   caught on its next save;
-- a changed `editorExtensible`: an editor-created type whose parent stops
-  allowing it falls back to having no parent until it's fixed, and nothing
-  stored changes;
 - a field, or its items, becoming `Nullable`: every value stored stays valid.
+
+A changed `editorExtensible` is a difference only where an editor-created
+type extends the native type: it breaks that type (see "When native code
+breaks an editor-created type").
 
 The opposite, a field that can no longer hold null, is a difference: a stored
 null would break. It needs `RetypeField::converting`, or `MakeNotNullable`
@@ -1061,9 +1079,20 @@ it by itself: it can lose data, even where no null is stored.
 ### Defaults normalize in the migration
 
 A changed default needs no declaration under any policy. The migration moves
-every aggregate, and compares each touched value with its new default the
-way a save does: one that now equals it becomes untouched, and follows the
-default from then on.
+every aggregate holding the type, and compares each touched value with its
+new default the way a save does: one that now equals it becomes untouched,
+and follows the default from then on.
+
+Later, as performance work, an aggregate whose only change is a default may
+be updated in the database instead of moved (not built yet). The state
+tables say which values follow the default, so an update per column and
+concrete type replaces them; an untouched Collection or owned object is
+rewritten from the new default per owner. A touched value that now equals
+its default then becomes untouched at its next save, not in the migration:
+a save already decides "touched" by comparing. Unreal works the same way: a
+save writes only what differs from the archetype, so a value equal to a new
+default stops being written at the next save. Tests must compare the update
+with what a move writes, row by row, so the two never drift.
 
 ### What a migration touches
 
@@ -1072,12 +1101,106 @@ in code. Each stored schema records its source, native or editor-created, so
 a stored type missing from the code is a removed native type only when it's
 native.
 
-Editor-created schemas are still updated by a native migration wherever a
-declared fixup makes the change obvious: a renamed type used as their parent
-or field target, a renamed field they inherit, a field or type dropped with a
-named substitute. Editor-created schemas are their own source of truth, so
-fixing them directly is allowed. Their content, and their stored values for
-inherited fields, move the same way native content does.
+### Editor-created types
+
+Editor-created types take part in every migration, the same as native ones
+(not built yet). Native code can't name an editor-created type: an attribute
+names a PHP class. But an editor-created type can name native types and
+other editor-created ones: as its parent, and as a field's target. So a
+change on either side can reach it.
+
+**A native migration** carries editor-created types along. The fixups run
+over every stored schema, editor-created ones included: a renamed native
+field they inherit, a renamed or replaced type they name, all follow. Then
+every editor-created type is compiled again, with the new native schemas, in
+the same batch. That checks it again, flattens its stored defaults again,
+and gives it fingerprints that match its dependencies. Its content, and its
+stored values for inherited fields, move the same way native content does.
+
+To compile again, the compiler needs a blueprint, and an editor-created type
+has no class to read one from. So a blueprint is also built from a stored
+schema and its stored defaults. That's the editor-created producer's way
+back, and the editor uses it for every type a save doesn't change.
+
+The code's `StateKey` holds native fingerprints only. Editor-created types
+live in the database, not in code, so an editor save never makes a native
+migration pending.
+
+### When native code breaks an editor-created type
+
+A developer reviews a migration against their own database. Production holds
+editor-created types they never saw. A native change can break one:
+
+- a dropped type an editor-created field declares as its target, of any kind,
+  Embed included;
+- a dropped native parent, or one that's no longer `editorExtensible`: the
+  editor-created type's chain is cut;
+- a field added to a native type, named the same as a field an
+  editor-created subtype declares;
+- a unique group added to a native type, which editor-created content breaks;
+- a native type taking an identifier an editor-created type has. This fails
+  the same way two native classes with one identifier do, naming the
+  editor-created type.
+
+A dropped type that is only a subtype of a field's target breaks nothing:
+the field stays valid, and only the values holding that subtype go, as
+`DropType` says.
+
+Each break is a difference, and the policy decides it, the same as any other
+difference. Strict blocks the migration, naming the editor-created type and
+the break. A looser policy resolves it: a field whose target is gone, a
+field whose name now clashes, and the values of a cut-off parent's levels
+become `NoType` fields (see "NoType"), kept until an admin decides. A unique
+group broken by content always blocks: nothing can be kept aside for it. A
+fixup the developer declares, `ReplaceType` above all, resolves a break
+before the policy sees it.
+
+A dry run, `migrate --check`, plans a migration against a database and
+reports every break without changing anything (not built yet). Run against
+production before a deploy, it shows what strict would block.
+
+### Editor saves are migrations
+
+An admin changing an editor-created type changes what's stored for it, and
+for every type naming it. So an editor save runs as a migration: the same
+planner, the same lock, the same expand, move and contract, and the
+developer's policy (not built yet). While it runs, `migration_state` blocks
+the whole site, the same as a native migration. Moving only the aggregates
+it affects keeps that short. Blocking only the affected types is for later.
+
+The save takes a list of operations, never a before-and-after diff: a diff
+can't tell a rename from a drop and an add. Each operation is one fixup, the
+same classes code declares. The editor knows what the admin did, so it fills
+each fixup's parameters from the action itself, and asks only where there's
+a real choice, with the usual answer selected. It can show a preview on a
+few real entries, since the content is right there.
+
+| Operation | Fixup | What the editor asks |
+|---|---|---|
+| Add a field | `AddField` | Existing entries: the default, a value, or another field's value. |
+| Remove a field | `DropField` | Nothing; it confirms, saying how many entries hold a value. |
+| Rename a field | `RenameField` | Nothing. |
+| Move a field up or down the chain | `MoveField` | Moving up: what the entries gaining it get, as for adding. |
+| Change a field's kind or type | `RetypeField` | A converter that fits, or a reset. A built-in one is selected when it exists. |
+| Make a field required | `MakeNotNullable` | Empty entries: the default, or cancel. |
+| Rename a type | `RenameType` | Nothing. |
+| Replace a type | `ReplaceType` | The type replacing it, then initializers and converters field by field. |
+| Delete a type | `DropType` | Nothing; it confirms. |
+| Change the parent | `Reparent` | What the fields gained get, as for adding. |
+| Copy values between fields | `MoveValues` | The field to take them from. |
+| Add a unique group | `AddUniqueGroup` | Nothing; refused, listing duplicates, if content breaks it. |
+
+A general transformation is code only. The editor offers built-in
+converters and initializers, data-driven classes with parameters, never
+closures: number to text and back with a format, text to number with "on
+failure: default or cancel", text to enum by value, one value to a
+Collection and back (the first item, or joined), date to datetime, one
+Reference to a Collection of them, a constant, a copy of another field. Any
+converter or initializer registered in code is offered where it fits.
+
+An editor-created identifier is "namespace:key". The editor uses the
+namespace the admin gives, or `default`, the same as a native class. A save
+naming an identifier any type already has is refused.
 
 ### Fixups are ordered steps
 
@@ -1145,6 +1268,21 @@ The common fixups are shorthands:
   an Owned Collection item, that slot becomes null, the same for both: what it
   held is gone. A converter or transformation before the drop can put
   something else there.
+- `ReplaceType(type, with, initializers, converters)`: every entity of the
+  type becomes an entity of `with`, keeping its id, so References and owned
+  slots holding it stay valid (not built yet). Any type may replace it: an
+  ancestor, a sibling, an unrelated type, a descendant. Its levels shared
+  with `with`'s chain keep their rows; its other levels go, and `with`'s
+  other levels are added. Values follow paths: a field both types have, with
+  the same descriptor, keeps its value; a field only the old type has goes;
+  a field only `with` has takes its default, or its initializer. A field
+  both have with different descriptors needs a converter; without one, the
+  policy decides it, so strict blocks. Every subtype of the type is
+  reparented onto `with` the same way. Every field targeting the type, of any
+  kind, targets `with`. A subtype's own field named the same as one of
+  `with`'s is a clash: an `InvalidFixup` for a native subtype, a difference
+  for the policy for an editor-created one. Initializers and converters are
+  keyed by field name.
 - `MoveTable(type)`: its table moves to the name the code gives it.
 - `Reparent(type, initializer?)`: the type moves under the parent the code
   gives it. A level it gains holds fields every existing entity already
@@ -1159,8 +1297,12 @@ The common fixups are shorthands:
 - `DropField(type, field)`.
 - `RenameField(type, old, new)`: the shorthand for moving the values from the
   old name to the new, the old field dropped, the new one added.
-- `MoveField(from, field, to)`: a field's declaration moved up or down its own
-  chain. Its path doesn't change, so its values follow on their own.
+- `MoveField(from, field, to, initializer?)`: a field's declaration moved up
+  or down its own chain. Its path doesn't change, so its values follow on
+  their own. Moved up, entities that never had the field gain it: those of
+  `to` and its subclasses that aren't of `from`. They take its default, or
+  the initializer, as with `AddField` (not built yet). Moved down, nobody
+  gains it, so an initializer there is an `InvalidFixup`.
 - `MoveValues(type, from, to)`: values moved between any two paths of an
   aggregate: across levels, into or out of an Embed, across an owned boundary.
   Data only: the schema changes it goes with are declared next to it. Both
@@ -1371,8 +1513,18 @@ old value lived: a column, a flattened Embed, a Collection table or an owned
 entity's rows. The capture is the entity's touched values under the field's
 old path, in their stored form, read with the old schema.
 
-Storing a `NoType` value, for a field whose old value nothing converts in the
-same migration, is decided later, on the same capture.
+A capture can also be kept, as a **`NoType` field** (not built yet). That's
+a field with no usable type: its target is gone, its name clashes, or its
+level was cut off (see "When native code breaks an editor-created type").
+It stays in its type's schema, flagged, until an admin converts it, from the
+capture, to a field with a type, or drops it.
+
+Its captures live in one side table, the way stored defaults live next to
+schemas: per entity and field path, the captured values with their touched
+marks, as JSON. Content itself is never JSON: every value has its column, so
+a query can use it. A capture isn't content. Nothing queries it, and no
+native object ever loads it. Only a conversion reads it, and later a
+`DynamicEntity`, to show it.
 
 ### How data moves
 
@@ -1431,9 +1583,8 @@ from the stored one, a migration is pending.
 
 One transaction for all the data is long on a large database. That's
 acceptable for now. If it isn't one day, the fix is batches with a record of
-which entities have moved. Every aggregate is rewritten, even when no fixup
-moves data and no stored type's layout changes. Skipping the move then is the
-same kind of optimization, so it waits for the same work (not built yet).
+which entities have moved. Moving only the aggregates a change affects (see
+"What a change costs") keeps it short for most changes.
 
 ## Booting
 
