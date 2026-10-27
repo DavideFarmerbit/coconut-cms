@@ -21,6 +21,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReferenc
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\BlueprintDefaults;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
@@ -87,7 +88,7 @@ final class NativeEntityReader
             fieldValidators: $fieldValidators,
             uniqueGroups: $uniqueGroups,
             prototypeValidators: $prototypeValidators,
-            defaultValues: self::defaultValuesReader()->read($defaultInstance),
+            defaults: BlueprintDefaults::dense(self::defaultValuesReader()->read($defaultInstance)),
             // The class's own only: an ancestor's applies through the ancestor.
             typePermission: ($reflection->getAttributes(TypePermission::class)[0] ?? null)?->newInstance(),
         );

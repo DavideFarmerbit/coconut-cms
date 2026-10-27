@@ -31,9 +31,10 @@ doesn't cover yet. Where the two disagree, this document wins.
 ## Three stages
 
 A native PHP class and an editor-created entity both produce the same data shape:
-field descriptors, permissions, validators, unique groups, and dense default
-values. Two separate producers build this shared `EntityBlueprint`, one per
-source; for native, that's `NativeEntityReader`. A third stage, the compiler
+field descriptors, permissions, validators, unique groups, and default
+values. Separate producers build this shared `EntityBlueprint`: for native,
+`NativeEntityReader`; for a type already stored, whatever its source,
+`StoredBlueprintReader` (see "Editor-created types"). A third stage, the compiler
 (`SchemaCompiler`), consumes a batch of already-built blueprints at once rather
 than one at a time: dependency resolution, cycle detection, and registering
 every result with the request's `SchemaRegistry`.
@@ -1118,9 +1119,18 @@ and gives it fingerprints that match its dependencies. Its content, and its
 stored values for inherited fields, move the same way native content does.
 
 To compile again, the compiler needs a blueprint, and an editor-created type
-has no class to read one from. So a blueprint is also built from a stored
-schema and its stored defaults. That's the editor-created producer's way
-back, and the editor uses it for every type a save doesn't change.
+has no class to read one from. So `StoredBlueprintReader` builds one from any
+stored type: its stored schema, and only the defaults the type sets itself,
+as stored. The editor uses it too, for every type a save doesn't change.
+
+A blueprint's defaults (`BlueprintDefaults`) come in two forms. A native
+class gives them dense: its default instance, inherited fields included,
+built from the code as it is now. A stored type gives only its own. The
+compiler lays those over the type's ancestors as it compiles them in the
+same batch, in dependency order, so an inherited default follows a parent
+whose default just changed, native or editor-created, at any depth. A dense
+tree resolved from the stored state instead would freeze the parent's old
+value into the child, as if the child set it.
 
 The code's `StateKey` holds native fingerprints only. Editor-created types
 live in the database, not in code, so an editor save never makes a native

@@ -18,6 +18,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\LeafNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ObjectNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\OwnedNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\BlueprintDefaults;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\SchemaCompiler;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
@@ -461,7 +462,7 @@ final class SchemaCompilerTest extends TestCase
             fieldValidators: $original->fieldValidators,
             uniqueGroups: $original->uniqueGroups,
             prototypeValidators: $original->prototypeValidators,
-            defaultValues: ObjectNode::fromArray(['engine' => new OwnedNode('default:compiler_piston', ObjectNode::fromArray(['diameter' => new LeafNode(10)]))]),
+            defaults: BlueprintDefaults::dense(ObjectNode::fromArray(['engine' => new OwnedNode('default:compiler_piston', ObjectNode::fromArray(['diameter' => new LeafNode(10)]))])),
         );
 
         return $blueprints;

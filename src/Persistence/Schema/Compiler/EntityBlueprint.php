@@ -3,7 +3,6 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Compiler;
 
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\TypePermission;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ObjectNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
@@ -14,11 +13,12 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule
 /**
  * Everything a producer discovers about one entity type's shape, native or
  * editor-created alike, before the compiler turns it into a final EntitySchema.
- * Carries its own dense default values alongside its fields: for native, read in
+ * Carries its default values alongside its fields: for native, dense, read in
  * the same reflection pass the fields themselves come from, rather than walking
- * the class a second time; for editor-created, handed over directly as data,
- * since there's no reflection to speak of. Never persisted and never handed to
- * calling code directly: the compiler is the only consumer.
+ * the class a second time; for a type rebuilt from what's stored, only what it
+ * sets itself, so what it inherits follows its ancestors as compiled now. Never
+ * persisted and never handed to calling code directly: the compiler is the only
+ * consumer.
  */
 final readonly class EntityBlueprint
 {
@@ -33,8 +33,9 @@ final readonly class EntityBlueprint
      *        ...)] override, or the derived default when none was given.
      * @param list<UniqueGroup> $uniqueGroups
      * @param PrototypeValidatorRule[] $prototypeValidators
-     * @param ObjectNode $defaultValues This class's own default instance, every field
-     *        it declares or inherits, already read into ValueNodes.
+     * @param BlueprintDefaults $defaults Dense for a native class: its default
+     *        instance, every field it declares or inherits, read into
+     *        ValueNodes. Own for a type rebuilt from what's stored.
      * @param TypePermission|null $typePermission This type's own declaration, null for none.
      */
     public function __construct(
@@ -48,7 +49,7 @@ final readonly class EntityBlueprint
         public FieldValidatorCollection $fieldValidators,
         public array $uniqueGroups,
         public array $prototypeValidators,
-        public ObjectNode $defaultValues,
+        public BlueprintDefaults $defaults,
         public ?TypePermission $typePermission = null,
     ) {
     }

@@ -99,13 +99,19 @@ final class SchemaCompiler
             $this->assertEmbedItemsOwnNothing($schema, $lookup);
         }
 
-        // Every value each class's default instance holds, inherited fields
-        // included. For a class in this batch, these are its effective values.
+        // Every value each type's default instance holds, inherited fields
+        // included. For a type in this batch, these are its effective values.
+        // A type given only what it sets itself is laid over its ancestors as
+        // computed here, in dependency order, so what it inherits follows them.
         $flattener = new ValueFlattener($lookup);
         $storedForm = new StoredForm($lookup);
+        $trees = [];
         $denseByIdentifier = [];
         foreach ($order as $identifier => $blueprint) {
-            $denseByIdentifier[$identifier] = $flattener->flatten($identifier, $blueprint->defaultValues);
+            $trees[$identifier] = $blueprint->defaults->dense ?? $this->resolver
+                ->withBatch($schemas, [...$denseByIdentifier, $identifier => $blueprint->defaults->own])
+                ->resolveTree(Subject::of($identifier));
+            $denseByIdentifier[$identifier] = $flattener->flatten($identifier, $trees[$identifier]);
             $this->assertValidDefaults($identifier, $denseByIdentifier[$identifier], $storedForm);
         }
 
@@ -115,7 +121,7 @@ final class SchemaCompiler
         $overrides = new Overrides($lookup, $this->resolver->withBatch($schemas, $denseByIdentifier));
         $sparseByIdentifier = [];
         foreach ($order as $identifier => $blueprint) {
-            $sparseByIdentifier[$identifier] = $overrides->of(Subject::of($identifier), $blueprint->defaultValues, $denseByIdentifier[$identifier]);
+            $sparseByIdentifier[$identifier] = $overrides->of(Subject::of($identifier), $trees[$identifier], $denseByIdentifier[$identifier]);
         }
 
         // Each schema's own fingerprint, then the fingerprint of every schema it
@@ -129,7 +135,7 @@ final class SchemaCompiler
         $stored = [];
         foreach ($schemas as $identifier => $schema) {
             $dependencies = [];
-            foreach ($this->transitiveDependenciesOf($identifier, $blueprints) as $dependency) {
+            foreach ($this->transitiveDependenciesOf($identifier, $blueprints, $trees) as $dependency) {
                 $dependencies[$dependency] = $fingerprints[$dependency] ?? $this->storedOrThrow($dependency)->fingerprint;
             }
 
@@ -374,11 +380,12 @@ final class SchemaCompiler
      * never $identifier itself. Walks with a visited set, so a cycle of
      * OwningReferences ends instead of looping.
      * @param array<string, EntityBlueprint> $blueprints
+     * @param array<string, ObjectNode> $trees Each blueprint's default values, dense.
      * @return list<string>
      */
-    private function transitiveDependenciesOf(string $identifier, array $blueprints): array {
+    private function transitiveDependenciesOf(string $identifier, array $blueprints, array $trees): array {
         $found = [];
-        $queue = $this->directDependenciesOf($identifier, $blueprints);
+        $queue = $this->directDependenciesOf($identifier, $blueprints, $trees);
 
         while ($queue !== []) {
             $dependency = array_shift($queue);
@@ -387,7 +394,7 @@ final class SchemaCompiler
             }
 
             $found[$dependency] = true;
-            array_push($queue, ...$this->directDependenciesOf($dependency, $blueprints));
+            array_push($queue, ...$this->directDependenciesOf($dependency, $blueprints, $trees));
         }
 
         return array_keys($found);
@@ -398,9 +405,10 @@ final class SchemaCompiler
      * OwningReference targets, and every class its default values actually
      * hold. For anything else: whatever it was stored with, already transitive.
      * @param array<string, EntityBlueprint> $blueprints
+     * @param array<string, ObjectNode> $trees Each blueprint's default values, dense.
      * @return list<string>
      */
-    private function directDependenciesOf(string $identifier, array $blueprints): array {
+    private function directDependenciesOf(string $identifier, array $blueprints, array $trees): array {
         if (!isset($blueprints[$identifier])) {
             return array_keys($this->storedOrThrow($identifier)->dependencies);
         }
@@ -410,7 +418,7 @@ final class SchemaCompiler
         return array_values(array_unique([
             ...$this->dependenciesOf($blueprint),
             ...$this->weakDependenciesOf($blueprint),
-            ...$this->heldIdentifiersIn($blueprint->defaultValues),
+            ...$this->heldIdentifiersIn($trees[$identifier]),
         ]));
     }
 

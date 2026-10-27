@@ -10,6 +10,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReferenc
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\LeafNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ObjectNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\BlueprintDefaults;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
@@ -112,7 +113,7 @@ final class SchemaRegistryTest extends TestCase
             fieldValidators: $original->fieldValidators,
             uniqueGroups: $original->uniqueGroups,
             prototypeValidators: $original->prototypeValidators,
-            defaultValues: $defaultValues,
+            defaults: BlueprintDefaults::dense($defaultValues),
         )];
     }
 

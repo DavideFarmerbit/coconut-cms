@@ -741,7 +741,7 @@ final class NativeEntityReaderTest extends TestCase
 
     /** The plain value a blueprint's default instance holds at $field. */
     private static function leafAt(EntityBlueprint $blueprint, string $field): mixed {
-        return LeafNode::valueOf($blueprint->defaultValues->get(FieldName::of($field)));
+        return LeafNode::valueOf($blueprint->defaults->dense->get(FieldName::of($field)));
     }
 
     public function testRegisterReflectsEntityAttributeAndFields(): void {
@@ -838,7 +838,7 @@ final class NativeEntityReaderTest extends TestCase
 
         self::assertSame('default:entity_registrar_grandparent', $blueprint->parent);
         self::assertSame(['own'], array_map('strval', $blueprint->fields->names()));
-        self::assertSame(['createdAt', 'own'], array_map('strval', $blueprint->defaultValues->names()));
+        self::assertSame(['createdAt', 'own'], array_map('strval', $blueprint->defaults->dense->names()));
     }
 
     public function testRegisterWithReferenceToNonEntityThrows(): void {
@@ -925,7 +925,7 @@ final class NativeEntityReaderTest extends TestCase
         $blueprint = NativeEntityReader::read(EntityRegistrarWithPlainProperty::class);
 
         self::assertSame(['title'], array_map('strval', $blueprint->fields->names()));
-        self::assertFalse($blueprint->defaultValues->has(FieldName::of('cache')));
+        self::assertFalse($blueprint->defaults->dense->has(FieldName::of('cache')));
     }
 
     public function testRegisterWithADefaultReferenceHoldingAnObjectThrows(): void {
@@ -975,7 +975,7 @@ final class NativeEntityReaderTest extends TestCase
         self::assertNull(self::leafAt($blueprint, 'discount'));
         self::assertEquals(
             new CollectionNode([new LeafNode('8 EUR'), new LeafNode('9 EUR')]),
-            $blueprint->defaultValues->get(FieldName::of('history')),
+            $blueprint->defaults->dense->get(FieldName::of('history')),
         );
     }
 
@@ -1079,8 +1079,8 @@ final class NativeEntityReaderTest extends TestCase
         self::assertSame(0, self::leafAt($blueprint, 'startDate'));
         self::assertNull(self::leafAt($blueprint, 'category'));
         // An OwningReference holding nothing is no node at all, not a LeafNode.
-        self::assertNull($blueprint->defaultValues->get(FieldName::of('engine')));
-        self::assertEquals(new CollectionNode([]), $blueprint->defaultValues->get(FieldName::of('relatedCategories')));
+        self::assertNull($blueprint->defaults->dense->get(FieldName::of('engine')));
+        self::assertEquals(new CollectionNode([]), $blueprint->defaults->dense->get(FieldName::of('relatedCategories')));
     }
 
     public function testRegisterExtractsOwningReferenceValuePolymorphically(): void {
@@ -1088,14 +1088,14 @@ final class NativeEntityReaderTest extends TestCase
 
         self::assertEquals(
             new OwnedNode('default:entity_registrar_sports_engine', ObjectNode::fromArray(['horsepower' => new LeafNode(100), 'redline' => new LeafNode(7000)])),
-            $blueprint->defaultValues->get(FieldName::of('engine')),
+            $blueprint->defaults->dense->get(FieldName::of('engine')),
         );
     }
 
     public function testRegisterExtractsEmbedValueWithTypeErasure(): void {
         $blueprint = NativeEntityReader::read(EntityRegistrarCarWithEmbed::class);
 
-        self::assertEquals(ObjectNode::fromArray(['horsepower' => new LeafNode(100)]), $blueprint->defaultValues->get(FieldName::of('engine')));
+        self::assertEquals(ObjectNode::fromArray(['horsepower' => new LeafNode(100)]), $blueprint->defaults->dense->get(FieldName::of('engine')));
     }
 
     public function testRegisterExtractsCollectionItemsRecursively(): void {
@@ -1103,7 +1103,7 @@ final class NativeEntityReaderTest extends TestCase
 
         self::assertEquals(
             new CollectionNode([new OwnedNode('default:entity_registrar_sports_engine', ObjectNode::fromArray(['horsepower' => new LeafNode(100), 'redline' => new LeafNode(7000)]))]),
-            $blueprint->defaultValues->get(FieldName::of('engines')),
+            $blueprint->defaults->dense->get(FieldName::of('engines')),
         );
     }
 }
