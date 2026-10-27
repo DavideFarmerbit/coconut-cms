@@ -989,7 +989,7 @@ holds a MySQL lock.
 
 **Built**, except where noted inline. Decided but not built yet: native
 changes breaking an editor-created type (see "When native code breaks an
-editor-created type"), `NoType` fields, `ReplaceType`, `MoveField`'s
+editor-created type"), `NoType` records, `ReplaceType`, `MoveField`'s
 initializer, and editor saves. Until then, a native change that breaks an
 editor-created type fails the migration when the type is compiled again.
 
@@ -1224,17 +1224,38 @@ the field stays valid, and only the values holding that subtype go, as
 
 Each break is a difference, and the policy decides it, the same as any other
 difference (not built yet: today the type fails to compile again, which
-fails the migration). Strict blocks the migration, naming the editor-created type and
-the break. A looser policy resolves it: a field whose target is gone, a
-field whose name now clashes, and the values of a cut-off parent's levels
-become `NoType` fields (see "NoType"), kept until an admin decides. A unique
-group broken by content always blocks: nothing can be kept aside for it. A
-fixup the developer declares, `ReplaceType` above all, resolves a break
-before the policy sees it.
+fails the migration). A fixup the developer declares, `ReplaceType` above
+all, resolves a break before the policy sees it. Then:
 
-A dry run, `migrate --check`, plans a migration against a database and
-reports every break without changing anything (not built yet). Run against
-production before a deploy, it shows what strict would block.
+- **Strict** blocks the migration, naming the editor-created type and the
+  break.
+- **Developer** and **unsafe** resolve it. Setting values aside as a
+  `NoType` record (see "NoType") keeps every one of them, so it's lossless,
+  and the developer policy applies lossless changes by itself.
+- A unique group broken by content always blocks, under every policy:
+  nothing can be set aside to fix it.
+
+How each break resolves:
+
+- **A field whose declared target is gone** leaves the type's fields. Its
+  values become a `NoType` record.
+- **A cut chain**: the type takes as its new parent the nearest ancestor
+  still there that still allows extending: a native type still
+  `editorExtensible`, or an editor-created type, which always allows it. With
+  none, it becomes a root. Each field it inherited from the levels cut off
+  becomes a `NoType` record, its values with it. A level cut off that
+  declared no fields loses nothing: the type isn't broken, only its parent
+  changed.
+- **A name clash**: the native field takes the name, since the code holds
+  it. The editor-created field leaves the type's fields, and its values
+  become a `NoType` record. No field is renamed or given a generated name.
+
+A dry run, `Persistence::check()`, plans a migration against a database and
+changes nothing (not built yet). Its `MigrationReport` lists the pending
+steps, every break with the editor-created type it hits, what the policy in
+use does with each, and whether the migration would block. Run against
+production before a deploy, it shows what strict would block. A `migrate
+--check` command wraps it once a command line exists.
 
 ### Editor saves are migrations
 
@@ -1596,17 +1617,89 @@ old value lived: a column, a flattened Embed, a Collection table or an owned
 entity's rows. The capture is the entity's touched values under the field's
 old path, in their stored form, read with the old schema.
 
-A capture can also be kept, as a **`NoType` field** (not built yet). That's
-a field with no usable type: its target is gone, its name clashes, or its
-level was cut off (see "When native code breaks an editor-created type").
-It stays in its type's schema, flagged, until an admin converts it, from the
-capture, to a field with a type, or drops it.
+A capture can also be kept, as a **`NoType` record** (not built yet): the
+values of a field that broke, set aside until an admin decides. Its target
+is gone, its name now clashes, or its level was cut off (see "When native
+code breaks an editor-created type"). Only an editor-created type holds
+them: a native class naming a dropped class already fails when it's read.
 
-Its captures live in one side table, the way stored defaults live next to
-schemas: per entity and field path, the captured values with their touched
-marks, as JSON. Content itself is never JSON: every value has its column, so
-a query can use it. A capture isn't content. Nothing queries it, and no
-native object ever loads it. Only a conversion reads it, and later a
+A `NoType` record isn't a field. It sits in a list of its own on the type's
+schema, next to its fields. So loads, queries, validators and saves, which
+only ever read the fields, never meet one, and it can't clash with a field
+name. Each record holds:
+
+- **its id**, generated when the field breaks, like an entity's. It's the
+  record's identity: an old name and origin aren't unique over time, since
+  the same field can break twice before the first record is resolved;
+- **its old name and its full old descriptor**: kind, target, items,
+  nullability. What the values were, for a conversion and for display;
+- **its origin**: the type that declared the field. For a cut chain, the
+  ancestor cut off; for a clash or a dropped target, the type itself;
+- **its reason**: target gone, chain cut, or name clash.
+
+A type holding any record is broken. The schema editor shows each record
+among the type's fields, for what it was, marked broken, with how many
+entities hold a value, and offers the fixes: convert it into a field, from
+its captures, naming the field then; or drop it. Both are editor operations.
+When the lost origin comes back, or the admin gives the type a parent with
+matching fields, the editor can offer to turn records back into fields.
+
+The captures live in one side table, `notype_captures`, the way stored
+defaults live next to schemas:
+
+- `entity_id`: the entity the broken field lived on, a root or an owned
+  object. A foreign key to `entities.id` with `ON DELETE CASCADE`: deleting
+  the entity deletes its captures.
+- `record_id`: the record it belongs to. Indexed, so the editor counts the
+  entities holding a value, and dropping a record deletes all its captures
+  at once.
+- `captured`: the capture, as JSON.
+
+One capture per entity and record: (`entity_id`, `record_id`) is the key.
+
+A capture has the shape a converter receives (`Captured`: the value at the
+field, and the values under it), so converting a record back into a field
+uses the same converters. It holds three parts, each keyed by path relative
+to the field, `""` for the field itself, joined the way paths always are:
+
+- `values`: every value at and under the field, in stored form, defaults
+  included, since content is dense;
+- `touched`: the paths that were touched, so a conversion still tells a set
+  value from a default;
+- `ownedIds`: the id of every owned object captured, by its slot's path.
+
+Kind by kind, `values` holds:
+
+| Kind | `values` |
+|---|---|
+| Scalar, ValueObject | `{"": 5}` |
+| Reference | `{"": "0193…"}`: the target's id, with no foreign key. A conversion checks the target still exists. |
+| Embed | Only its fields: `{":weight": 900, ":code": "C"}`; a nested Embed continues, `":frame:depth"`. |
+| Collection of values | The count, then each item: `{"": 2, ".0": "red", ".1": "fast"}` |
+| Collection of Embeds | `{"": 1, ".0.weight": 900, ".0.code": "C"}` |
+| Owned object | Its identifier, then everything under it: `{"": "ed:engine", ".horsepower": 300, ".turbo": "ed:turbo", ".turbo.boost": 7}`, with `ownedIds` `{"": "0193…", ".turbo": "0194…"}` |
+| Owned Collection | `{"": 2, ".0": "ed:engine", ".0.horsepower": 300, ".1": null}`, with `ownedIds` per item |
+
+What happens to what was stored:
+
+- The broken field's columns and Collection tables lose their values to the
+  capture, then go in contract, as any dropped field's do.
+- An owned object under the broken field is captured whole, its id and the
+  ids of everything it owns included, and its entity rows are deleted. It
+  can't stay: a dropped target's tables are gone, and an owned row always
+  has a field owning it. A conversion back into a field recreates owned
+  objects with the same ids. A Reference from another aggregate pointing at
+  one becomes null when the row goes, as the foreign key says; a recovery
+  brings the object back, not that Reference.
+- A record lives on the type that declared the field. Entities of its
+  subtypes had the field too: their captures go under the same record, and
+  the editor shows it on the subtypes as inherited.
+- A cut chain gives one record per field lost, with captures for every
+  entity of the type and its subtypes.
+
+Content itself is never JSON: every value has its column, so a query can
+use it. A capture isn't content. Nothing queries it, and no native object
+ever loads it. Only a conversion and the editor read it, and later a
 `DynamicEntity`, to show it.
 
 ### How data moves
