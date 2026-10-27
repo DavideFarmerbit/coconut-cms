@@ -1132,14 +1132,38 @@ the same batch. That checks it again, lays its own defaults over its new
 ancestors, and gives it fingerprints that match its dependencies. Its
 content moves the same way native content does.
 
-Its own defaults move through the plan too. Its default instance is one
-more place each fixup runs, like an entity holding every default: what it
-sets itself is touched, what it inherits isn't. So a renamed inherited field
-renames what it sets, a converter converts it, and a dropped field drops it.
-What an initializer returns there becomes something the type sets itself,
-unless the initializer returns `Conversion::default()`, the same rule as for
-any object that only exists as defaults. What's touched or converted after
-the plan is what the type sets itself from then on.
+Its own defaults move through the plan too. What it sets itself is stored
+by field path, in stored form, so a native fixup that renames, retypes or
+drops a field it sets, or renames a type an owned default holds, leaves that
+value at an old path or in an old form. Compiling the native types again
+doesn't touch it, so the plan must carry it over, the same way it carries
+content.
+
+**To review** (built, but not yet confirmed): only what the type sets
+itself is carried over. Its default instance moves whole, every default
+included, so each fixup finds the shape it expects: a later fixup must see a
+renamed type's new identifier in an inherited owned slot too. But it keeps
+track of the paths the type sets itself (`AggregateValues::ofDefaults()`),
+and only those are kept (`ownValues()`):
+
+- a rename or a move takes the path along;
+- a converter's output stays the type's own where the field was. In an
+  Embed, each field keeps whether the type set it, and a field new to the
+  Embed is its own if the type set anything of the Embed;
+- a removal ends it: a reset, a dropped null, a removed field. A field
+  dropped and then added again in the same plan is new to the type;
+- `DropType` replaces an owned slot of its own with null, and it stays its
+  own;
+- an initializer's output is never its own: a field new to the type has
+  nothing of its to carry over.
+
+What it inherits is never kept, converted or not. It keeps following its new
+ancestors, as a native subtype's defaults follow the code. The one known
+limit: a general transformation that derives new fields from one the type
+sets, such as splitting `name` into `firstName` and `lastName`, keeps
+nothing of it. A transformation can't say where a value came from, so the
+derived fields follow their ancestors' defaults, and the type's own `name`
+is lost.
 
 To compile again, the compiler needs a blueprint, and an editor-created type
 has no class to read one from. So `StoredBlueprintReader` builds one from any

@@ -229,11 +229,11 @@ final readonly class Migrator
 
     /**
      * Every editor-created type stored, rebuilt to be compiled again: its
-     * schema as the plan fixed it, and its own defaults moved by the plan the
-     * way content is. Its default instance is one more place each fixup runs,
-     * like an entity holding every default: renames, conversions and drops
-     * reach what it sets itself, and what an initializer returns there is
-     * kept, unless the initializer returns Conversion::default().
+     * schema as the plan fixed it, and what it sets itself carried through
+     * the plan. Renames and moves take what it set along, converters convert
+     * it, drops drop it. What it inherits is never kept, converted or not,
+     * and nothing an initializer writes is: it follows its new ancestors, as
+     * a native subtype's defaults follow the code.
      * @param list<StoredSchema> $stored
      * @return array<string, EntityBlueprint> Keyed by identifier.
      */
@@ -247,28 +247,18 @@ final readonly class Migrator
                 continue;
             }
 
+            // Every default moves, so each fixup finds the shape it expects;
+            // only what the type sets itself is kept. The compiler lays it
+            // over the type's new ancestors.
             $identifier = $each->schema->identifier;
-            $own = $this->values->load($identifier);
-            $values = [];
-            $marks = [];
-            foreach ($flattener->flatten($identifier, $resolver->resolveTree(Subject::of($identifier)))->toArray() as $path => $value) {
-                $values[$path] = $value;
-                $marks[$path] = $own->has(FieldPath::fromString($path)) ? ValueMark::Touched : ValueMark::Untouched;
-            }
-
-            $defaults = new AggregateValues($identifier, $values, $marks, []);
+            $defaults = AggregateValues::ofDefaults(
+                $identifier,
+                $flattener->flatten($identifier, $resolver->resolveTree(Subject::of($identifier)))->toArray(),
+                array_map('strval', array_keys($this->values->load($identifier)->toArray())),
+            );
             $plan->moveValues($defaults);
 
-            // What it sets itself after the fixups: what it set, and whatever
-            // they converted. The compiler lays it over its new ancestors.
-            $kept = [];
-            foreach ($defaults->values() as $path => $value) {
-                if ($defaults->marks()[$path] !== ValueMark::Untouched) {
-                    $kept[$path] = $value;
-                }
-            }
-
-            $blueprints[$identifier] = StoredBlueprintReader::of($plan->schemas->get($identifier), SchemaSource::Editor, FieldValues::fromArray($kept));
+            $blueprints[$identifier] = StoredBlueprintReader::of($plan->schemas->get($identifier), SchemaSource::Editor, FieldValues::fromArray($defaults->ownValues()));
         }
 
         return $blueprints;

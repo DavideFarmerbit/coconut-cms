@@ -8,8 +8,10 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityWriter;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\AddField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\RenameType;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\RetypeField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationResult;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Migrator;
@@ -105,6 +107,29 @@ final class MigratorEditorTypesTest extends TestCase
         self::assertSame(5, $this->boatDefaults()['cost'] ?? null, 'Its own default follows the rename.');
         self::assertArrayNotHasKey('price', $this->boatDefaults());
         self::assertSame(5, (int) $this->boat('cost'), 'Its content follows it.');
+    }
+
+    public function testAnInitializerFillsTheEditorTypesContentButNeverItsDefaults(): void {
+        $this->migrate(
+            [...array_diff(MigratorEditorTypes::V1, [EdVehicle::class]), EdVehicleWithSerial::class],
+            MigrationSteps::none()->add('serial', [new AddField('ed:vehicle', 'serial', new EdSerialInitializer())]),
+        );
+
+        self::assertSame('SN-1', $this->boat('serial'), 'An existing boat is an existing vehicle.');
+        self::assertArrayNotHasKey('serial', $this->boatDefaults(), 'A new boat follows the vehicle\'s default, as a native subtype would.');
+    }
+
+    public function testAConverterConvertsWhatTheEditorTypeSetsAndNothingItInherits(): void {
+        $this->migrate(
+            [...array_diff(MigratorEditorTypes::V1, [EdVehicle::class]), EdVehicleRetyped::class],
+            MigrationSteps::none()->add('retype', [
+                RetypeField::converting('ed:vehicle', 'price', new EdPriceToEuros()),
+                RetypeField::converting('ed:vehicle', 'color', new EdUpperCase()),
+            ]),
+        );
+
+        self::assertSame('5 EUR', $this->boatDefaults()['price'] ?? null, 'Set by the boat type: converted.');
+        self::assertArrayNotHasKey('color', $this->boatDefaults(), 'Inherited: it keeps following the vehicle\'s default.');
     }
 
     public function testARenamedTypeTheEditorTypeOwnsRetargetsItsField(): void {

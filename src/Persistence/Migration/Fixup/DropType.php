@@ -29,8 +29,7 @@ final readonly class DropType implements Fixup, MovesValues
     public function moveValues(AggregateValues $values, SchemaState $before, SchemaState $after): void {
         foreach (Occurrences::in($values, $before) as $occurrence) {
             if ($occurrence->kind === OccurrenceKind::Owned && $occurrence->identifier === $this->type) {
-                $values->removeAt($occurrence->path);
-                $values->set($occurrence->path, null, ValueMark::Converted);
+                $values->replaceAt($occurrence->path, null, ValueMark::Converted);
             }
         }
     }

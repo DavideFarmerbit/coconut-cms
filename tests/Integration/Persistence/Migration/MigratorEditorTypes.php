@@ -9,6 +9,11 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\EntityIds;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LayoutBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntityValues;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Captured;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldInitializer;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Values;
 use XyloIsCoding\CoconutCms\Persistence\Migration\TableChanges;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
@@ -79,6 +84,67 @@ class EdVehicleWithCost
 
     #[Scalar(ScalarType::String)]
     public string $color = 'white';
+}
+
+/** The vehicle with a serial number added. */
+#[Entity(identifier: 'ed:vehicle', editorExtensible: true)]
+class EdVehicleWithSerial
+{
+    #[Scalar(ScalarType::String)]
+    public string $name = '';
+
+    #[Scalar(ScalarType::Int)]
+    public int $wheels = 4;
+
+    #[Scalar(ScalarType::Int)]
+    public int $price = 0;
+
+    #[Scalar(ScalarType::String)]
+    public string $color = 'white';
+
+    #[Scalar(ScalarType::String)]
+    public string $serial = '';
+}
+
+/** The vehicle with its price as text and its color as long text. */
+#[Entity(identifier: 'ed:vehicle', editorExtensible: true)]
+class EdVehicleRetyped
+{
+    #[Scalar(ScalarType::String)]
+    public string $name = '';
+
+    #[Scalar(ScalarType::Int)]
+    public int $wheels = 4;
+
+    #[Scalar(ScalarType::String)]
+    public string $price = '0 EUR';
+
+    #[Scalar(ScalarType::Text)]
+    public string $color = 'white';
+}
+
+/** Every existing vehicle gets the same serial. */
+final class EdSerialInitializer implements FieldInitializer
+{
+    public function initialize(Values $values): Conversion {
+        return Conversion::of('SN-1');
+    }
+}
+
+/** An int price, as euros. */
+final class EdPriceToEuros implements FieldConverter
+{
+    public function convert(Captured $old): Conversion {
+        return Conversion::of($old->value() . ' EUR');
+    }
+}
+
+/** A color, shouted. */
+final class EdUpperCase implements FieldConverter
+{
+    public function convert(Captured $old): Conversion {
+        return Conversion::of(strtoupper($old->value()));
+    }
 }
 
 #[Entity(identifier: 'ed:engine')]
