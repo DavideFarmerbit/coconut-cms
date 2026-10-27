@@ -1163,7 +1163,11 @@ limit: a general transformation that derives new fields from one the type
 sets, such as splitting `name` into `firstName` and `lastName`, keeps
 nothing of it. A transformation can't say where a value came from, so the
 derived fields follow their ancestors' defaults, and the type's own `name`
-is lost.
+is lost. Accepted for now: it only matters when a transformation reshapes a
+field an editor-created type sets a default for. If real cases come up, a
+transformation would declare where its outputs come from ("`firstName` and
+`lastName` from `name`"), next to the fixups it declares, so an output
+derived from what the type set stays its own.
 
 To compile again, the compiler needs a blueprint, and an editor-created type
 has no class to read one from. So `StoredBlueprintReader` builds one from any
