@@ -987,11 +987,11 @@ was stored. `Migrator::migrate()` runs one, from the native classes read with
 database is a migration from nothing. One migration runs at a time: each
 holds a MySQL lock.
 
-**Built**, except where noted inline. Decided but not built yet:
-editor-created types in every migration (see "Editor-created types"),
-`NoType` fields, `ReplaceType` and `MoveField`'s initializer. Until then, a
-migration that would change an editor-created type stops before it changes
-anything.
+**Built**, except where noted inline. Decided but not built yet: native
+changes breaking an editor-created type (see "When native code breaks an
+editor-created type"), `NoType` fields, `ReplaceType`, `MoveField`'s
+initializer, and editor saves. Until then, a native change that breaks an
+editor-created type fails the migration when the type is compiled again.
 
 A change to the CMS's own tables or system columns (`_id`, `_owner`,
 `_position`, a count) isn't migrated. Expand would take a changed system
@@ -1022,13 +1022,10 @@ stored type is changed when:
   fingerprint differs, or it's no longer compiled;
 - anything it depends on changed: its parent, an Embed target, a target it
   owns or references. A stored type records the fingerprint of everything it
-  depends on, transitively, so a change anywhere below shows in its own
-  record;
+  depends on, transitively, and every type is compiled again, editor-created
+  ones too, so a change anywhere below shows in its own record;
 - a pending fixup moves its values (`movedTypes()`), even with no schema
   changing: a step can move data alone.
-
-A type the migration doesn't compile again, an editor-created one, is
-changed when anything it depends on is.
 
 The aggregates that move are those holding an entity of a changed type: as
 the root, or owned at any depth, found by walking up from each such entity
@@ -1121,19 +1118,28 @@ native.
 
 ### Editor-created types
 
-Editor-created types take part in every migration, the same as native ones
-(not built yet). Native code can't name an editor-created type: an attribute
-names a PHP class. But an editor-created type can name native types and
-other editor-created ones: as its parent, and as a field's target. So a
-change on either side can reach it.
+Editor-created types take part in every migration, the same as native ones.
+Native code can't name an editor-created type: an attribute names a PHP
+class. But an editor-created type can name native types and other
+editor-created ones: as its parent, and as a field's target. So a change on
+either side can reach it.
 
 **A native migration** carries editor-created types along. The fixups run
 over every stored schema, editor-created ones included: a renamed native
 field they inherit, a renamed or replaced type they name, all follow. Then
 every editor-created type is compiled again, with the new native schemas, in
-the same batch. That checks it again, flattens its stored defaults again,
-and gives it fingerprints that match its dependencies. Its content, and its
-stored values for inherited fields, move the same way native content does.
+the same batch. That checks it again, lays its own defaults over its new
+ancestors, and gives it fingerprints that match its dependencies. Its
+content moves the same way native content does.
+
+Its own defaults move through the plan too. Its default instance is one
+more place each fixup runs, like an entity holding every default: what it
+sets itself is touched, what it inherits isn't. So a renamed inherited field
+renames what it sets, a converter converts it, and a dropped field drops it.
+What an initializer returns there becomes something the type sets itself,
+unless the initializer returns `Conversion::default()`, the same rule as for
+any object that only exists as defaults. What's touched or converted after
+the plan is what the type sets itself from then on.
 
 To compile again, the compiler needs a blueprint, and an editor-created type
 has no class to read one from. So `StoredBlueprintReader` builds one from any
@@ -1174,7 +1180,8 @@ the field stays valid, and only the values holding that subtype go, as
 `DropType` says.
 
 Each break is a difference, and the policy decides it, the same as any other
-difference. Strict blocks the migration, naming the editor-created type and
+difference (not built yet: today the type fails to compile again, which
+fails the migration). Strict blocks the migration, naming the editor-created type and
 the break. A looser policy resolves it: a field whose target is gone, a
 field whose name now clashes, and the values of a cut-off parent's levels
 become `NoType` fields (see "NoType"), kept until an admin decides. A unique

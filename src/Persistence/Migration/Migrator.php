@@ -28,6 +28,7 @@ use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\CompiledBatch;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\SchemaCompiler;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\StoredBlueprintReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
@@ -47,8 +48,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
  * Brings a database in line with the native classes in code: plans the
  * migration, then expands the tables, moves every aggregate holding a changed
  * type and stores the new schemas in one transaction, and contracts the
- * tables. A fresh database
- * is a migration from nothing. One migration at a time: a second waits for
+ * tables. Editor-created types come along: their schemas fixed by the plan,
+ * compiled again over the new native ones, their content moved the same way.
+ * A fresh database is a migration from nothing. One migration at a time: a second waits for
  * the first. From expand to contract, the MigrationState says a migration is
  * started, so entities can't be read or written; one that fails stays
  * started, until a migration finishes. A finished one records the code's
@@ -111,11 +113,15 @@ final readonly class Migrator
 
         $stored = $this->schemas->all();
         $fresh = $stored === [];
-        $batch = $this->compiler->compute($blueprints);
-        $stateKey = StateKey::of($batch, $steps);
+        $nativeBatch = $this->compiler->compute($blueprints);
+        $stateKey = StateKey::of($nativeBatch, $steps);
         $pending = $fresh ? MigrationSteps::none() : $steps->pending($this->log->applied());
-        $plan = (new MigrationPlanner($this->policy))->plan($stored, $batch->schemas, $pending);
-        $this->assertNoEditorSchemaChanged($stored, $plan);
+        $plan = (new MigrationPlanner($this->policy))->plan($stored, $nativeBatch->schemas, $pending);
+
+        // Every editor-created type is compiled again with the new native
+        // ones: checked again, its defaults laid over its new ancestors, its
+        // fingerprints matching them.
+        $batch = $fresh ? $nativeBatch : $this->compiler->compute([...$blueprints, ...$this->editorBlueprints($stored, $plan)]);
 
         // The new shape: the code's schemas, and every editor-created one as
         // the plan left it. Laid out before any DDL, so a name collision
@@ -155,7 +161,7 @@ final readonly class Migrator
                 }
 
                 $gone = array_values(array_diff(
-                    array_map(static fn (StoredSchema $each): string => $each->schema->identifier, array_filter($stored, static fn (StoredSchema $each): bool => $each->source === SchemaSource::Native)),
+                    array_map(static fn (StoredSchema $each): string => $each->schema->identifier, $stored),
                     array_keys($batch->schemas),
                 ));
                 $this->schemas->deleteAll($gone);
@@ -187,9 +193,11 @@ final readonly class Migrator
 
     /**
      * Every stored type whose aggregates must move, by its stored identifier:
-     * its compiled schema or stored values changed, it's gone, a fixup moves
-     * its values, or it depends on one of these. Stored dependencies are
-     * transitive, so one pass finds every type depending on a changed one.
+     * its compiled schema or stored values changed, something it depends on
+     * changed, it's gone, or a fixup moves its values. A stored type records
+     * the fingerprint of everything it depends on, transitively, and every
+     * type is compiled again, editor-created ones too: a change anywhere below
+     * a type shows in its own record.
      * @param list<StoredSchema> $stored
      * @return list<string>
      */
@@ -202,9 +210,7 @@ final readonly class Migrator
         $changed = [];
         foreach ($stored as $each) {
             $now = $compiled[$each->schema->identifier] ?? null;
-            // An editor-created type isn't compiled from code: only what it
-            // depends on can change it here.
-            if ($each->source === SchemaSource::Native && ($now === null || $now->fingerprint !== $each->fingerprint || $now->dependencies != $each->dependencies)) {
+            if ($now === null || $now->fingerprint !== $each->fingerprint || $now->dependencies != $each->dependencies) {
                 $changed[$each->schema->identifier] = true;
             }
         }
@@ -218,17 +224,54 @@ final readonly class Migrator
             }
         }
 
-        // A native type compiled here already shows a changed dependency in
-        // its own record. A type this migration doesn't compile, an
-        // editor-created one, only shows it through what it depends on.
-        $affected = $changed;
+        return array_map('strval', array_keys($changed));
+    }
+
+    /**
+     * Every editor-created type stored, rebuilt to be compiled again: its
+     * schema as the plan fixed it, and its own defaults moved by the plan the
+     * way content is. Its default instance is one more place each fixup runs,
+     * like an entity holding every default: renames, conversions and drops
+     * reach what it sets itself, and what an initializer returns there is
+     * kept, unless the initializer returns Conversion::default().
+     * @param list<StoredSchema> $stored
+     * @return array<string, EntityBlueprint> Keyed by identifier.
+     */
+    private function editorBlueprints(array $stored, MigrationPlan $plan): array {
+        $resolver = new FieldValueResolver($this->registry, $this->values);
+        $flattener = new ValueFlattener(new SchemaLookup($this->registry));
+
+        $blueprints = [];
         foreach ($stored as $each) {
-            if (array_intersect_key($each->dependencies, $changed) !== []) {
-                $affected[$each->schema->identifier] = true;
+            if ($each->source !== SchemaSource::Editor) {
+                continue;
             }
+
+            $identifier = $each->schema->identifier;
+            $own = $this->values->load($identifier);
+            $values = [];
+            $marks = [];
+            foreach ($flattener->flatten($identifier, $resolver->resolveTree(Subject::of($identifier)))->toArray() as $path => $value) {
+                $values[$path] = $value;
+                $marks[$path] = $own->has(FieldPath::fromString($path)) ? ValueMark::Touched : ValueMark::Untouched;
+            }
+
+            $defaults = new AggregateValues($identifier, $values, $marks, []);
+            $plan->moveValues($defaults);
+
+            // What it sets itself after the fixups: what it set, and whatever
+            // they converted. The compiler lays it over its new ancestors.
+            $kept = [];
+            foreach ($defaults->values() as $path => $value) {
+                if ($defaults->marks()[$path] !== ValueMark::Untouched) {
+                    $kept[$path] = $value;
+                }
+            }
+
+            $blueprints[$identifier] = StoredBlueprintReader::of($plan->schemas->get($identifier), SchemaSource::Editor, FieldValues::fromArray($kept));
         }
 
-        return array_map('strval', array_keys($affected));
+        return $blueprints;
     }
 
     /**
@@ -364,20 +407,6 @@ final readonly class Migrator
         $kept = (new Overrides($schemas, $resolver))->of(Subject::ofInstance($aggregate->identifier, $dense), $tree, $dense);
 
         return new EntityValues($aggregate->identifier, $dense, FieldValues::fromArray(array_intersect_key($kept->toArray(), $candidates)));
-    }
-
-    /**
-     * Editor-created schemas are fixed by a native migration where a fixup
-     * makes it obvious, but moving their stored values isn't built yet: such
-     * a migration stops before changing anything.
-     * @param list<StoredSchema> $stored
-     */
-    private function assertNoEditorSchemaChanged(array $stored, MigrationPlan $plan): void {
-        foreach ($stored as $each) {
-            if ($each->source === SchemaSource::Editor && ($plan->schemas->schemas()[$each->schema->identifier] ?? null) != $each->schema) {
-                throw new RuntimeException(sprintf('The migration changes the editor-created type "%s": migrating editor-created types isn\'t supported yet.', $each->schema->identifier));
-            }
-        }
     }
 
     /**
