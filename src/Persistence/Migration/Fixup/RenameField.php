@@ -43,6 +43,10 @@ final readonly class RenameField implements Fixup, MovesValues
         }
     }
 
+    public function movedTypes(): array {
+        return [$this->type];
+    }
+
     public function describe(): string {
         return sprintf('RenameField(%s, %s → %s)', $this->type, $this->old, $this->new);
     }

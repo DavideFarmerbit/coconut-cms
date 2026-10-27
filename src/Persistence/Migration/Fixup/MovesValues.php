@@ -20,4 +20,11 @@ interface MovesValues
      *        field becomes.
      */
     public function moveValues(AggregateValues $values, SchemaState $before, SchemaState $after): void;
+
+    /**
+     * The types whose values it moves, named as they are when it runs. Their
+     * aggregates move even when no schema changes: a step can move data alone.
+     * @return list<string>
+     */
+    public function movedTypes(): array;
 }

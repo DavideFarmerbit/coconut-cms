@@ -482,8 +482,8 @@ A changed default rewrites what follows it:
   item class's new default.
 
 For a native type, the migration does it: a changed default changes the
-type's fingerprint, so the migration moves every aggregate, with or without
-a fixup, and writes it with the new defaults. A default is still never a
+type's fingerprint, so the migration moves every aggregate holding the type,
+with or without a fixup, and writes it with the new defaults. A default is still never a
 difference: it needs no step under any policy. For an editor-created type,
 changing a default will be a migration of that type (not built yet). A
 default changed any other way, behind the migration's back, isn't seen: a
@@ -989,9 +989,9 @@ holds a MySQL lock.
 
 **Built**, except where noted inline. Decided but not built yet:
 editor-created types in every migration (see "Editor-created types"),
-`NoType` fields, `ReplaceType`, `MoveField`'s initializer, and moving only
-the aggregates a change affects. Until then, a migration that would change
-an editor-created type stops before it changes anything.
+`NoType` fields, `ReplaceType` and `MoveField`'s initializer. Until then, a
+migration that would change an editor-created type stops before it changes
+anything.
 
 A change to the CMS's own tables or system columns (`_id`, `_owner`,
 `_position`, a count) isn't migrated. Expand would take a changed system
@@ -1014,11 +1014,28 @@ change that alters what's stored rewrites it:
 All of these happen the same way: the aggregate is read, the fixups run, and
 it's written whole with the new schemas and defaults.
 
-A migration moves only the aggregates a change affects: those holding a
-changed type anywhere, as the root, as an owned object, or at an Embed site
-(not built yet: today every aggregate moves on any fingerprint change). An
-editor save is a migration too, so it must not rewrite the whole database
-for one field.
+A migration moves only the aggregates a change affects. An editor save is a
+migration too, so it must not rewrite the whole database for one field. A
+stored type is changed when:
+
+- its compiled schema or stored defaults changed, or it's gone: its own
+  fingerprint differs, or it's no longer compiled;
+- anything it depends on changed: its parent, an Embed target, a target it
+  owns or references. A stored type records the fingerprint of everything it
+  depends on, transitively, so a change anywhere below shows in its own
+  record;
+- a pending fixup moves its values (`movedTypes()`), even with no schema
+  changing: a step can move data alone.
+
+A type the migration doesn't compile again, an editor-created one, is
+changed when anything it depends on is.
+
+The aggregates that move are those holding an entity of a changed type: as
+the root, or owned at any depth, found by walking up from each such entity
+to its root. That finds a subtype held where only its parent is declared: a
+car holding a turbo engine moves when only the turbo changed. A type held
+through an Embed has no entity of its own; its holder depends on it, so the
+holder is changed too.
 
 ### Policies
 

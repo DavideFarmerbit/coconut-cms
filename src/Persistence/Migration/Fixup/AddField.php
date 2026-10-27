@@ -43,6 +43,10 @@ final readonly class AddField implements Fixup, MovesValues
         }
     }
 
+    public function movedTypes(): array {
+        return [$this->type];
+    }
+
     public function describe(): string {
         return $this->initializer === null
             ? sprintf('AddField(%s, %s)', $this->type, $this->field)

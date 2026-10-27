@@ -57,6 +57,10 @@ final readonly class MakeNotNullable implements Fixup, MovesValues
         }
     }
 
+    public function movedTypes(): array {
+        return [$this->type];
+    }
+
     public function describe(): string {
         return sprintf('MakeNotNullable(%s, %s)', $this->type, $this->field);
     }

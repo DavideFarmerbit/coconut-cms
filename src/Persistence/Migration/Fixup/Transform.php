@@ -37,6 +37,10 @@ final readonly class Transform implements Fixup, MovesValues
         }
     }
 
+    public function movedTypes(): array {
+        return [$this->type];
+    }
+
     public function describe(): string {
         return sprintf('Transform(%s, %s)', $this->type, $this->transformation::class);
     }

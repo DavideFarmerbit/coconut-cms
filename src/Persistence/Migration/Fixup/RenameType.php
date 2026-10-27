@@ -44,6 +44,10 @@ final readonly class RenameType implements Fixup, MovesValues
         }
     }
 
+    public function movedTypes(): array {
+        return [$this->old];
+    }
+
     public function describe(): string {
         return sprintf('RenameType(%s → %s)', $this->old, $this->new);
     }

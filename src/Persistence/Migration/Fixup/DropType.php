@@ -35,6 +35,10 @@ final readonly class DropType implements Fixup, MovesValues
         }
     }
 
+    public function movedTypes(): array {
+        return [$this->type];
+    }
+
     public function describe(): string {
         return sprintf('DropType(%s)', $this->type);
     }

@@ -68,6 +68,10 @@ final readonly class RetypeField implements Fixup, MovesValues
         }
     }
 
+    public function movedTypes(): array {
+        return [$this->type];
+    }
+
     public function describe(): string {
         return $this->converter === null
             ? sprintf('RetypeField::reset(%s, %s)', $this->type, $this->field)

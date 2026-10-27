@@ -212,7 +212,7 @@ final class MigratorTest extends TestCase
         $result = $this->migrate(MigratorV2::CLASSES, MigratorV2::steps());
 
         self::assertSame(['rename-price', 'cost-as-text', 'restructure'], $result->recorded);
-        self::assertSame(4, $result->moved, 'Cms and the three cars.');
+        self::assertSame(3, $result->moved, 'The three cars; Cms is unchanged, so it stays.');
 
         $family = $this->loadV2($ids['family']);
         self::assertSame('Family car', $family->name);
@@ -423,7 +423,7 @@ final class MigratorTest extends TestCase
         $result = $this->migrate(MigratorDefaults::V2, MigrationSteps::none());
 
         self::assertTrue($result->plan->isEmpty(), 'A default is never a difference.');
-        self::assertSame(3, $result->moved, 'Cms and both cars.');
+        self::assertSame(2, $result->moved, 'Both cars; Cms is unchanged, so it stays.');
         $color = fn (string $id): string => $this->connection->fetchOne('SELECT color FROM migdef_car WHERE _id = ?', [$id]);
         $power = fn (string $id): int => (int) $this->connection->fetchOne('SELECT horsepower FROM migdef_engine WHERE _id = ?', [$id]);
         self::assertSame('blue', $color($cars['untouched']));

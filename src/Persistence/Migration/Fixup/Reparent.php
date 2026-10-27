@@ -50,6 +50,10 @@ final readonly class Reparent implements Fixup, MovesValues
         }
     }
 
+    public function movedTypes(): array {
+        return [$this->type];
+    }
+
     public function describe(): string {
         return $this->initializer === null
             ? sprintf('Reparent(%s)', $this->type)

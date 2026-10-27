@@ -2,6 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Migration;
 
+use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use InvalidArgumentException;
 use RuntimeException;
@@ -19,6 +20,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateReader;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\ValueMark;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MovesValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\MigrationPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\StrictPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Platform\DatabasePlatform;
@@ -43,8 +45,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
 
 /**
  * Brings a database in line with the native classes in code: plans the
- * migration, then expands the tables, moves every aggregate and stores the
- * new schemas in one transaction, and contracts the tables. A fresh database
+ * migration, then expands the tables, moves every aggregate holding a changed
+ * type and stores the new schemas in one transaction, and contracts the
+ * tables. A fresh database
  * is a migration from nothing. One migration at a time: a second waits for
  * the first. From expand to contract, the MigrationState says a migration is
  * started, so entities can't be read or written; one that fails stays
@@ -144,8 +147,9 @@ final readonly class Migrator
         try {
             $moved = $this->connection->transactional(function () use ($fresh, $plan, $batch, $stored, $target, $targetSchemas, $targetLevels, $storedSchemas, $movedAside, $recorded): int {
                 // Content is dense: with no fixup, a changed default still
-                // rewrites every value that follows it.
-                $moved = $fresh ? 0 : $this->moveAggregates($plan, $batch, $target, $targetSchemas, $storedSchemas, $movedAside);
+                // rewrites every value that follows it, in every aggregate
+                // holding the type.
+                $moved = $fresh ? 0 : $this->moveAggregates($plan, $batch, $target, $targetSchemas, $storedSchemas, $movedAside, $this->rootsHolding(self::changedTypes($stored, $batch, $plan)));
                 if ($moved > 0) {
                     (new ReferenceCheck($this->connection))->assertTargetsMatch($targetLevels, $target);
                 }
@@ -182,20 +186,91 @@ final readonly class Migrator
     }
 
     /**
-     * Reads every aggregate with the stored schemas, runs the plan over its
-     * values, and writes it in the new shape; deletes one rooted at a type
-     * that's gone.
+     * Every stored type whose aggregates must move, by its stored identifier:
+     * its compiled schema or stored values changed, it's gone, a fixup moves
+     * its values, or it depends on one of these. Stored dependencies are
+     * transitive, so one pass finds every type depending on a changed one.
+     * @param list<StoredSchema> $stored
+     * @return list<string>
+     */
+    private static function changedTypes(array $stored, CompiledBatch $batch, MigrationPlan $plan): array {
+        $compiled = [];
+        foreach ($batch->stored as $each) {
+            $compiled[$each->schema->identifier] = $each;
+        }
+
+        $changed = [];
+        foreach ($stored as $each) {
+            $now = $compiled[$each->schema->identifier] ?? null;
+            // An editor-created type isn't compiled from code: only what it
+            // depends on can change it here.
+            if ($each->source === SchemaSource::Native && ($now === null || $now->fingerprint !== $each->fingerprint || $now->dependencies != $each->dependencies)) {
+                $changed[$each->schema->identifier] = true;
+            }
+        }
+
+        // A fixup can move values with no schema changing: a step may be data alone.
+        foreach ($plan->fixups as $planned) {
+            if ($planned->fixup instanceof MovesValues) {
+                foreach ($planned->fixup->movedTypes() as $type) {
+                    $changed[$type] = true;
+                }
+            }
+        }
+
+        // A native type compiled here already shows a changed dependency in
+        // its own record. A type this migration doesn't compile, an
+        // editor-created one, only shows it through what it depends on.
+        $affected = $changed;
+        foreach ($stored as $each) {
+            if (array_intersect_key($each->dependencies, $changed) !== []) {
+                $affected[$each->schema->identifier] = true;
+            }
+        }
+
+        return array_map('strval', array_keys($affected));
+    }
+
+    /**
+     * The id of every root entity whose aggregate holds an entity of one of
+     * $types: as the root itself, or owned at any depth. A type held only
+     * through an Embed is found by its holder's dependencies instead.
+     * @param list<string> $types
+     * @return list<string> In id order.
+     */
+    private function rootsHolding(array $types): array {
+        if ($types === []) {
+            return [];
+        }
+
+        // Walks up from each entity of the types to its root: a standalone
+        // entity is owned by the Cms row through no field.
+        return $this->connection->fetchFirstColumn(sprintf(
+            'WITH RECURSIVE up (id, owner, owner_field) AS ('
+            . ' SELECT id, owner, owner_field FROM %1$s WHERE concrete_identifier IN (?)'
+            . ' UNION'
+            . ' SELECT holder.id, holder.owner, holder.owner_field FROM %1$s holder JOIN up ON holder.id = up.owner'
+            . " WHERE up.owner_field <> ''"
+            . ") SELECT id FROM up WHERE owner_field = '' ORDER BY id",
+            $this->connection->quoteSingleIdentifier(DatabaseSchema::ENTITIES),
+        ), [$types], [ArrayParameterType::STRING]);
+    }
+
+    /**
+     * Reads each aggregate in $roots with the stored schemas, runs the plan
+     * over its values, and writes it in the new shape; deletes one rooted at
+     * a type that's gone.
      * @param array<string, EntitySchema> $target
      * @param list<string> $movedAside
+     * @param list<string> $roots The aggregates the migration changes, by their root's id.
      * @return int How many aggregates moved.
      */
-    private function moveAggregates(MigrationPlan $plan, CompiledBatch $batch, array $target, SchemaLookup $targetSchemas, SchemaLookup $storedSchemas, array $movedAside): int {
+    private function moveAggregates(MigrationPlan $plan, CompiledBatch $batch, array $target, SchemaLookup $targetSchemas, SchemaLookup $storedSchemas, array $movedAside, array $roots): int {
         $reader = new AggregateReader($this->connection, $this->registry, $movedAside);
         $writer = EntityWriter::forMigration($this->connection, $targetSchemas, $storedSchemas);
         $resolver = (new FieldValueResolver($this->registry, $this->values))->withBatch($target, $batch->values);
         $storedForm = new StoredForm($targetSchemas);
 
-        $roots = $this->connection->fetchFirstColumn(sprintf("SELECT id FROM %s WHERE owner_field = '' ORDER BY id", $this->connection->quoteSingleIdentifier(DatabaseSchema::ENTITIES)));
         foreach ($roots as $id) {
             try {
                 $aggregate = $reader->read($id);
