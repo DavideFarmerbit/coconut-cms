@@ -1235,6 +1235,34 @@ all, resolves a break before the policy sees it. Then:
 - A unique group broken by content always blocks, under every policy:
   nothing can be set aside to fix it.
 
+A break is found by its schemas alone, never by the fixup that caused it.
+After each fixup is planned, declared or the policy's, the planner asks of
+every editor-created type: does each field's declared target exist, is its
+chain whole, each ancestor there and still allowing extending, and does a
+field it declares clash with one it now inherits? A break the schemas didn't
+have before that fixup is one it caused. So every fixup takes part, a
+`Transform` or one written later included, and none needs to know about
+breaks. A break no fixup causes, such as a native type no longer
+`editorExtensible` in the code, is found once every fixup ran.
+
+A break is set aside just before the fixup that caused it: the set-aside
+fixup goes before it in the plan, on the schemas as they were there, and the
+causing fixup then runs on schemas where the broken field is gone. So the
+capture holds the field's name, descriptor and values as every earlier
+fixup left them, and none of the causing fixup's changes: a `DropType` finds
+an owned object it would empty already captured, and an `AddField`'s
+initializer never overwrites a clashing field's value. Every database
+migrating to the same code ends up with the same records and captures,
+however far behind it was: a field renamed in an earlier step is captured
+under its new name everywhere. A `Transform`'s data side is one step, so a
+capture goes before the whole transformation, which doesn't see the values
+set aside. A break no fixup causes is set aside after every fixup.
+
+Finding breaks reads schemas only, once per migration, while planning.
+Captures happen while aggregates move, one aggregate at a time, only for the
+fields that broke; each is written to its side table right after its
+aggregate.
+
 How each break resolves:
 
 - **A field whose declared target is gone** leaves the type's fields. Its
