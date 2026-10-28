@@ -7,6 +7,7 @@ use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityWriter;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MoveValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationResult;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
@@ -44,6 +45,7 @@ final class MigratorScopeTest extends TestCase
         $turboCar->name = 'Turbo car';
         $turboCar->engine = new ScopeTurbo();
         $turboCar->engine->horsepower = 300;
+        $turboCar->engine->boost = 7;
         $plainCar = new ScopeCar();
         $plainCar->name = 'Plain car';
         $plainCar->engine = new ScopeEngine();
@@ -131,6 +133,20 @@ final class MigratorScopeTest extends TestCase
 
         self::assertSame(3, $result->moved, 'The three cars: a chassis has no entity of its own.');
         self::assertSame(1300, (int) $this->connection->fetchOne('SELECT chassis__grade FROM scope_car WHERE _id = ?', [$this->ids['plainCar']]));
+    }
+
+    public function testAFieldMovedUpIsInitializedWhereItIsGainedOnly(): void {
+        $this->migrate(
+            MigratorScope::swapping([ScopeEngine::class, ScopeTurbo::class], [ScopeEngineWithBoost::class, ScopeTurboOfEngineWithBoost::class]),
+            MigrationSteps::none()->add('boost-up', [new MoveField('scope:turbo', 'boost', 'scope:engine', new ScopeBoostForPlainEngines())]),
+        );
+
+        $boostOf = fn (string $id): int => (int) $this->connection->fetchOne('SELECT boost FROM scope_engine WHERE _id = ?', [$id]);
+        $engineOf = fn (string $car): string => $this->connection->fetchOne("SELECT id FROM entities WHERE owner = ? AND owner_field = 'engine'", [$car]);
+        self::assertSame(1, $boostOf($this->ids['engine']), 'A plain engine gains it.');
+        self::assertSame(1, $boostOf($engineOf($this->ids['plainCar'])), 'Owned or not.');
+        self::assertSame(7, $boostOf($engineOf($this->ids['turboCar'])), 'A turbo had it: its value moves up with it.');
+        self::assertSame(0, $boostOf($this->ids['turbo']), 'A turbo following its default follows the new one: never the initializer.');
     }
 
     public function testNothingChangedMovesNothing(): void {

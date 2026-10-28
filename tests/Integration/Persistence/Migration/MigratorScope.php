@@ -3,6 +3,9 @@
 namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Migration;
 
 use XyloIsCoding\CoconutCms\Persistence\Entity\Cms;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldInitializer;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Values;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
@@ -114,6 +117,34 @@ final class ScopeTurboOfStrongerEngine extends ScopeStrongerEngine
 {
     #[Scalar(ScalarType::Int)]
     public int $boost = 5;
+}
+
+/** The engine with the turbo's boost moved up to it. */
+#[Entity(identifier: 'scope:engine')]
+class ScopeEngineWithBoost
+{
+    #[Scalar(ScalarType::Int)]
+    public int $horsepower = 100;
+
+    #[Scalar(ScalarType::Int)]
+    public int $torque = 0;
+
+    #[Scalar(ScalarType::Int)]
+    public int $boost = 0;
+}
+
+/** The turbo, its boost now inherited. */
+#[Entity(identifier: 'scope:turbo')]
+final class ScopeTurboOfEngineWithBoost extends ScopeEngineWithBoost
+{
+}
+
+/** A plain engine gaining a boost gets one: what MoveField's initializer decides. */
+final class ScopeBoostForPlainEngines implements FieldInitializer
+{
+    public function initialize(Values $values): Conversion {
+        return Conversion::of(1);
+    }
 }
 
 /** Types several aggregates hold, and versions of them each changing one thing. */

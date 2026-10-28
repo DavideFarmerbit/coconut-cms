@@ -4,6 +4,9 @@ namespace XyloIsCoding\CoconutCms\Tests\Persistence\Migration;
 
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldInitializer;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Values;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\AddField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MakeNotNullable;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\DropField;
@@ -14,6 +17,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MoveValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\RenameType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\Reparent;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\ReplaceType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\RetypeField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\InvalidFixup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationBlocked;
@@ -31,6 +35,14 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\StoredSchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
+
+/** Any initializer: planning never runs it. */
+final class MoveFieldTestInitializer implements FieldInitializer
+{
+    public function initialize(Values $values): Conversion {
+        return Conversion::default();
+    }
+}
 
 final class MigrationPlannerTest extends TestCase
 {
@@ -283,6 +295,39 @@ final class MigrationPlannerTest extends TestCase
         );
 
         self::assertSame(['MoveField(price, test:car → test:vehicle)'], self::described($plan->fixups));
+    }
+
+    public function testADirectSubtypeReplacingItsParentTakesItsPlace(): void {
+        $plan = (new MigrationPlanner())->plan(
+            [self::stored(self::schema('test:root')), self::stored(self::schema('test:engine', parent: 'test:root')), self::stored(self::schema('test:turbo', parent: 'test:engine'))],
+            self::code(self::schema('test:root'), self::schema('test:turbo', parent: 'test:root')),
+            MigrationSteps::none()->add('turbo-for-engine', [new ReplaceType('test:engine', 'test:turbo')]),
+        );
+
+        self::assertSame('test:root', $plan->schemas->get('test:turbo')->parent);
+        self::assertFalse($plan->schemas->has('test:engine'));
+    }
+
+    public function testADeeperDescendantCantReplaceItsAncestor(): void {
+        $this->expectException(InvalidFixup::class);
+        $this->expectExceptionMessage('only a direct subtype can take its place');
+
+        (new MigrationPlanner())->plan(
+            [self::stored(self::schema('test:engine')), self::stored(self::schema('test:turbo', parent: 'test:engine')), self::stored(self::schema('test:sport', parent: 'test:turbo'))],
+            self::code(self::schema('test:turbo'), self::schema('test:sport', parent: 'test:turbo')),
+            MigrationSteps::none()->add('sport-for-engine', [new ReplaceType('test:engine', 'test:sport')]),
+        );
+    }
+
+    public function testMoveFieldDownWithAnInitializerIsRejected(): void {
+        $this->expectException(InvalidFixup::class);
+        $this->expectExceptionMessage('nobody gains it');
+
+        (new MigrationPlanner())->plan(
+            [self::stored(self::schema('test:vehicle', ['price' => self::int('price')])), self::stored(self::schema('test:car', parent: 'test:vehicle'))],
+            self::code(self::schema('test:vehicle'), self::schema('test:car', ['price' => self::int('price')], parent: 'test:vehicle')),
+            MigrationSteps::none()->add('price-down', [new MoveField('test:vehicle', 'price', 'test:car', new MoveFieldTestInitializer())]),
+        );
     }
 
     public function testMoveFieldOutsideOneChainIsRejected(): void {

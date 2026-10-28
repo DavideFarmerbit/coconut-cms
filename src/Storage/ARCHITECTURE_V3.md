@@ -987,9 +987,8 @@ was stored. `Migrator::migrate()` runs one, from the native classes read with
 database is a migration from nothing. One migration runs at a time: each
 holds a MySQL lock.
 
-**Built**, except where noted inline. Decided but not built yet:
-`ReplaceType`, `MoveField`'s initializer, and editor saves, with the editor
-operations that resolve `NoType` records.
+**Built**, except where noted inline. Decided but not built yet: editor
+saves, with the editor operations that resolve `NoType` records.
 
 A change to the CMS's own tables or system columns (`_id`, `_owner`,
 `_position`, a count) isn't migrated. Expand would take a changed system
@@ -1404,21 +1403,31 @@ The common fixups are shorthands:
   an Owned Collection item, that slot becomes null, the same for both: what it
   held is gone. A converter or transformation before the drop can put
   something else there.
-- `ReplaceType(type, with, initializers, converters)`: every entity of the
-  type becomes an entity of `with`, keeping its id, so References and owned
-  slots holding it stay valid (not built yet). Any type may replace it: an
-  ancestor, a sibling, an unrelated type, a descendant. Its levels shared
-  with `with`'s chain keep their rows; its other levels go, and `with`'s
-  other levels are added. Values follow paths: a field both types have, with
-  the same descriptor, keeps its value; a field only the old type has goes;
-  a field only `with` has takes its default, or its initializer. A field
-  both have with different descriptors needs a converter; without one, the
-  policy decides it, so strict blocks. Every subtype of the type is
-  reparented onto `with` the same way. Every field targeting the type, of any
-  kind, targets `with`. A subtype's own field named the same as one of
-  `with`'s is a clash: an `InvalidFixup` for a native subtype, a difference
-  for the policy for an editor-created one. Initializers and converters are
-  keyed by field name.
+- `ReplaceType(type, with, initializers, converters, resets)`: every entity
+  of the type becomes an entity of `with`, keeping its id, so References and
+  owned slots holding it stay valid. A replacement new to the code comes
+  with it: no `AddType` before it. Any type may replace
+  it: an ancestor, a sibling, an unrelated type, or a direct subtype, which
+  takes the type's place in the chain. A deeper descendant is an
+  `InvalidFixup`: the subtypes between them would be reparented onto it, and
+  it descends from them. Its levels shared with `with`'s chain keep their
+  rows; its other levels go, and `with`'s other levels are added. Values
+  follow paths: a field both types have, with the same descriptor, keeps its
+  value; a field only the old type has goes; a field only `with` has takes
+  its default, or its initializer. A field both have with different
+  descriptors is declared like a retype: a converter, or a reset, which
+  leaves the entities following `with`'s default. One left undeclared is an
+  `InvalidFixup` naming it: the developer declared the replacement, so an
+  incomplete one fails like a typo, never reaching the policy. Every subtype
+  of the type is reparented onto `with` the same way. Every field targeting
+  the type, of any kind, Embeds included, targets `with`. A native subtype's
+  own field named the same as one of `with`'s is an `InvalidFixup`; an
+  editor-created one's is a name clash, set aside like any break.
+  Initializers, converters and resets are keyed by field name; a name that
+  fits none of them is an `InvalidFixup`. A field declared with an ancestor
+  of the type, holding one of its entities, must accept `with` too: an
+  `Engine` slot holding a turbo engine replaced by an unrelated type fails
+  the migration, naming the entity, when it's checked before writing.
 - `MoveTable(type)`: its table moves to the name the code gives it.
 - `Reparent(type, initializer?)`: the type moves under the parent the code
   gives it. A level it gains holds fields every existing entity already
@@ -1437,7 +1446,7 @@ The common fixups are shorthands:
   or down its own chain. Its path doesn't change, so its values follow on
   their own. Moved up, entities that never had the field gain it: those of
   `to` and its subclasses that aren't of `from`. They take its default, or
-  the initializer, as with `AddField` (not built yet). Moved down, nobody
+  the initializer, as with `AddField`. Moved down, nobody
   gains it, so an initializer there is an `InvalidFixup`.
 - `MoveValues(type, from, to)`: values moved between any two paths of an
   aggregate: across levels, into or out of an Embed, across an owned boundary.
