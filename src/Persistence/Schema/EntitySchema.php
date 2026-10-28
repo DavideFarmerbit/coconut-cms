@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\TypePermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\NoTypeRecord;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 
@@ -28,6 +29,8 @@ final readonly class EntitySchema
      * @param PrototypeValidatorRule[] $prototypeValidators
      * @param TypePermission|null $typePermission This type's own declaration,
      *        null for none: its ancestors' still apply.
+     * @param list<NoTypeRecord> $noTypeRecords What broke on this type and
+     *        waits for an admin: an editor-created type's only. Never fields.
      */
     public function __construct(
         public string $identifier,
@@ -40,6 +43,7 @@ final readonly class EntitySchema
         public array $uniqueGroups,
         public array $prototypeValidators,
         public ?TypePermission $typePermission = null,
+        public array $noTypeRecords = [],
     ) {
     }
 
@@ -67,11 +71,17 @@ final readonly class EntitySchema
         return $this->copy($this->identifier, $this->parent, $this->table, $this->fields, $uniqueGroups);
     }
 
+    /** This schema holding $record too: what broke on it. */
+    public function withNoTypeRecord(NoTypeRecord $record): self {
+        return $this->copy($this->identifier, $this->parent, $this->table, $this->fields, $this->uniqueGroups, [...$this->noTypeRecords, $record]);
+    }
+
     /**
      * This schema with these values, everything else kept.
      * @param list<UniqueGroup> $uniqueGroups
+     * @param list<NoTypeRecord>|null $noTypeRecords Null to keep its own.
      */
-    private function copy(string $identifier, ?string $parent, string $table, FieldDescriptorCollection $fields, array $uniqueGroups): self {
+    private function copy(string $identifier, ?string $parent, string $table, FieldDescriptorCollection $fields, array $uniqueGroups, ?array $noTypeRecords = null): self {
         return new self(
             identifier: $identifier,
             parent: $parent,
@@ -83,6 +93,7 @@ final readonly class EntitySchema
             uniqueGroups: $uniqueGroups,
             prototypeValidators: $this->prototypeValidators,
             typePermission: $this->typePermission,
+            noTypeRecords: $noTypeRecords ?? $this->noTypeRecords,
         );
     }
 

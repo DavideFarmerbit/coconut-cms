@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Compiler;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\TypePermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\NoTypeRecord;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
 use XyloIsCoding\CoconutCms\Persistence\Schema\UniqueGroup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
@@ -37,6 +38,8 @@ final readonly class EntityBlueprint
      *        instance, every field it declares or inherits, read into
      *        ValueNodes. Own for a type rebuilt from what's stored.
      * @param TypePermission|null $typePermission This type's own declaration, null for none.
+     * @param list<NoTypeRecord> $noTypeRecords What broke on it: a stored
+     *        editor-created type's only, carried over as stored.
      */
     public function __construct(
         public string $identifier,
@@ -51,6 +54,7 @@ final readonly class EntityBlueprint
         public array $prototypeValidators,
         public BlueprintDefaults $defaults,
         public ?TypePermission $typePermission = null,
+        public array $noTypeRecords = [],
     ) {
     }
 }

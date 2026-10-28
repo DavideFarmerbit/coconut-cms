@@ -16,6 +16,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LayoutBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationState;
+use XyloIsCoding\CoconutCms\Persistence\Entity\NoTypeCaptures;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateReader;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateValues;
@@ -148,6 +149,7 @@ final readonly class Migrator
         $this->state->start();
         $movedAside = $this->tables->expand($targetTables);
         (new EntityTables($this->connection))->seed($targetLevels);
+        (new NoTypeCaptures($this->connection))->ensureTable();
 
         $recorded = $fresh ? $steps->ids() : $pending->ids();
         try {
@@ -314,6 +316,7 @@ final readonly class Migrator
         $writer = EntityWriter::forMigration($this->connection, $targetSchemas, $storedSchemas);
         $resolver = (new FieldValueResolver($this->registry, $this->values))->withBatch($target, $batch->values);
         $storedForm = new StoredForm($targetSchemas);
+        $captures = new NoTypeCaptures($this->connection);
 
         foreach ($roots as $id) {
             try {
@@ -328,6 +331,13 @@ final readonly class Migrator
                 self::checkWritten($aggregate, $storedForm);
                 $values = self::entityValuesOf($aggregate, $targetSchemas, $resolver);
                 $writer->write($values, $id, self::ownedIdsOf($aggregate, $values));
+
+                // What broke is kept once the entities holding it are written.
+                foreach ($aggregate->setAsideCaptures() as $holder => $records) {
+                    foreach ($records as $recordId => $sites) {
+                        $captures->keep($holder === '' ? $id : (string) $holder, (string) $recordId, $sites);
+                    }
+                }
             } catch (Throwable $failure) {
                 throw new RuntimeException(sprintf('Moving entity %s failed: %s', $id, $failure->getMessage()), 0, $failure);
             }

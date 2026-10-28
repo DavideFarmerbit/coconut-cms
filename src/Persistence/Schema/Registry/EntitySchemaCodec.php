@@ -6,6 +6,11 @@ use XyloIsCoding\CoconutCms\Core\Identifier;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\TypePermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldPermission;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
+use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\BrokenField;
+use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\BrokenFieldReason;
+use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\LostAncestor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\LostAncestorReason;
+use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\NoTypeRecord;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
@@ -79,7 +84,37 @@ final readonly class EntitySchemaCodec
                 fn (object $rule): array => ['rule' => (string) $this->prototypeValidators->identifierOf($rule::class), 'config' => $rule->toStorage()],
                 $schema->prototypeValidators,
             ),
+            'noTypeRecords' => array_map($this->encodeRecord(...), $schema->noTypeRecords),
         ];
+    }
+
+    /** @return array<string, mixed> */
+    private function encodeRecord(NoTypeRecord $record): array {
+        return match (true) {
+            $record instanceof BrokenField => [
+                'kind' => 'brokenField',
+                'id' => $record->id,
+                'name' => $record->name,
+                'descriptor' => $this->encodeDescriptor($record->descriptor),
+                'origin' => $record->origin,
+                'reason' => $record->reason->value,
+            ],
+            $record instanceof LostAncestor => [
+                'kind' => 'lostAncestor',
+                'id' => $record->id,
+                'ancestor' => $record->ancestor,
+                'reason' => $record->reason->value,
+                'newParent' => $record->newParent,
+            ],
+        };
+    }
+
+    /** @param array<string, mixed> $encoded What encodeRecord() produced. */
+    private function decodeRecord(array $encoded): NoTypeRecord {
+        return match ($encoded['kind']) {
+            'brokenField' => new BrokenField($encoded['id'], $encoded['name'], $this->decodeDescriptor($encoded['descriptor']), $encoded['origin'], BrokenFieldReason::from($encoded['reason'])),
+            'lostAncestor' => new LostAncestor($encoded['id'], $encoded['ancestor'], LostAncestorReason::from($encoded['reason']), $encoded['newParent']),
+        };
     }
 
     /** @param array<string, mixed> $encoded What encode() produced. */
@@ -124,6 +159,7 @@ final readonly class EntitySchemaCodec
                 $encoded['typePermission']['update'],
                 $encoded['typePermission']['delete'],
             ),
+            noTypeRecords: array_map($this->decodeRecord(...), $encoded['noTypeRecords']),
         );
     }
 

@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Migration\Data;
 
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 
 /**
@@ -26,6 +27,15 @@ final class AggregateValues
      * @var array<string, true>|null
      */
     private ?array $own = null;
+
+    /**
+     * Every field set aside so far, captured: by the entity holding it ("" for
+     * the root, an owned object's id otherwise), the record it belongs to, and
+     * the site inside the entity where its type sits ("" for the entity
+     * itself, an Embed's path otherwise).
+     * @var array<string, array<string, array<string, array{values: array<string, mixed>, touched: list<string>, ownedIds: array<string, string>}>>>
+     */
+    private array $setAside = [];
 
     /**
      * @param string $identifier The root's concrete identifier.
@@ -227,6 +237,94 @@ final class AggregateValues
      */
     private function ownAtOrUnder(string $path): array {
         return array_filter($this->own ?? [], static fn (string $key): bool => self::isAtOrUnder($key, $path), ARRAY_FILTER_USE_KEY);
+    }
+
+    /**
+     * Captures field $field of $occurrence under record $recordId, then
+     * removes it: its value, everything under it, and the owned objects it
+     * holds, whose ids the capture keeps. A default instance only removes it:
+     * it has no entity to keep a capture on.
+     */
+    public function setAside(string $recordId, Occurrence $occurrence, FieldName $field): void {
+        $path = (string) $occurrence->fieldPath($field);
+        if ($this->own === null) {
+            $capture = ['values' => [], 'touched' => [], 'ownedIds' => []];
+            foreach ($this->values as $key => $value) {
+                $relative = $this->relativeToField((string) $key, $path);
+                if ($relative !== null) {
+                    $capture['values'][$relative] = $value;
+                    if ($this->marks[$key] !== ValueMark::Untouched) {
+                        $capture['touched'][] = $relative;
+                    }
+                }
+            }
+
+            foreach ($this->ownedIds as $key => $id) {
+                $relative = $this->relativeToField((string) $key, $path);
+                if ($relative !== null) {
+                    $capture['ownedIds'][$relative] = $id;
+                }
+            }
+
+            [$holder, $site] = $this->holderOf($occurrence);
+            $this->setAside[$holder][$recordId][$site] = $capture;
+        }
+
+        $this->removeAt(FieldPath::fromString($path));
+    }
+
+    /**
+     * Every field set aside, captured.
+     * @return array<string, array<string, array<string, array{values: array<string, mixed>, touched: list<string>, ownedIds: array<string, string>}>>>
+     *         By holding entity ("" for the root, an owned object's id otherwise),
+     *         then record id, then site inside the entity.
+     */
+    public function setAsideCaptures(): array {
+        return $this->setAside;
+    }
+
+    /** $key relative to the field at $path: "" for the field itself, null when not at or under it. */
+    private function relativeToField(string $key, string $path): ?string {
+        if ($key === $path) {
+            return '';
+        }
+
+        foreach ([FieldPath::EMBED, FieldPath::TRAVERSE] as $join) {
+            if (str_starts_with($key, $path . $join)) {
+                return substr($key, strlen($path));
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The entity $occurrence lives on, and where it sits inside it: the root
+     * itself, an owned object itself, or an Embed inside the nearest of them
+     * holding it.
+     * @return array{string, string} The entity ("" for the root, an owned
+     *         object's id otherwise), and the site ("" for the entity itself).
+     */
+    private function holderOf(Occurrence $occurrence): array {
+        if ($occurrence->kind === OccurrenceKind::Root || $occurrence->path === null) {
+            return ['', ''];
+        }
+
+        $path = (string) $occurrence->path;
+        if ($occurrence->kind === OccurrenceKind::Owned) {
+            return [$this->ownedIds[$path] ?? '', ''];
+        }
+
+        // An Embed lives inside its nearest owned holder, or the root.
+        $holder = null;
+        foreach (array_keys($this->ownedIds) as $slot) {
+            $slot = (string) $slot;
+            if (self::relativeTo($path, $slot) !== null && ($holder === null || strlen($slot) > strlen($holder))) {
+                $holder = $slot;
+            }
+        }
+
+        return $holder === null ? ['', $path] : [$this->ownedIds[$holder], (string) self::relativeTo($path, $holder)];
     }
 
     /** The id of the owned object in the slot at $path, null when it has none yet. */

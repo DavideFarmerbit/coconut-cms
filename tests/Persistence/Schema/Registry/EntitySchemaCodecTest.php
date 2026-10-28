@@ -19,6 +19,11 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
+use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\BrokenField;
+use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\BrokenFieldReason;
+use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\LostAncestor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\LostAncestorReason;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
@@ -186,6 +191,17 @@ final class EntitySchemaCodecTest extends TestCase
 
     public function testASchemaRoundTripsThroughJson(): void {
         $schema = self::schemaOf(CodecProduct::class);
+        $codec = self::codec();
+
+        $decoded = $codec->decode(json_decode(json_encode($codec->encode($schema)), true));
+
+        self::assertEquals($schema, $decoded);
+    }
+
+    public function testWhatBrokeRoundTripsThroughJsonWithTheSchema(): void {
+        $schema = self::schemaOf(CodecProduct::class)
+            ->withNoTypeRecord(new BrokenField('0193a2b4-0000-7000-8000-000000000001', 'engine', FieldDescriptor::owningReference('engine', 'test:engine', Nullability::Nullable), 'test:vehicle', BrokenFieldReason::ChainCut))
+            ->withNoTypeRecord(new LostAncestor('0193a2b4-0000-7000-8000-000000000002', 'test:vehicle', LostAncestorReason::Dropped, null));
         $codec = self::codec();
 
         $decoded = $codec->decode(json_decode(json_encode($codec->encode($schema)), true));

@@ -35,12 +35,12 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollecti
 final class MigrationPlannerTest extends TestCase
 {
     /** @param array<string, FieldDescriptor> $fields */
-    private static function schema(string $identifier, array $fields = [], ?string $parent = null, ?string $table = null): EntitySchema {
+    private static function schema(string $identifier, array $fields = [], ?string $parent = null, ?string $table = null, bool $editorExtensible = false): EntitySchema {
         return new EntitySchema(
             identifier: $identifier,
             parent: $parent,
             table: $table ?? str_replace(':', '_', $identifier),
-            editorExtensible: false,
+            editorExtensible: $editorExtensible,
             fields: FieldDescriptorCollection::fromArray($fields),
             fieldPermissions: FieldPermissionCollection::empty(),
             fieldValidators: FieldValidatorCollection::empty(),
@@ -169,12 +169,12 @@ final class MigrationPlannerTest extends TestCase
 
     public function testRenamingATypeRetargetsEverySchemaNamingItAndTakesTheCodesTable(): void {
         $stored = [
-            self::stored(self::schema('test:car', table: 'car')),
+            self::stored(self::schema('test:car', table: 'car', editorExtensible: true)),
             self::stored(self::schema('test:garage', ['cars' => FieldDescriptor::collection('cars', FieldDescriptor::reference('cars', 'test:car'))])),
             self::stored(self::schema('editor:race_car', parent: 'test:car'), SchemaSource::Editor),
         ];
         $code = self::code(
-            self::schema('test:automobile', table: 'automobile'),
+            self::schema('test:automobile', table: 'automobile', editorExtensible: true),
             self::schema('test:garage', ['cars' => FieldDescriptor::collection('cars', FieldDescriptor::reference('cars', 'test:automobile'))]),
         );
 

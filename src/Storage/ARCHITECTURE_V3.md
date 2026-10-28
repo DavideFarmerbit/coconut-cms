@@ -987,11 +987,9 @@ was stored. `Migrator::migrate()` runs one, from the native classes read with
 database is a migration from nothing. One migration runs at a time: each
 holds a MySQL lock.
 
-**Built**, except where noted inline. Decided but not built yet: native
-changes breaking an editor-created type (see "When native code breaks an
-editor-created type"), `NoType` records, `ReplaceType`, `MoveField`'s
-initializer, and editor saves. Until then, a native change that breaks an
-editor-created type fails the migration when the type is compiled again.
+**Built**, except where noted inline. Decided but not built yet: the dry
+run (`Persistence::check()`), `ReplaceType`, `MoveField`'s initializer, and
+editor saves, with the editor operations that resolve `NoType` records.
 
 A change to the CMS's own tables or system columns (`_id`, `_owner`,
 `_position`, a count) isn't migrated. Expand would take a changed system
@@ -1223,8 +1221,8 @@ the field stays valid, and only the values holding that subtype go, as
 `DropType` says.
 
 Each break is a difference, and the policy decides it, the same as any other
-difference (not built yet: today the type fails to compile again, which
-fails the migration). A fixup the developer declares, `ReplaceType` above
+difference (`EditorBreaks` finds them; `SetAsideField` and `CutChain` set
+them aside). A fixup the developer declares, `ReplaceType` above
 all, resolves a break before the policy sees it. Then:
 
 - **Strict** blocks the migration, naming the editor-created type and the
@@ -1645,7 +1643,8 @@ old value lived: a column, a flattened Embed, a Collection table or an owned
 entity's rows. The capture is the entity's touched values under the field's
 old path, in their stored form, read with the old schema.
 
-A capture can also be kept, in a **`NoType` record** (not built yet): what
+A capture can also be kept, in a **`NoType` record** (built; the editor
+operations resolving one are not built yet): what
 broke on an editor-created type, set aside until an admin decides (see
 "When native code breaks an editor-created type"). Only an editor-created
 type holds records: a native class naming a dropped class already fails

@@ -66,6 +66,7 @@ final readonly class StoredBlueprintReader
             prototypeValidators: $schema->prototypeValidators,
             defaults: BlueprintDefaults::own($own),
             typePermission: $schema->typePermission,
+            noTypeRecords: $schema->noTypeRecords,
         );
     }
 }

@@ -123,11 +123,56 @@ class EdVehicleRetyped
     public string $color = 'white';
 }
 
+/** The vehicle gaining a hull: the name of a field the boat declares itself. */
+#[Entity(identifier: 'ed:vehicle', editorExtensible: true)]
+class EdVehicleWithHull
+{
+    #[Scalar(ScalarType::String)]
+    public string $name = '';
+
+    #[Scalar(ScalarType::Int)]
+    public int $wheels = 4;
+
+    #[Scalar(ScalarType::Int)]
+    public int $price = 0;
+
+    #[Scalar(ScalarType::String)]
+    public string $color = 'white';
+
+    #[Scalar(ScalarType::String)]
+    public string $hull = 'none';
+}
+
+/** The vehicle no longer allowing editor-created subtypes. */
+#[Entity(identifier: 'ed:vehicle', editorExtensible: false)]
+class EdSealedVehicle
+{
+    #[Scalar(ScalarType::String)]
+    public string $name = '';
+
+    #[Scalar(ScalarType::Int)]
+    public int $wheels = 4;
+
+    #[Scalar(ScalarType::Int)]
+    public int $price = 0;
+
+    #[Scalar(ScalarType::String)]
+    public string $color = 'white';
+}
+
 /** Every existing vehicle gets the same serial. */
 final class EdSerialInitializer implements FieldInitializer
 {
     public function initialize(Values $values): Conversion {
         return Conversion::of('SN-1');
+    }
+}
+
+/** Every existing vehicle's hull, painted. */
+final class EdPaintedHull implements FieldInitializer
+{
+    public function initialize(Values $values): Conversion {
+        return Conversion::of('painted');
     }
 }
 
