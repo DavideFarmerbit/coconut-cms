@@ -1242,10 +1242,10 @@ How each break resolves:
 - **A cut chain**: the type takes as its new parent the nearest ancestor
   still there that still allows extending: a native type still
   `editorExtensible`, or an editor-created type, which always allows it. With
-  none, it becomes a root. Each field it inherited from the levels cut off
-  becomes a `NoType` record, its values with it. A level cut off that
-  declared no fields loses nothing: the type isn't broken, only its parent
-  changed.
+  none, it becomes a root. Each level cut off leaves a lost-ancestor record,
+  even one that declared no fields, so an admin always sees the chain
+  changed. Each field it inherited from the levels cut off becomes a
+  broken-field record, its values with it.
 - **A name clash**: the native field takes the name, since the code holds
   it. The editor-created field leaves the type's fields, and its values
   become a `NoType` record. No field is renamed or given a generated name.
@@ -1617,32 +1617,52 @@ old value lived: a column, a flattened Embed, a Collection table or an owned
 entity's rows. The capture is the entity's touched values under the field's
 old path, in their stored form, read with the old schema.
 
-A capture can also be kept, as a **`NoType` record** (not built yet): the
-values of a field that broke, set aside until an admin decides. Its target
-is gone, its name now clashes, or its level was cut off (see "When native
-code breaks an editor-created type"). Only an editor-created type holds
-them: a native class naming a dropped class already fails when it's read.
+A capture can also be kept, in a **`NoType` record** (not built yet): what
+broke on an editor-created type, set aside until an admin decides (see
+"When native code breaks an editor-created type"). Only an editor-created
+type holds records: a native class naming a dropped class already fails
+when it's read.
 
-A `NoType` record isn't a field. It sits in a list of its own on the type's
+Records aren't fields. They sit in a list of their own on the type's
 schema, next to its fields. So loads, queries, validators and saves, which
-only ever read the fields, never meet one, and it can't clash with a field
-name. Each record holds:
+only ever read the fields, never meet one, and a record can't clash with a
+field name. Every record has **its id**, generated when the break happens,
+like an entity's. It's the record's identity: an old name and origin aren't
+unique over time, since the same field can break twice before the first
+record is resolved. A record is of one of two kinds:
 
-- **its id**, generated when the field breaks, like an entity's. It's the
-  record's identity: an old name and origin aren't unique over time, since
-  the same field can break twice before the first record is resolved;
-- **its old name and its full old descriptor**: kind, target, items,
-  nullability. What the values were, for a conversion and for display;
-- **its origin**: the type that declared the field. For a cut chain, the
-  ancestor cut off; for a clash or a dropped target, the type itself;
-- **its reason**: target gone, chain cut, or name clash.
+- **A broken field**: one field of the type that broke, on the type that
+  loses it. Every entity's values for that field are captured under it: one
+  record, many captures. It holds:
+  - **its old name and its full old descriptor**: kind, target, items,
+    nullability. What the values were, for a conversion and for display;
+  - **its origin**: the type that declared the field. For a cut chain, the
+    ancestor cut off; for a clash or a dropped target, the type itself;
+  - **its reason**: target gone, chain cut, or name clash.
+- **A lost ancestor**: one CTI level cut out of the type's chain. It holds
+  the identifier of the ancestor lost, why (dropped, or no longer
+  `editorExtensible`), and the parent the type took instead, or none. It has
+  no captures: a level's values belong to its fields, and each of those is a
+  broken-field record whose origin names the level. A level with no fields
+  still leaves this record, so the chain change is never silent.
 
-A type holding any record is broken. The schema editor shows each record
-among the type's fields, for what it was, marked broken, with how many
-entities hold a value, and offers the fixes: convert it into a field, from
-its captures, naming the field then; or drop it. Both are editor operations.
-When the lost origin comes back, or the admin gives the type a parent with
-matching fields, the editor can offer to turn records back into fields.
+One lost level gives each editor-created type that lost it its own records:
+`ed:boat` and `ed:plane` both extending a dropped `Vehicle` each get theirs. A
+subtype inherits its ancestors' records the way it inherits their fields:
+`ed:speedboat extends ed:boat` shows `ed:boat`'s, and its entities' captures
+go under them.
+
+A type holding any record is broken. The schema editor shows each
+broken-field record among the type's fields, for what it was, marked
+broken, with how many entities hold a value, grouped under the lost
+ancestor it came from when there's one. Its fixes are editor operations:
+
+- a broken field: convert it into a field, from its captures, naming the
+  field then; or drop it. When the lost origin comes back, or the admin
+  gives the type a parent with matching fields, the editor can offer to turn
+  records back into fields;
+- a lost ancestor: reparent the type, or acknowledge the new parent, which
+  removes the record.
 
 The captures live in one side table, `notype_captures`, the way stored
 defaults live next to schemas:
@@ -1650,12 +1670,22 @@ defaults live next to schemas:
 - `entity_id`: the entity the broken field lived on, a root or an owned
   object. A foreign key to `entities.id` with `ON DELETE CASCADE`: deleting
   the entity deletes its captures.
-- `record_id`: the record it belongs to. Indexed, so the editor counts the
-  entities holding a value, and dropping a record deletes all its captures
-  at once.
-- `captured`: the capture, as JSON.
+- `record_id`: the broken-field record it belongs to. Indexed, so the editor
+  counts the entities holding a value, and dropping a record deletes all its
+  captures at once.
+- `captured`: the captures, as JSON.
 
-One capture per entity and record: (`entity_id`, `record_id`) is the key.
+One row per entity and record: (`entity_id`, `record_id`) is the key.
+
+An entity can hold the broken field more than once: when the type it
+belonged to is used as an Embed, the entity may embed it in two fields, or
+in a Collection of them. So the JSON holds one capture per site inside the
+entity, keyed by where the type sits: `""` for the entity itself, `chassis`
+for an Embed field, `labels.0` for a Collection item. An Embed item has no
+identity, so `labels.0` is its position when the field broke: a save that
+reorders the Collection before a conversion leaves the captures on the
+wrong item, and a conversion places them by position, as captured. An Embed
+item can't own anything for the same reason.
 
 A capture has the shape a converter receives (`Captured`: the value at the
 field, and the values under it), so converting a record back into a field
@@ -1691,11 +1721,12 @@ What happens to what was stored:
   objects with the same ids. A Reference from another aggregate pointing at
   one becomes null when the row goes, as the foreign key says; a recovery
   brings the object back, not that Reference.
-- A record lives on the type that declared the field. Entities of its
-  subtypes had the field too: their captures go under the same record, and
-  the editor shows it on the subtypes as inherited.
-- A cut chain gives one record per field lost, with captures for every
-  entity of the type and its subtypes.
+- A broken-field record lives on the type that loses the field. Entities of
+  its subtypes had the field too: their captures go under the same record,
+  and the editor shows it on the subtypes as inherited.
+- A cut chain gives one lost-ancestor record per level cut off, and one
+  broken-field record per field lost, with captures for every entity of the
+  type and its subtypes.
 
 Content itself is never JSON: every value has its column, so a query can
 use it. A capture isn't content. Nothing queries it, and no native object
