@@ -102,9 +102,10 @@ final readonly class InputReader
             InputKind::Enum => $this->enum($type->class, $value, $fromStrings),
             InputKind::Input => $this->input($type->class, $value, $path, $fromStrings, $errors),
             InputKind::List => $this->list($type->item, $value, $path, $fromStrings, $errors),
+            InputKind::Map => $this->map($type->item, $value, $path, $fromStrings, $errors),
         };
 
-        if ($read === null && !isset($errors[$path]) && !in_array($type->kind, [InputKind::Input, InputKind::List, InputKind::Mixed], true)) {
+        if ($read === null && !isset($errors[$path]) && !in_array($type->kind, [InputKind::Input, InputKind::List, InputKind::Map, InputKind::Mixed], true)) {
             $errors[$path] = self::expected($type);
         }
 
@@ -130,6 +131,28 @@ final readonly class InputReader
         }
 
         return count($errors) === $before ? $items : null;
+    }
+
+    /**
+     * Each value of $value, by its key, checked against $item; null after
+     * noting an error.
+     * @param array<string, string> $errors Filled in.
+     * @return array<string, mixed>|null
+     */
+    private function map(InputType $item, mixed $value, string $path, bool $fromStrings, array &$errors): ?array {
+        if (!is_array($value) || ($value !== [] && array_is_list($value))) {
+            $errors[$path] = 'Must be an object.';
+
+            return null;
+        }
+
+        $before = count($errors);
+        $values = [];
+        foreach ($value as $key => $itemValue) {
+            $values[(string) $key] = $this->value($item, $itemValue, self::join($path, (string) $key), $fromStrings, $errors);
+        }
+
+        return count($errors) === $before ? $values : null;
     }
 
     /** The case of $class $value names; null when it names none. */

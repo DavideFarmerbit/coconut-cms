@@ -4,7 +4,12 @@ namespace XyloIsCoding\CoconutCms\Persistence;
 
 use Closure;
 use Doctrine\DBAL\Connection;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\InvalidChange;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\NativeEditor;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
+use XyloIsCoding\CoconutCms\Persistence\Entity\ValidationFailed;
+use XyloIsCoding\CoconutCms\Persistence\Permission\PermissionDenied;
+use XyloIsCoding\CoconutCms\Persistence\Permission\TypeAction;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Record\EntityRecord;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Record\RecordReader;
@@ -39,6 +44,9 @@ final class PersistenceSession
     private readonly RecordReader $records;
     private readonly SchemaLookup $schemas;
     private readonly Permissions $permissions;
+    private readonly EntityReader $reader;
+    private readonly NativeEditor $editor;
+    private readonly NativeEntityRegistry $classes;
 
     /**
      * Made by Persistence::as().
@@ -57,11 +65,117 @@ final class PersistenceSession
         $this->permissions = $permissions = new Permissions($schemas, $actor);
         $this->identities = new IdentityMap();
         $this->hidden = new HiddenValues();
-        $reader = new EntityReader($connection, $registry, $values);
+        $this->reader = $reader = new EntityReader($connection, $registry, $values);
         $this->loader = new NativeEntityLoader($reader, $classes, $this->identities, $permissions, $this->hidden);
         $this->records = new RecordReader($reader, $schemas, $permissions);
         $this->writer = new NativeEntityWriter(EntityWriter::of($connection, $registry, $permissions, $values), $registry, $values, $this->identities, $this->hidden);
         $this->queries = new QueryRunner($connection, $schemas, $permissions, $this->identities, $this->load(...), $guard);
+        $this->editor = new NativeEditor($schemas, $permissions, $classes, $this->referenced(...), $this->identities->idOf(...));
+        $this->classes = $classes;
+    }
+
+    /**
+     * Creates a $type entity from its type's defaults, $changes applied by
+     * path in stored form, as NativeEditor describes, then saved: for code
+     * knowing no class. Its setters and afterEdit() run as for any edit.
+     * @param array<string, mixed> $changes By path.
+     * @return string Its id.
+     * @throws InvalidChange For an unknown type, or a change it can't apply.
+     * @throws PermissionDenied When the actor may not create a $type.
+     * @throws ValidationFailed When a setter, afterEdit() or a validator refuses it.
+     */
+    public function create(string $type, array $changes): string {
+        ($this->guard)();
+        if (!$this->schemas->has($type)) {
+            throw new InvalidChange('', sprintf('There is no type "%s".', $type));
+        }
+
+        if (!$this->permissions->may($type, TypeAction::Create)) {
+            throw PermissionDenied::ofType($type, TypeAction::Create);
+        }
+
+        return $this->writer->save($this->editor->create($type, $changes));
+    }
+
+    /**
+     * Loads the standalone entity stored as $id, applies $changes by path in
+     * stored form, as NativeEditor describes, and saves it: for code knowing
+     * no class. False when there's no such entity, or it's owned: an owned
+     * one is changed through its owner's paths.
+     * @param array<string, mixed> $changes By path.
+     * @throws InvalidChange For an editor-created entity, or a change it can't apply.
+     * @throws PermissionDenied When the actor may not read or update it, or write a field changed.
+     * @throws ValidationFailed When a setter, afterEdit() or a validator refuses it.
+     */
+    public function update(string $id, array $changes): bool {
+        ($this->guard)();
+        $type = $this->standaloneType($id);
+        if ($type === null) {
+            return false;
+        }
+
+        if (!$this->permissions->may($type, TypeAction::Update)) {
+            throw PermissionDenied::ofType($type, TypeAction::Update);
+        }
+
+        $entity = $this->loader->load($id);
+        $this->editor->edit($entity, $changes);
+        $this->writer->save($entity);
+
+        return true;
+    }
+
+    /**
+     * Deletes the standalone entity stored as $id with everything it owns:
+     * for code knowing no class. False when there's no such entity, or it's
+     * owned.
+     * @throws InvalidChange For an editor-created entity.
+     * @throws PermissionDenied When the actor may not read or delete it.
+     */
+    public function deleteById(string $id): bool {
+        ($this->guard)();
+        if ($this->standaloneType($id) === null) {
+            return false;
+        }
+
+        $this->writer->delete($this->loader->load($id));
+
+        return true;
+    }
+
+    /**
+     * The type of the standalone native entity stored as $id; null when
+     * there's none, or it's owned. Throws InvalidChange for an
+     * editor-created one: editor saves, not built yet, change those.
+     */
+    private function standaloneType(string $id): ?string {
+        if ($this->reader->isOwned($id) !== false) {
+            return null;
+        }
+
+        $type = $this->reader->identifiersOf([$id])[$id] ?? null;
+        if ($type !== null && !$this->classes->has($type)) {
+            throw new InvalidChange('', sprintf('Entity %s is a %s, an editor-created type: editor saves, not built yet, change its entities.', $id, $type));
+        }
+
+        return $type;
+    }
+
+    /**
+     * The standalone entity an edit sets a Reference to, as this actor
+     * loads it. Throws InvalidChange naming $at when there's none.
+     */
+    private function referenced(string $id, string $at): object {
+        $owned = $this->reader->isOwned($id);
+        if ($owned === null) {
+            throw new InvalidChange($at, sprintf('"%s" points at %s: there is no such entity.', $at, $id));
+        }
+
+        if ($owned) {
+            throw new InvalidChange($at, sprintf('"%s" points at %s, an owned entity: an edit points a Reference at a standalone one only.', $at, $id));
+        }
+
+        return $this->loader->load($id);
     }
 
     /** The entity stored as $id, null when there's none. */

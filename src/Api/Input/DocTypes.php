@@ -55,6 +55,11 @@ final class DocTypes
         return preg_match('/^array<string,/', $type) === 1;
     }
 
+    /** The value type of a map type, as written: "mixed" for `array<string, mixed>`; null for any other type. */
+    public static function mapValueOf(string $type): ?string {
+        return preg_match('/^array<string,\s*(.+)>$/', $type, $parts) === 1 ? trim($parts[1]) : null;
+    }
+
     /** $name, a class name as written in $context's file, fully qualified. */
     public static function resolveClass(ReflectionClass $context, string $name): string {
         if (str_starts_with($name, '\\')) {

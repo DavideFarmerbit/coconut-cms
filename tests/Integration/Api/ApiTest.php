@@ -335,6 +335,75 @@ final class ApiTest extends TestCase
         self::assertSame(2, $status);
     }
 
+    public function testEntitiesCreateAndUpdateChangeValuesByPath(): void {
+        [$status, $created] = $this->post('coconut-cms:entities.create', '{"type": "perm:car", "changes": {"name": "New", "chassis:weight": 1300, "labels": [{"values": {"text": "blue"}}]}}');
+        self::assertSame(200, $status);
+        $id = $created['result']['id'];
+        self::assertSame('New', $created['result']['values']['name']);
+        self::assertSame(1300, $created['result']['values']['chassis']['values']['weight']);
+        self::assertSame([['type' => 'perm:label', 'id' => null, 'values' => ['text' => 'blue']]], $created['result']['values']['labels']);
+
+        [$status, $updated] = $this->post('coconut-cms:entities.update', json_encode(['id' => $id, 'changes' => ['name' => 'Renamed', 'labels.0.text' => 'green']]));
+        self::assertSame(200, $status);
+        self::assertSame('Renamed', $updated['result']['values']['name']);
+        self::assertSame(1300, $updated['result']['values']['chassis']['values']['weight']);
+        self::assertSame('green', $updated['result']['values']['labels'][0]['values']['text']);
+    }
+
+    public function testAWriteFailsTheWayEachRuleSays(): void {
+        [$id] = $this->savedCar();
+
+        [$status, $body] = $this->post('coconut-cms:entities.update', json_encode(['id' => $id, 'changes' => ['colour' => 'red']]));
+        self::assertSame(400, $status);
+        self::assertSame(['errors' => ['changes.colour' => '"perm:car" has no field "colour".']], $body['error']['details']);
+
+        [$status, $body] = $this->post('coconut-cms:entities.update', json_encode(['id' => $id, 'changes' => ['price' => 99]]));
+        self::assertSame(403, $status);
+        self::assertSame(['type' => 'perm:car', 'action' => null, 'paths' => ['price']], $body['error']['details']);
+
+        [$status, $body] = $this->post('coconut-cms:entities.create', '{"type": "perm:document"}');
+        self::assertSame(403, $status);
+        self::assertSame('create', $body['error']['details']['action']);
+
+        [$status, $body] = $this->post('coconut-cms:entities.create', '{"type": "perm:car", "changes": {"name": "Secret"}}', 'admin');
+        self::assertSame(422, $status);
+        self::assertSame('validation_failed', $body['error']['code']);
+        self::assertSame(['' => ['a secret car needs an internal note']], $body['error']['details']['errors']);
+
+        [$status] = $this->post('coconut-cms:entities.create', '{"type": "perm:nothing"}');
+        self::assertSame(404, $status);
+
+        [$status] = $this->post('coconut-cms:entities.update', '{"id": "nothing", "changes": {}}');
+        self::assertSame(404, $status);
+    }
+
+    public function testEntitiesDeleteRemovesAStandaloneEntity(): void {
+        [$id] = $this->savedCar();
+        $engineId = $this->persistence->as(new SystemActor())->read($id)->values['engine']->id;
+
+        [$status] = $this->post('coconut-cms:entities.delete', json_encode(['id' => $engineId]), 'admin', 'engine-room');
+        self::assertSame(404, $status);
+
+        [$status, $body] = $this->post('coconut-cms:entities.delete', json_encode(['id' => $id]), 'admin', 'engine-room');
+        self::assertSame(200, $status);
+        self::assertSame(['id' => $id], $body['result']);
+
+        [$status] = $this->post('coconut-cms:entities.get', json_encode(['id' => $id]));
+        self::assertSame(404, $status);
+    }
+
+    public function testTheCommandLineTakesChangesByPath(): void {
+        [$status, $out] = $this->command(['coconut-cms:entities.create', '--type=perm:car', '--changes.name=Cli', '--changes.engine={"type": "perm:engine"}', '--output=json']);
+        self::assertSame(0, $status);
+        $id = json_decode($out, true, 512, JSON_THROW_ON_ERROR)['id'];
+
+        [$status, $out] = $this->command(['coconut-cms:entities.update', '--id=' . $id, '--changes.engine.horsepower=301', '--changes.chassis:weight=1500', '--output=json']);
+        self::assertSame(0, $status);
+        $car = json_decode($out, true, 512, JSON_THROW_ON_ERROR);
+        self::assertSame(301, $car['values']['engine']['values']['horsepower']);
+        self::assertSame(1500, $car['values']['chassis']['values']['weight']);
+    }
+
     public function testTheCommandLineListsEveryOperation(): void {
         [$status, $out] = $this->command([]);
 

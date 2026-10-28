@@ -5,7 +5,9 @@ namespace XyloIsCoding\CoconutCms\Api\Cli;
 use JsonException;
 use XyloIsCoding\CoconutCms\Api\Api;
 use XyloIsCoding\CoconutCms\Api\Error\ErrorCode;
+use XyloIsCoding\CoconutCms\Api\Input\InputKind;
 use XyloIsCoding\CoconutCms\Api\Input\InputParameter;
+use XyloIsCoding\CoconutCms\Api\Input\InputType;
 use XyloIsCoding\CoconutCms\Api\Input\InputShape;
 use XyloIsCoding\CoconutCms\Api\Output\ForHumans;
 use XyloIsCoding\CoconutCms\Persistence\Permission\SystemActor;
@@ -20,7 +22,8 @@ use XyloIsCoding\CoconutCms\Persistence\Permission\SystemActor;
  *     coconut coconut-cms:entities.query --json='{"type": "shop:car"}'
  *
  * Each `--path=value` sets the input at that dotted path, a number for a
- * list's index; `--json` gives the whole input as JSON instead.
+ * list's index; past a map, the rest is the key: `--changes.engine.horsepower=300`.
+ * `--json` gives the whole input as JSON instead.
  * `--output=json` prints JSON even for a result shown as a table. Runs as
  * SystemActor: whoever runs it already holds the server.
  */
@@ -86,7 +89,8 @@ final readonly class CommandLine
             }
             $outcome = $this->api->run($operation, $input, new SystemActor());
         } else {
-            $outcome = $this->api->run($operation, self::nested($options), new SystemActor(), fromStrings: true);
+            $input = $this->api->operation($operation)?->input;
+            $outcome = $this->api->run($operation, self::nested($options, $input === null ? null : new InputType(InputKind::Input, class: $input)), new SystemActor(), fromStrings: true);
         }
 
         if ($outcome->error !== null) {
@@ -120,25 +124,55 @@ final readonly class CommandLine
 
     /**
      * $options set at their dotted paths: "where.0.path" into
-     * ['where' => [['path' => ...]]]. An array keyed 0, 1… becomes a list.
+     * ['where' => [['path' => ...]]]. Where $type says a map starts, the
+     * rest of the path is one key: "changes.engine.horsepower" into
+     * ['changes' => ['engine.horsepower' => ...]]. An array keyed 0, 1…
+     * becomes a list.
      * @param array<string, string> $options
+     * @param InputType|null $type The input's type; null when the operation is unknown.
      * @return array<string, mixed>
      */
-    private static function nested(array $options): array {
+    private static function nested(array $options, ?InputType $type): array {
         $input = [];
         foreach ($options as $path => $value) {
             $at = &$input;
-            foreach (explode('.', $path) as $segment) {
+            $segments = explode('.', $path);
+            $here = $type;
+            while ($segments !== []) {
+                if ($here?->kind === InputKind::Map) {
+                    $key = implode('.', $segments);
+                    $segments = [];
+                } else {
+                    $key = array_shift($segments);
+                    $key = ctype_digit($key) ? (int) $key : $key;
+                }
+
+                $here = self::typeUnder($here, $key);
                 if (!is_array($at)) {
                     $at = [];
                 }
-                $at = &$at[ctype_digit($segment) ? (int) $segment : $segment];
+                $at = &$at[$key];
             }
             $at = $value;
             unset($at);
         }
 
         return self::listed($input);
+    }
+
+    /** The type of what $key holds under a value of $type; null when it isn't known. */
+    private static function typeUnder(?InputType $type, string|int $key): ?InputType {
+        if ($type?->kind === InputKind::Input) {
+            foreach (InputShape::of($type->class)->parameters as $parameter) {
+                if ($parameter->name === $key) {
+                    return $parameter->type;
+                }
+            }
+
+            return null;
+        }
+
+        return $type?->kind === InputKind::List || $type?->kind === InputKind::Map ? $type->item : null;
     }
 
     /** $value with every array keyed 0, 1… in any order made a list, in index order. */

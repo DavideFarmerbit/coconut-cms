@@ -7,7 +7,8 @@ namespace XyloIsCoding\CoconutCms\Api\Operation;
  * whose constructor parameters are typed. InputReader builds it from JSON or
  * command-line arguments. A parameter is a string, int, float, bool, a
  * backed enum, another OperationInput, or an array whose @param names its
- * items: `list<ConditionInput>`, `list<mixed>` for any JSON value.
+ * items: `list<ConditionInput>`, `list<mixed>` for any JSON value, or
+ * `array<string, mixed>` for a JSON object with keys of its own.
  */
 interface OperationInput
 {

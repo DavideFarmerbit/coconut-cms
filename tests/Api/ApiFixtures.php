@@ -38,6 +38,7 @@ final readonly class FixtureInput implements OperationInput
      * @param list<FixtureFilter> $filters
      * @param list<mixed> $values
      * @param int[] $counts
+     * @param array<string, int> $scores
      */
     public function __construct(
         public string $name,
@@ -50,6 +51,7 @@ final readonly class FixtureInput implements OperationInput
         public array $filters = [],
         public array $values = [],
         public array $counts = [],
+        public array $scores = [],
     ) {
     }
 }

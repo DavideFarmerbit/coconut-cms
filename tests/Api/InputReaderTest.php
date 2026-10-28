@@ -113,6 +113,15 @@ final class InputReaderTest extends TestCase
         self::assertSame([3], $input->counts);
     }
 
+    public function testAMapKeepsItsKeysAndChecksEachValue(): void {
+        $input = (new InputReader())->read(FixtureInput::class, ['name' => 'a', 'scores' => ['engine.horsepower' => 3, 'chassis:weight' => 4]]);
+        self::assertSame(['engine.horsepower' => 3, 'chassis:weight' => 4], $input->scores);
+
+        self::assertSame(['scores.b' => 'Must be an integer.'], self::errorsOf(['name' => 'a', 'scores' => ['a' => 1, 'b' => 'x']]));
+        self::assertSame(['scores' => 'Must be an object.'], self::errorsOf(['name' => 'a', 'scores' => [1, 2]]));
+        self::assertSame([], (new InputReader())->read(FixtureInput::class, ['name' => 'a', 'scores' => []])->scores);
+    }
+
     public function testCommandLineTextThatIsntTheTypeIsRefused(): void {
         self::assertSame(['limit' => 'Must be an integer.', 'loud' => 'Must be true or false.'], self::errorsOf(['name' => 'a', 'limit' => '5.5', 'loud' => 'yes'], fromStrings: true));
     }

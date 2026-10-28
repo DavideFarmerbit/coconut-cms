@@ -5,9 +5,11 @@ to it: the admin app, the command line, and later other clients. Updated one
 decision at a time.
 
 Built: the operations core (registry, input reader, result writer, errors,
-HTTP and command-line transports), and the read operations: `types.list`,
-`types.get`, `entities.get`, `entities.query`. Not built yet: writing
-entities, signing in, API tokens. Each is noted inline.
+HTTP and command-line transports), the read operations (`types.list`,
+`types.get`, `entities.get`, `entities.query`), and the write operations
+for native types (`entities.create`, `entities.update`, `entities.delete`).
+Not built yet: writing editor-created entities, signing in, API tokens.
+Each is noted inline.
 
 Scope:
 
@@ -75,12 +77,14 @@ final readonly class QueryEntitiesInput implements OperationInput
 
 One shared reader builds it from a JSON body or from command-line arguments,
 by reflection over the constructor: strings, ints, floats, bools, backed
-enums, nested input objects, and lists of them. A list's item type is read
-from its `@param`: `list<T>`, `T[]` or `array<int, T>`, with a class name
-resolved through the file's imports. `list<mixed>` takes any JSON value. A
-value missing, unknown or of the wrong type fails before the operation
+enums, nested input objects, and lists and maps of them. A list's item
+type is read from its `@param`: `list<T>`, `T[]` or `array<int, T>`; a
+map's from `array<string, T>`, a JSON object with keys of its own. A class
+name is resolved through the file's imports. `mixed` takes any JSON value.
+A value missing, unknown or of the wrong type fails before the operation
 runs, naming its path: `where.0.path`. Every error is reported at once. An
-operation never sees untyped arrays as input, except a `list<mixed>`.
+operation never sees untyped arrays as input, except where its `@param`
+says `mixed`.
 
 Each input class is checked at boot too: a parameter of a type no input can
 hold, a union, an array with no `@param`, stops the boot.
@@ -213,46 +217,109 @@ Not built yet: conditions on a Collection's items (`whereHas`,
 
 ### Writing an entity
 
-Not built yet. A save sends changes by path, never the whole entity:
+Three operations write, each sending changes by path, never the whole
+entity:
+
+- `coconut-cms:entities.create {type, changes}`: a new standalone entity,
+  from its type's defaults.
+- `coconut-cms:entities.update {id, changes}`: a standalone entity loaded
+  as the caller. An owned one is changed through its owner's paths: asked
+  for by its own id, it's not found.
+- `coconut-cms:entities.delete {id}`: a standalone entity, with everything
+  it owns.
+
+Create and update give the entity back as `entities.get` reads it, so a
+form can refresh. `changes` maps paths to values in stored form, the form
+a read gives:
 
 ```json
-{"name": "Racer", "engine.horsepower": 300, "tags": ["red", "fast"]}
+{"name": "Racer", "chassis:weight": 1200, "engine.horsepower": 300,
+ "engine": {"type": "shop:turbo_engine", "values": {"boost": 2}},
+ "tags": ["red", "fast"], "maker": "01a1…"}
 ```
 
-The backend loads the entity as the caller, applies the changes, and saves it
-through the same permission, validation and hidden-field rules as any save.
-A change to a path that's missing, unreadable, or of the wrong type is
-`invalid_input`, naming the path. A new entity starts from its type's
-defaults.
+- A scalar or a value object as stored; a Reference as its target's id, a
+  standalone entity of the field's type.
+- An Embed as `{"values": {...}}`, a new one from its type's defaults.
+- An owned slot as `{"type": ..., "values": {...}}`, a new owned object of
+  that type from its defaults; with the id of the object already there,
+  `{"type", "id", "values"}` keeps it and changes its values. Null empties
+  it.
+- A Collection as a whole list, each item in the same forms. An owned item
+  sent with the id of one of its items keeps it; one without is new. A path
+  reaches inside one item: `"wheels.1.size"`, `"spares.0.horsepower"`.
+- `values` maps paths from that object, in the same forms.
 
-- An owned slot set to `{"type": "shop:turbo"}` gets a new owned object, from
-  that type's defaults; set to `null`, it's emptied.
-- A Collection is sent whole, as a list. An owned item sent back with its id
-  keeps it; one without is new.
+Changes apply in order, so `"engine"` set to a new object can be followed
+by `"engine.horsepower"`. On the command line, past `--changes.` the rest
+of the option is the path: `--changes.engine.horsepower=300`, and an
+object is given as JSON: `--changes.engine='{"type": "shop:engine"}'`.
+
+The edited entity is saved through the same permission, validation and
+hidden-field rules as any save. A change to a path that's missing,
+unreadable, or of the wrong type is `invalid_input` at `changes.<path>`.
 
 A native entity is edited through its object, the way PHP code edits it:
 
 1. It's loaded as the caller, as any native load.
-2. Each change is turned from stored form into the property's PHP form, then:
+2. Each change is turned from stored form into the property's PHP form: an
+   enum's case, a `DateTimeImmutable`, a value object through
+   `fromStorage()`, a Reference's loaded target once its type is checked, a
+   new owned object or null, a Collection's whole new list. Then:
    - a field declaring a setter gets it called:
      `#[Scalar(ScalarType::String), Setter('rename')]` makes a change of
      `name` call `$car->rename($value)`. A setter may refuse a value by
      throwing, change it, or change other fields with it;
    - any other field's property is set.
-   A change inside an owned object calls the setter its own class declares.
-3. Once every change is applied, a method marked `#[AfterEdit]` is called
-   with the paths changed: for a rule spanning fields, such as a new
-   country resetting the region. It may change fields or refuse the edit.
-   Unreal's `PostEditChangeProperty()` plays the same part.
+   A change inside an owned object, `engine.horsepower`, calls the setter on
+   the owned object.
+3. Once every change is applied, each object changed that implements
+   `AfterEdit` gets `afterEdit($paths)`, with the paths changed relative to
+   it: for a rule spanning fields, such as a new country resetting the
+   region. It may change fields or refuse the edit. An owned object gets
+   its own paths, its owner every path. Unreal's
+   `PostEditChangeProperty()` plays the same part.
 4. It's saved through the native writer.
+
+Setters and `afterEdit()` are called the way PHP code calls them, on the
+object itself: a subclass overriding one gets its own version, whatever
+path reached the object. So:
+
+- **A setter** is named only on the property, by the class declaring the
+  field. Boot checks that the method exists and takes one required
+  parameter accepting the property's type. It's called from the declaring
+  class's scope, so any visibility works, with PHP's rules: a public or
+  protected setter is overridden by a subclass's method; a private one
+  always runs as the declaring class wrote it. The base class's author
+  chooses.
+- **`AfterEdit`** is an interface, one method per class chain, with PHP's
+  override rules. A class overriding an ancestor's `afterEdit()` decides
+  whether to call `parent::afterEdit()`; nothing forces it, since skipping
+  the parent's rule can be right. If a parent starts implementing it after
+  a child already has `afterEdit()`, the child's method replaces the
+  parent's unless it calls it.
+
+A setter or `afterEdit()` refuses an edit by throwing `EditRefused`, with a
+message: it answers `validation_failed`, naming the path. Any other
+exception is `internal`, so a bug never shows as a form message.
 
 Getters aren't part of editing: a value read through a method could differ
 from what's stored, and sending it back would change what's stored. They
 may come with scripting.
 
-An editor-created entity has no class, so its values are changed directly
-(see `DynamicEntity` in `../Storage/PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`). It
-comes with editor saves: editor-created types are made by them.
+An editor-created entity has no class of its own (see `DynamicEntity` in
+`../Storage/PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`). It comes with editor
+saves, since editor-created types are made by them, but plugs into the same
+path. Each change goes to the level declaring its field:
+
+- a native level's field goes through the native view, the object of the
+  entity's last native class: its setters and `afterEdit()` run;
+- an editor level's field goes into the entity's bag, directly: no PHP code
+  runs for it.
+
+`afterEdit()` on the native view gets every path changed, the bag's
+included, so a native rule can react to editor fields. A type with no
+native ancestor runs no hook; editor-defined rules may come with scripting.
 
 ## Authentication
 

@@ -20,6 +20,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldValidator
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Setter;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\BlueprintDefaults;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
@@ -145,10 +146,46 @@ final class NativeEntityReader
             // A property with no field-kind attribute isn't a field: ignored.
             if (NativeFields::kindAttributesOf($property) !== []) {
                 $fields[$property->getName()] = self::resolveFieldDescriptor($property);
+                self::assertSetter($property);
             }
         }
 
         return FieldDescriptorCollection::fromArray($fields);
+    }
+
+    /**
+     * Throws when $property names a #[Setter] an edit can't call with its
+     * value: a method its class lacks, or one not taking exactly one
+     * required parameter that accepts the property's type.
+     */
+    private static function assertSetter(ReflectionProperty $property): void {
+        $setter = ($property->getAttributes(Setter::class)[0] ?? null)?->newInstance();
+        if ($setter === null) {
+            return;
+        }
+
+        $class = $property->getDeclaringClass();
+        $where = sprintf('%s::$%s names #[Setter(\'%s\')]', $class->getName(), $property->getName(), $setter->method);
+        if (!$class->hasMethod($setter->method)) {
+            throw new InvalidArgumentException(sprintf('%s, but %s has no such method.', $where, $class->getName()));
+        }
+
+        $method = $class->getMethod($setter->method);
+        if ($method->isStatic() || $method->getNumberOfParameters() < 1 || $method->getNumberOfRequiredParameters() > 1) {
+            throw new InvalidArgumentException(sprintf('%s: a setter is an instance method taking the new value, and nothing else required.', $where));
+        }
+
+        $parameter = $method->getParameters()[0]->getType();
+        $type = $property->getType();
+        if (!$parameter instanceof ReflectionNamedType || !$type instanceof ReflectionNamedType || $parameter->getName() === 'mixed') {
+            return;
+        }
+
+        $accepts = ($parameter->getName() === $type->getName() || (!$type->isBuiltin() && !$parameter->isBuiltin() && is_a($type->getName(), $parameter->getName(), true)))
+            && (!$type->allowsNull() || $parameter->allowsNull());
+        if (!$accepts) {
+            throw new InvalidArgumentException(sprintf('%s, but its parameter, %s, doesn\'t accept every %s the property holds.', $where, $parameter, $type));
+        }
     }
 
     private static function resolveFieldDescriptor(ReflectionProperty $property): FieldDescriptor {

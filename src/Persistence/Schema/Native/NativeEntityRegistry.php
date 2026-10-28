@@ -38,6 +38,11 @@ final class NativeEntityRegistry
         return $identifier;
     }
 
+    /** Whether a native class is registered under $identifier: false for an editor-created type. */
+    public function has(string $identifier): bool {
+        return isset($this->classes[$identifier]);
+    }
+
     /**
      * The class registered under $identifier. Throws when there's none.
      * @return class-string

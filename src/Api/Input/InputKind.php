@@ -17,4 +17,6 @@ enum InputKind
     case Input;
     /** A JSON array, each item of one InputType. */
     case List;
+    /** A JSON object with keys of its own choosing, each value of one InputType. */
+    case Map;
 }

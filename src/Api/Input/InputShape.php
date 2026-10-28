@@ -72,7 +72,7 @@ final class InputShape
     private static function checkNested(InputType $type): void {
         if ($type->kind === InputKind::Input) {
             self::of($type->class);
-        } elseif ($type->kind === InputKind::List) {
+        } elseif ($type->kind === InputKind::List || $type->kind === InputKind::Map) {
             self::checkNested($type->item);
         }
     }
@@ -89,15 +89,17 @@ final class InputShape
             return self::named($class, $type->getName(), $type->allowsNull(), $where);
         }
 
-        $item = $doc === null ? null : DocTypes::listItemOf($doc);
+        $listItem = $doc === null ? null : DocTypes::listItemOf($doc);
+        $mapValue = $doc === null ? null : DocTypes::mapValueOf($doc);
+        $item = $listItem ?? $mapValue;
         if ($item === null) {
-            throw new LogicException(sprintf('%s: an array parameter needs a @param naming its items, such as list<string>.', $where));
+            throw new LogicException(sprintf('%s: an array parameter needs a @param naming its items, such as list<string> or array<string, mixed>.', $where));
         }
 
         $itemName = ltrim($item, '?');
         $itemType = self::named($class, in_array($itemName, ['string', 'int', 'float', 'bool', 'mixed'], true) ? $itemName : DocTypes::resolveClass($class, $itemName), $item !== $itemName, $where);
 
-        return new InputType(InputKind::List, $type->allowsNull(), item: $itemType);
+        return new InputType($listItem !== null ? InputKind::List : InputKind::Map, $type->allowsNull(), item: $itemType);
     }
 
     /** The type named $name: a builtin, a backed enum or an input class. */

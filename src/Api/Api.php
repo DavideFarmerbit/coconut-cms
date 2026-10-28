@@ -68,6 +68,11 @@ final class Api
         return $this->operations->all();
     }
 
+    /** The operation named $identifier; null when there's none. */
+    public function operation(string $identifier): ?OperationDefinition {
+        return $this->operations->find($identifier);
+    }
+
     /**
      * Runs the operation named $operation as $actor, its input built from
      * $input: what JSON decoded to, or, with $fromStrings, what the command

@@ -7,7 +7,7 @@ final readonly class InputType
 {
     /**
      * @param class-string|null $class The enum or OperationInput class, for those kinds.
-     * @param InputType|null $item Each item's type, for a list.
+     * @param InputType|null $item Each item's type, for a list; each value's, for a map.
      */
     public function __construct(
         public InputKind $kind,
