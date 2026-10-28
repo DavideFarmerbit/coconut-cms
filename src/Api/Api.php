@@ -6,6 +6,11 @@ use JsonException;
 use stdClass;
 use Throwable;
 use XyloIsCoding\CoconutCms\Api\Auth\Authenticator;
+use XyloIsCoding\CoconutCms\Api\Auth\CsrfGuard;
+use XyloIsCoding\CoconutCms\Api\Auth\CsrfRejected;
+use XyloIsCoding\CoconutCms\Api\Auth\SessionCsrf;
+use XyloIsCoding\CoconutCms\Api\Auth\User;
+use XyloIsCoding\CoconutCms\Core\Kernel;
 use XyloIsCoding\CoconutCms\Api\Error\ApiError;
 use XyloIsCoding\CoconutCms\Api\Error\InvalidInput;
 use XyloIsCoding\CoconutCms\Api\Error\NotFound;
@@ -25,8 +30,11 @@ use XyloIsCoding\CoconutCms\Routing\Router;
  * The API: every module's operations, served over HTTP and the command line
  * with one contract. Boot it once per request, next to persistence:
  *
- *     $api = Api::boot($persistence, $authenticator);
+ *     $api = Api::boot($persistence, $authenticator, $kernel);
  *     $api->routes($router, prefix: '/api');   // POST /api/{operation}
+ *
+ * Every call over HTTP sends the session's CSRF token, which the page
+ * serving the client gets from csrfToken().
  *
  * run() is what every transport calls: it never throws, every failure comes
  * back as an ApiError.
@@ -39,6 +47,8 @@ final class Api
     private function __construct(
         private readonly Persistence $persistence,
         private readonly Authenticator $authenticator,
+        private readonly Kernel $kernel,
+        private readonly CsrfGuard $csrf,
         private readonly OperationRegistry $operations,
         private readonly bool $debug,
     ) {
@@ -50,9 +60,17 @@ final class Api
      * Registers every operation of $persistence's modules, the core's first,
      * each one checked: a broken one throws LogicException here, not on a
      * call. Touches no database.
+     * @param Kernel $kernel The project's services, which operations reach through their context.
+     * @param CsrfGuard $csrf Keeps the token every call over HTTP sends.
      * @param bool $debug Whether an internal error tells its message: never in production.
      */
-    public static function boot(Persistence $persistence, Authenticator $authenticator, bool $debug = false): self {
+    public static function boot(
+        Persistence $persistence,
+        Authenticator $authenticator,
+        Kernel $kernel = new Kernel(),
+        CsrfGuard $csrf = new SessionCsrf(),
+        bool $debug = false,
+    ): self {
         $operations = new OperationRegistry();
         foreach ($persistence->modules() as $module) {
             foreach ($module->operations() as $class) {
@@ -60,7 +78,17 @@ final class Api
             }
         }
 
-        return new self($persistence, $authenticator, $operations, $debug);
+        return new self($persistence, $authenticator, $kernel, $csrf, $operations, $debug);
+    }
+
+    /** The token the page serving a client hands over, for its calls to send in the X-CSRF-Token header. */
+    public function csrfToken(): string {
+        return $this->csrf->token();
+    }
+
+    /** The user $login names, for acting as them: what the command line's `--as` uses. Null when there's none. */
+    public function userNamed(string $login): ?User {
+        return $this->authenticator->userNamed($login);
     }
 
     /** @return list<OperationDefinition> Every operation served, sorted by identifier. */
@@ -82,7 +110,7 @@ final class Api
         try {
             $definition = $this->operations->find($operation) ?? throw new NotFound('operation', $operation);
             $typed = $this->inputs->read($definition->input, $input, $fromStrings);
-            $context = new OperationContext($actor, $this->persistence->as($actor), $this->persistence);
+            $context = new OperationContext($actor, $this->persistence->as($actor), $this->persistence, $this->authenticator, $this->kernel);
 
             return OperationOutcome::succeeded((new ($definition->class)())->run($typed, $context));
         } catch (Throwable $failure) {
@@ -90,8 +118,18 @@ final class Api
         }
     }
 
-    /** Answers an HTTP call to $operation: its body is the input, as JSON; its caller is who the Authenticator says. */
+    /**
+     * Answers an HTTP call to $operation: its body is the input, as JSON; its
+     * caller is who the Authenticator says. Refused unless it sends the
+     * session's CSRF token.
+     */
     public function handle(Request $request, string $operation): HttpReply {
+        if (!$this->csrf->isValid($request->header(CsrfGuard::HEADER))) {
+            $outcome = OperationOutcome::failed(ApiError::of(new CsrfRejected(), $this->debug));
+
+            return new HttpReply($outcome->httpStatus(), $this->json($outcome));
+        }
+
         try {
             $input = trim($request->body()) === '' ? [] : json_decode($request->body(), true, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException $invalid) {

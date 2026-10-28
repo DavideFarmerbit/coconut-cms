@@ -25,13 +25,15 @@ use XyloIsCoding\CoconutCms\Persistence\Permission\SystemActor;
  * list's index; past a map, the rest is the key: `--changes.engine.horsepower=300`.
  * `--json` gives the whole input as JSON instead.
  * `--output=json` prints JSON even for a result shown as a table. Runs as
- * SystemActor: whoever runs it already holds the server.
+ * SystemActor: whoever runs it already holds the server. `--as=<login>`
+ * acts as that user instead, to see what they see.
  */
 final readonly class CommandLine
 {
     /** Options the command line reads itself, never part of an input. */
     private const JSON = 'json';
     private const OUTPUT = 'output';
+    private const AS = 'as';
 
     public function __construct(
         private Api $api,
@@ -71,7 +73,16 @@ final readonly class CommandLine
         }
 
         $asJson = ($options[self::OUTPUT] ?? 'table') === 'json';
-        unset($options[self::OUTPUT]);
+        $actor = new SystemActor();
+        if (isset($options[self::AS])) {
+            $actor = $this->api->userNamed($options[self::AS]);
+            if ($actor === null) {
+                fwrite($err, sprintf('There is no user "%s" to act as.%s', $options[self::AS], PHP_EOL));
+
+                return ErrorCode::NotFound->exitStatus();
+            }
+        }
+        unset($options[self::OUTPUT], $options[self::AS]);
 
         if (isset($options[self::JSON])) {
             if (count($options) > 1) {
@@ -87,10 +98,10 @@ final readonly class CommandLine
 
                 return ErrorCode::InvalidInput->exitStatus();
             }
-            $outcome = $this->api->run($operation, $input, new SystemActor());
+            $outcome = $this->api->run($operation, $input, $actor);
         } else {
             $input = $this->api->operation($operation)?->input;
-            $outcome = $this->api->run($operation, self::nested($options, $input === null ? null : new InputType(InputKind::Input, class: $input)), new SystemActor(), fromStrings: true);
+            $outcome = $this->api->run($operation, self::nested($options, $input === null ? null : new InputType(InputKind::Input, class: $input)), $actor, fromStrings: true);
         }
 
         if ($outcome->error !== null) {

@@ -23,6 +23,22 @@ final class RequestTest extends TestCase
         self::assertSame(['sort' => 'asc', 'page' => '2'], $request->urlParams());
     }
 
+    public function testHeadersAreReadByNameInAnyCase(): void
+    {
+        $_SERVER['REQUEST_METHOD'] = 'POST';
+        $_SERVER['REQUEST_URI'] = '/api/x';
+        $_SERVER['HTTP_X_CSRF_TOKEN'] = 'abc';
+        $_SERVER['CONTENT_TYPE'] = 'application/json';
+        $_GET = [];
+
+        $request = Request::fromGlobals();
+
+        self::assertSame('abc', $request->header('X-CSRF-Token'));
+        self::assertSame('application/json', $request->header('content-type'));
+        self::assertNull($request->header('X-Missing'));
+        self::assertSame('v', Request::of(RequestMethod::GET, '/', headers: ['X-Thing' => 'v'])->header('x-thing'));
+    }
+
     public function testFromGlobalsDefaultsMethodToGetWhenMissing(): void
     {
         unset($_SERVER['REQUEST_METHOD']);

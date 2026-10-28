@@ -14,14 +14,19 @@ enum ErrorCode: string
     case ValidationFailed = 'validation_failed';
     case Unavailable = 'unavailable';
     case Internal = 'internal';
+    case SignInFailed = 'sign_in_failed';
+    case TooManyRequests = 'too_many_requests';
+    case CsrfFailed = 'csrf_failed';
 
     /** The HTTP status an HTTP call answers with. */
     public function httpStatus(): int {
         return match ($this) {
             self::InvalidInput => 400,
-            self::PermissionDenied => 403,
+            self::SignInFailed => 401,
+            self::PermissionDenied, self::CsrfFailed => 403,
             self::NotFound => 404,
             self::ValidationFailed => 422,
+            self::TooManyRequests => 429,
             self::Unavailable => 503,
             self::Internal => 500,
         };
@@ -36,6 +41,9 @@ enum ErrorCode: string
             self::NotFound => 4,
             self::ValidationFailed => 5,
             self::Unavailable => 6,
+            self::SignInFailed => 7,
+            self::TooManyRequests => 8,
+            self::CsrfFailed => 9,
         };
     }
 }

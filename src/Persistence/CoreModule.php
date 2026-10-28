@@ -2,6 +2,9 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence;
 
+use XyloIsCoding\CoconutCms\Api\Operations\Auth\GetMe;
+use XyloIsCoding\CoconutCms\Api\Operations\Auth\SignIn;
+use XyloIsCoding\CoconutCms\Api\Operations\Auth\SignOut;
 use XyloIsCoding\CoconutCms\Api\Operations\Entities\CreateEntity;
 use XyloIsCoding\CoconutCms\Api\Operations\Entities\DeleteEntity;
 use XyloIsCoding\CoconutCms\Api\Operations\Entities\GetEntity;
@@ -28,6 +31,10 @@ final readonly class CoreModule implements Module
     }
 
     public function operations(): array {
-        return [ListTypes::class, GetType::class, GetEntity::class, QueryEntities::class, CreateEntity::class, UpdateEntity::class, DeleteEntity::class];
+        return [
+            SignIn::class, SignOut::class, GetMe::class,
+            ListTypes::class, GetType::class,
+            GetEntity::class, QueryEntities::class, CreateEntity::class, UpdateEntity::class, DeleteEntity::class,
+        ];
     }
 }

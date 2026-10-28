@@ -11,6 +11,9 @@
 use XyloIsCoding\CoconutCms\Api\Api;
 use XyloIsCoding\CoconutCms\Api\Cli\CommandLine;
 
+// PHP's own notices never mix with a result: stdout holds results only.
+ini_set('display_errors', 'stderr');
+
 // Composer's bin proxy says where the project's autoloader is.
 require $GLOBALS['_composer_autoload_path'] ?? __DIR__ . '/../vendor/autoload.php';
 

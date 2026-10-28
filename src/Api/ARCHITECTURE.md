@@ -7,9 +7,9 @@ decision at a time.
 Built: the operations core (registry, input reader, result writer, errors,
 HTTP and command-line transports), the read operations (`types.list`,
 `types.get`, `entities.get`, `entities.query`), and the write operations
-for native types (`entities.create`, `entities.update`, `entities.delete`).
-Not built yet: writing editor-created entities, signing in, API tokens.
-Each is noted inline.
+for native types (`entities.create`, `entities.update`, `entities.delete`),
+and authentication (sign-in operations, CSRF, `--as`). Not built yet:
+writing editor-created entities, API tokens. Each is noted inline.
 
 Scope:
 
@@ -101,23 +101,35 @@ command line prints the same JSON, or a table for a result implementing
 
 ### Context
 
-`OperationContext` gives an operation the caller's `Actor`, a
-`PersistenceSession` for it, and the `Persistence` itself for what isn't
-about entities, such as checking a migration. The transport builds it from
-whoever is calling (see "Authentication").
+`OperationContext` gives an operation:
+
+- the caller's `Actor`, and a `PersistenceSession` for it;
+- the `Persistence` itself, for what isn't about entities, such as checking
+  a migration;
+- the project's `Authenticator`, for signing in and out;
+- the project's `Kernel`, its services bound by `Identifier`: what an
+  operation needs beyond persistence, such as a mailer or the user
+  library. `$context->kernel->get(Identifier::of('demo', 'auth'))` gives an
+  `object`; the operation narrows its type itself.
+
+An operation is built with no constructor arguments for each call: what it
+uses comes through `run()`, its input and its context. The transport builds
+the context from whoever is calling (see "Authentication").
 
 ### Errors
 
 Every transport reports a failure the same way:
 
-| Thrown | Code | HTTP | Details |
-|---|---|---|---|
 | Thrown | Code | HTTP | Exit | Details |
 |---|---|---|---|---|
 | `InvalidInput` | `invalid_input` | 400 | 2 | `errors`: a message per path |
+| `SignInFailed` | `sign_in_failed` | 401 | 7 | none: one message, whatever was wrong |
 | `PermissionDenied` | `permission_denied` | 403 | 3 | `type`, `action`, `paths` |
+| `Forbidden` | `permission_denied` | 403 | 3 | none: the operation refuses its caller outright |
+| `CsrfRejected` | `csrf_failed` | 403 | 9 | none: reload the page for a new token |
 | `NotFound` | `not_found` | 404 | 4 | `kind` and `key`: what's missing |
 | `ValidationFailed` | `validation_failed` | 422 | 5 | `type`, `errors`: messages by path, for a form |
+| `TooManyAttempts` | `too_many_requests` | 429 | 8 | none |
 | `PersistenceUnavailable` | `unavailable` | 503 | 6 | `reason`: `migration_pending` or `migration_unfinished` |
 | anything else | `internal` | 500 | 1 | the message only in debug mode |
 
@@ -323,30 +335,46 @@ native ancestor runs no hook; editor-defined rules may come with scripting.
 
 ## Authentication
 
-The package defines the seam: an `Authenticator` turns a request into an
-`Actor`, or into an `AnonymousActor` holding no role. The package depends on
-no user library. A project picks its implementation at boot; this project's
-adapts `delight-im/auth`, a dependency of the project, not of the package.
-Until a project has one, the package's `AnonymousAuthenticator` makes every
-HTTP caller anonymous.
+The package defines the seam, `Authenticator`, and depends on no user
+library. A project implements it over the one it picks, and gives it at
+boot; this project's adapts `delight-im/auth`, a dependency of the project,
+not of the package. The interface has four methods:
 
-Built: the seam and the command line's `SystemActor`. Not built yet:
-sessions, CSRF, signing in and out, `--as`, the `delight-im/auth` adapter.
+- `actorFor(Request)`: the caller, a `User` signed in or an
+  `AnonymousActor` holding no role;
+- `signIn(login, password, remember)`: signs the current caller in, by
+  email or username as the project allows. It throws `SignInFailed`, one
+  message whatever was wrong, so a caller can't tell which users exist; or
+  `TooManyAttempts` while signing in is throttled;
+- `signOut()`;
+- `userNamed(login)`: a user without signing in, for `--as`.
 
-- **Roles.** `delight-im/auth` keeps a user's roles as bits; an `Actor` asks
-  `hasRole('editor')`. The project's adapter maps each bit to a role name, as
-  the project configures.
-- **The admin app** signs in on the same site and holds a session cookie.
-  Every API call is a `POST`, so each carries a CSRF token too, handed to the
-  app when it loads. Signing in and out are operations themselves,
-  `coconut-cms:auth.signIn` and `coconut-cms:auth.signOut`.
+A `User` is the package's actor for a signed-in caller: its id, a name to
+show, and its roles by the names permissions use. Until a project has users,
+the package's `AnonymousAuthenticator` signs nobody in.
+
+- **Roles.** `delight-im/auth` keeps a user's roles as bits. The project's
+  adapter names each bit, as the project configures; an `Actor` asks
+  `hasRole('editor')`.
+- **Operations.** `coconut-cms:auth.signIn {login, password, remember}`,
+  `coconut-cms:auth.signOut`, and `coconut-cms:auth.me`, which the admin
+  asks first, each give `{"user": {id, name, roles}}`, or `{"user": null}`
+  for nobody.
+- **The admin app** signs in on the same site and holds the session cookie.
+  Every API call over HTTP sends the session's CSRF token in the
+  `X-CSRF-Token` header, or is refused with `csrf_failed`. The page serving
+  the client hands the token over: `$api->csrfToken()`, which the admin page
+  embeds. No operation gives it out. The package's `SessionCsrf` keeps it in
+  the PHP session; signing in or out keeps it.
 - **Other HTTP clients**, scripts and integrations, will send an API token
-  tied to a user, in a header (not built yet, and not needed by the admin).
+  tied to a user, in a header, in place of the cookie and the CSRF token.
+  Not built yet, and not needed by the admin.
 - **The command line** runs as `SystemActor`: whoever can run it already
-  holds the server and its database. `--as=<user>` acts as that user instead,
-  to see what they see through the same permission rules.
+  holds the server and its database. `--as=<login>` acts as that user
+  instead, to see what they see through the same permission rules.
 - **An anonymous caller** holds no role. Each operation's permission checks
-  decide what it may do. The admin app requires signing in.
+  decide what it may do. An operation its caller may not run at all throws
+  `Forbidden`. The admin app requires signing in.
 
 ## Mounting
 
@@ -355,9 +383,13 @@ its router:
 
 ```php
 $persistence = Persistence::boot($connection, $modules, ...);
-$api = Api::boot($persistence, new DelightAuthenticator($auth, $roleNames), debug: false);
+$kernel = new Kernel();   // the project's services, for its operations
+$api = Api::boot($persistence, new DelightAuthenticator($auth, $pdo), $kernel, debug: false);
 $api->routes($router, prefix: '/api');   // POST /api/{operation}
 ```
+
+`Api::boot()` also takes a `CsrfGuard`, the session-backed `SessionCsrf`
+unless given.
 
 Operations come from modules: `Module` has `operations()`, next to
 `classes()` and `steps()`, listing its operation classes. The Api takes the

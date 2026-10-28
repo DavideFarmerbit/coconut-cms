@@ -8,6 +8,13 @@ use RuntimeException;
 use XyloIsCoding\CoconutCms\Api\Api;
 use XyloIsCoding\CoconutCms\Api\Auth\AnonymousActor;
 use XyloIsCoding\CoconutCms\Api\Auth\Authenticator;
+use XyloIsCoding\CoconutCms\Api\Auth\CsrfGuard;
+use XyloIsCoding\CoconutCms\Api\Auth\SignInFailed;
+use XyloIsCoding\CoconutCms\Api\Auth\TooManyAttempts;
+use XyloIsCoding\CoconutCms\Api\Auth\User;
+use XyloIsCoding\CoconutCms\Api\Operations\Auth\Me;
+use XyloIsCoding\CoconutCms\Core\Identifier;
+use XyloIsCoding\CoconutCms\Core\Kernel;
 use XyloIsCoding\CoconutCms\Api\Cli\CommandLine;
 use XyloIsCoding\CoconutCms\Api\Operation\Operation;
 use XyloIsCoding\CoconutCms\Api\Operation\OperationContext;
@@ -30,7 +37,7 @@ use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Permission\PermMaker;
 use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Permission\PermSecretMaker;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 
-/** Whoever the test says calls. */
+/** Whoever the test says calls; one user, "ada", signs in with "secret". */
 final class ApiTestAuthenticator implements Authenticator
 {
     public Actor $actor;
@@ -41,6 +48,58 @@ final class ApiTestAuthenticator implements Authenticator
 
     public function actorFor(Request $request): Actor {
         return $this->actor;
+    }
+
+    public function signIn(string $login, string $password, bool $remember): User {
+        if ($login === 'many') {
+            throw new TooManyAttempts();
+        }
+
+        if ($login !== 'ada' || $password !== 'secret') {
+            throw new SignInFailed();
+        }
+
+        return $this->actor = $this->userNamed('ada');
+    }
+
+    public function signOut(): void {
+        $this->actor = new AnonymousActor();
+    }
+
+    public function userNamed(string $login): ?User {
+        return $login === 'ada' ? new User('1', 'ada', ['admin', 'engine-room']) : null;
+    }
+}
+
+/** A token fixed by the test. */
+final readonly class ApiTestCsrf implements CsrfGuard
+{
+    public const TOKEN = 'test-token';
+
+    public function token(): string {
+        return self::TOKEN;
+    }
+
+    public function isValid(?string $token): bool {
+        return $token === self::TOKEN;
+    }
+}
+
+/** Reads a service from the kernel. */
+#[Operation('api-test:greet')]
+final readonly class ApiTestGreet
+{
+    public function run(ListTypesInput $input, OperationContext $context): Me {
+        $greeting = $context->kernel->get(Identifier::of('api-test', 'greeting'));
+
+        return new Me(new User('0', $greeting->text, []));
+    }
+}
+
+/** A service bound in the test's kernel. */
+final readonly class ApiTestGreeting
+{
+    public function __construct(public string $text) {
     }
 }
 
@@ -69,7 +128,7 @@ final class ApiTestModule implements Module
     }
 
     public function operations(): array {
-        return [ApiTestExplode::class];
+        return [ApiTestExplode::class, ApiTestGreet::class];
     }
 }
 
@@ -90,7 +149,9 @@ final class ApiTest extends TestCase
         $this->persistence = Persistence::boot($this->connection, [new ApiTestModule()]);
         $this->persistence->migrate();
         $this->authenticator = new ApiTestAuthenticator();
-        $this->api = Api::boot($this->persistence, $this->authenticator);
+        $kernel = new Kernel();
+        $kernel->bind(Identifier::of('api-test', 'greeting'), static fn (): ApiTestGreeting => new ApiTestGreeting('hello'));
+        $this->api = Api::boot($this->persistence, $this->authenticator, $kernel, new ApiTestCsrf());
     }
 
     protected function tearDown(): void {
@@ -104,7 +165,17 @@ final class ApiTest extends TestCase
      */
     private function post(string $operation, string $body, string ...$roles): array {
         $this->authenticator->actor = new PermActor(array_values($roles));
-        $reply = $this->api->handle(Request::of(RequestMethod::POST, '/api/' . $operation, body: $body), $operation);
+
+        return $this->send($operation, $body);
+    }
+
+    /**
+     * POSTs $body to $operation as whoever the authenticator holds now.
+     * @return array{int, array<string, mixed>} The status and the decoded body.
+     */
+    private function send(string $operation, string $body, ?string $token = ApiTestCsrf::TOKEN): array {
+        $headers = $token === null ? [] : ['x-csrf-token' => $token];
+        $reply = $this->api->handle(Request::of(RequestMethod::POST, '/api/' . $operation, body: $body, headers: $headers), $operation);
 
         return [$reply->status, json_decode($reply->body, true, 512, JSON_THROW_ON_ERROR)];
     }
@@ -281,9 +352,69 @@ final class ApiTest extends TestCase
         self::assertSame(500, $status);
         self::assertSame(['code' => 'internal', 'message' => 'Something went wrong on the server.', 'details' => []], $body['error']);
 
-        $debug = Api::boot($this->persistence, $this->authenticator, debug: true);
-        $reply = $debug->handle(Request::of(RequestMethod::POST, '/api/api-test:explode'), 'api-test:explode');
+        $debug = Api::boot($this->persistence, $this->authenticator, csrf: new ApiTestCsrf(), debug: true);
+        $reply = $debug->handle(Request::of(RequestMethod::POST, '/api/api-test:explode', headers: ['X-CSRF-Token' => ApiTestCsrf::TOKEN]), 'api-test:explode');
         self::assertStringContainsString('hunter2', $reply->body);
+    }
+
+    public function testACallWithoutTheSessionsCsrfTokenIsRefused(): void {
+        [$status, $body] = $this->send('coconut-cms:auth.me', '', token: null);
+        self::assertSame(403, $status);
+        self::assertSame('csrf_failed', $body['error']['code']);
+
+        [$status] = $this->send('coconut-cms:auth.me', '', token: 'forged');
+        self::assertSame(403, $status);
+
+        self::assertSame(ApiTestCsrf::TOKEN, $this->api->csrfToken());
+    }
+
+    public function testSigningInAndOutGoesThroughTheAuthenticator(): void {
+        [$status, $body] = $this->send('coconut-cms:auth.me', '');
+        self::assertSame(200, $status);
+        self::assertSame(['user' => null], $body['result']);
+
+        [$status, $body] = $this->send('coconut-cms:auth.signIn', '{"login": "ada", "password": "wrong"}');
+        self::assertSame(401, $status);
+        self::assertSame('sign_in_failed', $body['error']['code']);
+
+        [$status, $body] = $this->send('coconut-cms:auth.signIn', '{"login": "many", "password": "x"}');
+        self::assertSame(429, $status);
+        self::assertSame('too_many_requests', $body['error']['code']);
+
+        [$status, $body] = $this->send('coconut-cms:auth.signIn', '{"login": "ada", "password": "secret", "remember": true}');
+        self::assertSame(200, $status);
+        self::assertSame(['id' => '1', 'name' => 'ada', 'roles' => ['admin', 'engine-room']], $body['result']['user']);
+
+        [, $body] = $this->send('coconut-cms:auth.me', '');
+        self::assertSame('ada', $body['result']['user']['name']);
+
+        [, $body] = $this->send('coconut-cms:auth.signOut', '');
+        self::assertSame(['user' => null], $body['result']);
+        [, $body] = $this->send('coconut-cms:auth.me', '');
+        self::assertNull($body['result']['user']);
+    }
+
+    public function testTheCommandLineActsAsAUserWithAs(): void {
+        [$id] = $this->savedCar();
+
+        [$status, $out] = $this->command(['coconut-cms:auth.me', '--as=ada', '--output=json']);
+        self::assertSame(0, $status);
+        self::assertSame('ada', json_decode($out, true, 512, JSON_THROW_ON_ERROR)['user']['name']);
+
+        // As ada, an admin, the internal note shows; as SystemActor too.
+        [, $out] = $this->command(['coconut-cms:entities.get', '--id=' . $id, '--as=ada', '--output=json']);
+        self::assertSame('classified', json_decode($out, true, 512, JSON_THROW_ON_ERROR)['values']['internal']);
+
+        [$status, , $err] = $this->command(['coconut-cms:auth.me', '--as=nobody']);
+        self::assertSame(4, $status);
+        self::assertStringContainsString('There is no user "nobody"', $err);
+    }
+
+    public function testAnOperationReachesTheProjectsServicesThroughTheKernel(): void {
+        [$status, $body] = $this->send('api-test:greet', '');
+
+        self::assertSame(200, $status);
+        self::assertSame('hello', $body['result']['user']['name']);
     }
 
     public function testRoutesServePostsUnderThePrefix(): void {
@@ -294,7 +425,7 @@ final class ApiTest extends TestCase
         self::assertFalse($router->dispatch(Request::of(RequestMethod::GET, '/admin-api/coconut-cms:entities.get')));
 
         ob_start();
-        self::assertTrue($router->dispatch(Request::of(RequestMethod::POST, '/admin-api/coconut-cms:entities.get', body: json_encode(['id' => $id]))));
+        self::assertTrue($router->dispatch(Request::of(RequestMethod::POST, '/admin-api/coconut-cms:entities.get', body: json_encode(['id' => $id]), headers: ['X-CSRF-Token' => ApiTestCsrf::TOKEN])));
         $body = json_decode((string) ob_get_clean(), true, 512, JSON_THROW_ON_ERROR);
 
         self::assertSame('Family car', $body['result']['values']['name']);

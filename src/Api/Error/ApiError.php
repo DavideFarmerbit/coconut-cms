@@ -3,6 +3,9 @@
 namespace XyloIsCoding\CoconutCms\Api\Error;
 
 use Throwable;
+use XyloIsCoding\CoconutCms\Api\Auth\CsrfRejected;
+use XyloIsCoding\CoconutCms\Api\Auth\SignInFailed;
+use XyloIsCoding\CoconutCms\Api\Auth\TooManyAttempts;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationUnfinished;
 use XyloIsCoding\CoconutCms\Persistence\Entity\ValidationFailed;
 use XyloIsCoding\CoconutCms\Persistence\MigrationPending;
@@ -35,6 +38,10 @@ final readonly class ApiError
                 'action' => $failure->action?->value,
                 'paths' => $failure->paths,
             ]),
+            $failure instanceof SignInFailed => new self(ErrorCode::SignInFailed, $failure->getMessage()),
+            $failure instanceof TooManyAttempts => new self(ErrorCode::TooManyRequests, $failure->getMessage()),
+            $failure instanceof CsrfRejected => new self(ErrorCode::CsrfFailed, $failure->getMessage()),
+            $failure instanceof Forbidden => new self(ErrorCode::PermissionDenied, $failure->getMessage()),
             $failure instanceof NotFound => new self(ErrorCode::NotFound, $failure->getMessage(), ['kind' => $failure->kind, 'key' => $failure->key]),
             $failure instanceof ValidationFailed => new self(ErrorCode::ValidationFailed, $failure->getMessage(), ['type' => $failure->identifier, 'errors' => $failure->errors]),
             $failure instanceof PersistenceUnavailable => new self(ErrorCode::Unavailable, $failure->getMessage(), ['reason' => match (true) {
