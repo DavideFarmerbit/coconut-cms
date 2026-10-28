@@ -8,6 +8,7 @@ use ReflectionClass;
 use XyloIsCoding\CoconutCms\Persistence\Boot\CodeStateCache;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationState;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationUnfinished;
+use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationReport;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationResult;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Migrator;
@@ -169,6 +170,18 @@ final class Persistence
         $this->ready = true;
 
         return $result;
+    }
+
+    /**
+     * What migrate() would do on this database, with this code and policy,
+     * found without changing anything: run it against production before a
+     * deploy. Reads every class, never the cache.
+     */
+    public function check(): MigrationReport {
+        $blueprints = NativeEntityReader::readAll($this->allClasses());
+        $this->register(NativeRegistrations::classesOf($blueprints));
+
+        return (new Migrator($this->connection, $this->registry, $this->schemas, $this->values, $this->policy))->check($blueprints, $this->steps());
     }
 
     /** Throws unless status() says Ready. */

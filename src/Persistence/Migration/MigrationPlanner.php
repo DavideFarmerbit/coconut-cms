@@ -39,16 +39,33 @@ final readonly class MigrationPlanner
      *        from code, keyed by identifier.
      * @param MigrationSteps $pending The steps the database hasn't applied
      *        yet, in the order they run.
+     * @throws MigrationBlocked When anything is left unexplained.
      */
     public function plan(array $stored, array $code, MigrationSteps $pending): MigrationPlan {
+        $draft = $this->draft($stored, $code, $pending);
+        if ($draft->isBlocked()) {
+            throw new MigrationBlocked($draft->blocked);
+        }
+
+        return $draft->plan;
+    }
+
+    /**
+     * The migration planned to the end, never throwing for what's blocked:
+     * what a dry run reports. The same arguments as plan().
+     * @param list<StoredSchema> $stored
+     * @param array<string, EntitySchema> $code
+     */
+    public function draft(array $stored, array $code, MigrationSteps $pending): PlanDraft {
         $schemas = SchemaState::of($stored, $code);
         $fixups = [];
         $blocked = [];
+        $breaks = [];
 
         foreach ($pending->all() as $step) {
             foreach ($step->fixups as $fixup) {
                 try {
-                    $schemas = $this->planFixup($fixup, $schemas, $fixups, $blocked);
+                    $schemas = $this->planFixup($fixup, $schemas, $fixups, $blocked, $breaks);
                 } catch (InvalidFixup $problem) {
                     throw InvalidFixup::inStep($step->id, $fixup, $problem);
                 }
@@ -63,7 +80,7 @@ final readonly class MigrationPlanner
             }
 
             try {
-                $schemas = $this->planFixup($fixup, $schemas, $fixups, $blocked);
+                $schemas = $this->planFixup($fixup, $schemas, $fixups, $blocked, $breaks);
             } catch (InvalidFixup $problem) {
                 throw InvalidFixup::fromPolicy($fixup, $problem);
             }
@@ -75,26 +92,38 @@ final readonly class MigrationPlanner
         // the new parent's.
         for ($left = $this->unresolvedBreaks($schemas, $blocked); $left !== []; $left = $this->unresolvedBreaks($schemas, $blocked)) {
             foreach ($left as $key => $break) {
-                $setAside = $this->policy->fixupFor($break, $schemas);
-                if ($setAside === null) {
-                    $blocked[$key] = $break;
-                    continue;
-                }
-
-                $schemas = $this->planSetAside($setAside, $schemas, $fixups);
+                $schemas = $this->resolveBreak($key, $break, $schemas, $fixups, $blocked, $breaks);
             }
         }
 
-        if ($blocked !== []) {
-            throw new MigrationBlocked(array_values($blocked));
+        if ($blocked === []) {
+            $left = SchemaDiff::between($schemas->native(), $code);
+            if ($left !== []) {
+                throw new LogicException(sprintf('The policy resolved a difference without explaining it: %s', $left[0]->describe()));
+            }
         }
 
-        $left = SchemaDiff::between($schemas->native(), $code);
-        if ($left !== []) {
-            throw new LogicException(sprintf('The policy resolved a difference without explaining it: %s', $left[0]->describe()));
+        return new PlanDraft(new MigrationPlan($pending->ids(), $fixups, $schemas), array_values($blocked), $breaks);
+    }
+
+    /**
+     * Lets the policy decide $break: blocks it, or plans its set-aside on
+     * $schemas.
+     * @param list<PlannedFixup> $fixups Filled in.
+     * @param array<string|int, Difference> $blocked Filled in.
+     * @param list<BreakResolution> $breaks Filled in.
+     * @return SchemaState The schemas after the set-aside, or as they were.
+     */
+    private function resolveBreak(string $key, EditorBreak $break, SchemaState $schemas, array &$fixups, array &$blocked, array &$breaks): SchemaState {
+        $setAside = $this->policy->fixupFor($break, $schemas);
+        $breaks[] = new BreakResolution($break, $setAside);
+        if ($setAside === null) {
+            $blocked[$key] = $break;
+
+            return $schemas;
         }
 
-        return new MigrationPlan($pending->ids(), $fixups, $schemas);
+        return $this->planSetAside($setAside, $schemas, $fixups);
     }
 
     /**
@@ -106,9 +135,10 @@ final readonly class MigrationPlanner
      * @param list<PlannedFixup> $fixups Filled in.
      * @param array<string|int, Difference> $blocked Filled in: a break the
      *        policy blocks, by its key.
+     * @param list<BreakResolution> $breaks Filled in: every break found.
      * @return SchemaState The schemas after $fixup.
      */
-    private function planFixup(Fixup $fixup, SchemaState $schemas, array &$fixups, array &$blocked): SchemaState {
+    private function planFixup(Fixup $fixup, SchemaState $schemas, array &$fixups, array &$blocked, array &$breaks): SchemaState {
         for ($round = 0; ; $round++) {
             $after = $fixup->applyTo($schemas);
             $caused = array_diff_key(EditorBreaks::in($after, $schemas), EditorBreaks::in($schemas), $blocked);
@@ -121,13 +151,7 @@ final readonly class MigrationPlanner
             }
 
             foreach ($caused as $key => $break) {
-                $setAside = $this->policy->fixupFor($break, $schemas);
-                if ($setAside === null) {
-                    $blocked[$key] = $break;
-                    continue;
-                }
-
-                $schemas = $this->planSetAside($setAside, $schemas, $fixups);
+                $schemas = $this->resolveBreak((string) $key, $break, $schemas, $fixups, $blocked, $breaks);
             }
         }
 

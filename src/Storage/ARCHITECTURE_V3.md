@@ -987,9 +987,9 @@ was stored. `Migrator::migrate()` runs one, from the native classes read with
 database is a migration from nothing. One migration runs at a time: each
 holds a MySQL lock.
 
-**Built**, except where noted inline. Decided but not built yet: the dry
-run (`Persistence::check()`), `ReplaceType`, `MoveField`'s initializer, and
-editor saves, with the editor operations that resolve `NoType` records.
+**Built**, except where noted inline. Decided but not built yet:
+`ReplaceType`, `MoveField`'s initializer, and editor saves, with the editor
+operations that resolve `NoType` records.
 
 A change to the CMS's own tables or system columns (`_id`, `_owner`,
 `_position`, a count) isn't migrated. Expand would take a changed system
@@ -1277,11 +1277,17 @@ How each break resolves:
   become a `NoType` record. No field is renamed or given a generated name.
 
 A dry run, `Persistence::check()`, plans a migration against a database and
-changes nothing (not built yet). Its `MigrationReport` lists the pending
-steps, every break with the editor-created type it hits, what the policy in
-use does with each, and whether the migration would block. Run against
-production before a deploy, it shows what strict would block. A `migrate
---check` command wraps it once a command line exists.
+changes nothing: no lock, no table, no row. It plans to the end even when
+something blocks (`MigrationPlanner::draft()`; `plan()` throws on the same
+draft), so every block and every break shows at once. Its `MigrationReport`
+says whether the database is empty or behind, and lists the pending steps,
+every fixup the migration would run, in order, every break with the
+editor-created type it hits and what the policy in use does with it, and
+every difference blocking it. `describe()` gives it as lines to print. Run
+against production before a deploy, it shows what strict would block. A
+`migrate --check` command wraps it once a command line exists (not built
+yet). The dry run plans; it doesn't compile the editor-created types again,
+so a type that would fail to compile shows only when the migration runs.
 
 ### Editor saves are migrations
 

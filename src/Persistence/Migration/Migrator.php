@@ -105,6 +105,35 @@ final readonly class Migrator
         }
     }
 
+    /**
+     * What migrate() would do, found without changing anything: a dry run,
+     * to run against production before a deploy. Takes no lock, and plans
+     * to the end even when something blocks, so every block and every break
+     * is reported at once.
+     * @param array<string, EntityBlueprint> $blueprints The same as migrate()'s.
+     */
+    public function check(array $blueprints, MigrationSteps $steps): MigrationReport {
+        $this->platform->prepare($this->connection);
+        $stored = $this->schemas->tableExists() ? $this->schemas->all() : [];
+        if ($stored === []) {
+            return new MigrationReport(true, true, $steps->ids(), [], [], []);
+        }
+
+        $nativeBatch = $this->compiler->compute($blueprints);
+        $pending = $steps->pending($this->log->applied());
+        $draft = (new MigrationPlanner($this->policy))->draft($stored, $nativeBatch->schemas, $pending);
+        $state = $this->state->read();
+
+        return new MigrationReport(
+            fresh: false,
+            pending: $state['startedAt'] !== null || $state['stateKey'] !== StateKey::of($nativeBatch, $steps),
+            pendingSteps: $pending->ids(),
+            fixups: array_map(static fn (PlannedFixup $planned): string => $planned->fixup->describe(), $draft->plan->fixups),
+            breaks: $draft->breaks,
+            blocked: $draft->blocked,
+        );
+    }
+
     /** @param array<string, EntityBlueprint> $blueprints */
     private function migrateLocked(array $blueprints, MigrationSteps $steps): MigrationResult {
         $this->schemas->ensureTable();

@@ -50,9 +50,14 @@ final class SchemaStore
 
     /** Creates the table unless it exists: what a migration does on any database. */
     public function ensureTable(): void {
-        if (!$this->connection->createSchemaManager()->tablesExist([self::TABLE])) {
+        if (!$this->tableExists()) {
             $this->createTable();
         }
+    }
+
+    /** Whether the table exists: on a database no migration ever ran on, it doesn't. */
+    public function tableExists(): bool {
+        return $this->connection->createSchemaManager()->tablesExist([self::TABLE]);
     }
 
     public function dropTableIfExists(): void {

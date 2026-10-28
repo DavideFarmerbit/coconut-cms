@@ -13,6 +13,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\AddField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\DropType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationBlocked;
+use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationReport;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationResult;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Migrator;
@@ -85,6 +86,13 @@ final class MigratorBreaksTest extends TestCase
         return (new Migrator($this->connection, $registry, $schemas, $values, $policy))->migrate(NativeEntityReader::readAll($classes), $steps);
     }
 
+    /** @param list<class-string> $classes */
+    private function check(array $classes, MigrationSteps $steps, MigrationPolicy $policy = new StrictPolicy()): MigrationReport {
+        [$schemas, $values, $registry] = $this->stores();
+
+        return (new Migrator($this->connection, $registry, $schemas, $values, $policy))->check(NativeEntityReader::readAll($classes), $steps);
+    }
+
     private function boatSchema(): EntitySchema {
         return $this->stores()[0]->load('ed:boat')->schema;
     }
@@ -120,6 +128,48 @@ final class MigratorBreaksTest extends TestCase
 
         self::assertTrue($this->boatSchema()->fields->has(FieldName::of('engine')));
         self::assertSame([], $this->boatSchema()->noTypeRecords);
+    }
+
+    public function testADryRunReportsWhatStrictBlocksAndChangesNothing(): void {
+        $stateBefore = $this->connection->fetchAssociative('SELECT * FROM migration_state');
+
+        $report = $this->check([...array_diff(MigratorEditorTypes::V1, [EdEngine::class])], MigrationSteps::none()->add('no-engines', [new DropType('ed:engine')]));
+
+        self::assertTrue($report->pending);
+        self::assertTrue($report->isBlocked());
+        self::assertSame(['no-engines'], $report->pendingSteps);
+        self::assertCount(1, $report->breaks);
+        self::assertTrue($report->breaks[0]->isBlocked());
+        self::assertSame('ed:boat', $report->breaks[0]->break->identifier());
+        self::assertStringContainsString('Break: Field "engine" of editor-created type "ed:boat" points at type "ed:engine", which is gone. Blocked.', $report->describe());
+        self::assertTrue($this->boatSchema()->fields->has(FieldName::of('engine')), 'A dry run changes nothing.');
+        self::assertSame($stateBefore, $this->connection->fetchAssociative('SELECT * FROM migration_state'));
+    }
+
+    public function testADryRunReportsWhatALooserPolicySetsAsideAndWhere(): void {
+        $report = $this->check([...array_diff(MigratorEditorTypes::V1, [EdEngine::class])], MigrationSteps::none()->add('no-engines', [new DropType('ed:engine')]), new DeveloperPolicy());
+
+        self::assertFalse($report->isBlocked());
+        self::assertFalse($report->breaks[0]->isBlocked());
+        self::assertSame(['SetAsideField(ed:boat, engine, target_gone)', 'DropType(ed:engine)'], $report->fixups, 'Set aside just before the fixup that broke it.');
+        self::assertTrue($this->boatSchema()->fields->has(FieldName::of('engine')), 'A dry run changes nothing.');
+    }
+
+    public function testADryRunWithNothingToDoSaysSo(): void {
+        $report = $this->check(MigratorEditorTypes::V1, MigrationSteps::none());
+
+        self::assertFalse($report->pending);
+        self::assertSame([], $report->breaks);
+        self::assertSame('The database matches the code: nothing to migrate.', $report->describe());
+    }
+
+    public function testADryRunOnAnEmptyDatabaseSaysItWouldBeCreated(): void {
+        TestDatabase::dropEverything($this->connection);
+
+        $report = $this->check(MigratorEditorTypes::V1, MigrationSteps::none());
+
+        self::assertTrue($report->fresh);
+        self::assertSame([], $this->connection->createSchemaManager()->listTableNames(), 'Not even the stores are created.');
     }
 
     public function testAFieldWhoseTargetIsGoneIsSetAsideWithItsOwnedObjectWhole(): void {

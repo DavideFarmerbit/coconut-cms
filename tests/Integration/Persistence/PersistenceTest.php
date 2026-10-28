@@ -122,6 +122,17 @@ final class PersistenceTest extends TestCase
         self::assertSame('150 EUR', $loaded->cost);
     }
 
+    public function testCheckReportsWhatAMigrationWouldDoWithoutDoingIt(): void {
+        $this->boot(new PersistenceV1Module())->migrate();
+
+        $report = $this->boot(new PersistenceV2Module())->check();
+
+        self::assertTrue($report->pending);
+        self::assertFalse($report->isBlocked());
+        self::assertSame(['migtest:rename-price', 'migtest:cost-as-text', 'migtest:restructure'], $report->pendingSteps);
+        self::assertSame(PersistenceStatus::MigrationPending, $this->boot(new PersistenceV2Module())->status(), 'Nothing ran.');
+    }
+
     public function testOnRequestThePendingMigrationRunsOnTheFirstCheck(): void {
         $persistence = $this->boot(new PersistenceV1Module(), MigrateOn::Request);
 
