@@ -121,8 +121,12 @@ final readonly class StoredForm
         }
     }
 
-    /** $value in canonical form, once it's valid for $field. */
-    private function checkedValue(FieldDescriptor $field, mixed $value, string $path): mixed {
+    /**
+     * $value in canonical form, once it's valid for $field: what one value
+     * given in stored form, outside an aggregate, must pass. Throws naming
+     * $path.
+     */
+    public function checkedValue(FieldDescriptor $field, mixed $value, string $path): mixed {
         if ($value === null) {
             if ($field->kind() === FieldKind::Collection) {
                 throw self::invalid($path, 'an item count', $value);

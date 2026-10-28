@@ -26,6 +26,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\StoredForm;
 
 /**
  * Runs a Query as SQL: the queried type's level tables joined on the
@@ -49,6 +50,9 @@ final class QueryRunner
     private readonly LevelChains $chains;
     private readonly DatabasePlatform $platform;
 
+    /** Checks the values of a Condition given in stored form. */
+    private readonly StoredForm $storedForm;
+
     /** How many subqueries were built: what makes each one's aliases unique. */
     private int $subqueries = 0;
 
@@ -67,11 +71,18 @@ final class QueryRunner
     ) {
         $this->chains = new LevelChains($schemas);
         $this->platform = Platforms::of($connection);
+        $this->storedForm = new StoredForm($schemas);
     }
 
     public function page(Query $query): Page {
+        $ids = $this->idPage($query);
+
+        return new Page(array_map(fn (string $id): ?object => ($this->load)($id), $ids->ids), $ids->nextCursor);
+    }
+
+    public function idPage(Query $query): IdPage {
         if ($query->limit === null) {
-            throw new InvalidArgumentException('page() needs a limit(): a query never loads everything by accident.');
+            throw new InvalidArgumentException('A page needs a limit(): a query never reads everything by accident.');
         }
 
         // One more than a page: whether it's there says if another page follows.
@@ -79,17 +90,12 @@ final class QueryRunner
         $hasMore = count($rows) > $query->limit;
         $rows = array_slice($rows, 0, $query->limit);
 
-        $items = [];
-        foreach ($rows as $row) {
-            $items[] = ($this->load)($row['id']);
-        }
-
         $last = $rows === [] ? null : $rows[array_key_last($rows)];
         $nextCursor = $hasMore && $last !== null
             ? Cursor::encode(Cursor::ordering($query->orders), array_map(static fn (int $index): mixed => $last['o' . $index], array_keys($query->orders)), $last['id'])
             : null;
 
-        return new Page($items, $nextCursor);
+        return new IdPage(array_column($rows, 'id'), $nextCursor);
     }
 
     /** @return list<string> */
@@ -244,7 +250,10 @@ final class QueryRunner
     /** $condition on $column as SQL, its values bound to $builder. */
     private function conditionSql(QueryBuilder $builder, string $column, FieldDescriptor $field, Condition $condition, string $path): string {
         $this->assertApplies($field, $condition->operator, $path);
-        $values = array_map(fn (mixed $value): mixed => $this->stored($field, $value, $path), $condition->values);
+        $values = array_map(
+            fn (mixed $value): mixed => $condition->stored ? $this->checkedStored($field, $value, $path) : $this->stored($field, $value, $path),
+            $condition->values,
+        );
         $bind = fn (mixed $value): string => $builder->createNamedParameter($value, self::typeOf($value));
 
         return match ($condition->operator) {
@@ -301,6 +310,23 @@ final class QueryRunner
         } catch (Throwable $failure) {
             throw new InvalidArgumentException(sprintf('"%s": %s', $path, $failure->getMessage()), 0, $failure);
         }
+    }
+
+    /**
+     * $value, given in stored form, checked against $field the way a value a
+     * migration moves is, in canonical form. Never null: Operator::IsNull
+     * asks for that.
+     */
+    private function checkedStored(FieldDescriptor $field, mixed $value, string $path): mixed {
+        if ($value === null) {
+            throw new InvalidArgumentException(sprintf('"%s": a condition never compares with null: use IsNull or IsNotNull.', $path));
+        }
+
+        if ($field->kind() === FieldKind::Embed || $field->kind() === FieldKind::OwningReference || $field->kind() === FieldKind::Collection) {
+            throw new InvalidArgumentException(sprintf('"%s": it has no value of its own to compare.', $path));
+        }
+
+        return $this->storedForm->checkedValue($field, $value, $path);
     }
 
     /**

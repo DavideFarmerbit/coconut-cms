@@ -19,6 +19,9 @@
             "email": "xylo.is.coding@gmail.com"
         }
     ],
+    "bin": [
+        "bin/coconut"
+    ],
     "minimum-stability": "dev",
     "prefer-stable": true,
     "require": {

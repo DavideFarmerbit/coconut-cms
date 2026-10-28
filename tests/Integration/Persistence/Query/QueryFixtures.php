@@ -151,4 +151,8 @@ final class QueryModule implements Module
     public function steps(): MigrationSteps {
         return MigrationSteps::none();
     }
+
+    public function operations(): array {
+        return [];
+    }
 }

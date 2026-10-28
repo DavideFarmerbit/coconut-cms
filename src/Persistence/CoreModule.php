@@ -2,10 +2,14 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence;
 
+use XyloIsCoding\CoconutCms\Api\Operations\Entities\GetEntity;
+use XyloIsCoding\CoconutCms\Api\Operations\Entities\QueryEntities;
+use XyloIsCoding\CoconutCms\Api\Operations\Types\GetType;
+use XyloIsCoding\CoconutCms\Api\Operations\Types\ListTypes;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Cms;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 
-/** The CMS's own native types. Always booted, before every other module. */
+/** The CMS's own native types and built-in operations. Always booted, before every other module. */
 final readonly class CoreModule implements Module
 {
     public function name(): string {
@@ -18,5 +22,9 @@ final readonly class CoreModule implements Module
 
     public function steps(): MigrationSteps {
         return MigrationSteps::none();
+    }
+
+    public function operations(): array {
+        return [ListTypes::class, GetType::class, GetEntity::class, QueryEntities::class];
     }
 }

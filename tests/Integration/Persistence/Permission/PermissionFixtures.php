@@ -190,4 +190,8 @@ final class PermissionModule implements Module
     public function steps(): MigrationSteps {
         return MigrationSteps::none();
     }
+
+    public function operations(): array {
+        return [];
+    }
 }

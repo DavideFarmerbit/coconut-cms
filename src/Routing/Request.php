@@ -8,9 +8,8 @@ final readonly class Request
         private RequestMethod $method,
         private string $url,
         private array $urlParams,
-    
+        private string $body,
     ) {
-        
     }
 
     public static function fromGlobals(): self {
@@ -18,7 +17,13 @@ final readonly class Request
             RequestMethod::from($_SERVER['REQUEST_METHOD'] ?? 'GET'),
             self::pathFromGlobals(),
             $_GET,
+            (string) file_get_contents('php://input'),
         );
+    }
+
+    /** A request built by hand: for tests, and for code calling a route itself. */
+    public static function of(RequestMethod $method, string $url, array $urlParams = [], string $body = ''): self {
+        return new self($method, $url, $urlParams, $body);
     }
 
     /*================================================================================================================*/
@@ -34,6 +39,11 @@ final readonly class Request
 
     public function urlParams(): array {
         return $this->urlParams;
+    }
+
+    /** The raw body, as sent: "" when there's none. */
+    public function body(): string {
+        return $this->body;
     }
 
     // ~Request Interface

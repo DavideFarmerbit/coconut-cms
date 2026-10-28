@@ -96,6 +96,11 @@ final readonly class Query
         return $this->runner->page($this);
     }
 
+    /** The page this query asks for, as ids: nothing is loaded. */
+    public function idPage(): IdPage {
+        return $this->runner->idPage($this);
+    }
+
     /**
      * The ids of what it matches, in order, from its cursor on, at most its
      * limit when it has one. Nothing is loaded.

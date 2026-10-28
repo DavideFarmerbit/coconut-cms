@@ -63,6 +63,10 @@ final class RoundTripModule implements Module
     public function steps(): MigrationSteps {
         return MigrationSteps::none();
     }
+
+    public function operations(): array {
+        return [];
+    }
 }
 
 /** Every scalar type stored and read back the same, whichever database runs it. */

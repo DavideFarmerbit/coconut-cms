@@ -34,6 +34,10 @@ final class PersistenceV1Module implements Module
     public function steps(): MigrationSteps {
         return MigrationSteps::none();
     }
+
+    public function operations(): array {
+        return [];
+    }
 }
 
 /** Its second version, with the steps from the first. */
@@ -49,6 +53,10 @@ final class PersistenceV2Module implements Module
 
     public function steps(): MigrationSteps {
         return MigratorV2::steps();
+    }
+
+    public function operations(): array {
+        return [];
     }
 }
 

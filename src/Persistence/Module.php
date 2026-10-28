@@ -24,4 +24,11 @@ interface Module
 
     /** Every step it ever declared, applied or not, in order. */
     public function steps(): MigrationSteps;
+
+    /**
+     * Every API operation it declares: classes marked #[Operation], served
+     * by the Api over HTTP and the command line.
+     * @return list<class-string>
+     */
+    public function operations(): array;
 }

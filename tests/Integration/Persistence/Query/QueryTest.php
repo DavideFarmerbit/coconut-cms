@@ -9,7 +9,9 @@ use XyloIsCoding\CoconutCms\Persistence\MigrationPending;
 use XyloIsCoding\CoconutCms\Persistence\Permission\SystemActor;
 use XyloIsCoding\CoconutCms\Persistence\Persistence;
 use XyloIsCoding\CoconutCms\Persistence\PersistenceSession;
+use XyloIsCoding\CoconutCms\Persistence\Query\Condition;
 use XyloIsCoding\CoconutCms\Persistence\Query\Is;
+use XyloIsCoding\CoconutCms\Persistence\Query\Operator;
 use XyloIsCoding\CoconutCms\Persistence\Query\Item;
 use XyloIsCoding\CoconutCms\Persistence\Query\Order;
 use XyloIsCoding\CoconutCms\Persistence\Query\Query;
@@ -289,7 +291,10 @@ final class QueryTest extends TestCase
             'a value of the wrong type' => [static fn (self $test): mixed => $test->vehicles()->where('price', Is::equalTo('cheap'))->count(), '"price": a Int scalar must hold a int, got string.'],
             'an entity never saved' => [static fn (self $test): mixed => $test->vehicles()->where('maker', Is::equalTo(new QueryMaker()))->count(), 'was never saved'],
             'a cursor from another ordering' => [static fn (self $test): mixed => $test->vehicles()->orderBy('name')->limit(1)->after($test->vehicles()->orderBy('price')->limit(1)->page()->nextCursor)->page(), 'sorted by price asc, not name asc'],
-            'a page without a limit' => [static fn (self $test): mixed => $test->vehicles()->page(), 'page() needs a limit()'],
+            'a page without a limit' => [static fn (self $test): mixed => $test->vehicles()->page(), 'A page needs a limit()'],
+            'a stored value of the wrong type' => [static fn (self $test): mixed => $test->vehicles()->where('price', Condition::ofStored(Operator::Equal, ['cheap']))->count(), '"price" must hold'],
+            'a stored enum value unknown' => [static fn (self $test): mixed => $test->vehicles()->where('fuel', Condition::ofStored(Operator::Equal, ['coal']))->count(), '"fuel" must hold'],
+            'a stored null' => [static fn (self $test): mixed => $test->vehicles()->where('nickname', Condition::ofStored(Operator::Equal, [null]))->count(), 'never compares with null'],
             'an owned object itself' => [static fn (self $test): mixed => $test->vehicles()->where('engine', Is::null())->count(), '"engine" is an owned object: name one of its fields'],
             'a step into a Collection' => [static fn (self $test): mixed => $test->vehicles()->where('spares.horsepower', Is::equalTo(1))->count(), '"spares" is an Owned Collection'],
             'a step through a value' => [static fn (self $test): mixed => $test->vehicles()->where('name.length', Is::equalTo(1))->count(), '"name" holds a value, not a relationship'],
@@ -299,6 +304,28 @@ final class QueryTest extends TestCase
             'Item::is() on owned items' => [static fn (self $test): mixed => $test->vehicles()->whereHas('spares', Item::is(Is::equalTo(1)))->count(), 'The items of "spares" aren\'t values'],
             'a field an item lacks' => [static fn (self $test): mixed => $test->vehicles()->whereHas('wheels', Item::where('colour', Is::equalTo('red')))->count(), 'an item has no field "colour"'],
         ];
+    }
+
+    public function testConditionsInStoredFormMatchAsInPhpForm(): void {
+        self::assertSame(['Charlie', 'Bravo'], self::names($this->vehicles()->where('fuel', Condition::ofStored(Operator::Equal, ['diesel']))->orderBy('name', Order::Descending)));
+        self::assertSame(['Bravo', 'Charlie', 'Echo'], self::names($this->vehicles()->where('price', Condition::ofStored(Operator::GreaterOrEqual, [200]))->orderBy('name')));
+        self::assertSame(['Delta', 'Echo'], self::names($this->vehicles()->where('fuel', Condition::ofStored(Operator::In, ['electric']))->orderBy('name')));
+
+        $acmeId = $this->session->query(QueryMaker::class)->where('name', Is::equalTo('Acme'))->ids()[0];
+        self::assertSame(['Alpha', 'Charlie'], self::names($this->vehicles()->where('maker', Condition::ofStored(Operator::Equal, [$acmeId]))->orderBy('name')));
+    }
+
+    public function testAnIdPageReadsNothingAndPagesLikePage(): void {
+        $query = $this->session->queryType('qt:vehicle')->orderBy('price', Order::Descending)->limit(2);
+
+        $first = $query->idPage();
+        $second = $query->after($first->nextCursor)->idPage();
+        $last = $query->after($second->nextCursor)->idPage();
+
+        $names = array_map(fn (string $id): string => $this->session->read($id)->values['name'], [...$first->ids, ...$second->ids, ...$last->ids]);
+        self::assertSame(['Echo', 'Bravo', 'Charlie', 'Alpha', 'Delta'], $names);
+        self::assertTrue($last->isLast());
+        self::assertFalse($first->isLast());
     }
 
     /** @param \Closure(self): mixed $misuse */

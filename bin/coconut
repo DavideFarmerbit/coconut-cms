@@ -1,0 +1,29 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * The API on the command line: `vendor/bin/coconut [operation] [--path=value...]`.
+ * Boots the project from its coconut.php, in the directory it's run from, or
+ * the file the COCONUT_BOOT environment variable names. That file returns the
+ * project's Api.
+ */
+
+use XyloIsCoding\CoconutCms\Api\Api;
+use XyloIsCoding\CoconutCms\Api\Cli\CommandLine;
+
+// Composer's bin proxy says where the project's autoloader is.
+require $GLOBALS['_composer_autoload_path'] ?? __DIR__ . '/../vendor/autoload.php';
+
+$boot = getenv('COCONUT_BOOT') ?: getcwd() . '/coconut.php';
+if (!is_file($boot)) {
+    fwrite(STDERR, sprintf('There is no %s: run coconut from the project\'s root, or set COCONUT_BOOT.%s', $boot, PHP_EOL));
+    exit(1);
+}
+
+$api = require $boot;
+if (!$api instanceof Api) {
+    fwrite(STDERR, sprintf('%s must return the project\'s %s.%s', $boot, Api::class, PHP_EOL));
+    exit(1);
+}
+
+exit((new CommandLine($api))->run(array_slice($argv, 1), STDOUT, STDERR));

@@ -117,6 +117,11 @@ final class Persistence
         return new self($connection, $all, $migrateOn, $policy, $cacheDirectory);
     }
 
+    /** @return list<Module> Every module booted, in order, the core module first. */
+    public function modules(): array {
+        return $this->modules;
+    }
+
     /**
      * Whether entities can be read and written now. With MigrateOn::Request,
      * a pending migration runs here, and a blocked one throws.
