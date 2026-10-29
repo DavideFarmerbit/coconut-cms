@@ -6,9 +6,11 @@ CMS. Updated one decision at a time.
 Built: the build, the page with its import map and config, the public
 module, the base and light themes, the sign-in screen, the shell with its
 panels, splitters and one tab group, tool and tab type registration, and
-the Types tool, and loading modules' admin code. Not built yet: dragging
-icons and tabs, menus from manifests, uploaded and browser plugins, the
-layout kept per user on the server. Each is noted inline.
+the Types tool, loading modules' admin code, and editing native entities'
+properties. Not built yet: dragging icons and tabs, menus from manifests,
+uploaded and browser plugins, the layout kept per user on the server,
+properties' split into a store, sessions and views, and their filters.
+Each is noted inline.
 
 The admin is a client-side app. It talks to the backend only through the API
 (`../Api/ARCHITECTURE.md`): every list, form and save is an operation, so the
@@ -330,20 +332,129 @@ going back and forward within a tab.
 
 ## Properties
 
-How the admin shows and edits values, after Unreal's property editor. It's
-part of the public module, so projects and plugins show entities the same
-way, and nobody writes their own. Built, for native entities.
+How the admin shows and edits entities, after Unreal's editor: an object
+in memory, edited from several places at once, with one unsaved state, and
+details views showing its properties. It's part of the public module, so
+projects and plugins show entities the same way, and nobody writes their
+own. Built for native entities: the rows, the editors, the dropdown, saving.
+Not built yet: the split into a store, sessions and views below, and
+filters. Today `EntityEditor` loads, edits, saves and shows an entity by
+itself.
 
-Using it: `new EntityEditor(context, id)` gives an element showing the
-entity `id`, editable; a tab's view hands its `canClose()` to the shell.
-Customizing it: `admin.properties.register(match, EditorClass)`, where the
+The code is in three layers. Data knows nothing of the DOM; views know
+nothing of the API.
+
+- **Data:** `EntityStore` and `EntitySession`. They decide an entity's
+  lifetime: loading, editing, errors, saving.
+- **Views:** `PropertyRow`, `PropertyGrid` and `EntityEditor`. They show a
+  session and change it. A view decides only how an entity looks.
+- **Editors:** the value widgets, registered in `admin.properties`. A view
+  picks a property's editor from it.
+
+### The store
+
+`EntityStore` holds the entities the admin works with. There is one per
+admin, given to every view as `context.entities`.
+
+- It reads, queries, creates, updates and deletes entities through the
+  API, and keeps what it read.
+- It tells its listeners of each change: an entity created, updated or
+  deleted, with what the API gave back. A list of entities runs its query
+  again when an entity of its type changes, so a rename shows everywhere.
+  A Reference's label comes from the store too.
+- It gives out the sessions. There is one session per entity: two views of
+  one entity share it, and see each other's edits as they're made.
+
+A view takes a session with `entities.edit(id)`, which gives a hold on it.
+The view lets it go with `hold.release()`. The store keeps a session while
+any hold on it stands, and frees it once the last one is released.
+Releasing the last hold on a session with unsaved changes asks first:
+Save, Discard or Cancel. Cancel keeps the hold, and `release()` answers
+false. So a tab's `canClose()` is its hold's `release()`. Leaving the page
+asks first while any session has unsaved changes.
+
+`entities.create(type)` gives a hold on a new session: an entity of `type`
+not saved yet, with no id, starting from the type's defaults. Its first
+save creates the entity. The session then takes its id and is shared like
+any other. A "New" button comes with dynamic entities (not built yet).
+
+Edits saved by someone else meanwhile aren't seen yet (not built yet). The
+store will hear of a newer version, and the session will show it is stale.
+
+### The session
+
+`EntitySession` is one entity being edited. It has no DOM, and every view
+of the entity goes through it.
+
+- Its state: loading, ready, or failed with a message. Its type, its id
+  (null while new), its label.
+- Reading and changing it, by path: `valueAt(path)`, `set(path, value)`,
+  `itemsAt(path)` for a Collection's `CollectionItems`, `resetAt(path)` to
+  what was saved, `resetToDefaultAt(path)`.
+- Where a path stands: `statusAt(path)` (new, moved from another index,
+  changed) and `errorAt(path)`; an error about the whole entity, `isDirty`,
+  `isSaving`.
+- `save()` and `revert()`. `save()` answers whether it saved; when it
+  fails, the errors are at their paths.
+- Its change events name what changed: values at paths, the shape at a
+  path (items added, an owned object's class picked), or its state (dirty,
+  saving, errors, reloaded after a save or a revert). Each names the view
+  that made it, when one did.
+
+A fully custom view, a card, a table row, a chart, needs only the session.
+It gets dirty tracking, errors and saving with it.
+
+### The views
+
+- `PropertyRow` shows one property of a session, at a path: `engine`,
+  `wheels.1.size`. It can go anywhere in a custom layout, like Unreal's
+  single property view.
+- `PropertyGrid` shows many: by default every field, grouped by the type
+  declaring it, like Unreal's details view. A `PropertyFilter` narrows it.
+- `EntityEditor` is the default composition, for tabs: a header with the
+  label, the type, the id, an unsaved mark, Save and Revert, then a grid of
+  the whole entity. A tab's view holds it and hands its `canClose()` to the
+  shell. A view that wants another look uses the grid or the rows alone.
+
+Views follow the session's change events, row by row. A row shows a value
+changed elsewhere by building its widget again; the view that made the
+change keeps its widget, so typing is never interrupted. A change of shape
+builds the rows under its path again. Nothing rebuilds a whole view.
+
+Which properties are collapsed is the view's to keep: a grid takes where to
+remember them. `EntityEditor` keeps them in its view's state, per entity
+type, like the closed groups.
+
+### Filters
+
+A `PropertyFilter` decides which properties a grid shows. It's a class
+with one method, `accepts(property)`, given the property's path, its
+field, what it holds, the type holding it and whether it's writable. The
+built-in filters:
+
+- writable only;
+- of a kind: Collections, References…;
+- holding a type: every `shop:color`;
+- under a path: one owned object's fields;
+- a list of paths;
+- `all(...)` and `any(...)`, combining others.
+
+A property shows when the filter accepts it or one of its ancestors:
+accepting a property accepts what's in it. The ancestors of a property
+shown stay as plain parent rows, a name and a chevron with no widget, so a
+match deep in an object keeps its place, as in Unreal's details search.
+
+### Editors and rows
+
+Customizing: `admin.properties.register(match, EditorClass)`, where the
 class implements `PropertyEditor`, built with a `PropertyContext`: the
 property's path, its value description, its slot to read and set its
 value, whether it's writable, the catalog and API client, a Collection's
 `CollectionItems`, and helpers to show an object's fields or a
-Collection's items by the usual rules. The
-admin registers its defaults first, so a plugin's registrations replace
-them.
+Collection's items by the usual rules. The admin registers its defaults
+first, so a plugin's registrations replace them. An editor never rebuilds
+the view: a class picked or an item added comes back from the session as
+a change of shape, and the rows under it are built again.
 
 - **A property is the unit.** A property view shows one field's value at a
   path: its name, its value widget, and its children for values that have
@@ -417,11 +528,12 @@ them.
   `shop:color`. A customization replaces the value widget only, keeping
   the name, or, for a value with children, how they're laid out too.
 - **Editors work in stored form,** the form a read gives and an update
-  takes. Each reports a change at its path; the entity's view collects
-  them, and saves them as changes by path.
-- **A whole entity** shows a header, its label, its type, its id, an
-  unsaved-changes mark, Save and Revert, then its fields grouped by the type
-  declaring them, like Unreal's categories: a collapsible group per level,
+  takes. Each sets its value at its path; the session collects the
+  changes, and saves them as changes by path.
+- **A whole entity,** in `EntityEditor`, shows a header, its label, its
+  type, its id, an unsaved-changes mark, Save and Revert, then its fields
+  grouped by the type declaring them, like Unreal's categories: a
+  collapsible group per level,
   the root first, so the fields every subtype shares sit in the same place.
   A type with no ancestor shows no group header. Which groups are closed is
   remembered per type. Fields go in declaration order; one the user can't
@@ -433,7 +545,8 @@ them.
   type; a value starts empty, at zero or at an enum's first value. Later, rendering
   hints on native properties may give a field its own category or label,
   as Unreal's `Category` and `DisplayName` do.
-- **Saving is explicit,** as in Unreal's asset editors:
+- **Saving is explicit,** as in Unreal's asset editors. The session does
+  it; views show it:
   - edits wait at their paths; the view shows it has unsaved changes, and
     marks each changed property. A property is compared with what was
     saved, so a change undone is clean again: a value typed back, items
@@ -444,15 +557,16 @@ them.
     with items added, removed or moved goes whole, owned items keeping
     their ids, so a move never recreates them. Revert drops every change;
     resetting a property drops its own;
-  - after a save, the view shows what the update gave back: setters and
-    `afterEdit` may have changed other fields;
+  - after a save, every view shows what the create or update gave back:
+    setters and `afterEdit` may have changed other fields. The store tells
+    the other views of the entity, a list showing it, a Reference's label;
   - an error shows at its property, `changes.<path>` or a validation
     error's path, until that property is edited; one about the whole
     entity shows at the top. A failed save keeps the changes, to fix;
-  - closing a view with unsaved changes asks to save, discard or cancel; its
-    tab shows a mark meanwhile, a reusing open never replaces it, and
-    leaving the page asks first. A view tells all this through its
-    context's `markDirty()` and its own `canClose()`.
+  - while a session has unsaved changes, every tab showing it has a mark,
+    and a reusing open never replaces one. Releasing its last hold asks to
+    save, discard or cancel, as above. A tab's view tells the shell
+    through its context's `markDirty()` and its own `canClose()`.
 
 ## The Types tool
 
