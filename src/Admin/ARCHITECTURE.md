@@ -352,11 +352,11 @@ them.
   inspector's; its name, indented by depth; its value, every value in one
   column; a Collection item's actions, move up, move down, duplicate and
   remove, in the row, dimmed until it's pointed at; then two resets.
-  "Reset to default" shows while the value differs from what a new object
-  holds there, as Unreal's yellow arrow does; an owned object keeps its id,
-  only its values reset. "Reset to saved" shows once the value differs
-  from what was saved. A Collection's item has no default. Rows are parted
-  by a line; a row holding others is tinted,
+  "Reset to default", Unreal's hooked arrow, shows while the value differs
+  from what a new object holds there; an owned object keeps its id, only
+  its values reset. "Reset to saved", a circling arrow, shows once the
+  value differs from what was saved. A Collection's item has no default.
+  Rows are parted by a line; a row holding others is tinted,
   its children behind a guide line; a category is a bar; an owned object's
   type is a "Class" picker, set apart from values. Anything can be shown: one field, a nested Embed, a whole entity,
   which is its fields' properties. Where it shows is up to its user: the
@@ -370,14 +370,16 @@ them.
   - an owned object: shown as an edit-inline instanced subobject. Its
     header has a type dropdown, the field's target, its subtypes, and
     "None" when the field may be empty, and its properties show expanded
-    beneath it. Picking another type replaces the object with a new one of
-    that type, from its defaults; "None" empties the slot;
+    beneath it. The dropdown is the admin's dropdown, below. Picking
+    another type replaces the object with a new one of that type, from its
+    defaults; "None" empties the slot;
   - a Reference: its target's label, an open button, and a picker.
-    Clicking the label opens the picker too. The label is the target's `name`, `title` or `label` field, else its first
-    String field, else its id; a view loads every target's label at once.
-    The picker is a dropdown of the target type's standalone entities,
-    subtypes included, by label, paged, narrowed by a search on the label
-    field when it's a String, with "None" to clear it. The open button does
+    Clicking the label opens the picker too. The label is the target's
+    `name`, `title` or `label` field, else its first String field, else its
+    id; a view loads every target's label at once. The picker is the
+    admin's dropdown over the target type's standalone entities, subtypes
+    included, by label, paged, narrowed by a search on the label field when
+    it's a String, with "None" to clear it. The open button does
     nothing yet: what opens depends on the target's type, the way an asset
     pointer opens its asset's own editor, a page in a page editor. A
     registry of editors by type comes later;
@@ -394,6 +396,15 @@ them.
     stands: "new", or "from [2]" when it moved. An item is changed only when
     its value differs from its own saved value, not from the value saved at
     its index. A custom Collection editor uses the same operations.
+- **The admin's dropdown** replaces the browser's select wherever a choice
+  is picked: one `ChoicePicker`, with different content. It shows a search
+  box, then the choices; the current one is marked. Arrow keys move
+  through them, past the last into the next page, and Enter picks; a click
+  picks too. Its choices come from a `ChoiceSource`, a page at a time:
+  `LocalChoices` filters a list at hand (types), `ReferenceChoices` queries
+  entities. Choices like "None" are pinned first, whatever the search. It
+  follows its field when the view scrolls, and closes once the field
+  scrolls out of sight.
 - **Customizations replace a default,** registered in `admin.properties`.
   Several can match one field; the most specific wins:
   1. this exact field of this type: `shop:car`'s `color`;

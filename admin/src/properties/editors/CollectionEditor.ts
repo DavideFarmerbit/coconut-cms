@@ -1,5 +1,6 @@
-import {ContextMenu} from '../../dom/ContextMenu.ts';
+import {ChoicePicker} from '../../dom/ChoicePicker.ts';
 import {Elements} from '../../dom/Elements.ts';
+import {LocalChoices} from '../../dom/LocalChoices.ts';
 import {ActionIcon} from '../../icons/ActionIcon.ts';
 import type {CollectionItems} from '../../public/properties/CollectionItems.ts';
 import type {PropertyContext} from '../../public/properties/PropertyContext.ts';
@@ -78,7 +79,10 @@ export class CollectionEditor implements PropertyEditor {
 
         const types = item.kind === 'owning_reference' ? this.context.catalog.withSubtypes(item.target ?? '') : [];
         if (types.length > 1) {
-            ContextMenu.below(anchor, types.map((type) => ({label: type.identifier, run: () => use(NewValues.object(this.context.catalog, type.identifier))})));
+            ChoicePicker.open(anchor, new LocalChoices(types.map((type) => ({key: type.identifier, label: type.identifier, value: type.identifier}))), {
+                placeholder: 'Search classes',
+                picked: (type) => use(NewValues.object(this.context.catalog, type)),
+            });
 
             return;
         }

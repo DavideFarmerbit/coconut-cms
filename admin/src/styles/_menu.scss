@@ -25,8 +25,15 @@
     cursor: pointer;
 
     &:hover,
-    &:focus-visible {
+    &:focus-visible,
+    &.is-active {
         outline: none;
         background: var(--cc-color-selected);
+    }
+
+    // The choice standing now, in a picker.
+    &.is-current {
+        color: var(--cc-color-accent-hover);
+        font-weight: 600;
     }
 }

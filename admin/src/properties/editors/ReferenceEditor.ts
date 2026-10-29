@@ -1,16 +1,22 @@
+import {ChoicePicker} from '../../dom/ChoicePicker.ts';
 import {Elements} from '../../dom/Elements.ts';
 import {ActionIcon} from '../../icons/ActionIcon.ts';
 import type {PropertyContext} from '../../public/properties/PropertyContext.ts';
 import type {PropertyEditor} from '../../public/properties/PropertyEditor.ts';
-import {isReferenceValue} from '../../public/properties/RecordValues.ts';
-import {ReferencePicker} from '../ReferencePicker.ts';
+import {isReferenceValue, type ReferenceValue} from '../../public/properties/RecordValues.ts';
+import {ReferenceChoices} from '../ReferenceChoices.ts';
 
 /**
  * A Reference: its target's label, an open button, and a button picking
- * another target; clicking the label picks another too. The open button does nothing yet: what opens depends on
- * the target's type, and a registry of editors by type comes later.
+ * another target; clicking the label picks another too. Picking is the
+ * admin's dropdown over the target type's entities, with "None" first. The
+ * open button does nothing yet: what opens depends on the target's type,
+ * and a registry of editors by type comes later.
  */
 export class ReferenceEditor implements PropertyEditor {
+    /** The key of "None": no entity id is empty. */
+    private static readonly NONE = '';
+
     public readonly widget: HTMLElement;
     public readonly children = null;
 
@@ -41,9 +47,16 @@ export class ReferenceEditor implements PropertyEditor {
 
     /** Opens the picker under `anchor`; what's picked becomes the value. */
     private static pick(context: PropertyContext, anchor: HTMLElement): void {
-        ReferencePicker.open(anchor, context.api, context.catalog, context.value.target ?? '', (picked) => {
-            context.slot.set(picked);
-            context.rebuild();
+        const current = context.slot.get();
+        const type = context.value.target ?? '';
+        ChoicePicker.open<ReferenceValue | null>(anchor, new ReferenceChoices(context.api, context.catalog, type), {
+            placeholder: `Search ${type}`,
+            pinned: [{key: ReferenceEditor.NONE, label: 'None', value: null}],
+            current: isReferenceValue(current) ? current.id : ReferenceEditor.NONE,
+            picked: (picked) => {
+                context.slot.set(picked);
+                context.rebuild();
+            },
         });
     }
 }
