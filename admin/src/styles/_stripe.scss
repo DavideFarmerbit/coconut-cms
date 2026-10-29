@@ -1,0 +1,54 @@
+// A stripe: one side's tool icons, in three sections.
+.stripe {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--cc-space-1);
+    padding: var(--cc-space-1) 0;
+}
+
+.stripe__section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--cc-space-1);
+}
+
+.stripe__section--bottom {
+    margin-top: auto;
+}
+
+.stripe__separator {
+    width: 50%;
+    margin: var(--cc-space-1) 0;
+    border: 0;
+    border-top: 1px solid var(--cc-color-border);
+}
+
+.stripe__button {
+    display: grid;
+    place-items: center;
+    width: var(--cc-stripe-button-size);
+    height: var(--cc-stripe-button-size);
+    padding: 0;
+    color: var(--cc-color-text-muted);
+    background: none;
+    border: 0;
+    border-radius: var(--cc-control-radius);
+    cursor: pointer;
+
+    &:hover {
+        color: var(--cc-color-text);
+        background: var(--cc-color-hover);
+    }
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--cc-focus-ring);
+    }
+
+    &.is-open {
+        color: var(--cc-color-text);
+        background: var(--cc-color-selected);
+    }
+}

@@ -1,0 +1,75 @@
+// What views show: lists, tables, and the Types tool's own pieces.
+.list {
+    margin: 0;
+    padding: var(--cc-space-1);
+    list-style: none;
+}
+
+.list__item {
+    padding: var(--cc-space-1) var(--cc-space-2);
+    border-radius: var(--cc-control-radius);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    &:hover {
+        background: var(--cc-color-hover);
+    }
+
+    &.is-selected {
+        background: var(--cc-color-selected);
+    }
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: inset var(--cc-focus-ring);
+    }
+}
+
+.list__note {
+    padding: var(--cc-space-2);
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+
+    th,
+    td {
+        padding: var(--cc-space-1) var(--cc-space-2);
+        text-align: left;
+        border-bottom: 1px solid var(--cc-color-border);
+    }
+
+    th {
+        color: var(--cc-color-text-muted);
+        font-size: var(--cc-font-size-small);
+        font-weight: 500;
+    }
+}
+
+.data-table__name {
+    font-family: var(--cc-font-family-mono);
+}
+
+.type-view {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cc-space-3);
+    padding: var(--cc-space-4) var(--cc-space-5);
+}
+
+.type-view__title {
+    font-size: var(--cc-font-size-title);
+    font-weight: 600;
+}
+
+.button--quiet {
+    background: none;
+    border-color: transparent;
+
+    &:hover {
+        background: var(--cc-color-hover);
+    }
+}

@@ -16,12 +16,23 @@
     --cc-color-on-accent: #ffffff;
     --cc-color-danger: #f75464;
     --cc-color-focus: #3574f0;
+    --cc-color-hover: rgb(255 255 255 / 6%);       // a hovered row, tab or icon
+    --cc-color-selected: rgb(53 116 240 / 22%);    // a selected row, an open tool's icon
+    --cc-color-splitter-active: #3574f0;           // a splitter while dragged
 
     // Islands: how far apart they sit, and how round they are.
     --cc-island-gap: 6px;
     --cc-island-radius: 10px;
     --cc-island-padding: 16px;
     --cc-island-shadow: none;
+
+    // The shell's frame.
+    --cc-menubar-height: 40px;
+    --cc-stripe-width: 40px;
+    --cc-stripe-button-size: 30px;
+    --cc-panel-header-height: 34px;
+    --cc-tab-height: 34px;
+    --cc-tab-max-width: 220px;
 
     // Controls.
     --cc-control-radius: 6px;

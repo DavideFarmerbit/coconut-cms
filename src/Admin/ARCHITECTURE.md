@@ -4,9 +4,11 @@ Status: a standalone description of the admin app, the client side of the
 CMS. Updated one decision at a time.
 
 Built: the build, the page with its import map and config, the public
-module's first exports, the base and light themes, and the sign-in screen.
-Not built yet: the shell, registration, plugin loading. Each is noted
-inline.
+module, the base and light themes, the sign-in screen, the shell with its
+panels, splitters and one tab group, tool and tab type registration, and
+the Types tool. Not built yet: dragging icons and tabs, menus from
+manifests, plugin loading, the layout kept per user on the server. Each is
+noted inline.
 
 The admin is a client-side app. It talks to the backend only through the API
 (`../Api/ARCHITECTURE.md`): every list, form and save is an operation, so the
@@ -46,8 +48,7 @@ loads goes through the API.
 The app asks `coconut-cms:auth.me` first. Nobody signed in gets the sign-in
 form, an email or username, a password and "remember me", which calls
 `coconut-cms:auth.signIn` and tells why it failed. A signed-in user gets
-the app, and a way to sign out. Until the shell exists, the app is a
-placeholder naming who's signed in.
+the shell; the menubar names them, and signs them out.
 
 ## Assets
 
@@ -99,8 +100,11 @@ The admin is built so plugins stand on the same footing as its own tools.
   the hooks, the event bus, and reusable UI pieces such as form fields, the
   details panel and lists. Everything else is internal and may change. The
   public module is versioned by `ADMIN_API_VERSION`. Built so far: `admin`,
-  the running `AdminRuntime` (its `api` client and its signed-in `user`),
-  `ApiClient`, `ApiFailure`, `ErrorCode`, and the `User` and `Me` types.
+  the running `AdminRuntime` (its `tools` and `tabTypes` registries, its
+  `api` client and its signed-in `user`); `ApiClient`, `ApiFailure`,
+  `ErrorCode`; the workspace's types (`ToolDefinition`, `TabTypeDefinition`,
+  `PanelView`, `ViewContext`, `ViewState`, `Workspace`, the typed ids and
+  placements); and the `User` and `Me` types.
 - **One running copy.** The admin page declares an import map, so
   `@coconut-cms/admin` resolves to the admin's own running module. A plugin's
   build marks it external and never bundles a copy: its `import { tools }
@@ -119,21 +123,58 @@ The admin is built so plugins stand on the same footing as its own tools.
 ## The shell
 
 The shell follows the concepts of a first draft (kept outside the package,
-not its code): an IntelliJ-style window manager. Its details are settled
-when it's built.
+not its code): an IntelliJ-style window manager.
 
 - A menubar; stripes on the left and right holding tool icons, in three
-  sections each; up to six docked panels in three resizable containers, left,
-  right and bottom; and a canvas holding tab groups.
-- One serializable layout state is the only source of truth. Reducers
-  changing it, and the resolver turning preferred sizes into the sizes shown,
-  are pure functions, tested without a DOM.
-- Data and code apart: a tool, a tab type, a command or a menu is a manifest,
-  JSON a module's PHP can emit too; the component showing it is registered by
-  name in TypeScript.
-- Views stay alive when hidden, moved or switched: their DOM, scroll and
-  state survive. Each view has its own state, kept with the layout.
-- The layout is kept in the browser at first, and per user through an
-  operation later (where it's kept is open). On load it's reconciled with
-  what's registered now: a tool gone is dropped, a new one is placed where
-  it asks.
+  sections each (`topTop`, `topBottom`, `bottom`); up to six docked panels in
+  three resizable containers, left, right and bottom; and a canvas holding
+  tabs. A side's two top sections open in that side's container, upper then
+  lower; both bottom sections open in the bottom container, left then right.
+  Each section holds one open panel at most.
+- Panels and the canvas are islands. An open container takes its size plus
+  the island gap; a closed one takes no room.
+- Data and code apart, as classes: a tool is a definition, its id, title,
+  SVG icon and default placement, with the `PanelView` class its panel
+  shows; a tab type is an id with its view class. The shell builds a view
+  with `new View(context)`, the context giving the API client, the view's
+  own saved state, the workspace (to open tabs) and a tab's parameters. A
+  tool or tab type that can't be built shows a message in its place.
+- Views stay alive when hidden, moved or switched: their element and state
+  survive, parked off the layout while hidden; a move uses `moveBefore()`
+  where the browser has it, and keeps scroll offsets otherwise. A tab's
+  view is disposed when the tab closes.
+- Opening a tab of a type with a key already open shows that tab instead.
+
+The code is in three layers, each depending only on the ones before:
+
+- **Model** (`admin/src/shell/model/`), pure and unit-tested:
+  - `Layout`, immutable, holds the whole state: each section's icons and
+    open tool, each container's preferred size and split, the tabs, and each
+    view's saved state. Its methods are the reducers, each returning a new
+    `Layout`: `toggleTool`, `closeTool`, `openTab`, `activateTab`,
+    `closeTab`, `resized`, `split`, `withViewState`, `reconciled`.
+  - `SizeResolver` turns preferred sizes into the sizes shown, for the
+    workspace's size now: the canvas gives way first, down to its minimum
+    (320 by 200); then the containers shrink, each in proportion to its room
+    above its minimum (160). A container squeezed below its preferred size
+    can only be dragged smaller.
+  - `LayoutStore` holds the current layout, the only place it changes: it
+    tells its listeners, then saves a moment later.
+- **Registry** (`admin/src/public/workspace/`), part of the public module:
+  `admin.tools` and `admin.tabTypes`, the definitions, `PanelView`,
+  `ViewContext`, typed ids and placements.
+- **UI** (`admin/src/shell/ui/`): `Shell`, `MenuBar`, `Stripe`,
+  `WorkspaceArea`, `PanelContainer`, `PanelFrame`, `TabGroup`, `ViewHost`
+  and `Splitter`. Each part shows its own slice of the layout it's given; a
+  click changes the layout through the store, never the DOM directly.
+  During a drag, a splitter only shows the new size; the layout changes
+  once, when it's released.
+
+The layout is kept in the browser's localStorage, one per user, versioned.
+On load it's reconciled with what's registered now: a tool gone is
+dropped, a new one is placed where it asks, a tab of a type gone is closed,
+and saved state no view owns is dropped. Keeping it per user on the server,
+through an operation, comes later.
+
+Not built yet: dragging icons between sections and reordering tabs, menus
+and commands from manifests, splitting the canvas into several tab groups.

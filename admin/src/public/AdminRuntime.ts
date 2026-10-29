@@ -1,13 +1,23 @@
 import type {ApiClient} from './api/ApiClient.ts';
 import type {User} from './auth/User.ts';
+import type {TabTypeId, ToolId} from './workspace/Ids.ts';
+import {Registry} from './workspace/Registry.ts';
+import type {TabTypeDefinition} from './workspace/TabTypeDefinition.ts';
+import type {ToolDefinition} from './workspace/ToolDefinition.ts';
 
 /**
- * The running admin, as plugins reach it: the API client it calls the
- * backend with, and who's signed in. One instance, `admin`, exported by the
+ * The running admin, as plugins reach it: its tools and tab types, the API
+ * client it calls the backend with, and who's signed in. One instance, `admin`, exported by the
  * public module: a plugin importing "@coconut-cms/admin" gets the app's own,
  * through the import map.
  */
 export class AdminRuntime {
+    /** Every tool the shell offers: register one before the shell starts. */
+    public readonly tools = new Registry<ToolId, ToolDefinition>('tool');
+
+    /** Every kind of tab the canvas opens. */
+    public readonly tabTypes = new Registry<TabTypeId, TabTypeDefinition>('tab type');
+
     /** Set once the app has started; undefined before. */
     private client: ApiClient | undefined;
 

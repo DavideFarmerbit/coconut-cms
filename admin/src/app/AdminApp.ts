@@ -1,14 +1,14 @@
-import {SignedInView} from '../auth/SignedInView.ts';
 import {SignInView} from '../auth/SignInView.ts';
 import {Elements} from '../dom/Elements.ts';
 import type {AdminRuntime} from '../public/AdminRuntime.ts';
 import type {Me} from '../public/auth/Me.ts';
 import type {User} from '../public/auth/User.ts';
+import {Shell} from '../shell/Shell.ts';
 import type {View} from './View.ts';
 
 /**
  * The admin app: asks who's signed in, then shows the sign-in form or the
- * signed-in view, switching as people sign in and out.
+ * shell, switching as people sign in and out.
  */
 export class AdminApp {
     /** @param root Where the app shows its views: the page's body. */
@@ -41,7 +41,13 @@ export class AdminApp {
         this.runtime.setUser(user);
         this.show(user === null
             ? new SignInView(this.runtime.api, (signedIn) => this.showFor(signedIn))
-            : new SignedInView(this.runtime.api, user, () => this.showFor(null)));
+            : new Shell(this.runtime, user, () => void this.signOut()));
+    }
+
+    /** Signs out, then shows the sign-in form. */
+    private async signOut(): Promise<void> {
+        await this.runtime.api.call('coconut-cms:auth.signOut');
+        this.showFor(null);
     }
 
     /** Replaces what the root shows with `view`. */

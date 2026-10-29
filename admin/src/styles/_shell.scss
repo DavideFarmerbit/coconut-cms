@@ -1,0 +1,57 @@
+// The shell's frame: the menubar over the stripes and the workspace. The
+// workspace's grid takes its containers' sizes from properties the shell
+// writes: --cc-left-w, --cc-right-w, --cc-bottom-h, each with the gap to
+// the canvas, or 0 when closed.
+.shell {
+    display: grid;
+    grid-template-rows: var(--cc-menubar-height) minmax(0, 1fr);
+    height: 100%;
+}
+
+.shell__body {
+    display: grid;
+    grid-template-columns: var(--cc-stripe-width) minmax(0, 1fr) var(--cc-stripe-width);
+    min-height: 0;
+    padding-bottom: var(--cc-island-gap);
+}
+
+.menubar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--cc-space-3);
+}
+
+.menubar__name {
+    font-weight: 600;
+}
+
+.menubar__user {
+    display: flex;
+    align-items: center;
+    gap: var(--cc-space-3);
+}
+
+.workspace {
+    display: grid;
+    grid-template-columns: var(--cc-left-w, 0px) minmax(0, 1fr) var(--cc-right-w, 0px);
+    grid-template-rows: minmax(0, 1fr) var(--cc-bottom-h, 0px);
+    grid-template-areas:
+        'left canvas right'
+        'bottom bottom bottom';
+    min-width: 0;
+    min-height: 0;
+}
+
+// Hidden views wait here, out of the layout.
+.view-parking {
+    display: none;
+}
+
+.view-message {
+    display: grid;
+    place-items: center;
+    height: 100%;
+    padding: var(--cc-space-5);
+    text-align: center;
+}
