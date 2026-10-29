@@ -1,4 +1,5 @@
 import type {ApiClient} from '../api/ApiClient.ts';
+import type {EntityStore} from '../entities/EntityStore.ts';
 import type {TypeCatalog} from '../types/TypeCatalog.ts';
 import type {ValueDescription} from '../types/TypeDescription.ts';
 import type {CollectionItems} from './CollectionItems.ts';
@@ -25,6 +26,8 @@ export interface PropertyContext {
     readonly catalog: TypeCatalog;
     /** The client every call to the backend goes through. */
     readonly api: ApiClient;
+    /** The entities: to find a Reference's targets, read what they're called. */
+    readonly entities: EntityStore;
 
     /**
      * Changes its value and builds its row again, widget and children: what

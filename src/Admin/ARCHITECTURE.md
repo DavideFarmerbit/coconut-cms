@@ -9,8 +9,7 @@ panels, splitters and one tab group, tool and tab type registration, and
 the Types tool, loading modules' admin code, and editing native entities'
 properties. Not built yet: dragging icons and tabs, menus from manifests,
 uploaded and browser plugins, the layout kept per user on the server,
-lists following the entity store.
-Each is noted inline.
+edits saved elsewhere while an entity is edited. Each is noted inline.
 
 The admin is a client-side app. It talks to the backend only through the API
 (`../Api/ARCHITECTURE.md`): every list, form and save is an operation, so the
@@ -337,8 +336,8 @@ in memory, edited from several places at once, with one unsaved state, and
 details views showing its properties. It's part of the public module, so
 projects and plugins show entities the same way, and nobody writes their
 own. Built for native entities: the store, sessions, views, filters,
-editors and the dropdown. Not built yet: lists following the store's
-changes; noted inline.
+editors, the dropdown, and lists following the store. Not built yet:
+edits saved elsewhere meanwhile, a "New" button; noted inline.
 
 The code is in three layers. Data knows nothing of the DOM; views know
 nothing of the API.
@@ -358,11 +357,14 @@ admin, given to every view as `context.entities`.
 - It reads, queries, creates, updates and deletes entities through the
   API, and keeps what it read.
 - It tells its listeners of each change: an entity created, updated or
-  deleted, with what the API gave back. A list of entities runs its query
-  again when an entity of its type changes, so a rename shows everywhere
-  (not built yet: the Cars tool and the Reference picker still call the
-  API themselves). A Reference's label comes from the store, as last read
-  or saved.
+  deleted, with what the API gave back. A Reference's label comes from the
+  store, as last read or saved, and the Reference picker queries through
+  it.
+- `EntityList` is a query's entities, a page at a time, through the
+  store, with no DOM: a list view shows it and turns its pages. It reads
+  its page again when an entity of its type, subtypes included, is
+  created, or one it shows is updated or deleted. So a rename shows in
+  every list. The project's Cars tool is one.
 - It gives out the sessions. There is one session per entity: two views of
   one entity share it, and see each other's edits as they're made.
 
@@ -466,7 +468,8 @@ match deep in an object keeps its place, as in Unreal's details search.
 Customizing: `admin.properties.register(match, EditorClass)`, where the
 class implements `PropertyEditor`, built with a `PropertyContext`: the
 property's path, its value description, its slot to read and set its
-value, whether it's writable, the catalog and API client, a Collection's
+value, whether it's writable, the catalog, the API client and the entity
+store, a Collection's
 `CollectionItems`, `replace(value)`, and helpers to show an object's
 fields or a Collection's items by the usual rules. The admin registers its
 defaults first, so a plugin's registrations replace them. An editor never

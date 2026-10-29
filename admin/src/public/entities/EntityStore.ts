@@ -54,6 +54,11 @@ export class EntityStore implements SessionSaver, HoldReleaser {
         return [...this.sessions.values(), ...this.fresh.values()].some(({session}) => session.isDirty);
     }
 
+    /** The types the user may read: what sessions, labels and lists work with. */
+    public types(): Promise<TypeCatalog> {
+        return this.catalog();
+    }
+
     /** Tells `listener` of every entity created, updated or deleted. */
     public onChange(listener: EntityListener): void {
         this.listeners.push(listener);

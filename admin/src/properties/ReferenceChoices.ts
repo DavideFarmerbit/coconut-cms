@@ -1,20 +1,15 @@
 import type {ChoicePage, ChoiceSource} from '../dom/ChoiceSource.ts';
-import type {ApiClient} from '../public/api/ApiClient.ts';
+import type {EntityStore} from '../public/entities/EntityStore.ts';
 import {EntityLabels} from '../public/properties/EntityLabels.ts';
 import type {ReferenceValue} from '../public/properties/RecordValues.ts';
 import type {TypeCatalog} from '../public/types/TypeCatalog.ts';
-
-/** One page of coconut-cms:entities.query, as far as the choices read it. */
-interface EntityPage {
-    readonly items: readonly {readonly type: string; readonly id: string; readonly values: Readonly<Record<string, unknown>>}[];
-    readonly nextCursor: string | null;
-}
 
 /**
  * The choices of a Reference's target: the target type's standalone
  * entities, subtypes included, by label, a page at a time, narrowed by a
  * search on the label field when it's a String. Each choice's key is the
- * entity's id.
+ * entity's id. It queries through the store, which keeps what it read: a
+ * label shown after a pick needs no other read.
  */
 export class ReferenceChoices implements ChoiceSource<ReferenceValue> {
     /** How many entities a page lists. */
@@ -26,7 +21,7 @@ export class ReferenceChoices implements ChoiceSource<ReferenceValue> {
     private cursor: string | null = null;
 
     public constructor(
-        private readonly api: ApiClient,
+        private readonly entities: EntityStore,
         private readonly catalog: TypeCatalog,
         private readonly type: string,
     ) {
@@ -40,7 +35,7 @@ export class ReferenceChoices implements ChoiceSource<ReferenceValue> {
         }
 
         const text = search.trim();
-        const page = await this.api.call<EntityPage>('coconut-cms:entities.query', {
+        const page = await this.entities.query({
             type: this.type,
             limit: ReferenceChoices.PAGE,
             ...(this.cursor === null ? {} : {after: this.cursor}),

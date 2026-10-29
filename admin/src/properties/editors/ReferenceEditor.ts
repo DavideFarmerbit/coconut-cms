@@ -49,7 +49,7 @@ export class ReferenceEditor implements PropertyEditor {
     private static pick(context: PropertyContext, anchor: HTMLElement): void {
         const current = context.slot.get();
         const type = context.value.target ?? '';
-        ChoicePicker.open<ReferenceValue | null>(anchor, new ReferenceChoices(context.api, context.catalog, type), {
+        ChoicePicker.open<ReferenceValue | null>(anchor, new ReferenceChoices(context.entities, context.catalog, type), {
             placeholder: `Search ${type}`,
             pinned: [{key: ReferenceEditor.NONE, label: 'None', value: null}],
             current: isReferenceValue(current) ? current.id : ReferenceEditor.NONE,

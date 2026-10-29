@@ -106,6 +106,7 @@ export class BuiltRow {
             items: info.value.kind === 'collection' ? session.itemsAt(path, this) ?? null : null,
             catalog,
             api,
+            entities,
             replace: (value) => session.replace(path, value, this),
             // A Collection's Embed item is its own row: its fields are traversed, "wheels.1.size", never embedded.
             fieldsOf: (object, join) => this.services.fields(path, object, info.field === null ? PropertyPath.TRAVERSE : join),

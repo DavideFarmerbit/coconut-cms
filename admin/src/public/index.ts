@@ -18,6 +18,7 @@ export type {User} from './auth/User.ts';
 export type {EntityChange, EntityListener} from './entities/EntityChange.ts';
 export type {EntityData} from './entities/EntityData.ts';
 export {EntityHold} from './entities/EntityHold.ts';
+export {EntityList, type ListListener, type ListState} from './entities/EntityList.ts';
 export type {ConditionOperator, EntityCondition, EntityPage, EntityQuery, EntitySort} from './entities/EntityQuery.ts';
 export {EntitySession, type SessionState} from './entities/EntitySession.ts';
 export {EntityStore} from './entities/EntityStore.ts';
