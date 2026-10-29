@@ -6,6 +6,7 @@ import type {TabTypeDefinition} from '../../public/workspace/TabTypeDefinition.t
 import {Layout} from '../model/Layout.ts';
 import type {LayoutStore} from '../model/LayoutStore.ts';
 import type {TabData} from '../model/TabData.ts';
+import type {DirtyViews} from './DirtyViews.ts';
 import {MissingView} from './MissingView.ts';
 import type {ViewContexts} from './ViewContexts.ts';
 import type {ViewHost} from './ViewHost.ts';
@@ -25,6 +26,7 @@ export class TabGroup {
         private readonly store: LayoutStore,
         private readonly host: ViewHost,
         private readonly contexts: ViewContexts,
+        private readonly dirty: DirtyViews,
     ) {
         this.bar = Elements.create('div', {classes: ['tab-bar'], attributes: {role: 'tablist'}});
         this.empty = Elements.create('div', {classes: ['view-message']}, [Elements.create('p', {classes: ['muted'], text: 'Nothing open. Open something from a tool on the side.'})]);
@@ -72,25 +74,39 @@ export class TabGroup {
         });
     }
 
-    /** The bar's button for `tab`, with its close button. */
+    /** The bar's button for `tab`, with its unsaved mark and its close button. */
     private tabButton(tab: TabData, shown: boolean): HTMLElement {
+        const dirty = this.dirty.has(Layout.tabKey(tab.id));
         const close = Elements.create('button', {classes: ['tab__close'], text: '×', attributes: {type: 'button', 'aria-label': `Close ${tab.title}`}});
         close.addEventListener('click', (event) => {
             event.stopPropagation();
-            this.store.update(this.store.current.closeTab(tab.id));
+            void this.close(tab);
         });
 
         const button = Elements.create('div', {
-            classes: ['tab', ...(shown ? ['is-active'] : [])],
+            classes: ['tab', ...(shown ? ['is-active'] : []), ...(dirty ? ['is-dirty'] : [])],
             attributes: {role: 'tab', 'aria-selected': String(shown), tabindex: '0', ...Tooltips.attributes(tab.title, 'bottom-start')},
-        }, [Elements.create('span', {classes: ['tab__title'], text: tab.title}), close]);
+        }, [
+            Elements.create('span', {classes: ['tab__title'], text: tab.title}),
+            ...(dirty ? [Elements.create('span', {classes: ['tab__dirty'], text: '●', attributes: {'aria-label': 'Unsaved changes'}})] : []),
+            close,
+        ]);
         button.addEventListener('click', () => this.store.update(this.store.current.activateTab(tab.id)));
         button.addEventListener('auxclick', (event) => {
             if (event.button === 1) {
-                this.store.update(this.store.current.closeTab(tab.id));
+                void this.close(tab);
             }
         });
 
         return button;
+    }
+
+    /** Closes `tab`, once its view lets it: one with unsaved changes asks first. */
+    private async close(tab: TabData): Promise<void> {
+        const key = Layout.tabKey(tab.id);
+        if (await this.host.canClose(key)) {
+            this.dirty.set(key, false);
+            this.store.update(this.store.current.closeTab(tab.id));
+        }
     }
 }

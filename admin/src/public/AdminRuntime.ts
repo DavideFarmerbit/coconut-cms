@@ -1,5 +1,6 @@
 import type {ApiClient} from './api/ApiClient.ts';
 import type {User} from './auth/User.ts';
+import {PropertyEditors} from './properties/PropertyEditors.ts';
 import {TypeCatalog} from './types/TypeCatalog.ts';
 import type {TypeList} from './types/TypeDescription.ts';
 import type {TabTypeId, ToolId} from './workspace/Ids.ts';
@@ -19,6 +20,9 @@ export class AdminRuntime {
 
     /** Every kind of tab the canvas opens. */
     public readonly tabTypes = new Registry<TabTypeId, TabTypeDefinition>('tab type');
+
+    /** Every property editor: the admin's defaults, and customizations replacing them. */
+    public readonly properties = new PropertyEditors();
 
     /** Set once the app has started; undefined before. */
     private client: ApiClient | undefined;

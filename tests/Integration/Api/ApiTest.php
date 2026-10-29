@@ -254,6 +254,12 @@ final class ApiTest extends TestCase
         [$status, $body] = $this->post('coconut-cms:types.get', '{"type": "perm:secret_maker"}', 'admin');
         self::assertSame(200, $status);
         self::assertSame('perm:maker', $body['result']['parent']);
+
+        // A new entity's values, as a read gives them, inherited fields included; unreadable ones left out.
+        [, $body] = $this->post('coconut-cms:types.get', '{"type": "perm:car"}');
+        self::assertSame('', $body['result']['defaults']['name']);
+        self::assertSame(['type' => 'perm:chassis', 'id' => null, 'values' => ['weight' => 1000]], $body['result']['defaults']['chassis']);
+        self::assertArrayNotHasKey('internal', $body['result']['defaults']);
     }
 
     public function testEntitiesGetGivesStoredValuesTheCallerMayRead(): void {

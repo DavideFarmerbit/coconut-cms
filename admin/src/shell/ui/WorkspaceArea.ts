@@ -9,6 +9,7 @@ import type {LayoutStore} from '../model/LayoutStore.ts';
 import type {Area} from '../model/SizeResolver.ts';
 import {SizeResolver} from '../model/SizeResolver.ts';
 import {ContainerEdge} from './ContainerEdge.ts';
+import type {DirtyViews} from './DirtyViews.ts';
 import {PanelContainer} from './PanelContainer.ts';
 import {TabGroup} from './TabGroup.ts';
 import type {ViewContexts} from './ViewContexts.ts';
@@ -32,10 +33,11 @@ export class WorkspaceArea {
         private readonly store: LayoutStore,
         host: ViewHost,
         contexts: ViewContexts,
+        dirty: DirtyViews,
     ) {
         const container = (which: Container): PanelContainer => new PanelContainer(which, tools, store, host, contexts, new ContainerEdge(which, store, this.resolver, this));
         this.containers = {left: container('left'), right: container('right'), bottom: container('bottom')};
-        this.tabs = new TabGroup(tabTypes, store, host, contexts);
+        this.tabs = new TabGroup(tabTypes, store, host, contexts, dirty);
         this.element = Elements.create('div', {classes: ['workspace']}, [
             this.containers.left.element,
             this.tabs.element,

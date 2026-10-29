@@ -1,9 +1,13 @@
+/** A field's kind, as coconut-cms:types.get names it. */
+export type ValueKind = 'scalar' | 'value_object' | 'embed' | 'reference' | 'owning_reference' | 'collection';
+
 /** What a field holds, as coconut-cms:types.get describes it. */
 export interface ValueDescription {
-    readonly kind: 'scalar' | 'value_object' | 'embed' | 'reference' | 'owning_reference' | 'collection';
+    readonly kind: ValueKind;
     readonly nullable: boolean;
     readonly scalarType: string | null;
     readonly enumValues: readonly (string | number)[] | null;
+    /** The entity type an Embed, Reference or owned object holds; a value object's registered identifier. */
     readonly target: string | null;
     readonly item: ValueDescription | null;
 }
@@ -23,6 +27,8 @@ export interface TypeDescription {
     readonly may: Readonly<Record<'read' | 'create' | 'update' | 'delete', boolean>>;
     /** Its own fields, by name, in order. */
     readonly fields: Readonly<Record<string, FieldDescription>>;
+    /** What a new entity of it holds, by field, inherited fields included, in the form a read gives. */
+    readonly defaults: Readonly<Record<string, unknown>>;
 }
 
 /** What coconut-cms:types.list gives. */

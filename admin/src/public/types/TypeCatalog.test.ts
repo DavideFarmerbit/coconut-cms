@@ -4,7 +4,7 @@ import type {TypeDescription} from './TypeDescription.ts';
 
 /** A type named `identifier`, extending `parent`, with no fields. */
 function type(identifier: string, parent: string | null = null): TypeDescription {
-    return {identifier, parent, editorExtensible: false, may: {read: true, create: true, update: true, delete: true}, fields: {}};
+    return {identifier, parent, editorExtensible: false, may: {read: true, create: true, update: true, delete: true}, fields: {}, defaults: {}};
 }
 
 describe('TypeCatalog', () => {

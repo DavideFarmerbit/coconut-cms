@@ -1,4 +1,11 @@
-import type {TypeDescription} from './TypeDescription.ts';
+import type {FieldDescription, TypeDescription} from './TypeDescription.ts';
+
+/** One field of a type, inherited or not, with the type declaring it. */
+export interface CatalogField {
+    readonly name: string;
+    readonly field: FieldDescription;
+    readonly declaredBy: string;
+}
 
 /**
  * Every entity type the user may read, as coconut-cms:types.list gave
@@ -58,6 +65,36 @@ export class TypeCatalog {
         }
 
         return ancestors;
+    }
+
+    /**
+     * Every field of `identifier`, inherited ones included, the root's first,
+     * each with the type declaring it: the order an entity's properties show
+     * in. None for a type not in the catalog.
+     */
+    public fieldsOf(identifier: string): readonly CatalogField[] {
+        const type = this.types.get(identifier);
+        if (type === undefined) {
+            return [];
+        }
+
+        return [...this.ancestorsOf(identifier)].reverse().concat(type).flatMap((declaring) => Object.entries(declaring.fields).map(([name, field]) => ({
+            name,
+            field,
+            declaredBy: declaring.identifier,
+        })));
+    }
+
+    /** Whether `identifier` is `ancestor`, or extends it. */
+    public isA(identifier: string, ancestor: string): boolean {
+        return identifier === ancestor || this.ancestorsOf(identifier).some((each) => each.identifier === ancestor);
+    }
+
+    /** `identifier` and every type extending it, at any depth, `identifier` first. */
+    public withSubtypes(identifier: string): readonly TypeDescription[] {
+        const type = this.types.get(identifier);
+
+        return type === undefined ? [] : [type, ...this.all().filter((each) => each.identifier !== identifier && this.isA(each.identifier, identifier))];
     }
 
     /** The types extending `identifier` directly, sorted. */

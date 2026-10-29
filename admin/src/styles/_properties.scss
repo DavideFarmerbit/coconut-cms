@@ -1,0 +1,214 @@
+// Properties: an entity's fields as a property grid, like Unreal's details
+// view. Each row is a name and a value widget; values holding others show
+// their properties under them, indented.
+.entity-editor {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cc-space-4);
+    padding: var(--cc-space-4) var(--cc-space-5);
+}
+
+.entity-editor__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--cc-space-4);
+}
+
+.entity-editor__title {
+    display: flex;
+    align-items: center;
+    gap: var(--cc-space-2);
+    font-size: var(--cc-font-size-title);
+    font-weight: 600;
+}
+
+.entity-editor__dirty {
+    display: none;
+    color: var(--cc-color-accent);
+    font-size: var(--cc-font-size-small);
+}
+
+.entity-editor.is-dirty .entity-editor__dirty {
+    display: inline;
+}
+
+.entity-editor__actions {
+    display: flex;
+    gap: var(--cc-space-2);
+}
+
+.entity-editor__error {
+    color: var(--cc-color-danger);
+}
+
+.entity-editor__groups {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cc-space-3);
+}
+
+.property-group__title {
+    padding: var(--cc-space-1) 0;
+    color: var(--cc-color-text-muted);
+    font-size: var(--cc-font-size-small);
+    font-weight: 600;
+    border-bottom: 1px solid var(--cc-color-border);
+    cursor: pointer;
+    user-select: none;
+}
+
+.properties {
+    display: flex;
+    flex-direction: column;
+}
+
+.property__header {
+    display: grid;
+    grid-template-columns: var(--cc-property-name-width) minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: var(--cc-space-2);
+    min-height: var(--cc-property-row-height);
+    padding: 2px var(--cc-space-2);
+    border-radius: var(--cc-control-radius);
+
+    &:hover {
+        background: var(--cc-color-hover);
+    }
+}
+
+.property__name {
+    overflow: hidden;
+    padding-left: calc(var(--cc-property-depth, 0) * var(--cc-property-indent));
+    font-family: var(--cc-font-family-mono);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.property.is-changed > .property__header > .property__name::after {
+    content: ' ●';
+    color: var(--cc-color-accent);
+}
+
+.property__reset {
+    visibility: hidden;
+}
+
+.property.is-changed > .property__header > .property__reset {
+    visibility: visible;
+}
+
+.property.is-readonly > .property__header .property__name {
+    color: var(--cc-color-text-muted);
+}
+
+.property__value {
+    min-width: 0;
+
+    .field__input {
+        width: 100%;
+        height: var(--cc-property-control-height);
+    }
+
+    .field__input--area {
+        height: auto;
+        padding-top: var(--cc-space-1);
+        resize: vertical;
+    }
+
+    .field__input.is-invalid {
+        border-color: var(--cc-color-danger);
+    }
+}
+
+.property__inline {
+    display: flex;
+    align-items: center;
+    gap: var(--cc-space-2);
+}
+
+.property__error {
+    margin: 0 0 var(--cc-space-1) calc(var(--cc-property-name-width) + var(--cc-space-4));
+    color: var(--cc-color-danger);
+    font-size: var(--cc-font-size-small);
+
+    &:empty {
+        display: none;
+    }
+}
+
+.reference__label {
+    overflow: hidden;
+    color: var(--cc-color-text-muted);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &.is-set {
+        color: var(--cc-color-text);
+    }
+}
+
+.button--small {
+    height: var(--cc-property-control-height);
+    padding: 0 var(--cc-space-2);
+}
+
+// The Reference picker: a dropdown with a search box and a page of entities.
+.picker {
+    position: fixed;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    gap: var(--cc-space-1);
+    width: 280px;
+    max-height: 360px;
+    padding: var(--cc-space-2);
+    background: var(--cc-color-raised);
+    border: 1px solid var(--cc-color-border);
+    border-radius: var(--cc-control-radius);
+    box-shadow: var(--cc-tooltip-shadow);
+}
+
+.picker__list {
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+}
+
+// A modal question over a dimmed page.
+.dialog-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 4000;
+    display: grid;
+    place-items: center;
+    background: var(--cc-color-overlay);
+}
+
+.dialog {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cc-space-3);
+    width: min(420px, 90vw);
+    padding: var(--cc-space-5);
+    box-shadow: var(--cc-tooltip-shadow);
+}
+
+.dialog__title {
+    margin: 0;
+    font-size: var(--cc-font-size);
+    font-weight: 600;
+}
+
+.dialog__buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--cc-space-2);
+}
+
+// A tab with unsaved changes.
+.tab__dirty {
+    color: var(--cc-color-accent);
+    font-size: var(--cc-font-size-small);
+}

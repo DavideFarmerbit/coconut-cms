@@ -11,6 +11,7 @@ import type {LayoutListener} from './model/LayoutListener.ts';
 import {LayoutStore} from './model/LayoutStore.ts';
 import {LocalLayoutStorage} from './model/LocalLayoutStorage.ts';
 import {TabIds} from './model/TabIds.ts';
+import {DirtyViews} from './ui/DirtyViews.ts';
 import {MenuBar, type SignOutRequested} from './ui/MenuBar.ts';
 import {Stripe} from './ui/Stripe.ts';
 import {ViewContexts} from './ui/ViewContexts.ts';
@@ -29,6 +30,9 @@ export class Shell implements View, LayoutListener, Workspace {
     private readonly stripes: readonly [Stripe, Stripe];
     private readonly workspace: WorkspaceArea;
 
+    /** Which views have unsaved changes. */
+    private readonly dirty = new DirtyViews();
+
     /** @param onSignOut Told when the user asks to sign out. */
     public constructor(runtime: AdminRuntime, user: User, onSignOut: SignOutRequested) {
         const storage = new LocalLayoutStorage(user.id);
@@ -37,9 +41,16 @@ export class Shell implements View, LayoutListener, Workspace {
 
         const parking = Elements.create('div', {classes: ['view-parking'], attributes: {'aria-hidden': 'true'}});
         const host = new ViewHost(parking);
-        const contexts = new ViewContexts(runtime, this.store, this);
+        const contexts = new ViewContexts(runtime, this.store, this, this.dirty);
         this.stripes = [new Stripe('left', runtime.tools, this.store), new Stripe('right', runtime.tools, this.store)];
-        this.workspace = new WorkspaceArea(runtime.tools, runtime.tabTypes, this.store, host, contexts);
+        this.workspace = new WorkspaceArea(runtime.tools, runtime.tabTypes, this.store, host, contexts, this.dirty);
+        this.dirty.onChange(() => this.render(this.store.current));
+        // Unsaved work isn't left by accident: the browser asks first.
+        window.addEventListener('beforeunload', (event) => {
+            if (this.dirty.any) {
+                event.preventDefault();
+            }
+        });
 
         this.element = Elements.create('div', {classes: ['shell']}, [
             new MenuBar(user, onSignOut).element,
@@ -59,7 +70,9 @@ export class Shell implements View, LayoutListener, Workspace {
     }
 
     public openTab(type: TabTypeId, title: string, params: JsonValue, key: string, opening: TabOpening): void {
-        this.store.update(this.store.current.openTab(TabIds.next(), type, title, params, key, opening));
+        // A reusing open never replaces a tab with unsaved work.
+        const keep = new Set(this.store.current.tabs.filter((tab) => this.dirty.has(Layout.tabKey(tab.id))).map((tab) => tab.id));
+        this.store.update(this.store.current.openTab(TabIds.next(), type, title, params, key, opening, keep));
     }
 
     /** Shows `layout` in every part. */

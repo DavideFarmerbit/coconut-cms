@@ -25,6 +25,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolver;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
 
 /**
@@ -67,7 +68,7 @@ final class PersistenceSession
         $this->hidden = new HiddenValues();
         $this->reader = $reader = new EntityReader($connection, $registry, $values);
         $this->loader = new NativeEntityLoader($reader, $classes, $this->identities, $permissions, $this->hidden);
-        $this->records = new RecordReader($reader, $schemas, $permissions);
+        $this->records = new RecordReader($reader, $schemas, $permissions, new FieldValueResolver($registry, $values));
         $this->writer = new NativeEntityWriter(EntityWriter::of($connection, $registry, $permissions, $values), $registry, $values, $this->identities, $this->hidden);
         $this->queries = new QueryRunner($connection, $schemas, $permissions, $this->identities, $this->load(...), $guard);
         $this->editor = new NativeEditor($schemas, $permissions, $classes, $this->referenced(...), $this->identities->idOf(...));
@@ -227,6 +228,17 @@ final class PersistenceSession
         ($this->guard)();
 
         return $this->records->read($id);
+    }
+
+    /**
+     * What a new `$type` entity holds, as plain values: its type's defaults,
+     * in the form read() gives, with no id. A field the actor may not read
+     * is left out.
+     */
+    public function defaultsOf(string $type): EntityRecord {
+        ($this->guard)();
+
+        return $this->records->defaultsOf($type);
     }
 
     /** Every type's schema, as the database holds it now: what reads and writes follow. */

@@ -158,8 +158,9 @@ export class Layout {
      * recently, in place, forgetting its view's state; with none, or with
      * "new", the tab is added after the others.
      * @param id The new tab's id, made by the caller: the layout stays pure.
+     * @param keep Tabs a reuse never replaces: those with unsaved work.
      */
-    public openTab(id: TabId, type: TabTypeId, title: string, params: JsonValue, key: string, opening: TabOpening = 'new'): Layout {
+    public openTab(id: TabId, type: TabTypeId, title: string, params: JsonValue, key: string, opening: TabOpening = 'new', keep: ReadonlySet<TabId> = new Set()): Layout {
         const open = this.data.tabs.find((tab) => tab.type === type && tab.key === key);
         if (open !== undefined) {
             return this.activateTab(open.id);
@@ -167,7 +168,7 @@ export class Layout {
 
         const tab: TabData = {id, type, title, params, key};
         const reused = opening === 'reuse'
-            ? this.data.recentTabs.find((recent) => this.data.tabs.some((each) => each.id === recent && each.type === type))
+            ? this.data.recentTabs.find((recent) => !keep.has(recent) && this.data.tabs.some((each) => each.id === recent && each.type === type))
             : undefined;
         if (reused === undefined) {
             return this.with({tabs: [...this.data.tabs, tab], activeTab: id, recentTabs: [id, ...this.data.recentTabs]});
@@ -181,6 +182,16 @@ export class Layout {
             recentTabs: [id, ...this.data.recentTabs.filter((recent) => recent !== reused)],
             viewState,
         });
+    }
+
+    /** The tab `id` renamed `title`; nothing for a tab not open, or one already so named. */
+    public retitleTab(id: TabId, title: string): Layout {
+        const tab = this.data.tabs.find((each) => each.id === id);
+        if (tab === undefined || tab.title === title) {
+            return this;
+        }
+
+        return this.with({tabs: this.data.tabs.map((each) => each.id === id ? {...each, title} : each)});
     }
 
     /** Shows the tab `id`; nothing for a tab not open. */

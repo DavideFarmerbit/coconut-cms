@@ -328,6 +328,100 @@ Not built yet: dragging icons between sections and reordering tabs, menus
 and commands from manifests, splitting the canvas into several tab groups,
 going back and forward within a tab.
 
+## Properties
+
+How the admin shows and edits values, after Unreal's property editor. It's
+part of the public module, so projects and plugins show entities the same
+way, and nobody writes their own. Built, for native entities.
+
+Using it: `new EntityEditor(context, id)` gives an element showing the
+entity `id`, editable; a tab's view hands its `canClose()` to the shell.
+Customizing it: `admin.properties.register(match, EditorClass)`, where the
+class implements `PropertyEditor`, built with a `PropertyContext`: the
+property's path, its value description, its slot to read and set its
+value, whether it's writable, the catalog and API client, and helpers to
+show an object's fields or a Collection's items by the usual rules. The
+admin registers its defaults first, so a plugin's registrations replace
+them.
+
+- **A property is the unit.** A property view shows one field's value at a
+  path: its name, its value widget, and its children for values that have
+  them. Anything can be shown: one field, a nested Embed, a whole entity,
+  which is its fields' properties. Where it shows is up to its user: the
+  project's Cars tool opens a tab per car, showing the whole entity.
+- **Each kind has a default:**
+  - a value: a text box for a String, a number box for an Int or a Float,
+    a checkbox for a Bool, a date box for a Date, a dropdown for an Enum,
+    its stored text for a value object;
+  - an Embed: a collapsible group of its fields' properties, by the same
+    rules, like a struct;
+  - an owned object: shown as an edit-inline instanced subobject. Its
+    header has a type dropdown, the field's target, its subtypes, and
+    "None" when the field may be empty, and its properties show expanded
+    beneath it. Picking another type replaces the object with a new one of
+    that type, from its defaults; "None" empties the slot;
+  - a Reference: its target's label, an open button, and a picker. The
+    label is the target's `name`, `title` or `label` field, else its first
+    String field, else its id; a view loads every target's label at once.
+    The picker is a dropdown of the target type's standalone entities,
+    subtypes included, by label, paged, narrowed by a search on the label
+    field when it's a String, with "None" to clear it. The open button does
+    nothing yet: what opens depends on the target's type, the way an asset
+    pointer opens its asset's own editor, a page in a page editor. A
+    registry of editors by type comes later;
+  - a Collection, like Unreal's arrays: a header with its name, its item
+    count, add and clear; then a row per item, `[0]`, `[1]`…, with its
+    item's widget and a menu to insert before, duplicate, remove, move up
+    and move down. Dragging to reorder comes with the shell's drag engine.
+    A value or an Embed is added from its default; an owned item asks for
+    its type when its target has subtypes. An edit inside an item reports
+    at its path, `wheels.1.size`; adding, removing or moving items reports
+    the whole list, owned items keeping their ids, so a move never
+    recreates them.
+- **Customizations replace a default,** registered in `admin.properties`.
+  Several can match one field; the most specific wins:
+  1. this exact field of this type: `shop:car`'s `color`;
+  2. the type of value it holds: a value object type (`shop:color`, as
+     Unreal customizes FColor with a color picker), an entity type held as
+     an Embed or owned object (`shop:address`), or a scalar type (`int`);
+  3. the admin's default for its kind.
+
+  So a widget for `shop:car`'s `color` wins over a color picker for every
+  `shop:color`. A customization replaces the value widget only, keeping
+  the name, or, for a value with children, how they're laid out too.
+- **Editors work in stored form,** the form a read gives and an update
+  takes. Each reports a change at its path; the entity's view collects
+  them, and saves them as changes by path.
+- **A whole entity** shows a header, its label, its type, its id, an
+  unsaved-changes mark, Save and Revert, then its fields grouped by the type
+  declaring them, like Unreal's categories: a collapsible group per level,
+  the root first, so the fields every subtype shares sit in the same place.
+  A type with no ancestor shows no group header. Which groups are closed is
+  remembered per type. Fields go in declaration order; one the user can't
+  write is disabled, one they can't read isn't shown. Names are indented by
+  depth, values line up in one column. The view's tab is titled with the
+  entity's label, again after each save.
+- **New values start from defaults:** a new owned object, Embed or item
+  takes its type's defaults, which `coconut-cms:types.list` gives with each
+  type; a value starts empty, at zero or at an enum's first value. Later, rendering
+  hints on native properties may give a field its own category or label,
+  as Unreal's `Category` and `DisplayName` do.
+- **Saving is explicit,** as in Unreal's asset editors:
+  - edits wait at their paths; the view shows it has unsaved changes, and
+    marks each changed property;
+  - Save sends them all in one `entities.update`, so setters, `afterEdit`
+    and validation run once over the whole edit; Cmd or Ctrl and S saves.
+    Revert drops every change; resetting a property drops its own;
+  - after a save, the view shows what the update gave back: setters and
+    `afterEdit` may have changed other fields;
+  - an error shows at its property, `changes.<path>` or a validation
+    error's path, until that property is edited; one about the whole
+    entity shows at the top. A failed save keeps the changes, to fix;
+  - closing a view with unsaved changes asks to save, discard or cancel; its
+    tab shows a mark meanwhile, a reusing open never replaces it, and
+    leaving the page asks first. A view tells all this through its
+    context's `markDirty()` and its own `canClose()`.
+
 ## The Types tool
 
 The admin's first tool, registered the way a plugin registers its own. It

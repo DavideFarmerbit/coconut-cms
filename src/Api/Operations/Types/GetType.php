@@ -23,6 +23,6 @@ final readonly class GetType
             throw PermissionDenied::ofType($input->type, TypeAction::Read);
         }
 
-        return TypeDescription::of($schemas->get($input->type), $permissions);
+        return TypeDescription::of($schemas->get($input->type), $permissions, $context->session->defaultsOf($input->type));
     }
 }

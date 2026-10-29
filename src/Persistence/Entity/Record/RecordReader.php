@@ -11,6 +11,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolver;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Subject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\CollectionNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\LeafNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ObjectNode;
@@ -29,7 +31,20 @@ final readonly class RecordReader
         private EntityReader $reader,
         private SchemaLookup $schemas,
         private Permissions $permissions,
+        private FieldValueResolver $resolver,
     ) {
+    }
+
+    /**
+     * What a new `$type` entity holds: its type's defaults, in the form a
+     * read gives, with no id. Owned objects in it have none either, and a
+     * Reference default is left null. A field the reader may not read is
+     * left out.
+     */
+    public function defaultsOf(string $type): EntityRecord {
+        $tree = $this->resolver->resolveTree(Subject::of($type));
+
+        return $this->record($type, null, $tree, null, FieldPath::TRAVERSE, new LoadedEntity('', $type, $tree, [], []), []);
     }
 
     /**

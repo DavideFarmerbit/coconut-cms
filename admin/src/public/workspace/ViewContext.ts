@@ -1,4 +1,5 @@
 import type {ApiClient} from '../api/ApiClient.ts';
+import type {PropertyEditors} from '../properties/PropertyEditors.ts';
 import type {TypeCatalog} from '../types/TypeCatalog.ts';
 import type {JsonValue} from './Json.ts';
 import type {ViewState} from './ViewState.ts';
@@ -14,7 +15,18 @@ export interface ViewContext {
     readonly workspace: Workspace;
     /** A tab's parameters, as it was opened with; null for a tool's panel. */
     readonly params: JsonValue;
+    /** Every property editor: what shows an entity's values. */
+    readonly properties: PropertyEditors;
 
     /** Every entity type the user may read, loaded once per page. */
     typeCatalog(): Promise<TypeCatalog>;
+
+    /**
+     * Tells whether the view has unsaved changes: its tab shows a mark, a
+     * reusing open never replaces it, and leaving the page asks first.
+     */
+    markDirty(dirty: boolean): void;
+
+    /** Renames its tab: after a save changed what it shows. Nothing for a tool's panel. */
+    setTitle(title: string): void;
 }

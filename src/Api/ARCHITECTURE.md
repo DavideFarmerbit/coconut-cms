@@ -169,11 +169,15 @@ gives one, refusing a type it may not read. A type reads as:
 - A field the caller may not read is still listed, with `read` false: its
   name isn't secret, its values are.
 - An enum scalar lists its values; an Embed, a Reference or an owned object
-  its target type. A value object's class isn't told.
+  its target type; a value object its registered identifier, never its
+  class.
+- `defaults` gives what a new entity of the type holds, inherited fields
+  included, in the form `entities.get` gives values, with no ids: what an
+  editor starts a new object or item from. A field the caller may not read
+  is left out of it too.
 
-Not built yet: defaults, which a form creating an entity needs, and
-rendering hints, attributes on a native property changing how the admin
-shows it.
+Not built yet: rendering hints, attributes on a native property changing
+how the admin shows it.
 
 ### Reading an entity
 

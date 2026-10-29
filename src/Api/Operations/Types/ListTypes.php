@@ -23,7 +23,7 @@ final readonly class ListTypes
         $types = [];
         foreach ($identifiers as $identifier) {
             if ($permissions->may($identifier, TypeAction::Read)) {
-                $types[] = TypeDescription::of($schemas->get($identifier), $permissions);
+                $types[] = TypeDescription::of($schemas->get($identifier), $permissions, $context->session->defaultsOf($identifier));
             }
         }
 

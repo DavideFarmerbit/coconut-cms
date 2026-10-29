@@ -72,6 +72,13 @@ export class ViewHost {
         this.views.delete(key);
     }
 
+    /** Whether the view under `key` lets its tab close: it may ask about unsaved changes. True for one not built. */
+    public async canClose(key: string): Promise<boolean> {
+        const view = this.views.get(key)?.view;
+
+        return view?.canClose === undefined ? true : view.canClose();
+    }
+
     /** The keys of every view built. */
     public keys(): readonly string[] {
         return [...this.views.keys()];

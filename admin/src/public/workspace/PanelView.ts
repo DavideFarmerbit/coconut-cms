@@ -17,6 +17,12 @@ export interface PanelView {
 
     /** Called once, when it's gone for good: to stop what it started. */
     dispose(): void;
+
+    /**
+     * Asked before its tab closes: false keeps it open. A view with unsaved
+     * changes asks whether to save them. Without it, a tab always closes.
+     */
+    canClose?(): Promise<boolean>;
 }
 
 /** A PanelView class: what a tool or a tab type registers, built with its context. */
