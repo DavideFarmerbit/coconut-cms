@@ -1,0 +1,19 @@
+// A light theme: the base's tokens set again, nothing else. Loaded after
+// the base stylesheet, it re-skins the whole admin, plugins included.
+:root {
+    color-scheme: light;
+
+    --cc-color-frame: #e8e9ec;
+    --cc-color-island: #ffffff;
+    --cc-color-raised: #f2f3f5;
+    --cc-color-border: #d3d5db;
+    --cc-color-text: #1e1f22;
+    --cc-color-text-muted: #6c707e;
+    --cc-color-accent: #3574f0;
+    --cc-color-accent-hover: #2f66d6;
+    --cc-color-on-accent: #ffffff;
+    --cc-color-danger: #db3b4b;
+    --cc-color-focus: #3574f0;
+
+    --cc-island-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+}

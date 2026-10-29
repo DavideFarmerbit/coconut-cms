@@ -1,0 +1,29 @@
+// The page itself: the frame every island sits on.
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
+    margin: 0;
+}
+
+body {
+    background: var(--cc-color-frame);
+    color: var(--cc-color-text);
+    font-family: var(--cc-font-family);
+    font-size: var(--cc-font-size);
+    line-height: var(--cc-line-height);
+}
+
+h1,
+p {
+    margin: 0;
+}
+
+.muted {
+    color: var(--cc-color-text-muted);
+}

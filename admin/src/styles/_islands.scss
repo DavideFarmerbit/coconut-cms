@@ -1,0 +1,8 @@
+// An island: a separate, rounded surface on the frame. Panels and the
+// canvas are islands; so is the sign-in card.
+.island {
+    background: var(--cc-color-island);
+    border-radius: var(--cc-island-radius);
+    box-shadow: var(--cc-island-shadow);
+    padding: var(--cc-island-padding);
+}

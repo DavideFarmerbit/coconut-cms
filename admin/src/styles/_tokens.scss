@@ -1,0 +1,46 @@
+// Every major style value of the admin, as a custom property: the base
+// theme, after JetBrains' Islands Dark. Rules never use a raw value; a theme
+// stylesheet loaded after this one sets any of these again.
+:root {
+    color-scheme: dark;
+
+    // Colors.
+    --cc-color-frame: #131416;          // behind the islands
+    --cc-color-island: #1e1f22;         // a panel's, the canvas's background
+    --cc-color-raised: #2b2d30;         // a field, a hovered control
+    --cc-color-border: #393b40;
+    --cc-color-text: #dfe1e5;
+    --cc-color-text-muted: #868a91;
+    --cc-color-accent: #3574f0;
+    --cc-color-accent-hover: #4682fa;
+    --cc-color-on-accent: #ffffff;
+    --cc-color-danger: #f75464;
+    --cc-color-focus: #3574f0;
+
+    // Islands: how far apart they sit, and how round they are.
+    --cc-island-gap: 6px;
+    --cc-island-radius: 10px;
+    --cc-island-padding: 16px;
+    --cc-island-shadow: none;
+
+    // Controls.
+    --cc-control-radius: 6px;
+    --cc-control-height: 30px;
+    --cc-control-padding-x: 10px;
+    --cc-focus-ring: 0 0 0 2px var(--cc-color-focus);
+
+    // Spacing scale.
+    --cc-space-1: 4px;
+    --cc-space-2: 8px;
+    --cc-space-3: 12px;
+    --cc-space-4: 16px;
+    --cc-space-5: 24px;
+
+    // Type.
+    --cc-font-family: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --cc-font-family-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    --cc-font-size: 13px;
+    --cc-font-size-small: 12px;
+    --cc-font-size-title: 18px;
+    --cc-line-height: 1.45;
+}

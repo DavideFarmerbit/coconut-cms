@@ -1,0 +1,7 @@
+{
+  "_public-X.js": {"file": "assets/public-X.js", "name": "public"},
+  "src/main.ts": {"file": "assets/main-A.js", "src": "src/main.ts", "isEntry": true, "imports": ["_public-X.js"]},
+  "src/public/index.ts": {"file": "assets/index-B.js", "src": "src/public/index.ts", "isEntry": true, "imports": ["_public-X.js"]},
+  "src/styles/admin.scss": {"file": "assets/admin-C.css", "src": "src/styles/admin.scss", "isEntry": true},
+  "src/styles/themes/light.scss": {"file": "assets/light-D.css", "src": "src/styles/themes/light.scss", "isEntry": true}
+}

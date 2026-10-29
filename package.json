@@ -2,11 +2,16 @@
   "name": "coconut-cms",
   "private": true,
   "type": "module",
-  "description": "JS test tooling for the coconut-cms Composer package. Not published to npm, the package is distributed via Composer; consumers bundle its raw source with their own build tool.",
+  "description": "The admin app's sources and build for the coconut-cms Composer package. Not published to npm: a project builds the admin with build:admin into its own public folder.",
   "scripts": {
+    "build:admin": "vite build --config admin/vite.config.ts",
+    "check:admin": "tsc --noEmit -p admin",
     "test": "vitest run"
   },
   "devDependencies": {
+    "sass-embedded": "^1.107.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.5",
     "vitest": "^5.0.1"
   }
 }

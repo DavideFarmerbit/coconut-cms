@@ -1,0 +1,7 @@
+// The admin's base stylesheet: the tokens, then every component's rules,
+// which use the tokens only. A theme loads after it.
+@use 'tokens';
+@use 'base';
+@use 'islands';
+@use 'controls';
+@use 'sign-in';
