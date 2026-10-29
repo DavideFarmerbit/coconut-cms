@@ -82,6 +82,12 @@ export class EntityDraft {
         };
     }
 
+    /** Sets the property at `path`, holding what `value` describes, to `next`. */
+    public set(path: string, next: unknown, value: ValueDescription): void {
+        ReadTree.put(this.working, path, next);
+        this.mark(path, value);
+    }
+
     /**
      * Changes `items`, the Collection at `path` holding what `value`
      * describes, in place by `change`, which keeps each item's origin

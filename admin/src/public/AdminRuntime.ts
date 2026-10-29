@@ -1,5 +1,7 @@
+import {DialogUnsavedQuestion} from '../entities/DialogUnsavedQuestion.ts';
 import type {ApiClient} from './api/ApiClient.ts';
 import type {User} from './auth/User.ts';
+import {EntityStore} from './entities/EntityStore.ts';
 import {PropertyEditors} from './properties/PropertyEditors.ts';
 import {TypeCatalog} from './types/TypeCatalog.ts';
 import type {TypeList} from './types/TypeDescription.ts';
@@ -10,7 +12,7 @@ import type {ToolDefinition} from './workspace/ToolDefinition.ts';
 
 /**
  * The running admin, as plugins reach it: its tools and tab types, the API
- * client it calls the backend with, and who's signed in. One instance, `admin`, exported by the
+ * client it calls the backend with, the entities, and who's signed in. One instance, `admin`, exported by the
  * public module: a plugin importing "@coconut-cms/admin" gets the app's own,
  * through the import map.
  */
@@ -33,6 +35,9 @@ export class AdminRuntime {
     /** The type catalog, once asked for. */
     private catalog: Promise<TypeCatalog> | undefined;
 
+    /** The entities, for whoever is signed in; set when the app starts. */
+    private store: EntityStore | undefined;
+
     /** The client every call to the backend goes through. Throws before the app started. */
     public get api(): ApiClient {
         if (this.client === undefined) {
@@ -40,6 +45,15 @@ export class AdminRuntime {
         }
 
         return this.client;
+    }
+
+    /** The entities the admin works with, and their sessions. Throws before the app started. */
+    public get entities(): EntityStore {
+        if (this.store === undefined) {
+            throw new Error('The admin hasn\'t started: there is no entity store yet.');
+        }
+
+        return this.store;
     }
 
     /** Who's signed in; null for nobody. */
@@ -64,11 +78,20 @@ export class AdminRuntime {
         }
 
         this.client = client;
+        this.store = this.newStore(client);
     }
 
-    /** Called by the app when someone signs in or out: what they may read differs, so the catalog is forgotten. */
+    /** Called by the app when someone signs in or out: what they may read differs, so the catalog and the entities are forgotten. */
     public setUser(user: User | null): void {
         this.signedIn = user;
         this.catalog = undefined;
+        if (this.client !== undefined) {
+            this.store = this.newStore(this.client);
+        }
+    }
+
+    /** An empty store calling the backend through `client`. */
+    private newStore(client: ApiClient): EntityStore {
+        return new EntityStore(client, () => this.typeCatalog(), new DialogUnsavedQuestion());
     }
 }
