@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Edit;
 
 use DateTimeImmutable;
+use XyloIsCoding\CoconutCms\Admin\AdminCode;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\AfterEdit;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\EditRefused;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
@@ -229,5 +230,9 @@ final class EditModule implements Module
 
     public function operations(): array {
         return [];
+    }
+
+    public function adminCode(): ?AdminCode {
+        return null;
     }
 }

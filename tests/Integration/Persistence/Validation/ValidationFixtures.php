@@ -2,6 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Validation;
 
+use XyloIsCoding\CoconutCms\Admin\AdminCode;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityView;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 use XyloIsCoding\CoconutCms\Persistence\Module;
@@ -252,5 +253,9 @@ final class ValidationModule implements Module
 
     public function operations(): array {
         return [];
+    }
+
+    public function adminCode(): ?AdminCode {
+        return null;
     }
 }

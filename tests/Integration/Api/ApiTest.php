@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Tests\Integration\Api;
 use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use XyloIsCoding\CoconutCms\Admin\AdminCode;
 use XyloIsCoding\CoconutCms\Api\Api;
 use XyloIsCoding\CoconutCms\Api\Auth\AnonymousActor;
 use XyloIsCoding\CoconutCms\Api\Auth\Authenticator;
@@ -129,6 +130,10 @@ final class ApiTestModule implements Module
 
     public function operations(): array {
         return [ApiTestExplode::class, ApiTestGreet::class];
+    }
+
+    public function adminCode(): ?AdminCode {
+        return null;
     }
 }
 

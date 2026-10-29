@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence;
 
 use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\TestCase;
+use XyloIsCoding\CoconutCms\Admin\AdminCode;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Cms;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationState;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationUnfinished;
@@ -38,6 +39,10 @@ final class PersistenceV1Module implements Module
     public function operations(): array {
         return [];
     }
+
+    public function adminCode(): ?AdminCode {
+        return null;
+    }
 }
 
 /** Its second version, with the steps from the first. */
@@ -57,6 +62,10 @@ final class PersistenceV2Module implements Module
 
     public function operations(): array {
         return [];
+    }
+
+    public function adminCode(): ?AdminCode {
+        return null;
     }
 }
 

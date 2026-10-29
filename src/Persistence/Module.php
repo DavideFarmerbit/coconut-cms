@@ -2,6 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence;
 
+use XyloIsCoding\CoconutCms\Admin\AdminCode;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 
 /**
@@ -31,4 +32,7 @@ interface Module
      * @return list<class-string>
      */
     public function operations(): array;
+
+    /** Its admin code, which `npm run build:admin` builds or copies into the admin; null for none. */
+    public function adminCode(): ?AdminCode;
 }

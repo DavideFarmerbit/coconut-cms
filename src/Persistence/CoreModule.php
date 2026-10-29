@@ -2,6 +2,8 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence;
 
+use XyloIsCoding\CoconutCms\Admin\AdminCode;
+use XyloIsCoding\CoconutCms\Api\Operations\Admin\ListAdminCode;
 use XyloIsCoding\CoconutCms\Api\Operations\Auth\GetMe;
 use XyloIsCoding\CoconutCms\Api\Operations\Auth\SignIn;
 use XyloIsCoding\CoconutCms\Api\Operations\Auth\SignOut;
@@ -35,6 +37,12 @@ final readonly class CoreModule implements Module
             SignIn::class, SignOut::class, GetMe::class,
             ListTypes::class, GetType::class,
             GetEntity::class, QueryEntities::class, CreateEntity::class, UpdateEntity::class, DeleteEntity::class,
+            ListAdminCode::class,
         ];
+    }
+
+    /** None: the admin's own tools are part of the admin. */
+    public function adminCode(): ?AdminCode {
+        return null;
     }
 }

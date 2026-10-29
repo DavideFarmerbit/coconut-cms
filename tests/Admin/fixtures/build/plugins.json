@@ -1,0 +1,6 @@
+{
+  "plugins": [
+    {"module": "admin-test", "script": "assets/plugin-admin-test-E.js", "css": ["assets/plugin-admin-test-F.css"]},
+    {"module": "gone", "script": "plugins/gone/index.js", "css": []}
+  ]
+}

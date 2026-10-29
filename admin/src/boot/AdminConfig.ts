@@ -1,7 +1,9 @@
+import type {PluginEntry} from './PluginEntry.ts';
+
 /**
  * What the admin page hands the app, as JSON in its config script: where the
- * API is, and the session's CSRF token. Checked on read, so a broken page
- * fails with a clear message, not a blank screen.
+ * API is, the session's CSRF token, and the modules' admin code. Checked on
+ * read, so a broken page fails with a clear message, not a blank screen.
  */
 export class AdminConfig {
     /** The id of the script element the admin page writes it in. */
@@ -10,10 +12,12 @@ export class AdminConfig {
     /**
      * @param apiUrl Where operations are mounted: "/api".
      * @param csrfToken The session's token, sent with every call.
+     * @param plugins Every module's admin code, in boot order.
      */
     private constructor(
         public readonly apiUrl: string,
         public readonly csrfToken: string,
+        public readonly plugins: readonly PluginEntry[],
     ) {
     }
 
@@ -40,7 +44,7 @@ export class AdminConfig {
             throw new Error('The admin config isn\'t an object.');
         }
 
-        const {apiUrl, csrfToken} = data as Record<string, unknown>;
+        const {apiUrl, csrfToken, plugins = []} = data as Record<string, unknown>;
         if (typeof apiUrl !== 'string' || apiUrl === '') {
             throw new Error('The admin config has no apiUrl.');
         }
@@ -49,6 +53,21 @@ export class AdminConfig {
             throw new Error('The admin config has no csrfToken.');
         }
 
-        return new AdminConfig(apiUrl, csrfToken);
+        if (!Array.isArray(plugins) || !plugins.every(AdminConfig.isPluginEntry)) {
+            throw new Error('The admin config\'s plugins aren\'t a list of {module, script}.');
+        }
+
+        return new AdminConfig(apiUrl, csrfToken, plugins);
+    }
+
+    /** Whether `value` is a plugin entry. */
+    private static isPluginEntry(value: unknown): value is PluginEntry {
+        if (typeof value !== 'object' || value === null) {
+            return false;
+        }
+
+        const {module, script} = value as Record<string, unknown>;
+
+        return typeof module === 'string' && typeof script === 'string';
     }
 }

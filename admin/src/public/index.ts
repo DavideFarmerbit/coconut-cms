@@ -7,6 +7,7 @@
  */
 import {AdminRuntime} from './AdminRuntime.ts';
 
+export type {AdminPlugin, AdminPluginClass} from './AdminPlugin.ts';
 export {AdminRuntime} from './AdminRuntime.ts';
 export {ApiClient, type Fetcher} from './api/ApiClient.ts';
 export {ApiFailure} from './api/ApiFailure.ts';

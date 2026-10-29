@@ -2,9 +2,9 @@
   "name": "coconut-cms",
   "private": true,
   "type": "module",
-  "description": "The admin app's sources and build for the coconut-cms Composer package. Not published to npm: a project builds the admin with build:admin into its own public folder.",
+  "description": "The admin app's sources and build for the coconut-cms Composer package. Not published to npm: a project builds the admin, with its modules' admin code, into its own public folder: npm --prefix vendor/xylo-is-coding/coconut-cms run build:admin -- --project \"$PWD\".",
   "scripts": {
-    "build:admin": "vite build --config admin/vite.config.ts",
+    "build:admin": "node admin/build.mjs",
     "check:admin": "tsc --noEmit -p admin",
     "test": "vitest run"
   },

@@ -6,6 +6,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\TestCase;
+use XyloIsCoding\CoconutCms\Admin\AdminCode;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 use XyloIsCoding\CoconutCms\Persistence\Module;
 use XyloIsCoding\CoconutCms\Persistence\Permission\SystemActor;
@@ -66,6 +67,10 @@ final class RoundTripModule implements Module
 
     public function operations(): array {
         return [];
+    }
+
+    public function adminCode(): ?AdminCode {
+        return null;
     }
 }
 

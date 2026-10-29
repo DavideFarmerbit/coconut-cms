@@ -2,6 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Reference;
 
+use XyloIsCoding\CoconutCms\Admin\AdminCode;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 use XyloIsCoding\CoconutCms\Persistence\Module;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
@@ -80,5 +81,9 @@ final class ReferenceModule implements Module
 
     public function operations(): array {
         return [];
+    }
+
+    public function adminCode(): ?AdminCode {
+        return null;
     }
 }

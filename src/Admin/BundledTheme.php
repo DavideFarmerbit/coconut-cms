@@ -2,7 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Admin;
 
-/** A theme the admin's build ships, chosen by name instead of by URL: Admin::boot(theme: BundledTheme::Light). */
+/** A theme the admin's build ships, chosen by name instead of by URL: Admin::boot(..., theme: BundledTheme::Light). */
 enum BundledTheme
 {
     case Light;

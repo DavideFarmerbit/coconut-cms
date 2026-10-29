@@ -19,6 +19,7 @@ use XyloIsCoding\CoconutCms\Api\Operation\OperationContext;
 use XyloIsCoding\CoconutCms\Api\Operation\OperationDefinition;
 use XyloIsCoding\CoconutCms\Api\Operation\OperationRegistry;
 use XyloIsCoding\CoconutCms\Api\Output\ResultWriter;
+use XyloIsCoding\CoconutCms\Persistence\Module;
 use XyloIsCoding\CoconutCms\Persistence\Permission\Actor;
 use XyloIsCoding\CoconutCms\Persistence\Persistence;
 use XyloIsCoding\CoconutCms\Routing\Request;
@@ -94,6 +95,11 @@ final class Api
     /** @return list<OperationDefinition> Every operation served, sorted by identifier. */
     public function operations(): array {
         return $this->operations->all();
+    }
+
+    /** @return list<Module> Every module booted, in order, the core module first. */
+    public function modules(): array {
+        return $this->persistence->modules();
     }
 
     /** The operation named $identifier; null when there's none. */

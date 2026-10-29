@@ -6,9 +6,9 @@ CMS. Updated one decision at a time.
 Built: the build, the page with its import map and config, the public
 module, the base and light themes, the sign-in screen, the shell with its
 panels, splitters and one tab group, tool and tab type registration, and
-the Types tool. Not built yet: dragging icons and tabs, menus from
-manifests, plugin loading, the layout kept per user on the server. Each is
-noted inline.
+the Types tool, and loading modules' admin code. Not built yet: dragging
+icons and tabs, menus from manifests, uploaded and browser plugins, the
+layout kept per user on the server. Each is noted inline.
 
 The admin is a client-side app. It talks to the backend only through the API
 (`../Api/ARCHITECTURE.md`): every list, form and save is an operation, so the
@@ -21,21 +21,22 @@ sources are in the package's `admin/`, next to the PHP's `src/`.
 A project serves the admin from its router, next to the API:
 
 ```php
-$admin = Admin::boot($api, manifest: __DIR__ . '/public/dist/admin/.vite/manifest.json', theme: BundledTheme::Light);
+$admin = Admin::boot($api, buildDir: __DIR__ . '/public/dist/admin', theme: BundledTheme::Light);
 $admin->routes($router, prefix: '/admin');
 ```
 
-`Admin::boot()` also takes `assetsUrl`, where the web server serves the
-built admin (`/dist/admin/`), and `apiUrl`, where the API is mounted
-(`/api`). A theme is a bundled one or a stylesheet's URL.
+`buildDir` is where the admin was built, on disk. `Admin::boot()` also
+takes `assetsUrl`, where the web server serves that folder (`/dist/admin/`),
+and `apiUrl`, where the API is mounted (`/api`). A theme is a bundled one or
+a stylesheet's URL.
 
 The admin is a single page. `routes()` registers `GET /admin`, the page
 starting the app, never cached. It holds:
 
-- the base stylesheet, then the theme;
+- the base stylesheet, then the theme, then the modules' stylesheets;
 - an import map resolving `@coconut-cms/admin` (see "Plugins");
 - the app's config, as JSON in `<script id="coconut-admin-config">`: the
-  API's URL and the session's CSRF token;
+  API's URL, the session's CSRF token, and each module's admin code entry;
 - the app's module script.
 
 The admin's built files are served by the web server, from
@@ -54,19 +55,33 @@ the shell; the menubar names them, and signs them out.
 
 Nothing generated is committed to git, so the package ships the admin's
 sources only, with its own `package.json`, TypeScript and Vite config. A
-project builds it with one command, into `public/dist/admin/`, with a Vite
-manifest; the web server serves those files. A project needs Node for
-this, and installs the package's Node dependencies once:
+project builds it, with every module's admin code, with one command, into
+`public/dist/admin/`; the web server serves those files. A project needs
+Node for this, and installs the package's Node dependencies once:
 
 ```
 npm --prefix vendor/xylo-is-coding/coconut-cms install
-npm --prefix vendor/xylo-is-coding/coconut-cms run build:admin -- --outDir "$PWD/public/dist/admin"
+npm --prefix vendor/xylo-is-coding/coconut-cms run build:admin -- --project "$PWD"
 ```
 
-The build has four entries: the app, the public module, the base
-stylesheet and the light theme. The build's URLs are relative, so the
-output can be served from any folder. In the package, `npm run check:admin`
-type-checks, and `npm test` runs the admin's tests.
+The build (`admin/build.mjs`):
+
+1. asks the project which modules have admin code, through
+   `vendor/bin/coconut coconut-cms:admin.code`, an operation for the
+   command line only;
+2. builds the admin's four entries, the app, the public module, the base
+   stylesheet and the light theme, with each module's source entry, in one
+   Vite build;
+3. copies each module's built folder into `plugins/<module>/`;
+4. writes `plugins.json`: each module's entry script and stylesheets, which
+   the page reads, leaving out a module no longer booted.
+
+The build's URLs are relative, so the output can be served from any
+folder. Without `--project`, it builds the admin alone, into the package's
+`dist/admin`. In the package, `npm run check:admin` type-checks, and
+`npm test` runs the admin's tests. A project type-checks its own admin code
+with a `tsconfig.json` mapping `@coconut-cms/admin` to the package's
+`admin/src/public/index.ts`.
 
 Each build under `public/dist/` keeps its own folder and empties only that
 one: the admin's is `public/dist/admin/`, the project's own assets go in
@@ -93,7 +108,101 @@ sample theme ships next to the base.
 
 ## Plugins
 
-The admin is built so plugins stand on the same footing as its own tools.
+There are two kinds of plugins, apart by how far they're trusted. Neither
+is built yet.
+
+- **Server plugins** are modules: PHP entity classes, operations and
+  migration steps, and optionally admin code. They're active for every
+  user. They come two ways: through Composer, by the project's developers,
+  or uploaded through the admin, as WordPress does, by a user holding the
+  right to. Uploading one runs new PHP on the server, so it needs that
+  right, and the project may turn uploads off. Their admin code is trusted
+  like the admin's own: it runs in the page and uses the public module
+  below.
+- **Browser plugins** are installed by one user, from inside the admin, and
+  add nothing on the server: they use the operations there are, with that
+  user's rights, as Figma's plugins do. They're sandboxed: each view is an
+  iframe with no access to the page, the session or the CSRF token, talking
+  to the admin through messages only. A browser plugin is described by a
+  manifest at a URL: what it adds, its entry page, and the operations it
+  asks to call, which the user agrees to when installing it. The admin runs
+  only those operations for it, with the user's rights, never more.
+
+A server plugin is one package, however it comes. Its `plugin.json` gives
+its name (its module's name), its version, the coconut-cms versions it
+works with, its `Module` class, its PSR-4 mapping, its PHP dependencies and
+its admin entries.
+
+- **Installed through Composer**, its dependencies are resolved with the
+  project's, and the project builds its admin code, as it builds the admin.
+  This is the better way wherever there's a team: the plugin is in
+  `composer.lock` and git, every environment runs the same code, a change is
+  reviewed and tested before it ships, its migration goes through the
+  normal deploy, and production needs no code directory the web server can
+  write.
+- **Uploaded**, as a zip, it brings everything with it: its dependencies in
+  its own `vendor/`, their namespaces prefixed by its author so two plugins
+  never clash, and its admin code built in `dist/`. The CMS refuses an
+  upload missing either. This is for a site with no developer around.
+  Uploads are a project setting: a team's project turns them off in
+  production.
+
+A plugin first uploaded can move to Composer later, unchanged.
+
+What's active follows where each kind is controlled:
+
+- **A Composer plugin is active by being in the code:** the project lists
+  its module, as it lists its own. The repo decides what runs, and a deploy
+  changes it. The admin shows these plugins as managed by the project, with
+  nothing to switch on or off.
+- **An uploaded plugin is kept by the CMS:** its files are unpacked into a
+  folder outside `public/` and `vendor/`, `storage/plugins/<name>/`, and a
+  table records which are installed, their versions, and which are active.
+  At boot, the active ones' modules follow the project's, and their PSR-4
+  mappings are registered. Reading that table is cached with the code's
+  state, so most requests don't pay for it.
+
+An uploaded plugin's life, each step an operation:
+
+1. **Upload** installs it, inactive. The zip is checked first: a valid
+   `plugin.json`, a compatible coconut-cms version, its `vendor/` and
+   `dist/`, a name no other module has. Nothing changes for the site.
+2. **Activating** shows a dry run first: `Persistence::check()` with its
+   module added, giving the types it adds, what changes, and whether
+   anything blocks under the project's policy.
+3. **Confirming** activates it and migrates, in one operation. A failed
+   migration leaves it inactive; a dry run that blocks refuses it, saying
+   why. The migration must run there: a site with uploads has no deploy
+   command to run it.
+4. **Updating** uploads a newer version: the same dry run with its new code
+   and steps, then the files swapped and the migration run, once confirmed.
+
+Switching a plugin off never deletes content:
+
+- **Deactivating keeps its content, dormant.** Its types stay in the
+  schema store, with their tables and rows, marked dormant. Nothing reads,
+  writes, queries or migrates them while they are, and every migration
+  leaves them out, so they don't count as types removed. Reactivating the
+  same version brings them back with no migration; a newer version migrates
+  from where they were. Deactivating is refused while anything active
+  depends on its types, an editor-created type extending one or a field
+  targeting one, another plugin's: the refusal lists them.
+- **Deleting drops its content, after a dry run** showing how many entities
+  of each type go and what depends on them. Confirmed, it runs a
+  `DropType` for each of its types, as one migration, under the project's
+  policy: the fields losing their target and the chains cut are blocked,
+  or set aside as NoType records, as in any migration. Then its files go.
+
+Dormancy is persistence's: a stored schema marked dormant, left out of
+compiling, comparing and moving.
+
+One role, named by the project in its plugin settings, holds the right to
+upload, activate, update and remove plugins: `PluginSettings(uploads: true,
+managerRole: 'admin')` or the like, given at boot. With uploads off, these
+operations don't exist.
+
+The rest of this section is about server plugins' admin code. The admin is
+built so it stands on the same footing as its own tools.
 
 - **One public API.** The admin exposes one module as its plugin surface,
   `@coconut-cms/admin`: the registries (tools, tab types, commands, menus),
@@ -113,9 +222,25 @@ The admin is built so plugins stand on the same footing as its own tools.
   same shared chunk, so both reach one instance of each.
 - **Types.** The package ships the public API's declaration files, so a
   plugin is checked by strict TypeScript against it. Not built yet.
-- **Loading.** A module lists its plugins' script URLs in the manifest, built
-  by its own Vite. The admin starts its core, then imports each plugin, which
-  registers what it adds through the public API. Not built yet.
+- **Loading.** A module declares its admin code in `adminCode()`:
+  - `AdminCode::source($file)`: a TypeScript entry, built with the admin
+    into one build. There, `@coconut-cms/admin` resolves to the admin's own
+    source, so the module shares its code. What a project's own module, or
+    a plugin leaving its build to the project, declares.
+  - `AdminCode::built($folder)`: a folder its author built with any
+    toolchain, with an `admin-plugin.json` naming its entry script and
+    stylesheets. Copied as it is; its `@coconut-cms/admin` stays an
+    external import, which the page's import map resolves to the running
+    admin. For a plugin whose build can't be left to the project.
+
+  Either entry's default export is a class implementing `AdminPlugin`, with
+  `register(admin)`. The admin registers its own tools, then imports each
+  module's entry in boot order, builds its plugin and lets it register,
+  before the workspace starts, so every tool is there when the saved layout
+  is reconciled. A plugin failing to load or register is skipped and logged;
+  the admin starts without it. Its stylesheets load with the page. A
+  module's classes are prefixed with its name: every stylesheet shares the
+  page.
 - **The admin's own tools use the same API.** The type list, the entity list
   and the details panel are registered the way a plugin registers its tools,
   so the public API is used from the first day, not designed in theory.
