@@ -7,9 +7,6 @@ import {ReadTree} from './ReadTree.ts';
 import {Values} from './Values.ts';
 import {WriteForm} from './WriteForm.ts';
 
-/** Told that the draft's changes changed: a property set, reset or reverted, a save accepted. */
-export type DraftChanged = () => void;
-
 /** Changes a Collection's items, and alongside them where each came from. */
 export type Restructure = (items: unknown[], origins: (number | null)[]) => void;
 
@@ -26,19 +23,18 @@ interface Counterpart {
 }
 
 /**
- * An entity being edited: what was saved, a working copy the properties
+ * What an EntitySession edits: what was saved, a working copy the properties
  * change, and which paths were changed, what a save sends. A change at a path
  * covers everything under it. A Collection's items keep where each came from
  * when restructured, so a property is compared with what stood for it when
  * saved: a moved item isn't changed, and a change undone is clean again.
  */
 export class EntityDraft {
-    private saved: Record<string, unknown>;
+    private readonly saved: Record<string, unknown>;
     private working: Record<string, unknown>;
     private readonly changed = new Map<string, ValueDescription>();
     /** Each restructured Collection's items' saved indexes, null for a new item, by the working copy's list. */
     private readonly origins = new WeakMap<unknown[], (number | null)[]>();
-    private readonly listeners: DraftChanged[] = [];
 
     /** @param values The entity's values, as a read gives them. */
     public constructor(values: Readonly<Record<string, unknown>>) {
@@ -64,11 +60,6 @@ export class EntityDraft {
         }
 
         return {isNew: false, movedFrom: counterpart.movedFrom, isChanged: !Values.equal(counterpart.working, counterpart.saved)};
-    }
-
-    /** Tells `listener` of every change of the changes. */
-    public onChange(listener: DraftChanged): void {
-        this.listeners.push(listener);
     }
 
     /** The slot of `holder[key]`, the property at `path` holding what `value` describes. */
@@ -120,22 +111,12 @@ export class EntityDraft {
                 this.changed.delete(changed);
             }
         }
-        this.notify();
     }
 
     /** Drops every change. */
     public revert(): void {
         this.working = structuredClone(this.saved);
         this.changed.clear();
-        this.notify();
-    }
-
-    /** Makes `values`, what a save gave back, the saved values and the working copy. */
-    public accept(values: Readonly<Record<string, unknown>>): void {
-        this.saved = structuredClone(values) as Record<string, unknown>;
-        this.working = structuredClone(values) as Record<string, unknown>;
-        this.changed.clear();
-        this.notify();
     }
 
     /** Every change by path, in the form an update takes; a path changed back isn't sent. */
@@ -195,13 +176,6 @@ export class EntityDraft {
                 }
             }
             this.changed.set(path, value);
-        }
-        this.notify();
-    }
-
-    private notify(): void {
-        for (const listener of this.listeners) {
-            listener();
         }
     }
 }

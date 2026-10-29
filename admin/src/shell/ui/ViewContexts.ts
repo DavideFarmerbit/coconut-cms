@@ -33,6 +33,7 @@ export class ViewContexts {
             workspace: this.workspace,
             params,
             properties: runtime.properties,
+            entities: runtime.entities,
             typeCatalog: () => runtime.typeCatalog(),
             markDirty: (isDirty: boolean) => dirty.set(key, isDirty),
             setTitle: (title: string) => {

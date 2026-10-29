@@ -47,7 +47,7 @@ export class Shell implements View, LayoutListener, Workspace {
         this.dirty.onChange(() => this.render(this.store.current));
         // Unsaved work isn't left by accident: the browser asks first.
         window.addEventListener('beforeunload', (event) => {
-            if (this.dirty.any) {
+            if (this.dirty.any || runtime.entities.hasUnsaved) {
                 event.preventDefault();
             }
         });

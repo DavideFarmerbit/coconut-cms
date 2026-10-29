@@ -53,10 +53,8 @@ export class ReferenceEditor implements PropertyEditor {
             placeholder: `Search ${type}`,
             pinned: [{key: ReferenceEditor.NONE, label: 'None', value: null}],
             current: isReferenceValue(current) ? current.id : ReferenceEditor.NONE,
-            picked: (picked) => {
-                context.slot.set(picked);
-                context.rebuild();
-            },
+            // Replaced, not set: the row is built again, its label with it.
+            picked: (picked) => context.replace(picked),
         });
     }
 }

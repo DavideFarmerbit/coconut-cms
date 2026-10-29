@@ -9,7 +9,7 @@ panels, splitters and one tab group, tool and tab type registration, and
 the Types tool, loading modules' admin code, and editing native entities'
 properties. Not built yet: dragging icons and tabs, menus from manifests,
 uploaded and browser plugins, the layout kept per user on the server,
-properties' split into a store, sessions and views, and their filters.
+property filters, lists following the entity store.
 Each is noted inline.
 
 The admin is a client-side app. It talks to the backend only through the API
@@ -336,10 +336,9 @@ How the admin shows and edits entities, after Unreal's editor: an object
 in memory, edited from several places at once, with one unsaved state, and
 details views showing its properties. It's part of the public module, so
 projects and plugins show entities the same way, and nobody writes their
-own. Built for native entities: the rows, the editors, the dropdown, saving.
-Not built yet: the split into a store, sessions and views below, and
-filters. Today `EntityEditor` loads, edits, saves and shows an entity by
-itself.
+own. Built for native entities: the store, sessions, views, editors and
+the dropdown. Not built yet: filters, and lists and labels following the
+store's changes; each is noted inline.
 
 The code is in three layers. Data knows nothing of the DOM; views know
 nothing of the API.
@@ -360,8 +359,10 @@ admin, given to every view as `context.entities`.
   API, and keeps what it read.
 - It tells its listeners of each change: an entity created, updated or
   deleted, with what the API gave back. A list of entities runs its query
-  again when an entity of its type changes, so a rename shows everywhere.
-  A Reference's label comes from the store too.
+  again when an entity of its type changes, so a rename shows everywhere
+  (not built yet: the Cars tool and the Reference picker still call the
+  API themselves). A Reference's label comes from the store, as last read
+  or saved.
 - It gives out the sessions. There is one session per entity: two views of
   one entity share it, and see each other's edits as they're made.
 
@@ -388,12 +389,17 @@ of the entity goes through it.
 
 - Its state: loading, ready, or failed with a message. Its type, its id
   (null while new), its label.
-- Reading and changing it, by path: `valueAt(path)`, `set(path, value)`,
-  `itemsAt(path)` for a Collection's `CollectionItems`, `resetAt(path)` to
-  what was saved, `resetToDefaultAt(path)`.
+- Reading and changing it, by path: `describe(path)`, the property's
+  field, what it holds, the type holding it, whether it's writable;
+  `valueAt(path)`; `set(path, value)`, and `replace(path, value)`, a set
+  told as a change of shape; `itemsAt(path)` for a Collection's
+  `CollectionItems`; `resetAt(path)` to what was saved,
+  `resetToDefaultAt(path)` and `defaultAt(path)`. An owned object is
+  described by the class it holds, so a subtype's own fields are found.
 - Where a path stands: `statusAt(path)` (new, moved from another index,
   changed) and `errorAt(path)`; an error about the whole entity, `isDirty`,
-  `isSaving`.
+  `isSaving`. A new entity stands against its type's defaults: until its
+  first save, resetting a property puts its default back.
 - `save()` and `revert()`. `save()` answers whether it saved; when it
   fails, the errors are at their paths.
 - Its change events name what changed: values at paths, the shape at a
@@ -410,16 +416,23 @@ It gets dirty tracking, errors and saving with it.
   `wheels.1.size`. It can go anywhere in a custom layout, like Unreal's
   single property view.
 - `PropertyGrid` shows many: by default every field, grouped by the type
-  declaring it, like Unreal's details view. A `PropertyFilter` narrows it.
+  declaring it, like Unreal's details view. A `PropertyFilter` narrows it
+  (not built yet).
 - `EntityEditor` is the default composition, for tabs: a header with the
   label, the type, the id, an unsaved mark, Save and Revert, then a grid of
-  the whole entity. A tab's view holds it and hands its `canClose()` to the
-  shell. A view that wants another look uses the grid or the rows alone.
+  the whole entity. `EntityEditor.edit(context, id)` and
+  `EntityEditor.create(context, type)` take a hold for it. A tab's view
+  hands its `canClose()` to the shell, which releases the hold, and calls
+  its `dispose()` when it goes. A view that wants another look uses the
+  grid or the rows alone.
 
-Views follow the session's change events, row by row. A row shows a value
-changed elsewhere by building its widget again; the view that made the
+Each view follows the session's change events, row by row. A row shows a
+value changed elsewhere by building itself again; the row that made the
 change keeps its widget, so typing is never interrupted. A change of shape
-builds the rows under its path again. Nothing rebuilds a whole view.
+builds the row at its path again, with what's under it. After each change,
+every row marks again where it stands. Only a reload, after loading,
+saving or reverting, shows the whole view again: anything may differ then.
+A view disposes of itself when it goes, and stops following the session.
 
 Which properties are collapsed is the view's to keep: a grid takes where to
 remember them. `EntityEditor` keeps them in its view's state, per entity
@@ -427,7 +440,7 @@ type, like the closed groups.
 
 ### Filters
 
-A `PropertyFilter` decides which properties a grid shows. It's a class
+Not built yet. A `PropertyFilter` decides which properties a grid shows. It's a class
 with one method, `accepts(property)`, given the property's path, its
 field, what it holds, the type holding it and whether it's writable. The
 built-in filters:
@@ -450,11 +463,13 @@ Customizing: `admin.properties.register(match, EditorClass)`, where the
 class implements `PropertyEditor`, built with a `PropertyContext`: the
 property's path, its value description, its slot to read and set its
 value, whether it's writable, the catalog and API client, a Collection's
-`CollectionItems`, and helpers to show an object's fields or a
-Collection's items by the usual rules. The admin registers its defaults
-first, so a plugin's registrations replace them. An editor never rebuilds
-the view: a class picked or an item added comes back from the session as
-a change of shape, and the rows under it are built again.
+`CollectionItems`, `replace(value)`, and helpers to show an object's
+fields or a Collection's items by the usual rules. The admin registers its
+defaults first, so a plugin's registrations replace them. An editor never
+rebuilds the view. A value set through its slot keeps its widget. A value
+whose widget shows more than an input, a Reference's label, an owned
+object's class, goes through `replace(value)`: its row is built again. An
+item added comes back from the session as a change of shape too.
 
 - **A property is the unit.** A property view shows one field's value at a
   path: its name, its value widget, and its children for values that have

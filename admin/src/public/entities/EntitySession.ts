@@ -114,6 +114,11 @@ export class EntitySession {
         return this.entityType;
     }
 
+    /** The types it was read with; undefined until ready. */
+    public get types(): TypeCatalog | undefined {
+        return this.catalog;
+    }
+
     /** What its entity is called, from the values now; "New <type>" for a new one with no label yet. */
     public get label(): string {
         if (this.catalog === undefined || this.draft === undefined) {

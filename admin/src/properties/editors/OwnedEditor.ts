@@ -33,8 +33,7 @@ export class OwnedEditor implements PropertyEditor {
             current: current ?? OwnedEditor.NONE,
             picked: (type) => {
                 if (type !== current) {
-                    context.slot.set(type === null ? null : NewValues.object(context.catalog, type));
-                    context.rebuild();
+                    context.replace(type === null ? null : NewValues.object(context.catalog, type));
                 }
             },
         }));

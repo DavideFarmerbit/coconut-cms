@@ -5,13 +5,17 @@ import type {CollectionItems} from './CollectionItems.ts';
 import type {ObjectValue, ReferenceValue} from './RecordValues.ts';
 import type {PropertySlot} from './PropertySlot.ts';
 
-/** What a PropertyEditor is built with: the property, its value, and what it needs to show more. */
+/**
+ * What a PropertyEditor is built with: the property, its value, and what it
+ * needs to show more. Its changes go to the entity's session; the editor
+ * never rebuilds the view: the session tells every view what changed.
+ */
 export interface PropertyContext {
     /** Its path from the entity: "chassis:weight", "wheels.1". */
     readonly path: string;
     /** What it holds. */
     readonly value: ValueDescription;
-    /** Its value, to read and change. */
+    /** Its value, to read and change: a change keeps the editor's widget, as typing needs. */
     readonly slot: PropertySlot;
     /** Whether the user may change it. */
     readonly writable: boolean;
@@ -21,6 +25,13 @@ export interface PropertyContext {
     readonly catalog: TypeCatalog;
     /** The client every call to the backend goes through. */
     readonly api: ApiClient;
+
+    /**
+     * Changes its value and builds its row again, widget and children: what
+     * a widget showing more than an input needs, a Reference's label, an
+     * owned object's class.
+     */
+    replace(value: unknown): void;
 
     /**
      * The properties of `object`'s fields, by the usual rules: what an
@@ -34,7 +45,4 @@ export interface PropertyContext {
 
     /** What the target of `reference` is called; its id when it can't be read. */
     labelOf(reference: ReferenceValue): Promise<string>;
-
-    /** Shows the whole entity again from its working copy: after a change of shape, an item added, a type changed. */
-    rebuild(): void;
 }

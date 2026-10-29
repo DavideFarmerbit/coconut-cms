@@ -11,7 +11,8 @@ import {NewValues} from '../NewValues.ts';
  * A Collection, like Unreal's arrays: its item count and how many were
  * removed, add and clear beside its name, then a row per item, each with its
  * own actions in the row: move up, move down, duplicate, remove. Items change
- * through the context's CollectionItems, so each keeps where it came from.
+ * through the context's CollectionItems, so each keeps where it came from;
+ * the session tells each change as a change of shape, and the rows follow.
  */
 export class CollectionEditor implements PropertyEditor {
     public readonly widget: HTMLElement;
@@ -29,10 +30,10 @@ export class CollectionEditor implements PropertyEditor {
         const count = items.values.length;
         const add = ActionIcon.button('add', 'Add an item');
         add.disabled = !context.writable;
-        add.addEventListener('click', () => this.withNewItem(add, (item) => this.change(() => items.insert(item))));
+        add.addEventListener('click', () => this.withNewItem(add, (item) => items.insert(item)));
         const clear = ActionIcon.button('clear', 'Remove every item');
         clear.disabled = !context.writable || count === 0;
-        clear.addEventListener('click', () => this.change(() => items.clear()));
+        clear.addEventListener('click', () => items.clear());
 
         const removed = items.removedCount;
         this.widget = Elements.create('span', {classes: ['property__inline']}, [
@@ -53,14 +54,14 @@ export class CollectionEditor implements PropertyEditor {
 
         const up = ActionIcon.button('moveUp', 'Move up');
         up.disabled = index === 0;
-        up.addEventListener('click', () => this.change(() => items.move(index, index - 1)));
+        up.addEventListener('click', () => items.move(index, index - 1));
         const down = ActionIcon.button('moveDown', 'Move down');
         down.disabled = index === items.values.length - 1;
-        down.addEventListener('click', () => this.change(() => items.move(index, index + 1)));
+        down.addEventListener('click', () => items.move(index, index + 1));
         const duplicate = ActionIcon.button('duplicate', 'Duplicate');
-        duplicate.addEventListener('click', () => this.change(() => items.duplicate(index)));
+        duplicate.addEventListener('click', () => items.duplicate(index));
         const remove = ActionIcon.button('remove', 'Remove');
-        remove.addEventListener('click', () => this.change(() => items.remove(index)));
+        remove.addEventListener('click', () => items.remove(index));
 
         row.querySelector(':scope > .property__header > .property__actions')?.append(up, down, duplicate, remove);
 
@@ -88,11 +89,5 @@ export class CollectionEditor implements PropertyEditor {
         }
 
         use(item.kind === 'owning_reference' ? NewValues.object(this.context.catalog, item.target ?? '') : NewValues.of(this.context.catalog, item));
-    }
-
-    /** Runs `operation` on the items, then shows them. */
-    private change(operation: () => void): void {
-        operation();
-        this.context.rebuild();
     }
 }

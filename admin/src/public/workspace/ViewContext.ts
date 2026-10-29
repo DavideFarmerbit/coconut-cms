@@ -1,4 +1,5 @@
 import type {ApiClient} from '../api/ApiClient.ts';
+import type {EntityStore} from '../entities/EntityStore.ts';
 import type {PropertyEditors} from '../properties/PropertyEditors.ts';
 import type {TypeCatalog} from '../types/TypeCatalog.ts';
 import type {JsonValue} from './Json.ts';
@@ -17,6 +18,8 @@ export interface ViewContext {
     readonly params: JsonValue;
     /** Every property editor: what shows an entity's values. */
     readonly properties: PropertyEditors;
+    /** The entities, and the sessions editing them. */
+    readonly entities: EntityStore;
 
     /** Every entity type the user may read, loaded once per page. */
     typeCatalog(): Promise<TypeCatalog>;
