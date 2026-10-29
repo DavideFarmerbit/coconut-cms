@@ -1,4 +1,5 @@
 import {Elements} from '../../dom/Elements.ts';
+import {Tooltips} from '../../dom/Tooltips.ts';
 import type {ToolId} from '../../public/workspace/Ids.ts';
 import type {Section, Side} from '../../public/workspace/Placement.ts';
 import type {Registry} from '../../public/workspace/Registry.ts';
@@ -51,7 +52,7 @@ export class Stripe {
     private button(tool: ToolDefinition, open: boolean): HTMLButtonElement {
         const button = Elements.create('button', {
             classes: ['stripe__button', ...(open ? ['is-open'] : [])],
-            attributes: {type: 'button', title: tool.title, 'aria-label': tool.title, 'aria-pressed': String(open)},
+            attributes: {type: 'button', [Tooltips.ATTRIBUTE]: tool.title, 'aria-label': tool.title, 'aria-pressed': String(open)},
         });
         // Trusted markup: a tool is code registered by the admin or a plugin.
         button.innerHTML = tool.icon;

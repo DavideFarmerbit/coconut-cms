@@ -1,4 +1,5 @@
 import {Elements} from '../../dom/Elements.ts';
+import {Tooltips} from '../../dom/Tooltips.ts';
 import type {ToolId} from '../../public/workspace/Ids.ts';
 import type {Registry} from '../../public/workspace/Registry.ts';
 import type {ToolDefinition} from '../../public/workspace/ToolDefinition.ts';
@@ -22,7 +23,7 @@ export class PanelFrame {
         private readonly contexts: ViewContexts,
     ) {
         this.title = Elements.create('h2', {classes: ['panel__title']});
-        const hide = Elements.create('button', {classes: ['icon-button'], text: '−', attributes: {type: 'button', title: 'Hide', 'aria-label': 'Hide'}});
+        const hide = Elements.create('button', {classes: ['icon-button'], text: '−', attributes: {type: 'button', [Tooltips.ATTRIBUTE]: 'Hide', 'aria-label': 'Hide'}});
         hide.addEventListener('click', () => {
             if (this.shown !== null) {
                 this.store.update(this.store.current.closeTool(this.shown));

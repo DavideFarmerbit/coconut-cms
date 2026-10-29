@@ -1,5 +1,6 @@
 import {Elements} from '../../dom/Elements.ts';
 import {Svg} from '../../dom/Svg.ts';
+import {Tooltips} from '../../dom/Tooltips.ts';
 
 /** What an access icon stands for. */
 export type Access = 'read' | 'write' | 'create' | 'update' | 'delete';
@@ -33,7 +34,7 @@ export class AccessIcon {
 
         return Elements.create('span', {
             classes: ['access', ...(held ? [] : ['is-denied'])],
-            attributes: {title: tooltip, role: 'img', 'aria-label': tooltip},
+            attributes: {[Tooltips.ATTRIBUTE]: tooltip, role: 'img', 'aria-label': tooltip},
         }, [Svg.icon([], layers), ...(labelled ? [Elements.create('span', {text: AccessIcon.NAMES[access]})] : [])]);
     }
 }

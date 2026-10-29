@@ -1,0 +1,19 @@
+// The admin's tooltip: one floating box, shown by Tooltips.
+.tooltip {
+    position: fixed;
+    z-index: 3000;
+    max-width: var(--cc-tooltip-max-width);
+    padding: var(--cc-space-1) var(--cc-space-2);
+    color: var(--cc-color-text);
+    background: var(--cc-color-raised);
+    border: 1px solid var(--cc-color-border);
+    border-radius: var(--cc-control-radius);
+    box-shadow: var(--cc-tooltip-shadow);
+    font-size: var(--cc-font-size-small);
+    line-height: var(--cc-line-height);
+    pointer-events: none;
+
+    &[hidden] {
+        display: none;
+    }
+}

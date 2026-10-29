@@ -1,5 +1,6 @@
 import {Elements} from '../../dom/Elements.ts';
 import {Svg} from '../../dom/Svg.ts';
+import {Tooltips} from '../../dom/Tooltips.ts';
 import type {ValueDescription} from '../../public/types/TypeDescription.ts';
 import {type IconGlyph, IconParts} from './IconParts.ts';
 import {ValueWords} from './ValueWords.ts';
@@ -29,7 +30,7 @@ export class TypeIcon {
 
         return Elements.create('span', {
             classes: ['type-icon'],
-            attributes: {style: `color: var(--cc-type-${parts.color})`, title: ValueWords.describe(value), role: 'img', 'aria-label': ValueWords.describe(value)},
+            attributes: {style: `color: var(--cc-type-${parts.color})`, [Tooltips.ATTRIBUTE]: ValueWords.describe(value), role: 'img', 'aria-label': ValueWords.describe(value)},
         }, [Svg.icon([], layers)]);
     }
 

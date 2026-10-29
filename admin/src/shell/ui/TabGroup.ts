@@ -1,4 +1,5 @@
 import {Elements} from '../../dom/Elements.ts';
+import {Tooltips} from '../../dom/Tooltips.ts';
 import type {TabTypeId} from '../../public/workspace/Ids.ts';
 import type {Registry} from '../../public/workspace/Registry.ts';
 import type {TabTypeDefinition} from '../../public/workspace/TabTypeDefinition.ts';
@@ -73,7 +74,7 @@ export class TabGroup {
 
     /** The bar's button for `tab`, with its close button. */
     private tabButton(tab: TabData, shown: boolean): HTMLElement {
-        const close = Elements.create('button', {classes: ['tab__close'], text: '×', attributes: {type: 'button', title: 'Close', 'aria-label': `Close ${tab.title}`}});
+        const close = Elements.create('button', {classes: ['tab__close'], text: '×', attributes: {type: 'button', [Tooltips.ATTRIBUTE]: 'Close', 'aria-label': `Close ${tab.title}`}});
         close.addEventListener('click', (event) => {
             event.stopPropagation();
             this.store.update(this.store.current.closeTab(tab.id));
@@ -81,7 +82,7 @@ export class TabGroup {
 
         const button = Elements.create('div', {
             classes: ['tab', ...(shown ? ['is-active'] : [])],
-            attributes: {role: 'tab', 'aria-selected': String(shown), tabindex: '0', title: tab.title},
+            attributes: {role: 'tab', 'aria-selected': String(shown), tabindex: '0', [Tooltips.ATTRIBUTE]: tab.title},
         }, [Elements.create('span', {classes: ['tab__title'], text: tab.title}), close]);
         button.addEventListener('click', () => this.store.update(this.store.current.activateTab(tab.id)));
         button.addEventListener('auxclick', (event) => {

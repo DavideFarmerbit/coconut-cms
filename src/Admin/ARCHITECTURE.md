@@ -150,6 +150,10 @@ not its code): an IntelliJ-style window manager.
   last shown, to know which tab a reuse replaces.
 - `ContextMenu` shows a floating menu at a point or under an element: a
   right-click's choices, a dropdown's. One is open at a time.
+- `Tooltips` replaces the browser's tooltips: an element's
+  `data-tooltip` shows in a themed box 150ms after the pointer rests on it,
+  or on keyboard focus; once one shows, the next shows at once. The admin
+  sets no `title` attribute.
 
 The code is in three layers, each depending only on the ones before:
 

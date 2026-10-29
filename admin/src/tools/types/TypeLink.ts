@@ -1,5 +1,6 @@
 import {ContextMenu} from '../../dom/ContextMenu.ts';
 import {Elements} from '../../dom/Elements.ts';
+import {Tooltips} from '../../dom/Tooltips.ts';
 import type {TabOpening} from '../../public/workspace/TabOpening.ts';
 import type {Workspace} from '../../public/workspace/Workspace.ts';
 import {TypesTool} from './TypesTool.ts';
@@ -16,7 +17,12 @@ export type TypeOpened = (identifier: string) => void;
 export class TypeLink {
     /** A link to `identifier` reading `label`. */
     public static create(identifier: string, label: string, workspace: Workspace, onOpened?: TypeOpened): HTMLElement {
-        const link = Elements.create('button', {classes: ['type-link'], text: label, attributes: {type: 'button', title: identifier}});
+        // The full identifier as a tooltip, only where the label doesn't show it already.
+        const link = Elements.create('button', {
+            classes: ['type-link'],
+            text: label,
+            attributes: {type: 'button', ...(label === identifier ? {} : {[Tooltips.ATTRIBUTE]: identifier})},
+        });
         TypeLink.attach(link, identifier, workspace, onOpened);
 
         return link;

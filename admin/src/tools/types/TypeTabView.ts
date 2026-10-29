@@ -1,5 +1,6 @@
 import {ContextMenu} from '../../dom/ContextMenu.ts';
 import {Elements} from '../../dom/Elements.ts';
+import {Tooltips} from '../../dom/Tooltips.ts';
 import type {TypeCatalog} from '../../public/types/TypeCatalog.ts';
 import type {FieldDescription, TypeDescription} from '../../public/types/TypeDescription.ts';
 import type {JsonValue} from '../../public/workspace/Json.ts';
@@ -115,7 +116,7 @@ export class TypeTabView implements PanelView {
             Elements.create('td', {classes: ['field-table__name'], text: name}),
             Elements.create('td', {classes: ['field-table__type']}, [
                 target === null
-                    ? Elements.create('span', {classes: ['muted'], text: typeName, attributes: {title: ValueWords.describe(field.value)}})
+                    ? Elements.create('span', {classes: ['muted'], text: typeName, attributes: {[Tooltips.ATTRIBUTE]: ValueWords.describe(field.value)}})
                     : TypeLink.create(target, typeName, this.context.workspace),
             ]),
             Elements.create('td', {classes: ['field-table__access']}, [AccessIcon.of('read', field.read), AccessIcon.of('write', field.write)]),
