@@ -339,8 +339,9 @@ entity `id`, editable; a tab's view hands its `canClose()` to the shell.
 Customizing it: `admin.properties.register(match, EditorClass)`, where the
 class implements `PropertyEditor`, built with a `PropertyContext`: the
 property's path, its value description, its slot to read and set its
-value, whether it's writable, the catalog and API client, and helpers to
-show an object's fields or a Collection's items by the usual rules. The
+value, whether it's writable, the catalog and API client, a Collection's
+`CollectionItems`, and helpers to show an object's fields or a
+Collection's items by the usual rules. The
 admin registers its defaults first, so a plugin's registrations replace
 them.
 
@@ -350,8 +351,12 @@ them.
   remembered per entity type; its field's type icon, the same as the type
   inspector's; its name, indented by depth; its value, every value in one
   column; a Collection item's actions, move up, move down, duplicate and
-  remove, in the row, dimmed until it's pointed at; a reset button once
-  it changed. Rows are parted by a line; a row holding others is tinted,
+  remove, in the row, dimmed until it's pointed at; then two resets.
+  "Reset to default" shows while the value differs from what a new object
+  holds there, as Unreal's yellow arrow does; an owned object keeps its id,
+  only its values reset. "Reset to saved" shows once the value differs
+  from what was saved. A Collection's item has no default. Rows are parted
+  by a line; a row holding others is tinted,
   its children behind a guide line; a category is a bar; an owned object's
   type is a "Class" picker, set apart from values. Anything can be shown: one field, a nested Embed, a whole entity,
   which is its fields' properties. Where it shows is up to its user: the
@@ -367,8 +372,8 @@ them.
     "None" when the field may be empty, and its properties show expanded
     beneath it. Picking another type replaces the object with a new one of
     that type, from its defaults; "None" empties the slot;
-  - a Reference: its target's label, an open button, and a picker. The
-    label is the target's `name`, `title` or `label` field, else its first
+  - a Reference: its target's label, an open button, and a picker.
+    Clicking the label opens the picker too. The label is the target's `name`, `title` or `label` field, else its first
     String field, else its id; a view loads every target's label at once.
     The picker is a dropdown of the target type's standalone entities,
     subtypes included, by label, paged, narrowed by a search on the label
@@ -377,14 +382,18 @@ them.
     pointer opens its asset's own editor, a page in a page editor. A
     registry of editors by type comes later;
   - a Collection, like Unreal's arrays: a header with its name, its item
-    count, add and clear; then a row per item, `[0]`, `[1]`…, with its
-    item's widget and a menu to insert before, duplicate, remove, move up
-    and move down. Dragging to reorder comes with the shell's drag engine.
-    A value or an Embed is added from its default; an owned item asks for
-    its type when its target has subtypes. An edit inside an item reports
-    at its path, `wheels.1.size`; adding, removing or moving items reports
-    the whole list, owned items keeping their ids, so a move never
-    recreates them.
+    count, how many saved items were removed, add and clear; then a row
+    per item, `[0]`, `[1]`…, with its item's widget and its actions. Dragging
+    to reorder comes with the shell's drag engine (not built yet). A value
+    or an Embed is added from its default; an owned item asks for its type
+    when its target has subtypes. A duplicate is a new item: every owned
+    object in it has no id.
+  - Items change through the context's `CollectionItems`: insert, remove,
+    move, duplicate, clear. Each operation keeps each item's origin, its
+    index when saved, or none for a new item. So each item shows where it
+    stands: "new", or "from [2]" when it moved. An item is changed only when
+    its value differs from its own saved value, not from the value saved at
+    its index. A custom Collection editor uses the same operations.
 - **Customizations replace a default,** registered in `admin.properties`.
   Several can match one field; the most specific wins:
   1. this exact field of this type: `shop:car`'s `color`;
@@ -415,10 +424,15 @@ them.
   as Unreal's `Category` and `DisplayName` do.
 - **Saving is explicit,** as in Unreal's asset editors:
   - edits wait at their paths; the view shows it has unsaved changes, and
-    marks each changed property;
+    marks each changed property. A property is compared with what was
+    saved, so a change undone is clean again: a value typed back, items
+    moved back;
   - Save sends them all in one `entities.update`, so setters, `afterEdit`
     and validation run once over the whole edit; Cmd or Ctrl and S saves.
-    Revert drops every change; resetting a property drops its own;
+    An edit inside an item goes at its path, `wheels.1.size`. A Collection
+    with items added, removed or moved goes whole, owned items keeping
+    their ids, so a move never recreates them. Revert drops every change;
+    resetting a property drops its own;
   - after a save, the view shows what the update gave back: setters and
     `afterEdit` may have changed other fields;
   - an error shows at its property, `changes.<path>` or a validation

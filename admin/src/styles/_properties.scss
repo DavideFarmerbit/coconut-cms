@@ -174,12 +174,48 @@
     color: var(--cc-color-accent);
 }
 
-.property__reset {
+// Where an item came from: new, or moved from another index.
+.property__origin {
+    flex: none;
+    color: var(--cc-color-text-muted);
+    font-size: var(--cc-font-size-small);
+
+    &:empty {
+        display: none;
+    }
+}
+
+.property.is-new > .property__header .property__origin {
+    padding: 0 var(--cc-space-1);
+    color: var(--cc-color-on-accent);
+    background: var(--cc-color-accent);
+    border-radius: 3px;
+}
+
+.property.is-new > .property__header .property__name {
+    color: var(--cc-color-text);
+}
+
+// The resets: to default while it differs from it, to saved once it changed.
+.property__resets {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.property__reset,
+.property__default {
     visibility: hidden;
 }
 
-.property.is-changed > .property__header > .property__reset {
+.property.is-changed > .property__header > .property__resets > .property__reset,
+.property.has-default > .property__header > .property__resets > .property__default {
     visibility: visible;
+}
+
+.collection__removed {
+    color: var(--cc-color-danger);
+    font-size: var(--cc-font-size-small);
 }
 
 .property.is-readonly > .property__header .property__name {
@@ -241,7 +277,7 @@
     .field__input {
         border: 0;
         border-radius: 0;
-        background: var(--cc-property-class-bg);
+        background-color: var(--cc-property-class-bg);
     }
 }
 
@@ -260,9 +296,26 @@
     min-width: 0;
     height: var(--cc-property-control-height);
     padding: 0 var(--cc-control-padding-x);
+    color: inherit;
+    text-align: left;
     background: var(--cc-color-raised);
     border: 1px solid var(--cc-color-border);
     border-radius: var(--cc-control-radius);
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+        border-color: var(--cc-color-text-muted);
+    }
+
+    &:focus-visible {
+        outline: none;
+        border-color: var(--cc-color-focus);
+        box-shadow: var(--cc-focus-ring);
+    }
+
+    &:disabled {
+        cursor: default;
+    }
 }
 
 .property__value {

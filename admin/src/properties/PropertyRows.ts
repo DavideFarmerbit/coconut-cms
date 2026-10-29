@@ -10,8 +10,11 @@ import type {PropertySlot} from '../public/properties/PropertySlot.ts';
 import type {ObjectValue} from '../public/properties/RecordValues.ts';
 import type {TypeCatalog} from '../public/types/TypeCatalog.ts';
 import type {FieldDescription, ValueDescription} from '../public/types/TypeDescription.ts';
+import {DraftCollectionItems} from './DraftCollectionItems.ts';
 import type {EntityDraft} from './EntityDraft.ts';
+import {NewValues} from './NewValues.ts';
 import type {ReferenceLabels} from './ReferenceLabels.ts';
+import {Values} from './Values.ts';
 
 /** One property to show: what a row is built from. */
 interface PropertySpec {
@@ -29,15 +32,29 @@ interface PropertySpec {
 /** Told that a property was collapsed or expanded. */
 export type CollapseChanged = (path: string, collapsed: boolean) => void;
 
+/** A row shown, with what refresh() updates in it. */
+interface ShownRow {
+    readonly row: HTMLElement;
+    readonly spec: PropertySpec;
+    /** Where an item came from: "new", "from [2]". */
+    readonly origin: HTMLElement;
+    /** What a new object holds there; undefined when nothing does: a Collection's item. */
+    readonly defaultValue: unknown;
+}
+
 /**
  * Builds property rows for an entity being edited. A row reads: a chevron
- * collapsing its children when it has some, its type icon, its name, the
- * value widget admin.properties resolves for it, its actions (a Collection
- * item's), and a reset button once it changed; then its error, and its
- * children. Every slot it hands out clears its property's error once the
- * property is edited.
+ * collapsing its children when it has some, its type icon, its name (an
+ * item's with where it came from), the value widget admin.properties resolves
+ * for it, its actions (a Collection item's), and two resets: to what was
+ * saved, once it changed, and to its default, while it differs from that;
+ * then its error, and its children. Every slot it hands out clears its
+ * property's error once the property is edited. After a change that keeps
+ * the rows, refresh() marks them again.
  */
 export class PropertyRows {
+    private readonly shown: ShownRow[] = [];
+
     public constructor(
         private readonly draft: EntityDraft,
         private readonly catalog: TypeCatalog,
@@ -78,21 +95,41 @@ export class PropertyRows {
             }));
     }
 
+    /**
+     * Marks every row shown by where it stands: changed, new or moved, at
+     * its default or not. What a change that keeps the rows needs.
+     */
+    public refresh(): void {
+        for (const {row, spec, origin, defaultValue} of this.shown) {
+            const status = this.draft.statusAt(spec.path);
+            row.classList.toggle('is-new', status.isNew);
+            row.classList.toggle('is-changed', status.isChanged && !status.isNew);
+            row.classList.toggle('is-moved', status.movedFrom !== null);
+            row.classList.toggle('has-default', defaultValue !== undefined && spec.writable && !Values.sameContent(spec.slot.get(), defaultValue));
+            // Inside a new item, every property is new too: only the item says so.
+            origin.textContent = status.movedFrom !== null ? `from [${status.movedFrom}]` : status.isNew && spec.field === null && !this.isInNewItem(spec.path) ? 'new' : '';
+        }
+    }
+
     /** The row of the property `spec`. */
     private row(spec: PropertySpec): HTMLElement {
         const error = Elements.create('p', {classes: ['property__error'], text: this.errors.get(spec.path) ?? ''});
+        const edited = (): void => {
+            // An edit answers the error the last save gave this property.
+            this.errors.delete(spec.path);
+            error.textContent = '';
+        };
         const slot: PropertySlot = {
             get: () => spec.slot.get(),
             set: (value) => {
-                // An edit answers the error the last save gave this property.
-                this.errors.delete(spec.path);
-                error.textContent = '';
+                edited();
                 spec.slot.set(value);
             },
         };
-        const editor = this.editorFor(spec, slot);
+        const editor = this.editorFor(spec, slot, edited);
         const hasChildren = editor.children !== null;
         const collapsed = hasChildren && this.collapsed.has(spec.path);
+        const defaultValue = spec.field === null ? undefined : this.catalog.get(spec.holderChain[0] ?? '')?.defaults[spec.field];
 
         const reset = ActionIcon.button('reset', 'Reset to saved');
         reset.classList.add('property__reset');
@@ -100,6 +137,13 @@ export class PropertyRows {
             this.draft.resetAt(spec.path);
             this.rebuild();
         });
+        const toDefault = ActionIcon.button('default', 'Reset to default');
+        toDefault.classList.add('property__default');
+        toDefault.addEventListener('click', () => {
+            slot.set(NewValues.keepingIds(defaultValue, slot.get()));
+            this.rebuild();
+        });
+        const origin = Elements.create('span', {classes: ['property__origin']});
 
         const row = Elements.create('div', {
             classes: [
@@ -119,15 +163,22 @@ export class PropertyRows {
                 hasChildren ? this.toggle(row, spec.path) : Elements.create('span', {classes: ['property__toggle-space']}),
                 TypeIcon.of(spec.value),
                 Elements.create('span', {classes: ['property__name'], text: spec.label}),
+                origin,
             ]),
             Elements.create('div', {classes: ['property__value']}, [editor.widget]),
             Elements.create('div', {classes: ['property__actions']}),
-            reset,
+            Elements.create('div', {classes: ['property__resets']}, [toDefault, reset]),
         ]);
 
         row.append(header, error, ...(editor.children === null ? [] : [Elements.create('div', {classes: ['property__children']}, [editor.children])]));
+        this.shown.push({row, spec, origin, defaultValue});
 
         return row;
+    }
+
+    /** Whether the item at `path` lies in a new item: its Collection is new itself. */
+    private isInNewItem(path: string): boolean {
+        return this.draft.statusAt(path.slice(0, path.lastIndexOf(PropertyPath.TRAVERSE))).isNew;
     }
 
     /** The chevron collapsing and expanding `row`'s children, remembered by `path`. */
@@ -145,13 +196,14 @@ export class PropertyRows {
         return toggle;
     }
 
-    /** The editor admin.properties resolves for `spec`, built with its context. */
-    private editorFor(spec: PropertySpec, slot: PropertySlot): PropertyEditor {
+    /** The editor admin.properties resolves for `spec`, built with its context; `edited` is told of every change of a Collection's items. */
+    private editorFor(spec: PropertySpec, slot: PropertySlot, edited: () => void): PropertyEditor {
         const context: PropertyContext = {
             path: spec.path,
             value: spec.value,
             slot,
             writable: spec.writable,
+            items: spec.value.kind === 'collection' ? new DraftCollectionItems(this.draft, spec.slot, spec.path, spec.value, edited) : null,
             catalog: this.catalog,
             api: this.api,
             // A Collection's Embed item is its own row: its fields are traversed, "wheels.1.size", never embedded.

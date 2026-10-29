@@ -1,4 +1,19 @@
 // Fields, checkboxes and buttons.
+
+// What browsers set apart on controls: Safari's margins, fonts and native button look.
+button,
+input,
+select,
+textarea {
+    margin: 0;
+    font: inherit;
+    letter-spacing: inherit;
+}
+
+button {
+    appearance: none;
+}
+
 .field {
     display: flex;
     flex-direction: column;
@@ -10,19 +25,138 @@
     font-size: var(--cc-font-size-small);
 }
 
+// Every control drops the browser's own look, so Chrome, Safari and Firefox
+// draw it alike, from the tokens.
 .field__input {
+    margin: 0;
     height: var(--cc-control-height);
     padding: 0 var(--cc-control-padding-x);
-    background: var(--cc-color-raised);
+    background-color: var(--cc-color-raised);
     color: var(--cc-color-text);
     border: 1px solid var(--cc-color-border);
     border-radius: var(--cc-control-radius);
     font: inherit;
+    line-height: normal;
+    appearance: none;
 
     &:focus {
         outline: none;
         border-color: var(--cc-color-focus);
         box-shadow: var(--cc-focus-ring);
+    }
+
+    &::placeholder {
+        color: var(--cc-color-text-muted);
+        opacity: 1;
+    }
+
+    &:disabled {
+        opacity: 0.6;
+    }
+}
+
+// A select's chevron, drawn in its text color by two gradients.
+select.field__input {
+    padding-right: calc(var(--cc-control-padding-x) + 14px);
+    background-image:
+        linear-gradient(45deg, transparent 50%, currentcolor 50%),
+        linear-gradient(135deg, currentcolor 50%, transparent 50%);
+    background-position: calc(100% - 14px) 52%, calc(100% - 10px) 52%;
+    background-size: 4px 4px;
+    background-repeat: no-repeat;
+    cursor: pointer;
+
+    &:disabled {
+        cursor: default;
+    }
+
+    option {
+        color: var(--cc-color-text);
+        background-color: var(--cc-color-raised);
+    }
+}
+
+// Numbers without spinners: the value is typed.
+.field__input[type='number'] {
+    appearance: textfield;
+
+    &::-webkit-inner-spin-button,
+    &::-webkit-outer-spin-button {
+        margin: 0;
+        appearance: none;
+    }
+}
+
+// Dates: Safari centers the value and pads its parts; this lines them up left.
+.field__input[type='date'],
+.field__input[type='datetime-local'] {
+    display: flex;
+    align-items: center;
+
+    &::-webkit-date-and-time-value {
+        margin: 0;
+        text-align: left;
+    }
+
+    &::-webkit-datetime-edit,
+    &::-webkit-datetime-edit-fields-wrapper {
+        padding: 0;
+    }
+
+    &::-webkit-calendar-picker-indicator {
+        margin: 0;
+        opacity: 0.6;
+        cursor: pointer;
+    }
+}
+
+.field__input[type='search']::-webkit-search-decoration {
+    appearance: none;
+}
+
+input[type='checkbox'] {
+    position: relative;
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    background-color: var(--cc-color-raised);
+    border: 1px solid var(--cc-color-border);
+    border-radius: 4px;
+    appearance: none;
+    cursor: pointer;
+
+    // The tick, drawn as a rotated corner.
+    &::after {
+        position: absolute;
+        top: 2px;
+        left: 5px;
+        display: none;
+        width: 4px;
+        height: 8px;
+        content: '';
+        border: solid var(--cc-color-on-accent);
+        border-width: 0 2px 2px 0;
+        transform: rotate(45deg);
+    }
+
+    &:checked {
+        background-color: var(--cc-color-accent);
+        border-color: var(--cc-color-accent);
+
+        &::after {
+            display: block;
+        }
+    }
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--cc-focus-ring);
+    }
+
+    &:disabled {
+        opacity: 0.6;
+        cursor: default;
     }
 }
 
@@ -30,10 +164,6 @@
     display: flex;
     align-items: center;
     gap: var(--cc-space-2);
-
-    input {
-        accent-color: var(--cc-color-accent);
-    }
 }
 
 .button {

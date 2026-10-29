@@ -1,6 +1,7 @@
 import type {ApiClient} from '../api/ApiClient.ts';
 import type {TypeCatalog} from '../types/TypeCatalog.ts';
 import type {ValueDescription} from '../types/TypeDescription.ts';
+import type {CollectionItems} from './CollectionItems.ts';
 import type {ObjectValue, ReferenceValue} from './RecordValues.ts';
 import type {PropertySlot} from './PropertySlot.ts';
 
@@ -14,6 +15,8 @@ export interface PropertyContext {
     readonly slot: PropertySlot;
     /** Whether the user may change it. */
     readonly writable: boolean;
+    /** A Collection's items, to change one operation at a time; null for any other property. */
+    readonly items: CollectionItems | null;
     /** Every type the user may read. */
     readonly catalog: TypeCatalog;
     /** The client every call to the backend goes through. */

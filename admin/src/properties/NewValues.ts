@@ -1,4 +1,4 @@
-import type {ObjectValue} from '../public/properties/RecordValues.ts';
+import {isObjectValue, type ObjectValue} from '../public/properties/RecordValues.ts';
 import type {TypeCatalog} from '../public/types/TypeCatalog.ts';
 import type {ValueDescription} from '../public/types/TypeDescription.ts';
 
@@ -29,6 +29,23 @@ export class NewValues {
             default:
                 return value.nullable ? null : NewValues.scalar(value);
         }
+    }
+
+    /**
+     * A copy of `value`, a default, keeping the ids of the owned objects
+     * `current` holds where one of the same type stands: resetting an owned
+     * object to its default resets its values, and keeps the object.
+     */
+    public static keepingIds(value: unknown, current: unknown): unknown {
+        if (isObjectValue(value) && isObjectValue(current) && value.type === current.type) {
+            return {
+                type: value.type,
+                id: current.id,
+                values: Object.fromEntries(Object.entries(value.values).map(([name, each]) => [name, NewValues.keepingIds(each, current.values[name])])),
+            };
+        }
+
+        return structuredClone(value);
     }
 
     /** A non-null scalar's starting value. */

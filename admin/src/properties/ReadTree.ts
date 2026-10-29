@@ -36,8 +36,8 @@ export class ReadTree {
         }
     }
 
-    /** What `segment` reaches from `current`: an item, an object's field, the root's field. */
-    private static step(current: unknown, segment: string | number, isRoot: boolean): unknown {
+    /** What `segment` reaches from `current`: an item, an object's field, the root's field when `isRoot`. */
+    public static step(current: unknown, segment: string | number, isRoot: boolean): unknown {
         if (Array.isArray(current)) {
             return typeof segment === 'number' ? current[segment] : undefined;
         }

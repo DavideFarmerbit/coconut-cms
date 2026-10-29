@@ -41,6 +41,8 @@ export class EntityEditor {
     private catalog: TypeCatalog | undefined;
     private entity: EntityData | undefined;
     private draft: EntityDraft | undefined;
+    /** The rows shown now. */
+    private rows: PropertyRows | undefined;
     private saving = false;
 
     public constructor(
@@ -136,7 +138,7 @@ export class EntityEditor {
             return;
         }
 
-        const rows = new PropertyRows(
+        const rows = this.rows = new PropertyRows(
             draft,
             catalog,
             this.context.api,
@@ -212,10 +214,7 @@ export class EntityEditor {
             button.disabled = !dirty || this.saving;
         }
 
-        for (const row of this.element.querySelectorAll<HTMLElement>('.property[data-path]')) {
-            row.classList.toggle('is-changed', this.draft?.hasChangedAt(row.dataset['path'] ?? '') ?? false);
-        }
-
+        this.rows?.refresh();
         this.context.markDirty(dirty);
     }
 

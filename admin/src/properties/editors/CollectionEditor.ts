@@ -1,56 +1,65 @@
 import {ContextMenu} from '../../dom/ContextMenu.ts';
 import {Elements} from '../../dom/Elements.ts';
 import {ActionIcon} from '../../icons/ActionIcon.ts';
+import type {CollectionItems} from '../../public/properties/CollectionItems.ts';
 import type {PropertyContext} from '../../public/properties/PropertyContext.ts';
 import type {PropertyEditor} from '../../public/properties/PropertyEditor.ts';
-import {isObjectValue} from '../../public/properties/RecordValues.ts';
 import {NewValues} from '../NewValues.ts';
 
 /**
- * A Collection, like Unreal's arrays: its item count, add and clear beside
- * its name, then a row per item, each with its own actions in the row: move
- * up, move down, duplicate, remove. Changing its items replaces the whole
- * list; an owned item keeps its id through a move.
+ * A Collection, like Unreal's arrays: its item count and how many were
+ * removed, add and clear beside its name, then a row per item, each with its
+ * own actions in the row: move up, move down, duplicate, remove. Items change
+ * through the context's CollectionItems, so each keeps where it came from.
  */
 export class CollectionEditor implements PropertyEditor {
     public readonly widget: HTMLElement;
     public readonly children: HTMLElement | null;
 
     public constructor(private readonly context: PropertyContext) {
-        const items = this.items();
+        const items = context.items;
+        if (items === null) {
+            this.widget = Elements.create('span', {classes: ['muted'], text: 'Not a Collection.'});
+            this.children = null;
+
+            return;
+        }
+
+        const count = items.values.length;
         const add = ActionIcon.button('add', 'Add an item');
         add.disabled = !context.writable;
-        add.addEventListener('click', () => this.withNewItem(add, (item) => this.replace([...this.items(), item])));
+        add.addEventListener('click', () => this.withNewItem(add, (item) => this.change(() => items.insert(item))));
         const clear = ActionIcon.button('clear', 'Remove every item');
-        clear.disabled = !context.writable || items.length === 0;
-        clear.addEventListener('click', () => this.replace([]));
+        clear.disabled = !context.writable || count === 0;
+        clear.addEventListener('click', () => this.change(() => items.clear()));
 
+        const removed = items.removedCount;
         this.widget = Elements.create('span', {classes: ['property__inline']}, [
-            Elements.create('span', {classes: ['collection__count'], text: `${items.length} item${items.length === 1 ? '' : 's'}`}),
+            Elements.create('span', {classes: ['collection__count'], text: `${count} item${count === 1 ? '' : 's'}`}),
+            ...(removed === 0 ? [] : [Elements.create('span', {classes: ['collection__removed'], text: `${removed} removed`})]),
             add,
             clear,
         ]);
-        this.children = items.length === 0 ? null : Elements.create('div', {classes: ['properties', 'collection__items']}, items.map((_item, index) => this.itemRow(index)));
+        this.children = count === 0 ? null : Elements.create('div', {classes: ['properties', 'collection__items']}, items.values.map((_item, index) => this.itemRow(items, index)));
     }
 
     /** Item `index`'s row, its actions in it. */
-    private itemRow(index: number): HTMLElement {
+    private itemRow(items: CollectionItems, index: number): HTMLElement {
         const row = this.context.itemOf(index);
         if (!this.context.writable) {
             return row;
         }
 
-        const last = this.items().length - 1;
         const up = ActionIcon.button('moveUp', 'Move up');
         up.disabled = index === 0;
-        up.addEventListener('click', () => this.move(index, index - 1));
+        up.addEventListener('click', () => this.change(() => items.move(index, index - 1)));
         const down = ActionIcon.button('moveDown', 'Move down');
-        down.disabled = index === last;
-        down.addEventListener('click', () => this.move(index, index + 1));
+        down.disabled = index === items.values.length - 1;
+        down.addEventListener('click', () => this.change(() => items.move(index, index + 1)));
         const duplicate = ActionIcon.button('duplicate', 'Duplicate');
-        duplicate.addEventListener('click', () => this.replace(CollectionEditor.spliced(this.items(), index + 1, 0, CollectionEditor.copy(this.items()[index]))));
+        duplicate.addEventListener('click', () => this.change(() => items.duplicate(index)));
         const remove = ActionIcon.button('remove', 'Remove');
-        remove.addEventListener('click', () => this.replace(CollectionEditor.spliced(this.items(), index, 1)));
+        remove.addEventListener('click', () => this.change(() => items.remove(index)));
 
         row.querySelector(':scope > .property__header > .property__actions')?.append(up, down, duplicate, remove);
 
@@ -77,39 +86,9 @@ export class CollectionEditor implements PropertyEditor {
         use(item.kind === 'owning_reference' ? NewValues.object(this.context.catalog, item.target ?? '') : NewValues.of(this.context.catalog, item));
     }
 
-    /** Moves item `from` to `to`. */
-    private move(from: number, to: number): void {
-        const items = [...this.items()];
-        const [moved] = items.splice(from, 1);
-        items.splice(to, 0, moved);
-        this.replace(items);
-    }
-
-    /** Replaces every item with `items`, then shows them. */
-    private replace(items: readonly unknown[]): void {
-        this.context.slot.set([...items]);
+    /** Runs `operation` on the items, then shows them. */
+    private change(operation: () => void): void {
+        operation();
         this.context.rebuild();
-    }
-
-    /** The items now. */
-    private items(): readonly unknown[] {
-        const items = this.context.slot.get();
-
-        return Array.isArray(items) ? items : [];
-    }
-
-    /** A copy of `items`, `remove` of them taken out at `start` and `insert` put there. */
-    private static spliced(items: readonly unknown[], start: number, remove: number, ...insert: unknown[]): unknown[] {
-        const copy = [...items];
-        copy.splice(start, remove, ...insert);
-
-        return copy;
-    }
-
-    /** A copy of `item`: a duplicated owned object is a new one, with no id. */
-    private static copy(item: unknown): unknown {
-        const copy = structuredClone(item);
-
-        return isObjectValue(copy) ? {...copy, id: null} : copy;
     }
 }
