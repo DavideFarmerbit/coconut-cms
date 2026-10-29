@@ -21,7 +21,7 @@ export class TypeLink {
         const link = Elements.create('button', {
             classes: ['type-link'],
             text: label,
-            attributes: {type: 'button', ...(label === identifier ? {} : {[Tooltips.ATTRIBUTE]: identifier})},
+            attributes: {type: 'button', ...(label === identifier ? {} : Tooltips.attributes(identifier, 'top'))},
         });
         TypeLink.attach(link, identifier, workspace, onOpened);
 

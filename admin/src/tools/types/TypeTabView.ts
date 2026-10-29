@@ -1,6 +1,5 @@
 import {ContextMenu} from '../../dom/ContextMenu.ts';
 import {Elements} from '../../dom/Elements.ts';
-import {Tooltips} from '../../dom/Tooltips.ts';
 import type {TypeCatalog} from '../../public/types/TypeCatalog.ts';
 import type {FieldDescription, TypeDescription} from '../../public/types/TypeDescription.ts';
 import type {JsonValue} from '../../public/workspace/Json.ts';
@@ -110,15 +109,14 @@ export class TypeTabView implements PanelView {
     private row(name: string, field: FieldDescription): HTMLElement {
         const target = ValueWords.targetOf(field.value);
         const typeName = ValueWords.nameOf(field.value);
+        const typeElement = target === null
+            ? Elements.create('span', {classes: ['muted'], text: typeName})
+            : TypeLink.create(target, typeName, this.context.workspace);
 
         return Elements.create('tr', {classes: field.read ? [] : ['is-hidden']}, [
             Elements.create('td', {classes: ['field-table__icon']}, [TypeIcon.of(field.value)]),
             Elements.create('td', {classes: ['field-table__name'], text: name}),
-            Elements.create('td', {classes: ['field-table__type']}, [
-                target === null
-                    ? Elements.create('span', {classes: ['muted'], text: typeName, attributes: {[Tooltips.ATTRIBUTE]: ValueWords.describe(field.value)}})
-                    : TypeLink.create(target, typeName, this.context.workspace),
-            ]),
+            Elements.create('td', {classes: ['field-table__type']}, [typeElement]),
             Elements.create('td', {classes: ['field-table__access']}, [AccessIcon.of('read', field.read), AccessIcon.of('write', field.write)]),
         ]);
     }

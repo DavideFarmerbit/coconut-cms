@@ -34,7 +34,7 @@ export class AccessIcon {
 
         return Elements.create('span', {
             classes: ['access', ...(held ? [] : ['is-denied'])],
-            attributes: {[Tooltips.ATTRIBUTE]: tooltip, role: 'img', 'aria-label': tooltip},
+            attributes: {...Tooltips.attributes(tooltip, 'top'), role: 'img', 'aria-label': tooltip},
         }, [Svg.icon([], layers), ...(labelled ? [Elements.create('span', {text: AccessIcon.NAMES[access]})] : [])]);
     }
 }

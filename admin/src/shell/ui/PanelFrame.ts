@@ -23,7 +23,7 @@ export class PanelFrame {
         private readonly contexts: ViewContexts,
     ) {
         this.title = Elements.create('h2', {classes: ['panel__title']});
-        const hide = Elements.create('button', {classes: ['icon-button'], text: '−', attributes: {type: 'button', [Tooltips.ATTRIBUTE]: 'Hide', 'aria-label': 'Hide'}});
+        const hide = Elements.create('button', {classes: ['icon-button'], text: '−', attributes: {type: 'button', ...Tooltips.attributes('Hide', 'bottom-start'), 'aria-label': 'Hide'}});
         hide.addEventListener('click', () => {
             if (this.shown !== null) {
                 this.store.update(this.store.current.closeTool(this.shown));

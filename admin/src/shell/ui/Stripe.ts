@@ -52,7 +52,8 @@ export class Stripe {
     private button(tool: ToolDefinition, open: boolean): HTMLButtonElement {
         const button = Elements.create('button', {
             classes: ['stripe__button', ...(open ? ['is-open'] : [])],
-            attributes: {type: 'button', [Tooltips.ATTRIBUTE]: tool.title, 'aria-label': tool.title, 'aria-pressed': String(open)},
+            // The tooltip shows toward the canvas: right of the left stripe, left of the right one.
+            attributes: {type: 'button', ...Tooltips.attributes(tool.title, this.side === 'left' ? 'right' : 'left'), 'aria-label': tool.title, 'aria-pressed': String(open)},
         });
         // Trusted markup: a tool is code registered by the admin or a plugin.
         button.innerHTML = tool.icon;

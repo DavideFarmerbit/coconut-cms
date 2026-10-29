@@ -30,7 +30,7 @@ export class TypeIcon {
 
         return Elements.create('span', {
             classes: ['type-icon'],
-            attributes: {style: `color: var(--cc-type-${parts.color})`, [Tooltips.ATTRIBUTE]: ValueWords.describe(value), role: 'img', 'aria-label': ValueWords.describe(value)},
+            attributes: {style: `color: var(--cc-type-${parts.color})`, ...Tooltips.attributes(ValueWords.describe(value), 'top'), role: 'img', 'aria-label': ValueWords.describe(value)},
         }, [Svg.icon([], layers)]);
     }
 

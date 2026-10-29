@@ -152,8 +152,21 @@ not its code): an IntelliJ-style window manager.
   right-click's choices, a dropdown's. One is open at a time.
 - `Tooltips` replaces the browser's tooltips: an element's
   `data-tooltip` shows in a themed box 150ms after the pointer rests on it,
-  or on keyboard focus; once one shows, the next shows at once. The admin
-  sets no `title` attribute.
+  or on keyboard focus. The element chooses where, with
+  `data-tooltip-placement` (`top` unless set): `top`, `bottom`, `left` or
+  `right`, centered along that side; or `top-start` or `bottom-start`, its
+  left edge on the element's. The box flips to the opposite side where
+  there's no room, and shifts to stay inside the window.
+  `Tooltips.attributes(text, placement)` gives both attributes. Once one
+  shows, the next shows at once. The admin sets no `title` attribute.
+  Where they show now:
+  - field type icons, field access icons and the header's rights: `top`;
+  - stripe buttons: toward the canvas, `right` on the left stripe, `left`
+    on the right one;
+  - a tab's title and a panel's hide button: `bottom-start`.
+
+  A field's type name, a tab's close button and the Types panel's entries
+  have none.
 
 The code is in three layers, each depending only on the ones before:
 

@@ -1,5 +1,4 @@
 import {Elements} from '../../dom/Elements.ts';
-import {Tooltips} from '../../dom/Tooltips.ts';
 import {TypeCatalog} from '../../public/types/TypeCatalog.ts';
 import type {TypeDescription} from '../../public/types/TypeDescription.ts';
 import type {PanelView} from '../../public/workspace/PanelView.ts';
@@ -68,7 +67,7 @@ export class TypesView implements PanelView {
         const item = Elements.create('li', {
             classes: ['list__item'],
             text: TypeCatalog.keyOf(identifier),
-            attributes: {role: 'option', tabindex: '0', [Tooltips.ATTRIBUTE]: identifier, 'data-type': identifier},
+            attributes: {role: 'option', tabindex: '0', 'data-type': identifier},
         });
         TypeLink.attach(item, identifier, this.context.workspace, (opened) => {
             this.context.state.set(TypesView.SELECTED, opened);
