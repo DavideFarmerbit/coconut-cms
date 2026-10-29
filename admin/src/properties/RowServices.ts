@@ -21,4 +21,7 @@ export interface RowServices {
 
     /** The rows of `object`'s fields, at `prefix`, joined to it by `join`. */
     fields(prefix: string, object: ObjectValue, join: string): HTMLElement;
+
+    /** The rows a plain parent row at `path` holds: those its view's filter shows under it. */
+    shownUnder(path: string): HTMLElement;
 }

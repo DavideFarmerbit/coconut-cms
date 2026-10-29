@@ -31,6 +31,8 @@ export type {PropertyContext} from './properties/PropertyContext.ts';
 export type {PropertyEditor, PropertyEditorClass} from './properties/PropertyEditor.ts';
 export type {PropertyInfo} from './properties/PropertyInfo.ts';
 export {PropertyEditors} from './properties/PropertyEditors.ts';
+export type {PropertyFilter} from './properties/PropertyFilter.ts';
+export {PropertyFilters} from './properties/PropertyFilters.ts';
 export {PropertyGrid, type PropertyGridOptions} from './properties/PropertyGrid.ts';
 export type {PropertyMatch} from './properties/PropertyMatch.ts';
 export {PropertyPath} from './properties/PropertyPath.ts';

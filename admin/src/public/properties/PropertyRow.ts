@@ -20,7 +20,7 @@ export class PropertyRow {
     /** @param collapse Where its collapsed properties are remembered; only while it lives, unless given. */
     public constructor(context: ViewContext, private readonly session: EntitySession, private readonly path: string, collapse: CollapseMemory = new MemoryCollapse()) {
         this.element = Elements.create('div', {classes: ['properties']});
-        this.tree = new RowTree(session, {api: context.api, editors: context.properties, entities: context.entities, collapse}, () => this.render());
+        this.tree = new RowTree(session, {api: context.api, editors: context.properties, entities: context.entities, collapse, filter: null}, () => this.render());
         this.render();
     }
 

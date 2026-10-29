@@ -9,7 +9,7 @@ panels, splitters and one tab group, tool and tab type registration, and
 the Types tool, loading modules' admin code, and editing native entities'
 properties. Not built yet: dragging icons and tabs, menus from manifests,
 uploaded and browser plugins, the layout kept per user on the server,
-property filters, lists following the entity store.
+lists following the entity store.
 Each is noted inline.
 
 The admin is a client-side app. It talks to the backend only through the API
@@ -336,9 +336,9 @@ How the admin shows and edits entities, after Unreal's editor: an object
 in memory, edited from several places at once, with one unsaved state, and
 details views showing its properties. It's part of the public module, so
 projects and plugins show entities the same way, and nobody writes their
-own. Built for native entities: the store, sessions, views, editors and
-the dropdown. Not built yet: filters, and lists and labels following the
-store's changes; each is noted inline.
+own. Built for native entities: the store, sessions, views, filters,
+editors and the dropdown. Not built yet: lists following the store's
+changes; noted inline.
 
 The code is in three layers. Data knows nothing of the DOM; views know
 nothing of the API.
@@ -416,8 +416,8 @@ It gets dirty tracking, errors and saving with it.
   `wheels.1.size`. It can go anywhere in a custom layout, like Unreal's
   single property view.
 - `PropertyGrid` shows many: by default every field, grouped by the type
-  declaring it, like Unreal's details view. A `PropertyFilter` narrows it
-  (not built yet).
+  declaring it, like Unreal's details view. A `PropertyFilter` narrows
+  it; a group with nothing to show isn't shown.
 - `EntityEditor` is the default composition, for tabs: a header with the
   label, the type, the id, an unsaved mark, Save and Revert, then a grid of
   the whole entity. `EntityEditor.edit(context, id)` and
@@ -440,17 +440,21 @@ type, like the closed groups.
 
 ### Filters
 
-Not built yet. A `PropertyFilter` decides which properties a grid shows. It's a class
-with one method, `accepts(property)`, given the property's path, its
-field, what it holds, the type holding it and whether it's writable. The
-built-in filters:
+A `PropertyFilter` decides which properties a grid shows:
+`new PropertyGrid(context, session, {filter})`. It's a class with one
+method, `accepts(property)`, given the property's path, its field, what it
+holds, the type holding it and whether it's writable. `PropertyFilters`
+gives the built-in ones:
 
-- writable only;
-- of a kind: Collections, References…;
-- holding a type: every `shop:color`;
-- under a path: one owned object's fields;
-- a list of paths;
-- `all(...)` and `any(...)`, combining others.
+- `writable()`;
+- `ofKind(...kinds)`: Collections, References…;
+- `holding(type)`: a value object type (every `shop:color`), an entity
+  type held, or a scalar type (`int`). A Collection's items are accepted
+  one by one;
+- `under(path)`: the properties under a path, not the one at it: an owned
+  object's fields;
+- `paths(...paths)`;
+- `all(...filters)` and `any(...filters)`, combining others.
 
 A property shows when the filter accepts it or one of its ancestors:
 accepting a property accepts what's in it. The ancestors of a property

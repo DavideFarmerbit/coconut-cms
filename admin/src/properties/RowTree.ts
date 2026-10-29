@@ -8,15 +8,19 @@ import type {PropertyEditors} from '../public/properties/PropertyEditors.ts';
 import {PropertyPath} from '../public/properties/PropertyPath.ts';
 import type {ObjectValue} from '../public/properties/RecordValues.ts';
 import type {CatalogField, TypeCatalog} from '../public/types/TypeCatalog.ts';
+import type {PropertyFilter} from '../public/properties/PropertyFilter.ts';
 import {BuiltRow} from './BuiltRow.ts';
+import {PropertyVisibility} from './PropertyVisibility.ts';
 import type {RowServices} from './RowServices.ts';
 
-/** The admin's parts a tree's rows use. */
+/** The admin's parts a tree's rows use, and what the tree shows. */
 export interface RowSettings {
     readonly api: ApiClient;
     readonly editors: PropertyEditors;
     readonly entities: EntityStore;
     readonly collapse: CollapseMemory;
+    /** Narrows what the tree shows; null for everything. */
+    readonly filter: PropertyFilter | null;
 }
 
 /** Told that the session reloaded: the view shows everything again. */
@@ -30,10 +34,13 @@ export type Reloaded = () => void;
  * - a change of shape: the row at its path is built again, with what's under it;
  * - any change: every row marks again where it stands;
  * - a reload: the view shows everything again.
+ * Under a filter, the entity's fields and a plain parent's children show as
+ * the filter says; under a property shown in full, everything shows.
  * A view disposes of its tree when it goes.
  */
 export class RowTree implements RowServices {
     private readonly rows = new Map<string, BuiltRow>();
+    private readonly visibility: PropertyVisibility;
     private readonly listener = (change: SessionChange): void => this.changed(change);
 
     public constructor(
@@ -41,6 +48,7 @@ export class RowTree implements RowServices {
         private readonly settings: RowSettings,
         private readonly reloaded: Reloaded,
     ) {
+        this.visibility = new PropertyVisibility(session, settings.filter);
         session.onChange(this.listener);
     }
 
@@ -83,12 +91,20 @@ export class RowTree implements RowServices {
     }
 
     public fields(prefix: string, object: ObjectValue, join: string): HTMLElement {
-        return this.list(this.catalog.fieldsOf(object.type), object.values, (name) => PropertyPath.child(prefix, join, name));
+        return Elements.create('div', {classes: ['properties']}, this.catalog.fieldsOf(object.type)
+            .filter(({name, field}) => field.read && name in object.values)
+            .map(({name}) => this.row(PropertyPath.child(prefix, join, name))));
     }
 
-    /** The rows of the entity's `fields`, those the user may read. */
-    public rootFields(fields: readonly CatalogField[]): HTMLElement {
-        return this.list(fields, this.session.values, (name) => name);
+    public shownUnder(path: string): HTMLElement {
+        return this.shownAt(this.visibility.childPaths(path)) ?? Elements.create('div', {classes: ['properties']});
+    }
+
+    /** The rows of the entity's `fields` the filter shows; null when it shows none. */
+    public rootFields(fields: readonly CatalogField[]): HTMLElement | null {
+        const readable = new Set(this.visibility.rootPaths());
+
+        return this.shownAt(fields.map(({name}) => name).filter((name) => readable.has(name)));
     }
 
     /** Forgets every row: before the view shows everything again. */
@@ -102,11 +118,30 @@ export class RowTree implements RowServices {
         this.rows.clear();
     }
 
-    /** The rows of `fields` the user may read, and `values` hold, each at the path `pathOf` gives. */
-    private list(fields: readonly CatalogField[], values: Readonly<Record<string, unknown>>, pathOf: (name: string) => string): HTMLElement {
-        return Elements.create('div', {classes: ['properties']}, fields
-            .filter(({name, field}) => field.read && name in values)
-            .map(({name}) => this.row(pathOf(name))));
+    /** The rows of `paths` the filter shows; null when it shows none. */
+    private shownAt(paths: readonly string[]): HTMLElement | null {
+        const rows = paths.map((path) => this.shown(path)).filter((row): row is HTMLElement => row !== null);
+
+        return rows.length === 0 ? null : Elements.create('div', {classes: ['properties']}, rows);
+    }
+
+    /** The row of the property at `path` as the filter shows it: in full, as a plain parent, or none. */
+    private shown(path: string): HTMLElement | null {
+        const visibility = this.visibility.of(path);
+        const info = this.session.describe(path);
+        if (visibility === 'hidden' || info === undefined) {
+            return null;
+        }
+
+        if (visibility === 'full') {
+            return this.row(path);
+        }
+
+        const row = new BuiltRow(this, info, true);
+        this.rows.set(path, row);
+        row.refresh();
+
+        return row.element;
     }
 
     private changed(change: SessionChange): void {
@@ -145,7 +180,7 @@ export class RowTree implements RowServices {
                 this.rows.delete(path);
             }
         }
-        row.element.replaceWith(this.row(row.path));
+        row.element.replaceWith(this.shown(row.path) ?? Elements.create('div'));
     }
 
     /** Marks every row again. */

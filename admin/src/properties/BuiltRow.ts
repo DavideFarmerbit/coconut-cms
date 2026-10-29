@@ -15,20 +15,23 @@ import {Values} from './Values.ts';
  * item's), and two resets: to its default, while it differs from that, and
  * to what was saved, once it changed; then its error, and its children.
  * Its changes go to the session in its own name: the row making a change
- * keeps its widget.
+ * keeps its widget. A plain row, the parent of what a filter shows under
+ * it, has only its name, its chevron and those rows.
  */
 export class BuiltRow {
     public readonly element: HTMLElement;
     private readonly origin: HTMLElement;
     private readonly error: HTMLElement;
 
+    /** @param plain Whether it's a plain parent row. */
     public constructor(
         private readonly services: RowServices,
         private readonly info: PropertyInfo,
+        plain = false,
     ) {
         const session = services.session;
         const path = info.path;
-        const editor = this.editor();
+        const editor: PropertyEditor = plain ? {widget: Elements.create('span'), children: services.shownUnder(path)} : this.editor();
         const hasChildren = editor.children !== null;
         const collapsed = hasChildren && services.collapse.isCollapsed(path);
 
@@ -49,6 +52,7 @@ export class BuiltRow {
                 ...(hasChildren ? ['has-children'] : []),
                 ...(collapsed ? ['is-collapsed'] : []),
                 ...(info.writable ? [] : ['is-readonly']),
+                ...(plain ? ['is-plain'] : []),
             ],
             // Only the label is indented by its depth: every value lines up in one column, as in Unreal.
             attributes: {'data-path': path, style: `--cc-property-depth: ${PropertyPath.segments(path).length - 1}`},
@@ -63,7 +67,7 @@ export class BuiltRow {
             ]),
             Elements.create('div', {classes: ['property__value']}, [editor.widget]),
             Elements.create('div', {classes: ['property__actions']}),
-            Elements.create('div', {classes: ['property__resets']}, [toDefault, reset]),
+            Elements.create('div', {classes: ['property__resets']}, plain ? [] : [toDefault, reset]),
         ]);
 
         this.element.append(header, this.error, ...(editor.children === null ? [] : [Elements.create('div', {classes: ['property__children']}, [editor.children])]));
@@ -83,7 +87,7 @@ export class BuiltRow {
         this.element.classList.toggle('is-new', status.isNew);
         this.element.classList.toggle('is-changed', status.isChanged && !status.isNew);
         this.element.classList.toggle('is-moved', status.movedFrom !== null);
-        this.element.classList.toggle('has-default', defaultValue !== undefined && this.info.writable && !Values.sameContent(session.valueAt(path), defaultValue));
+        this.element.classList.toggle('has-default', defaultValue !== undefined && this.info.writable && !this.element.classList.contains('is-plain') && !Values.sameContent(session.valueAt(path), defaultValue));
         // Inside a new item, every property is new too: only the item says so.
         this.origin.textContent = status.movedFrom !== null ? `from [${status.movedFrom}]` : status.isNew && this.info.field === null && !this.isInNewItem() ? 'new' : '';
         this.error.textContent = session.errorAt(path) ?? '';
