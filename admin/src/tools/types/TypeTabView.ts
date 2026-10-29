@@ -5,11 +5,11 @@ import type {FieldDescription, TypeDescription} from '../../public/types/TypeDes
 import type {JsonValue} from '../../public/workspace/Json.ts';
 import type {PanelView} from '../../public/workspace/PanelView.ts';
 import type {ViewContext} from '../../public/workspace/ViewContext.ts';
-import {AccessIcon} from './AccessIcon.ts';
-import {TypeIcon} from './TypeIcon.ts';
+import {AccessIcon} from '../../icons/AccessIcon.ts';
+import {TypeIcon} from '../../icons/TypeIcon.ts';
+import {ValueWords} from '../../icons/ValueWords.ts';
 import {TypeLink} from './TypeLink.ts';
 import {TypesTool} from './TypesTool.ts';
-import {ValueWords} from './ValueWords.ts';
 
 /**
  * The type inspector, one type per tab: what it extends, its subtypes in a

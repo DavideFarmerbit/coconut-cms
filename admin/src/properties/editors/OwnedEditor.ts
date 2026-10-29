@@ -32,7 +32,11 @@ export class OwnedEditor implements PropertyEditor {
             context.rebuild();
         });
 
-        this.widget = select;
+        // A class picker, set apart from a value's field: the object's class, chosen.
+        this.widget = Elements.create('span', {classes: ['class-picker', ...(isObjectValue(value) ? [] : ['is-empty'])]}, [
+            Elements.create('span', {classes: ['class-picker__label'], text: 'Class'}),
+            select,
+        ]);
         this.children = isObjectValue(value) ? context.fieldsOf(value, PropertyPath.TRAVERSE) : null;
     }
 }

@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import type {ValueDescription} from '../../public/types/TypeDescription.ts';
+import type {ValueDescription} from '../public/types/TypeDescription.ts';
 import {IconParts} from './IconParts.ts';
 import {ValueWords} from './ValueWords.ts';
 

@@ -48,14 +48,37 @@
     gap: var(--cc-space-3);
 }
 
+// A category: one level of the hierarchy, as a bar, like Unreal's.
+.property-group {
+    border: 1px solid var(--cc-color-border);
+    border-radius: var(--cc-control-radius);
+    overflow: hidden;
+}
+
 .property-group__title {
-    padding: var(--cc-space-1) 0;
+    display: flex;
+    align-items: center;
+    gap: var(--cc-space-1);
+    padding: var(--cc-space-1) var(--cc-space-2);
     color: var(--cc-color-text-muted);
+    background: var(--cc-property-category-bg);
     font-size: var(--cc-font-size-small);
     font-weight: 600;
-    border-bottom: 1px solid var(--cc-color-border);
+    list-style: none;
     cursor: pointer;
     user-select: none;
+
+    &::-webkit-details-marker {
+        display: none;
+    }
+
+    svg {
+        transition: transform 0.12s;
+    }
+}
+
+.property-group[open] > .property-group__title svg {
+    transform: rotate(90deg);
 }
 
 .properties {
@@ -63,29 +86,90 @@
     flex-direction: column;
 }
 
+// A row: label, value, actions, reset. Rows are parted by a line.
 .property__header {
     display: grid;
-    grid-template-columns: var(--cc-property-name-width) minmax(0, 1fr) auto auto;
+    // Actions and reset keep their width on every row, so every value ends in one column too.
+    grid-template-columns: var(--cc-property-name-width) minmax(0, 1fr) var(--cc-property-actions-width) var(--cc-property-reset-width);
     align-items: center;
     gap: var(--cc-space-2);
     min-height: var(--cc-property-row-height);
     padding: 2px var(--cc-space-2);
-    border-radius: var(--cc-control-radius);
+    border-bottom: 1px solid var(--cc-property-separator);
 
     &:hover {
         background: var(--cc-color-hover);
     }
 }
 
+// A property holding others: its header row is tinted, its name bold.
+.property.has-children > .property__header {
+    background: var(--cc-property-parent-bg);
+
+    &:hover {
+        background: var(--cc-color-hover);
+    }
+
+    .property__name {
+        font-weight: 600;
+    }
+}
+
+.property__label {
+    display: flex;
+    align-items: center;
+    gap: var(--cc-space-1);
+    min-width: 0;
+    padding-left: calc(var(--cc-property-depth, 0) * var(--cc-property-indent));
+}
+
+.property__toggle,
+.property__toggle-space {
+    flex: none;
+    width: 16px;
+    height: 16px;
+}
+
+.property__toggle {
+    display: grid;
+    place-items: center;
+    padding: 0;
+    color: var(--cc-color-text-muted);
+    background: none;
+    border: 0;
+    cursor: pointer;
+
+    svg {
+        transform: rotate(90deg);
+        transition: transform 0.12s;
+    }
+
+    &:hover {
+        color: var(--cc-color-text);
+    }
+}
+
+.property.is-collapsed > .property__header .property__toggle svg {
+    transform: none;
+}
+
+.property.is-collapsed > .property__children {
+    display: none;
+}
+
 .property__name {
     overflow: hidden;
-    padding-left: calc(var(--cc-property-depth, 0) * var(--cc-property-indent));
     font-family: var(--cc-font-family-mono);
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.property.is-changed > .property__header > .property__name::after {
+// A Collection's item: its index, muted.
+.property.is-item > .property__header .property__name {
+    color: var(--cc-color-text-muted);
+}
+
+.property.is-changed > .property__header .property__name::after {
     content: ' ●';
     color: var(--cc-color-accent);
 }
@@ -100,6 +184,85 @@
 
 .property.is-readonly > .property__header .property__name {
     color: var(--cc-color-text-muted);
+}
+
+// A Collection item's actions, dimmed until the row is pointed at.
+.property__actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+
+    .icon-button {
+        opacity: 0.35;
+    }
+}
+
+.property__header:hover > .property__actions .icon-button,
+.property__actions .icon-button:focus-visible {
+    opacity: 1;
+}
+
+.property__actions .icon-button:disabled {
+    opacity: 0.15;
+}
+
+// Children sit behind a guide line under their parent's chevron: where a
+// struct, an object or an array starts and ends shows.
+.property__children {
+    position: relative;
+
+    &::before {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: calc(var(--cc-space-2) + var(--cc-property-depth, 0) * var(--cc-property-indent) + 7px);
+        z-index: 1;
+        content: '';
+        border-left: 1px solid var(--cc-property-guide);
+    }
+}
+
+.collection__count {
+    padding: 0 var(--cc-space-2);
+    color: var(--cc-color-text-muted);
+    font-size: var(--cc-font-size-small);
+    background: var(--cc-color-raised);
+    border-radius: 999px;
+}
+
+// An owned object's class picker, set apart from a value's field.
+.class-picker {
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    border: 1px solid var(--cc-property-class-border);
+    border-radius: var(--cc-control-radius);
+
+    .field__input {
+        border: 0;
+        border-radius: 0;
+        background: var(--cc-property-class-bg);
+    }
+}
+
+.class-picker__label {
+    flex: none;
+    padding: 0 var(--cc-space-2);
+    color: var(--cc-type-entity);
+    font-size: var(--cc-font-size-small);
+    font-weight: 600;
+}
+
+.reference__box {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    min-width: 0;
+    height: var(--cc-property-control-height);
+    padding: 0 var(--cc-control-padding-x);
+    background: var(--cc-color-raised);
+    border: 1px solid var(--cc-color-border);
+    border-radius: var(--cc-control-radius);
 }
 
 .property__value {
@@ -128,7 +291,7 @@
 }
 
 .property__error {
-    margin: 0 0 var(--cc-space-1) calc(var(--cc-property-name-width) + var(--cc-space-4));
+    margin: var(--cc-space-1) 0 var(--cc-space-1) calc(var(--cc-property-name-width) + var(--cc-space-4));
     color: var(--cc-color-danger);
     font-size: var(--cc-font-size-small);
 
@@ -146,11 +309,6 @@
     &.is-set {
         color: var(--cc-color-text);
     }
-}
-
-.button--small {
-    height: var(--cc-property-control-height);
-    padding: 0 var(--cc-space-2);
 }
 
 // The Reference picker: a dropdown with a search box and a page of entities.

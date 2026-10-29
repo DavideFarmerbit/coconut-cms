@@ -48,7 +48,15 @@
     --cc-property-name-width: 180px;
     --cc-property-row-height: 30px;
     --cc-property-control-height: 26px;
-    --cc-property-indent: 14px;
+    --cc-property-indent: 16px;
+    --cc-property-actions-width: 96px;                     // room for an item's four actions
+    --cc-property-reset-width: 24px;
+    --cc-property-separator: rgb(255 255 255 / 5%);        // the line parting rows
+    --cc-property-parent-bg: rgb(255 255 255 / 3%);        // a row holding others
+    --cc-property-category-bg: #26282c;                    // a category's bar
+    --cc-property-guide: #3d4047;                          // the line beside children
+    --cc-property-class-bg: rgb(90 169 255 / 8%);          // an owned object's class picker
+    --cc-property-class-border: rgb(90 169 255 / 35%);
     --cc-color-overlay: rgb(0 0 0 / 45%);
 
     // Tooltips.

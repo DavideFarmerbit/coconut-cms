@@ -1,6 +1,6 @@
-import {Elements} from '../../dom/Elements.ts';
-import {Svg} from '../../dom/Svg.ts';
-import {Tooltips} from '../../dom/Tooltips.ts';
+import {Elements} from '../dom/Elements.ts';
+import {Svg} from '../dom/Svg.ts';
+import {Tooltips} from '../dom/Tooltips.ts';
 
 /** What an access icon stands for. */
 export type Access = 'read' | 'write' | 'create' | 'update' | 'delete';

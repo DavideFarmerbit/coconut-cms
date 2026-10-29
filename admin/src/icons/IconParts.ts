@@ -1,4 +1,4 @@
-import type {ValueDescription} from '../../public/types/TypeDescription.ts';
+import type {ValueDescription} from '../public/types/TypeDescription.ts';
 
 /** The frame, from multiplicity: a circle for one value, a grid for a Collection. */
 export type IconFrame = 'single' | 'collection';

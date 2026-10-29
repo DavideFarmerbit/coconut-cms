@@ -1,4 +1,4 @@
-import type {ValueDescription} from '../../public/types/TypeDescription.ts';
+import type {ValueDescription} from '../public/types/TypeDescription.ts';
 
 /** Puts a field's type in words: its short name for a row, its full description for a tooltip. */
 export class ValueWords {

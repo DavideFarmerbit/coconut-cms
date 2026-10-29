@@ -1,5 +1,5 @@
 import {Elements} from '../../dom/Elements.ts';
-import {Tooltips} from '../../dom/Tooltips.ts';
+import {ActionIcon} from '../../icons/ActionIcon.ts';
 import type {PropertyContext} from '../../public/properties/PropertyContext.ts';
 import type {PropertyEditor} from '../../public/properties/PropertyEditor.ts';
 import {isReferenceValue} from '../../public/properties/RecordValues.ts';
@@ -25,19 +25,15 @@ export class ReferenceEditor implements PropertyEditor {
         }
 
         // A dead button for now, kept so the row's layout is final.
-        const open = Elements.create('button', {
-            classes: ['icon-button'],
-            text: '↗',
-            attributes: {type: 'button', 'aria-label': 'Open', ...Tooltips.attributes('Opening comes later', 'top')},
-        });
+        const open = ActionIcon.button('open', 'Opening comes later');
 
-        const pick = Elements.create('button', {classes: ['button', 'button--small'], text: 'Pick…', attributes: {type: 'button'}});
+        const pick = ActionIcon.button('browse', 'Pick another');
         pick.disabled = !context.writable;
         pick.addEventListener('click', () => ReferencePicker.open(pick, context.api, context.catalog, context.value.target ?? '', (picked) => {
             context.slot.set(picked);
             context.rebuild();
         }));
 
-        this.widget = Elements.create('span', {classes: ['property__inline', 'reference']}, [label, open, pick]);
+        this.widget = Elements.create('span', {classes: ['property__inline', 'reference']}, [Elements.create('span', {classes: ['reference__box']}, [label]), pick, open]);
     }
 }

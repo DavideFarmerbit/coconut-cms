@@ -1,7 +1,7 @@
-import {Elements} from '../../dom/Elements.ts';
-import {Svg} from '../../dom/Svg.ts';
-import {Tooltips} from '../../dom/Tooltips.ts';
-import type {ValueDescription} from '../../public/types/TypeDescription.ts';
+import {Elements} from '../dom/Elements.ts';
+import {Svg} from '../dom/Svg.ts';
+import {Tooltips} from '../dom/Tooltips.ts';
+import type {ValueDescription} from '../public/types/TypeDescription.ts';
 import {type IconGlyph, IconParts} from './IconParts.ts';
 import {ValueWords} from './ValueWords.ts';
 

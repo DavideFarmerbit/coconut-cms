@@ -1,6 +1,6 @@
 import {ContextMenu} from '../../dom/ContextMenu.ts';
 import {Elements} from '../../dom/Elements.ts';
-import {Tooltips} from '../../dom/Tooltips.ts';
+import {ActionIcon} from '../../icons/ActionIcon.ts';
 import type {PropertyContext} from '../../public/properties/PropertyContext.ts';
 import type {PropertyEditor} from '../../public/properties/PropertyEditor.ts';
 import {isObjectValue} from '../../public/properties/RecordValues.ts';
@@ -8,9 +8,9 @@ import {NewValues} from '../NewValues.ts';
 
 /**
  * A Collection, like Unreal's arrays: its item count, add and clear beside
- * its name, then a row per item, each with a menu to insert before,
- * duplicate, remove, and move up or down. Changing its items replaces the
- * whole list; an owned item keeps its id through a move.
+ * its name, then a row per item, each with its own actions in the row: move
+ * up, move down, duplicate, remove. Changing its items replaces the whole
+ * list; an owned item keeps its id through a move.
  */
 export class CollectionEditor implements PropertyEditor {
     public readonly widget: HTMLElement;
@@ -18,37 +18,41 @@ export class CollectionEditor implements PropertyEditor {
 
     public constructor(private readonly context: PropertyContext) {
         const items = this.items();
-        const add = Elements.create('button', {classes: ['icon-button'], text: '+', attributes: {type: 'button', 'aria-label': 'Add an item', ...Tooltips.attributes('Add an item', 'top')}});
+        const add = ActionIcon.button('add', 'Add an item');
         add.disabled = !context.writable;
         add.addEventListener('click', () => this.withNewItem(add, (item) => this.replace([...this.items(), item])));
-        const clear = Elements.create('button', {classes: ['icon-button'], text: '⌫', attributes: {type: 'button', 'aria-label': 'Remove every item', ...Tooltips.attributes('Remove every item', 'top')}});
+        const clear = ActionIcon.button('clear', 'Remove every item');
         clear.disabled = !context.writable || items.length === 0;
         clear.addEventListener('click', () => this.replace([]));
 
         this.widget = Elements.create('span', {classes: ['property__inline']}, [
-            Elements.create('span', {classes: ['muted'], text: `${items.length} item${items.length === 1 ? '' : 's'}`}),
+            Elements.create('span', {classes: ['collection__count'], text: `${items.length} item${items.length === 1 ? '' : 's'}`}),
             add,
             clear,
         ]);
-        this.children = items.length === 0 ? null : Elements.create('div', {classes: ['properties']}, items.map((_item, index) => this.itemRow(index)));
+        this.children = items.length === 0 ? null : Elements.create('div', {classes: ['properties', 'collection__items']}, items.map((_item, index) => this.itemRow(index)));
     }
 
-    /** Item `index`'s row, with its menu in its header. */
+    /** Item `index`'s row, its actions in it. */
     private itemRow(index: number): HTMLElement {
         const row = this.context.itemOf(index);
         if (!this.context.writable) {
             return row;
         }
 
-        const menu = Elements.create('button', {classes: ['icon-button'], text: '⋮', attributes: {type: 'button', 'aria-label': 'Item actions'}});
-        menu.addEventListener('click', () => ContextMenu.below(menu, [
-            {label: 'Insert before', run: () => this.withNewItem(menu, (item) => this.replace(CollectionEditor.spliced(this.items(), index, 0, item)))},
-            {label: 'Duplicate', run: () => this.replace(CollectionEditor.spliced(this.items(), index + 1, 0, CollectionEditor.copy(this.items()[index])))},
-            {label: 'Remove', run: () => this.replace(CollectionEditor.spliced(this.items(), index, 1))},
-            ...(index > 0 ? [{label: 'Move up', run: () => this.move(index, index - 1)}] : []),
-            ...(index < this.items().length - 1 ? [{label: 'Move down', run: () => this.move(index, index + 1)}] : []),
-        ]));
-        row.querySelector('.property__header')?.append(menu);
+        const last = this.items().length - 1;
+        const up = ActionIcon.button('moveUp', 'Move up');
+        up.disabled = index === 0;
+        up.addEventListener('click', () => this.move(index, index - 1));
+        const down = ActionIcon.button('moveDown', 'Move down');
+        down.disabled = index === last;
+        down.addEventListener('click', () => this.move(index, index + 1));
+        const duplicate = ActionIcon.button('duplicate', 'Duplicate');
+        duplicate.addEventListener('click', () => this.replace(CollectionEditor.spliced(this.items(), index + 1, 0, CollectionEditor.copy(this.items()[index]))));
+        const remove = ActionIcon.button('remove', 'Remove');
+        remove.addEventListener('click', () => this.replace(CollectionEditor.spliced(this.items(), index, 1)));
+
+        row.querySelector(':scope > .property__header > .property__actions')?.append(up, down, duplicate, remove);
 
         return row;
     }

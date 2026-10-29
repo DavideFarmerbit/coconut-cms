@@ -1,5 +1,6 @@
 import {Dialog} from '../../dom/Dialog.ts';
 import {Elements} from '../../dom/Elements.ts';
+import {ActionIcon} from '../../icons/ActionIcon.ts';
 import {EntityDraft} from '../../properties/EntityDraft.ts';
 import {PropertyRows} from '../../properties/PropertyRows.ts';
 import {ReferenceLabels} from '../../properties/ReferenceLabels.ts';
@@ -30,6 +31,9 @@ interface EntityData {
 export class EntityEditor {
     /** The view state's name for the groups closed, by entity type. */
     private static readonly COLLAPSED = 'collapsedGroups';
+
+    /** The view state's name for the properties collapsed, by entity type. */
+    private static readonly COLLAPSED_PROPERTIES = 'collapsedProperties';
 
     public readonly element: HTMLElement;
     private readonly errors = new Map<string, string>();
@@ -132,7 +136,17 @@ export class EntityEditor {
             return;
         }
 
-        const rows = new PropertyRows(draft, catalog, this.context.api, this.context.properties, new ReferenceLabels(this.context.api, catalog), this.errors, () => this.render());
+        const rows = new PropertyRows(
+            draft,
+            catalog,
+            this.context.api,
+            this.context.properties,
+            new ReferenceLabels(this.context.api, catalog),
+            this.errors,
+            new Set(this.remembered(EntityEditor.COLLAPSED_PROPERTIES)),
+            (path, collapsed) => this.remember(EntityEditor.COLLAPSED_PROPERTIES, path, collapsed),
+            () => this.render(),
+        );
         const groups = EntityEditor.byDeclaringType(catalog.fieldsOf(entity.type));
         const body = groups.length <= 1
             ? rows.fields(entity.type, draft.values, groups[0]?.fields ?? [], null, PropertyPath.TRAVERSE)
@@ -161,18 +175,33 @@ export class EntityEditor {
         ]);
     }
 
-    /** A collapsible group of `type`'s fields, closed as remembered. */
+    /** A collapsible category of `type`'s fields, closed as remembered. */
     private group(type: string, fields: HTMLElement): HTMLElement {
-        const group = Elements.create('details', {classes: ['property-group']}, [Elements.create('summary', {classes: ['property-group__title'], text: type}), fields]);
-        group.open = !this.collapsed().includes(type);
-        group.addEventListener('toggle', () => {
-            const others = this.collapsed().filter((each) => each !== type);
-            const state = this.context.state.get(EntityEditor.COLLAPSED);
-            const byType = typeof state === 'object' && state !== null && !Array.isArray(state) ? state as Record<string, readonly string[]> : {};
-            this.context.state.set(EntityEditor.COLLAPSED, {...byType, [this.entity?.type ?? '']: group.open ? others : [...others, type]});
-        });
+        const group = Elements.create('details', {classes: ['property-group']}, [
+            Elements.create('summary', {classes: ['property-group__title']}, [ActionIcon.svg('expand'), Elements.create('span', {text: type})]),
+            fields,
+        ]);
+        group.open = !this.remembered(EntityEditor.COLLAPSED).includes(type);
+        group.addEventListener('toggle', () => this.remember(EntityEditor.COLLAPSED, type, !group.open));
 
         return group;
+    }
+
+    /** What's remembered under `name` for this entity's type: the groups or properties closed. */
+    private remembered(name: string): readonly string[] {
+        const state = this.context.state.get(name);
+        const byType = typeof state === 'object' && state !== null && !Array.isArray(state) ? state as Record<string, unknown> : {};
+        const closed = byType[this.entity?.type ?? ''];
+
+        return Array.isArray(closed) ? closed.filter((each): each is string => typeof each === 'string') : [];
+    }
+
+    /** Remembers under `name`, for this entity's type, that `key` is closed, or not. */
+    private remember(name: string, key: string, closed: boolean): void {
+        const state = this.context.state.get(name);
+        const byType = typeof state === 'object' && state !== null && !Array.isArray(state) ? state as Record<string, readonly string[]> : {};
+        const others = this.remembered(name).filter((each) => each !== key);
+        this.context.state.set(name, {...byType, [this.entity?.type ?? '']: closed ? [...others, key] : others});
     }
 
     /** Shows whether there are unsaved changes, and which properties changed; tells the view. */
@@ -224,15 +253,6 @@ export class EntityEditor {
         const entity = this.entity;
 
         return entity === undefined || this.catalog === undefined ? this.id : EntityLabels.of(this.catalog, entity.type, entity.id, this.draft?.values ?? entity.values);
-    }
-
-    /** The declaring types closed for this entity's type. */
-    private collapsed(): readonly string[] {
-        const state = this.context.state.get(EntityEditor.COLLAPSED);
-        const byType = typeof state === 'object' && state !== null && !Array.isArray(state) ? state as Record<string, unknown> : {};
-        const closed = byType[this.entity?.type ?? ''];
-
-        return Array.isArray(closed) ? closed.filter((each): each is string => typeof each === 'string') : [];
     }
 
     /** `fields` grouped by the type declaring them, in their order: the root's first. */

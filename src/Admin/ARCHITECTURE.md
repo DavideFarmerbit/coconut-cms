@@ -346,7 +346,14 @@ them.
 
 - **A property is the unit.** A property view shows one field's value at a
   path: its name, its value widget, and its children for values that have
-  them. Anything can be shown: one field, a nested Embed, a whole entity,
+  them. A row reads: a chevron collapsing its children, when it has some,
+  remembered per entity type; its field's type icon, the same as the type
+  inspector's; its name, indented by depth; its value, every value in one
+  column; a Collection item's actions, move up, move down, duplicate and
+  remove, in the row, dimmed until it's pointed at; a reset button once
+  it changed. Rows are parted by a line; a row holding others is tinted,
+  its children behind a guide line; a category is a bar; an owned object's
+  type is a "Class" picker, set apart from values. Anything can be shown: one field, a nested Embed, a whole entity,
   which is its fields' properties. Where it shows is up to its user: the
   project's Cars tool opens a tab per car, showing the whole entity.
 - **Each kind has a default:**

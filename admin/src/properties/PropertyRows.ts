@@ -1,5 +1,6 @@
 import {Elements} from '../dom/Elements.ts';
-import {Tooltips} from '../dom/Tooltips.ts';
+import {ActionIcon} from '../icons/ActionIcon.ts';
+import {TypeIcon} from '../icons/TypeIcon.ts';
 import type {ApiClient} from '../public/api/ApiClient.ts';
 import type {PropertyContext} from '../public/properties/PropertyContext.ts';
 import type {PropertyEditor} from '../public/properties/PropertyEditor.ts';
@@ -25,11 +26,16 @@ interface PropertySpec {
     readonly field: string | null;
 }
 
+/** Told that a property was collapsed or expanded. */
+export type CollapseChanged = (path: string, collapsed: boolean) => void;
+
 /**
- * Builds property rows for an entity being edited: its name, the editor
- * admin.properties resolves for it, a reset button once it changed, its
- * error, and its children. Every slot it hands out clears its property's
- * error once the property is edited.
+ * Builds property rows for an entity being edited. A row reads: a chevron
+ * collapsing its children when it has some, its type icon, its name, the
+ * value widget admin.properties resolves for it, its actions (a Collection
+ * item's), and a reset button once it changed; then its error, and its
+ * children. Every slot it hands out clears its property's error once the
+ * property is edited.
  */
 export class PropertyRows {
     public constructor(
@@ -40,6 +46,9 @@ export class PropertyRows {
         private readonly labels: ReferenceLabels,
         /** Each property's error, by path, as the last save gave them. */
         private readonly errors: Map<string, string>,
+        /** The paths of the properties collapsed. */
+        private readonly collapsed: ReadonlySet<string>,
+        private readonly onCollapse: CollapseChanged,
         private readonly rebuild: () => void,
     ) {
     }
@@ -82,27 +91,58 @@ export class PropertyRows {
             },
         };
         const editor = this.editorFor(spec, slot);
-        const reset = Elements.create('button', {
-            classes: ['icon-button', 'property__reset'],
-            text: '↺',
-            attributes: {type: 'button', 'aria-label': 'Reset to saved', ...Tooltips.attributes('Reset to saved', 'top')},
-        });
+        const hasChildren = editor.children !== null;
+        const collapsed = hasChildren && this.collapsed.has(spec.path);
+
+        const reset = ActionIcon.button('reset', 'Reset to saved');
+        reset.classList.add('property__reset');
         reset.addEventListener('click', () => {
             this.draft.resetAt(spec.path);
             this.rebuild();
         });
 
+        const row = Elements.create('div', {
+            classes: [
+                'property',
+                `property--${spec.value.kind}`,
+                ...(spec.field === null ? ['is-item'] : []),
+                ...(hasChildren ? ['has-children'] : []),
+                ...(collapsed ? ['is-collapsed'] : []),
+                ...(spec.writable ? [] : ['is-readonly']),
+            ],
+            // Only the label is indented by its depth: every value lines up in one column, as in Unreal.
+            attributes: {'data-path': spec.path, style: `--cc-property-depth: ${PropertyPath.segments(spec.path).length - 1}`},
+        });
+
         const header = Elements.create('div', {classes: ['property__header']}, [
-            Elements.create('span', {classes: ['property__name'], text: spec.label}),
+            Elements.create('div', {classes: ['property__label']}, [
+                hasChildren ? this.toggle(row, spec.path) : Elements.create('span', {classes: ['property__toggle-space']}),
+                TypeIcon.of(spec.value),
+                Elements.create('span', {classes: ['property__name'], text: spec.label}),
+            ]),
             Elements.create('div', {classes: ['property__value']}, [editor.widget]),
+            Elements.create('div', {classes: ['property__actions']}),
             reset,
         ]);
 
-        // Only the name is indented by its depth: every value lines up in one column, as in Unreal.
-        return Elements.create('div', {
-            classes: ['property', ...(spec.writable ? [] : ['is-readonly'])],
-            attributes: {'data-path': spec.path, style: `--cc-property-depth: ${PropertyPath.segments(spec.path).length - 1}`},
-        }, [header, error, ...(editor.children === null ? [] : [Elements.create('div', {classes: ['property__children']}, [editor.children])])]);
+        row.append(header, error, ...(editor.children === null ? [] : [Elements.create('div', {classes: ['property__children']}, [editor.children])]));
+
+        return row;
+    }
+
+    /** The chevron collapsing and expanding `row`'s children, remembered by `path`. */
+    private toggle(row: HTMLElement, path: string): HTMLElement {
+        const toggle = Elements.create('button', {
+            classes: ['property__toggle'],
+            attributes: {type: 'button', 'aria-label': 'Collapse or expand', 'aria-expanded': String(!row.classList.contains('is-collapsed'))},
+        }, [ActionIcon.svg('expand')]);
+        toggle.addEventListener('click', () => {
+            const collapsed = row.classList.toggle('is-collapsed');
+            toggle.setAttribute('aria-expanded', String(!collapsed));
+            this.onCollapse(path, collapsed);
+        });
+
+        return toggle;
     }
 
     /** The editor admin.properties resolves for `spec`, built with its context. */
