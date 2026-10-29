@@ -1,5 +1,7 @@
 import type {ApiClient} from './api/ApiClient.ts';
 import type {User} from './auth/User.ts';
+import {TypeCatalog} from './types/TypeCatalog.ts';
+import type {TypeList} from './types/TypeDescription.ts';
 import type {TabTypeId, ToolId} from './workspace/Ids.ts';
 import {Registry} from './workspace/Registry.ts';
 import type {TabTypeDefinition} from './workspace/TabTypeDefinition.ts';
@@ -24,6 +26,9 @@ export class AdminRuntime {
     /** Who's signed in; null before signing in. */
     private signedIn: User | null = null;
 
+    /** The type catalog, once asked for. */
+    private catalog: Promise<TypeCatalog> | undefined;
+
     /** The client every call to the backend goes through. Throws before the app started. */
     public get api(): ApiClient {
         if (this.client === undefined) {
@@ -38,6 +43,16 @@ export class AdminRuntime {
         return this.signedIn;
     }
 
+    /**
+     * Every entity type the user may read, loaded once per page: types
+     * change only with a migration, and a migration means a reload.
+     */
+    public typeCatalog(): Promise<TypeCatalog> {
+        this.catalog ??= this.api.call<TypeList>('coconut-cms:types.list').then((list) => TypeCatalog.of(list.types));
+
+        return this.catalog;
+    }
+
     /** Called once by the app at start, with its client. */
     public start(client: ApiClient): void {
         if (this.client !== undefined) {
@@ -47,8 +62,9 @@ export class AdminRuntime {
         this.client = client;
     }
 
-    /** Called by the app when someone signs in or out. */
+    /** Called by the app when someone signs in or out: what they may read differs, so the catalog is forgotten. */
     public setUser(user: User | null): void {
         this.signedIn = user;
+        this.catalog = undefined;
     }
 }

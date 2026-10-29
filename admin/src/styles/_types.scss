@@ -1,0 +1,141 @@
+// The Types tool: its namespace groups, the inspector, field rows, and the
+// type and access icons.
+.type-group__name {
+    display: flex;
+    align-items: center;
+    gap: var(--cc-space-2);
+    padding: var(--cc-space-1) var(--cc-space-3);
+    color: var(--cc-color-text-muted);
+    font-size: var(--cc-font-size-small);
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+
+    &:hover {
+        color: var(--cc-color-text);
+    }
+}
+
+.type-group__count {
+    margin-left: auto;
+    font-weight: 400;
+}
+
+.type-group .list {
+    padding-top: 0;
+}
+
+.type-link {
+    padding: 0;
+    color: var(--cc-color-accent-hover);
+    background: none;
+    border: 0;
+    font: inherit;
+    cursor: pointer;
+
+    &:hover {
+        text-decoration: underline;
+    }
+
+    &:focus-visible {
+        outline: none;
+        box-shadow: var(--cc-focus-ring);
+    }
+}
+
+.type-icon {
+    display: inline-flex;
+    vertical-align: middle;
+}
+
+.access {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--cc-space-1);
+    color: var(--cc-color-text-muted);
+
+    &.is-denied {
+        opacity: 0.45;
+    }
+}
+
+.inspector {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cc-space-5);
+    padding: var(--cc-space-4) var(--cc-space-5);
+}
+
+.inspector__header {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cc-space-2);
+}
+
+.inspector__heading {
+    display: flex;
+    align-items: center;
+    gap: var(--cc-space-3);
+}
+
+.inspector__title {
+    font-size: var(--cc-font-size-title);
+    font-weight: 600;
+}
+
+.inspector__access {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--cc-space-1) var(--cc-space-4);
+}
+
+.field-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cc-space-2);
+}
+
+.field-section__title {
+    margin: 0;
+    padding-bottom: var(--cc-space-1);
+    color: var(--cc-color-text-muted);
+    font-size: var(--cc-font-size-small);
+    font-weight: 600;
+    border-bottom: 1px solid var(--cc-color-border);
+}
+
+.field-table {
+    width: 100%;
+    border-collapse: collapse;
+
+    td {
+        padding: var(--cc-space-1) var(--cc-space-2);
+        vertical-align: middle;
+    }
+
+    tr:hover td {
+        background: var(--cc-color-hover);
+    }
+
+    tr.is-hidden .field-table__name {
+        color: var(--cc-color-text-muted);
+    }
+}
+
+.field-table__icon {
+    width: 1px;
+}
+
+.field-table__name {
+    width: 30%;
+    font-family: var(--cc-font-family-mono);
+}
+
+.field-table__access {
+    width: 1px;
+    white-space: nowrap;
+
+    .access + .access {
+        margin-left: var(--cc-space-2);
+    }
+}

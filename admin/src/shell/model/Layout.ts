@@ -1,6 +1,7 @@
 import type {TabId, TabTypeId, ToolId} from '../../public/workspace/Ids.ts';
 import type {JsonValue} from '../../public/workspace/Json.ts';
 import {type Placement, type Section, SECTIONS, type Side, SIDES} from '../../public/workspace/Placement.ts';
+import type {TabOpening} from '../../public/workspace/TabOpening.ts';
 import {type Container, CONTAINERS} from './Container.ts';
 import type {LayoutData} from './LayoutData.ts';
 import {Slots} from './Slots.ts';
@@ -20,7 +21,7 @@ export interface PlacedTool {
  */
 export class Layout {
     /** The serialized form's version. */
-    public static readonly VERSION = 1;
+    public static readonly VERSION = 2;
 
     /** A new container's preferred size, in pixels. */
     public static readonly DEFAULT_SIZES: Readonly<Record<Container, number>> = {left: 280, right: 320, bottom: 240};
@@ -40,6 +41,7 @@ export class Layout {
             splits: {left: 0.5, right: 0.5, bottom: 0.5},
             tabs: [],
             activeTab: null,
+            recentTabs: [],
             viewState: {},
         });
     }
@@ -53,7 +55,7 @@ export class Layout {
             return null;
         }
 
-        const keys: readonly (keyof LayoutData)[] = ['stripes', 'active', 'sizes', 'splits', 'tabs', 'activeTab', 'viewState'];
+        const keys: readonly (keyof LayoutData)[] = ['stripes', 'active', 'sizes', 'splits', 'tabs', 'activeTab', 'recentTabs', 'viewState'];
 
         return keys.every((key) => key in data) ? new Layout(data as LayoutData) : null;
     }
@@ -151,22 +153,41 @@ export class Layout {
     }
 
     /**
-     * Opens a tab and shows it; a tab of `type` open with `key` already is
-     * shown instead.
+     * Shows a tab of `type`: the one open with `key` already, or one opened
+     * as `opening` says. Reusing replaces the tab of `type` shown most
+     * recently, in place, forgetting its view's state; with none, or with
+     * "new", the tab is added after the others.
      * @param id The new tab's id, made by the caller: the layout stays pure.
      */
-    public openTab(id: TabId, type: TabTypeId, title: string, params: JsonValue, key: string): Layout {
+    public openTab(id: TabId, type: TabTypeId, title: string, params: JsonValue, key: string, opening: TabOpening = 'new'): Layout {
         const open = this.data.tabs.find((tab) => tab.type === type && tab.key === key);
         if (open !== undefined) {
             return this.activateTab(open.id);
         }
 
-        return this.with({tabs: [...this.data.tabs, {id, type, title, params, key}], activeTab: id});
+        const tab: TabData = {id, type, title, params, key};
+        const reused = opening === 'reuse'
+            ? this.data.recentTabs.find((recent) => this.data.tabs.some((each) => each.id === recent && each.type === type))
+            : undefined;
+        if (reused === undefined) {
+            return this.with({tabs: [...this.data.tabs, tab], activeTab: id, recentTabs: [id, ...this.data.recentTabs]});
+        }
+
+        const {[Layout.tabKey(reused)]: _forgotten, ...viewState} = this.data.viewState;
+
+        return this.with({
+            tabs: this.data.tabs.map((each) => each.id === reused ? tab : each),
+            activeTab: id,
+            recentTabs: [id, ...this.data.recentTabs.filter((recent) => recent !== reused)],
+            viewState,
+        });
     }
 
     /** Shows the tab `id`; nothing for a tab not open. */
     public activateTab(id: TabId): Layout {
-        return this.data.tabs.some((tab) => tab.id === id) ? this.with({activeTab: id}) : this;
+        return this.data.tabs.some((tab) => tab.id === id)
+            ? this.with({activeTab: id, recentTabs: [id, ...this.data.recentTabs.filter((recent) => recent !== id)]})
+            : this;
     }
 
     /** Closes the tab `id`, forgetting its view's state. The tab after it is shown, or the one before. */
@@ -178,9 +199,11 @@ export class Layout {
 
         const tabs = this.data.tabs.filter((tab) => tab.id !== id);
         const activeTab = this.data.activeTab !== id ? this.data.activeTab : (tabs[index] ?? tabs[index - 1])?.id ?? null;
+        const recentTabs = this.data.recentTabs.filter((recent) => recent !== id);
         const {[Layout.tabKey(id)]: _forgotten, ...viewState} = this.data.viewState;
+        const closed = this.with({tabs, recentTabs, viewState});
 
-        return this.with({tabs, activeTab, viewState});
+        return activeTab === null ? closed.with({activeTab: null}) : closed.activateTab(activeTab);
     }
 
     /** `container` with a preferred size of `pixels`. */
@@ -227,11 +250,13 @@ export class Layout {
         }
 
         const tabs = layout.data.tabs.filter((tab) => tabTypes.has(tab.type));
-        const activeTab = tabs.some((tab) => tab.id === layout.data.activeTab) ? layout.data.activeTab : tabs[0]?.id ?? null;
+        const openIds = new Set(tabs.map((tab) => tab.id));
+        const activeTab = layout.data.activeTab !== null && openIds.has(layout.data.activeTab) ? layout.data.activeTab : tabs[0]?.id ?? null;
+        const recentTabs = layout.data.recentTabs.filter((recent) => openIds.has(recent));
         const owners = new Set([...tools.map((tool) => Layout.toolKey(tool.id)), ...tabs.map((tab) => Layout.tabKey(tab.id))]);
         const viewState = Object.fromEntries(Object.entries(layout.data.viewState).filter(([key]) => owners.has(key)));
 
-        return layout.with({tabs, activeTab, viewState});
+        return layout.with({tabs, activeTab, recentTabs, viewState});
     }
 
     /** Every container, with whether it holds an open panel. */

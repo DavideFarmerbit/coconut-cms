@@ -20,6 +20,16 @@
     --cc-color-selected: rgb(53 116 240 / 22%);    // a selected row, an open tool's icon
     --cc-color-splitter-active: #3574f0;           // a splitter while dragged
 
+    // The colors of field type icons, by the value's type, after Unreal's pins.
+    --cc-type-bool: #e5534b;
+    --cc-type-int: #2ec4b6;
+    --cc-type-float: #6bcb77;
+    --cc-type-string: #f472b6;
+    --cc-type-date: #f5c451;
+    --cc-type-enum: #f59e42;
+    --cc-type-value-object: #b48cf2;
+    --cc-type-entity: #5aa9ff;
+
     // Islands: how far apart they sit, and how round they are.
     --cc-island-gap: 6px;
     --cc-island-radius: 10px;

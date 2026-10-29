@@ -1,19 +1,27 @@
+import {ContextMenu} from '../../dom/ContextMenu.ts';
 import {Elements} from '../../dom/Elements.ts';
+import type {TypeCatalog} from '../../public/types/TypeCatalog.ts';
+import type {FieldDescription, TypeDescription} from '../../public/types/TypeDescription.ts';
 import type {JsonValue} from '../../public/workspace/Json.ts';
 import type {PanelView} from '../../public/workspace/PanelView.ts';
 import type {ViewContext} from '../../public/workspace/ViewContext.ts';
-import type {FieldDescription, TypeDescription, ValueDescription} from './TypeDescription.ts';
+import {AccessIcon} from './AccessIcon.ts';
+import {TypeIcon} from './TypeIcon.ts';
+import {TypeLink} from './TypeLink.ts';
+import {TypesTool} from './TypesTool.ts';
+import {ValueWords} from './ValueWords.ts';
 
 /**
- * A type's tab: what it extends, what the user may do with its entities,
- * and its own fields, each with its kind and access. Opened with
- * `{type: identifier}`.
+ * The type inspector, one type per tab: what it extends, its subtypes in a
+ * dropdown, what the user may do with its entities, then its own fields and
+ * each ancestor's below, so the whole type shows with where each field comes
+ * from. Every type named is a link. Opened with `{type: identifier}`.
  */
 export class TypeTabView implements PanelView {
     public readonly element: HTMLElement;
 
     public constructor(private readonly context: ViewContext) {
-        this.element = Elements.create('div', {classes: ['type-view']});
+        this.element = Elements.create('div', {classes: ['inspector']});
         void this.load();
     }
 
@@ -28,81 +36,105 @@ export class TypeTabView implements PanelView {
 
     /** Shows the type the tab was opened with. */
     private async load(): Promise<void> {
-        const params = this.context.params;
-        const identifier = typeof params === 'object' && params !== null && !Array.isArray(params)
-            ? (params as {readonly [key: string]: JsonValue})['type']
-            : undefined;
-        if (typeof identifier !== 'string') {
-            this.element.replaceChildren(Elements.create('p', {classes: ['muted'], text: 'This tab names no type.'}));
-
-            return;
-        }
-
+        const identifier = TypeTabView.typeIn(this.context.params);
         try {
-            this.show(await this.context.api.call<TypeDescription>('coconut-cms:types.get', {type: identifier}));
+            const catalog = await this.context.typeCatalog();
+            const type = identifier === null ? undefined : catalog.get(identifier);
+            if (type === undefined) {
+                this.showMessage(identifier === null ? 'This tab names no type.' : `There is no type "${identifier}" you may read.`);
+
+                return;
+            }
+
+            this.show(type, catalog);
         } catch (failure) {
-            this.element.replaceChildren(Elements.create('p', {classes: ['muted'], text: failure instanceof Error ? failure.message : String(failure)}));
+            this.showMessage(failure instanceof Error ? failure.message : String(failure));
         }
     }
 
-    /** Shows `type`. */
-    private show(type: TypeDescription): void {
-        const allowed = (Object.entries(type.may) as [string, boolean][]).filter(([, may]) => may).map(([action]) => action);
-        const rows = Object.entries(type.fields).map(([name, field]) => TypeTabView.row(name, field));
+    /** Shows `type`, its ancestors' fields from `catalog`. */
+    private show(type: TypeDescription, catalog: TypeCatalog): void {
+        const sections = [
+            this.section([Elements.create('span', {text: 'Fields'})], type, 'No fields of its own.'),
+            ...catalog.ancestorsOf(type.identifier).map((ancestor) => this.section(
+                [Elements.create('span', {text: 'From '}), TypeLink.create(ancestor.identifier, ancestor.identifier, this.context.workspace)],
+                ancestor,
+                'No fields.',
+            )),
+        ];
 
-        this.element.replaceChildren(
-            Elements.create('h1', {classes: ['type-view__title'], text: type.identifier}),
-            Elements.create('p', {classes: ['muted'], text: [
-                type.parent === null ? 'A root type' : `Extends ${type.parent}`,
-                allowed.length > 0 ? `you may ${allowed.join(', ')}` : 'you may do nothing with its entities',
-            ].join(' · ')}),
-            rows.length === 0
-                ? Elements.create('p', {classes: ['muted'], text: 'No fields of its own.'})
-                : Elements.create('table', {classes: ['data-table']}, [
-                    Elements.create('thead', {}, [Elements.create('tr', {}, ['Field', 'Kind', 'Holds', 'Access'].map((title) => Elements.create('th', {text: title})))]),
-                    Elements.create('tbody', {}, rows),
-                ]),
-        );
+        this.element.replaceChildren(this.header(type, catalog), ...sections);
     }
 
-    /** The table row of field `name`. */
-    private static row(name: string, field: FieldDescription): HTMLElement {
-        const access = field.read ? (field.write ? 'read, write' : 'read only') : 'hidden';
+    /** The header: the identifier, the subtypes dropdown, the parent, the rights on its entities. */
+    private header(type: TypeDescription, catalog: TypeCatalog): HTMLElement {
+        const heading = Elements.create('div', {classes: ['inspector__heading']}, [Elements.create('h1', {classes: ['inspector__title'], text: type.identifier})]);
+        const subtypes = catalog.subtypesOf(type.identifier);
+        if (subtypes.length > 0) {
+            const dropdown = Elements.create('button', {classes: ['button', 'button--quiet'], text: `Subtypes (${subtypes.length}) ▾`, attributes: {type: 'button'}});
+            dropdown.addEventListener('click', () => ContextMenu.below(dropdown, subtypes.map((subtype) => ({
+                label: subtype.identifier,
+                run: () => TypesTool.open(this.context.workspace, subtype.identifier, 'reuse'),
+            }))));
+            heading.append(dropdown);
+        }
 
-        return Elements.create('tr', {}, [
-            Elements.create('td', {classes: ['data-table__name'], text: name}),
-            Elements.create('td', {text: TypeTabView.kind(field.value)}),
-            Elements.create('td', {classes: ['muted'], text: TypeTabView.holds(field.value)}),
-            Elements.create('td', {classes: field.read ? [] : ['muted'], text: access}),
+        return Elements.create('header', {classes: ['inspector__header']}, [
+            heading,
+            Elements.create('p', {classes: ['inspector__meta', 'muted']}, type.parent === null
+                ? ['A root type']
+                : ['Extends ', TypeLink.create(type.parent, type.parent, this.context.workspace)]),
+            Elements.create('div', {classes: ['inspector__access']}, [
+                AccessIcon.of('read', type.may.read, true),
+                AccessIcon.of('create', type.may.create, true),
+                AccessIcon.of('update', type.may.update, true),
+                AccessIcon.of('delete', type.may.delete, true),
+            ]),
         ]);
     }
 
-    /** `value`'s kind, in words. */
-    private static kind(value: ValueDescription): string {
-        const kinds: Record<ValueDescription['kind'], string> = {
-            scalar: 'Scalar',
-            value_object: 'Value object',
-            embed: 'Embed',
-            reference: 'Reference',
-            owning_reference: 'Owned',
-            collection: 'Collection',
-        };
+    /** A section titled `title`, listing `type`'s own fields; `empty` when it has none. */
+    private section(title: readonly (Node | string)[], type: TypeDescription, empty: string): HTMLElement {
+        const rows = Object.entries(type.fields).map(([name, field]) => this.row(name, field));
 
-        return kinds[value.kind];
+        return Elements.create('section', {classes: ['field-section']}, [
+            Elements.create('h2', {classes: ['field-section__title']}, title),
+            rows.length === 0
+                ? Elements.create('p', {classes: ['muted'], text: empty})
+                : Elements.create('table', {classes: ['field-table']}, [Elements.create('tbody', {}, rows)]),
+        ]);
     }
 
-    /** What `value` holds, in words: a scalar's type, a target, a Collection's items. */
-    private static holds(value: ValueDescription): string {
-        const nullable = value.nullable ? ', or null' : '';
-        switch (value.kind) {
-            case 'scalar':
-                return value.enumValues !== null ? `one of ${value.enumValues.join(', ')}${nullable}` : `${value.scalarType ?? ''}${nullable}`;
-            case 'collection':
-                return value.item === null ? '' : `${TypeTabView.kind(value.item).toLowerCase()} items: ${TypeTabView.holds(value.item)}`;
-            case 'value_object':
-                return `a value${nullable}`;
-            default:
-                return `${value.target ?? ''}${nullable}`;
+    /** The row of field `name`: its icon, its name, its type, and the user's rights on it. */
+    private row(name: string, field: FieldDescription): HTMLElement {
+        const target = ValueWords.targetOf(field.value);
+        const typeName = ValueWords.nameOf(field.value);
+
+        return Elements.create('tr', {classes: field.read ? [] : ['is-hidden']}, [
+            Elements.create('td', {classes: ['field-table__icon']}, [TypeIcon.of(field.value)]),
+            Elements.create('td', {classes: ['field-table__name'], text: name}),
+            Elements.create('td', {classes: ['field-table__type']}, [
+                target === null
+                    ? Elements.create('span', {classes: ['muted'], text: typeName, attributes: {title: ValueWords.describe(field.value)}})
+                    : TypeLink.create(target, typeName, this.context.workspace),
+            ]),
+            Elements.create('td', {classes: ['field-table__access']}, [AccessIcon.of('read', field.read), AccessIcon.of('write', field.write)]),
+        ]);
+    }
+
+    /** Shows only `message`. */
+    private showMessage(message: string): void {
+        this.element.replaceChildren(Elements.create('p', {classes: ['muted'], text: message}));
+    }
+
+    /** The type identifier `params` holds; null for none. */
+    private static typeIn(params: JsonValue): string | null {
+        if (typeof params !== 'object' || params === null || Array.isArray(params)) {
+            return null;
         }
+
+        const type = (params as {readonly [key: string]: JsonValue})['type'];
+
+        return typeof type === 'string' ? type : null;
     }
 }

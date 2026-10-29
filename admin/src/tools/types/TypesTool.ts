@@ -1,12 +1,14 @@
 import type {AdminRuntime} from '../../public/AdminRuntime.ts';
 import {tabTypeId, toolId} from '../../public/workspace/Ids.ts';
+import type {TabOpening} from '../../public/workspace/TabOpening.ts';
+import type {Workspace} from '../../public/workspace/Workspace.ts';
 import {TypesView} from './TypesView.ts';
 import {TypeTabView} from './TypeTabView.ts';
 
 /**
- * The Types tool: a panel listing every entity type the user may read, each
- * opening a tab describing its fields. Registered the way a plugin registers
- * its tools.
+ * The Types tool: a panel listing every entity type the user may read, by
+ * namespace, each opening the type inspector. Registered the way a plugin
+ * registers its tools.
  */
 export class TypesTool {
     public static readonly TOOL = toolId('coconut-cms:types');
@@ -25,5 +27,10 @@ export class TypesTool {
             view: TypesView,
         });
         runtime.tabTypes.register({id: TypesTool.TAB, view: TypeTabView});
+    }
+
+    /** Shows the type `identifier` in an inspector tab, opened as `opening` says. */
+    public static open(workspace: Workspace, identifier: string, opening: TabOpening): void {
+        workspace.openTab(TypesTool.TAB, identifier, {type: identifier}, identifier, opening);
     }
 }

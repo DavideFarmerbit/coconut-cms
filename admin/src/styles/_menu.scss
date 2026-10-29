@@ -1,0 +1,32 @@
+// A floating menu: a right-click's choices, or a dropdown's.
+.context-menu {
+    position: fixed;
+    z-index: 2000;
+    min-width: 180px;
+    margin: 0;
+    padding: var(--cc-space-1);
+    list-style: none;
+    background: var(--cc-color-raised);
+    border: 1px solid var(--cc-color-border);
+    border-radius: var(--cc-control-radius);
+    box-shadow: 0 6px 24px rgb(0 0 0 / 35%);
+}
+
+.context-menu__item {
+    display: block;
+    width: 100%;
+    padding: var(--cc-space-1) var(--cc-space-2);
+    color: var(--cc-color-text);
+    text-align: left;
+    background: none;
+    border: 0;
+    border-radius: var(--cc-control-radius);
+    font: inherit;
+    cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+        outline: none;
+        background: var(--cc-color-selected);
+    }
+}

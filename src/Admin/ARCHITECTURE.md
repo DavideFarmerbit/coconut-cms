@@ -144,6 +144,12 @@ not its code): an IntelliJ-style window manager.
   where the browser has it, and keeps scroll offsets otherwise. A tab's
   view is disposed when the tab closes.
 - Opening a tab of a type with a key already open shows that tab instead.
+  Otherwise `Workspace.openTab()` opens it one of two ways: `reuse`
+  replaces the tab of that type shown most recently, in place, disposing of
+  its view; `new` adds another tab. The layout keeps every tab in the order
+  last shown, to know which tab a reuse replaces.
+- `ContextMenu` shows a floating menu at a point or under an element: a
+  right-click's choices, a dropdown's. One is open at a time.
 
 The code is in three layers, each depending only on the ones before:
 
@@ -177,4 +183,52 @@ and saved state no view owns is dropped. Keeping it per user on the server,
 through an operation, comes later.
 
 Not built yet: dragging icons between sections and reordering tabs, menus
-and commands from manifests, splitting the canvas into several tab groups.
+and commands from manifests, splitting the canvas into several tab groups,
+going back and forward within a tab.
+
+## The Types tool
+
+The admin's first tool, registered the way a plugin registers its own. It
+browses the entity types the user may read; browsing entities comes later,
+with their first uses.
+
+- **The panel** lists the types in a collapsible group per namespace, each
+  type by its key. Which groups are closed, and which type was opened last,
+  are kept in the view's state.
+- **Opening a type** shows it in the type inspector. A click reuses the
+  inspector tab shown most recently; Cmd or Ctrl and a click, a middle
+  click, or "Open in new tab" in the right-click menu open another tab.
+  Every type named anywhere in the tool is a link behaving this way.
+- **The inspector** shows a type whole:
+  - a header: the identifier, a "Subtypes" dropdown listing its direct
+    subtypes, what it extends, and a row of the user's rights on its
+    entities (read, create, update, delete), each an icon and a word,
+    dimmed and struck through when not held;
+  - its own fields, then, under "From" and each ancestor's identifier, that
+    ancestor's fields, up to the root;
+  - per field: its type icon, its name, its type's name (`int`, or the
+    entity type it holds as a link), and an eye and a pencil for reading
+    and writing it.
+- **The type catalog** (`admin.typeCatalog()` in the public module) loads
+  `coconut-cms:types.list` once per page and works out ancestors, subtypes
+  and namespaces. A readable type's ancestors are readable too, so the
+  chain is always whole.
+
+A type has no icon of its own: how a field holds it (embedded, owned,
+referenced) is the field's, not the type's. A field's icon is stacked from
+independent layers, after Unreal's pins, so no combination is drawn whole:
+
+- **frame**, from multiplicity: a circle for one value, a 3 by 3 grid for a
+  Collection;
+- **glyph**, from how the value is held, in the frame's center: a dot for a
+  value, a square for an Embed (outlined in a grid, where a filled one reads
+  as a cell), a diamond for an owned object (UML's composition), an arrow
+  for a Reference;
+- **badge**, a slashed circle in the corner, when the value, or a
+  Collection's item, may be empty;
+- **color**, from the value's type, drawn in `currentColor` set to a theme
+  token: `--cc-type-bool`, `-int`, `-float` (decimals too), `-string` (text
+  too), `-date` (date and time too), `-enum`, `-value-object`, `-entity`.
+
+Its tooltip says it all in words: "An owned default:demo_turbo or subtypes,
+saved and deleted with the entity; may be empty."

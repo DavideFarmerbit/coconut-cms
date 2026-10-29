@@ -1,4 +1,5 @@
 import type {ApiClient} from '../api/ApiClient.ts';
+import type {TypeCatalog} from '../types/TypeCatalog.ts';
 import type {JsonValue} from './Json.ts';
 import type {ViewState} from './ViewState.ts';
 import type {Workspace} from './Workspace.ts';
@@ -13,4 +14,7 @@ export interface ViewContext {
     readonly workspace: Workspace;
     /** A tab's parameters, as it was opened with; null for a tool's panel. */
     readonly params: JsonValue;
+
+    /** Every entity type the user may read, loaded once per page. */
+    typeCatalog(): Promise<TypeCatalog>;
 }

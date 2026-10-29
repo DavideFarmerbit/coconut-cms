@@ -20,6 +20,8 @@ export interface LayoutData {
     readonly tabs: readonly TabData[];
     /** The tab shown; null for none. */
     readonly activeTab: TabId | null;
+    /** Every open tab, the one shown most recently first: which one a reusing open replaces. */
+    readonly recentTabs: readonly TabId[];
     /** Each view's saved state, by its view key. */
     readonly viewState: Readonly<Record<string, Readonly<Record<string, JsonValue>>>>;
 }

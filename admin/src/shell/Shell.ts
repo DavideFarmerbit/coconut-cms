@@ -4,6 +4,7 @@ import type {AdminRuntime} from '../public/AdminRuntime.ts';
 import type {User} from '../public/auth/User.ts';
 import type {TabTypeId} from '../public/workspace/Ids.ts';
 import type {JsonValue} from '../public/workspace/Json.ts';
+import type {TabOpening} from '../public/workspace/TabOpening.ts';
 import type {Workspace} from '../public/workspace/Workspace.ts';
 import {Layout} from './model/Layout.ts';
 import type {LayoutListener} from './model/LayoutListener.ts';
@@ -36,7 +37,7 @@ export class Shell implements View, LayoutListener, Workspace {
 
         const parking = Elements.create('div', {classes: ['view-parking'], attributes: {'aria-hidden': 'true'}});
         const host = new ViewHost(parking);
-        const contexts = new ViewContexts(runtime.api, this.store, this);
+        const contexts = new ViewContexts(runtime, this.store, this);
         this.stripes = [new Stripe('left', runtime.tools, this.store), new Stripe('right', runtime.tools, this.store)];
         this.workspace = new WorkspaceArea(runtime.tools, runtime.tabTypes, this.store, host, contexts);
 
@@ -57,8 +58,8 @@ export class Shell implements View, LayoutListener, Workspace {
         this.render(next);
     }
 
-    public openTab(type: TabTypeId, title: string, params: JsonValue, key: string): void {
-        this.store.update(this.store.current.openTab(TabIds.next(), type, title, params, key));
+    public openTab(type: TabTypeId, title: string, params: JsonValue, key: string, opening: TabOpening): void {
+        this.store.update(this.store.current.openTab(TabIds.next(), type, title, params, key, opening));
     }
 
     /** Shows `layout` in every part. */

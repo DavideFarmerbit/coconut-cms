@@ -1,4 +1,4 @@
-// What views show: lists, tables, and the Types tool's own pieces.
+// What views show: lists, and quiet buttons.
 .list {
     margin: 0;
     padding: var(--cc-space-1);
@@ -28,41 +28,7 @@
 }
 
 .list__note {
-    padding: var(--cc-space-2);
-}
-
-.data-table {
-    width: 100%;
-    border-collapse: collapse;
-
-    th,
-    td {
-        padding: var(--cc-space-1) var(--cc-space-2);
-        text-align: left;
-        border-bottom: 1px solid var(--cc-color-border);
-    }
-
-    th {
-        color: var(--cc-color-text-muted);
-        font-size: var(--cc-font-size-small);
-        font-weight: 500;
-    }
-}
-
-.data-table__name {
-    font-family: var(--cc-font-family-mono);
-}
-
-.type-view {
-    display: flex;
-    flex-direction: column;
-    gap: var(--cc-space-3);
-    padding: var(--cc-space-4) var(--cc-space-5);
-}
-
-.type-view__title {
-    font-size: var(--cc-font-size-title);
-    font-weight: 600;
+    padding: var(--cc-space-2) var(--cc-space-3);
 }
 
 .button--quiet {

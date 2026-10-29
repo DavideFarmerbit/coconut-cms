@@ -56,6 +56,26 @@ describe('Layout', () => {
         expect(layout.activeTab).toBe('1');
     });
 
+    it('reusing replaces the tab of the type shown most recently, in place', () => {
+        const other = tabTypeId('app:other');
+        let layout = placed();
+        layout = layout.openTab(tabId('1'), typeTab, 'Car', null, 'car', 'new');
+        layout = layout.openTab(tabId('2'), other, 'Log', null, 'log', 'new');
+        layout = layout.openTab(tabId('3'), typeTab, 'Maker', null, 'maker', 'new');
+        layout = layout.activateTab(tabId('1')).activateTab(tabId('2')).withViewState(Layout.tabKey(tabId('1')), 'scroll', 9);
+
+        layout = layout.openTab(tabId('4'), typeTab, 'Wheel', null, 'wheel', 'reuse');
+
+        // Tab 1 was shown after tab 3: it's the one replaced, in its place.
+        expect(layout.tabs.map((tab) => tab.id)).toEqual(['4', '2', '3']);
+        expect(layout.activeTab).toBe('4');
+        expect(layout.stateOf(Layout.tabKey(tabId('1')))).toEqual({});
+
+        // Reusing with no tab of the type open adds one; an open key is shown, whatever the opening.
+        expect(placed().openTab(tabId('9'), typeTab, 'Car', null, 'car', 'reuse').tabs.map((tab) => tab.id)).toEqual(['9']);
+        expect(layout.openTab(tabId('5'), typeTab, 'Maker', null, 'maker', 'new').activeTab).toBe('3');
+    });
+
     it('closing the shown tab shows the one after it, or before it, and forgets its state', () => {
         let layout = placed();
         for (const id of ['1', '2', '3']) {
