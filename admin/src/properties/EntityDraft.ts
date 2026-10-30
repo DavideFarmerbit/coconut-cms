@@ -1,5 +1,4 @@
 import {PropertyPath} from '../public/properties/PropertyPath.ts';
-import type {PropertySlot} from '../public/properties/PropertySlot.ts';
 import type {PropertyStatus} from '../public/properties/PropertyStatus.ts';
 import type {TypeCatalog} from '../public/types/TypeCatalog.ts';
 import type {ValueDescription} from '../public/types/TypeDescription.ts';
@@ -60,17 +59,6 @@ export class EntityDraft {
         }
 
         return {isNew: false, movedFrom: counterpart.movedFrom, isChanged: !Values.equal(counterpart.working, counterpart.saved)};
-    }
-
-    /** The slot of `holder[key]`, the property at `path` holding what `value` describes. */
-    public slot(holder: Record<string, unknown> | unknown[], key: string | number, path: string, value: ValueDescription): PropertySlot {
-        return {
-            get: () => (holder as Record<string | number, unknown>)[key],
-            set: (next: unknown) => {
-                (holder as Record<string | number, unknown>)[key] = next;
-                this.mark(path, value);
-            },
-        };
     }
 
     /** Sets the property at `path`, holding what `value` describes, to `next`. */

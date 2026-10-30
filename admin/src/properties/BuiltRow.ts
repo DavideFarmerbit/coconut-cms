@@ -29,18 +29,10 @@ export class BuiltRow {
         private readonly info: PropertyInfo,
         plain = false,
     ) {
-        const session = services.session;
         const path = info.path;
         const editor: PropertyEditor = plain ? {widget: Elements.create('span'), children: services.shownUnder(path)} : this.editor();
         const hasChildren = editor.children !== null;
         const collapsed = hasChildren && services.collapse.isCollapsed(path);
-
-        const reset = ActionIcon.button('reset', 'Reset to saved');
-        reset.classList.add('property__reset');
-        reset.addEventListener('click', () => session.resetAt(path, this));
-        const toDefault = ActionIcon.button('default', 'Reset to default');
-        toDefault.classList.add('property__default');
-        toDefault.addEventListener('click', () => session.resetToDefaultAt(path, this));
         this.origin = Elements.create('span', {classes: ['property__origin']});
         this.error = Elements.create('p', {classes: ['property__error']});
 
@@ -67,7 +59,7 @@ export class BuiltRow {
             ]),
             Elements.create('div', {classes: ['property__value']}, [editor.widget]),
             Elements.create('div', {classes: ['property__actions']}),
-            Elements.create('div', {classes: ['property__resets']}, plain ? [] : [toDefault, reset]),
+            Elements.create('div', {classes: ['property__resets']}, plain ? [] : this.resets()),
         ]);
 
         this.element.append(header, this.error, ...(editor.children === null ? [] : [Elements.create('div', {classes: ['property__children']}, [editor.children])]));
@@ -91,6 +83,20 @@ export class BuiltRow {
         // Inside a new item, every property is new too: only the item says so.
         this.origin.textContent = status.movedFrom !== null ? `from [${status.movedFrom}]` : status.isNew && this.info.field === null && !this.isInNewItem() ? 'new' : '';
         this.error.textContent = session.errorAt(path) ?? '';
+    }
+
+    /** Its two resets: to its default, and to what was saved. CSS shows each while it applies. */
+    private resets(): HTMLElement[] {
+        const session = this.services.session;
+        const path = this.info.path;
+        const toDefault = ActionIcon.button('default', 'Reset to default');
+        toDefault.classList.add('property__default');
+        toDefault.addEventListener('click', () => session.resetToDefaultAt(path, this));
+        const reset = ActionIcon.button('reset', 'Reset to saved');
+        reset.classList.add('property__reset');
+        reset.addEventListener('click', () => session.resetAt(path, this));
+
+        return [toDefault, reset];
     }
 
     /** The editor admin.properties resolves for it, built with its context. */

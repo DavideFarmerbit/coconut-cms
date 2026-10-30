@@ -4,6 +4,7 @@ import {TypeCatalog} from '../public/types/TypeCatalog.ts';
 import type {FieldDescription, TypeDescription, ValueDescription} from '../public/types/TypeDescription.ts';
 import {DraftCollectionItems} from './DraftCollectionItems.ts';
 import {EntityDraft} from './EntityDraft.ts';
+import {ReadTree} from './ReadTree.ts';
 
 /** A value description with `changes` over a non-null string scalar. */
 function value(changes: Partial<ValueDescription>): ValueDescription {
@@ -36,6 +37,13 @@ const catalog = TypeCatalog.of([
     type('shop:maker', {code: field(value({scalarType: 'int'})), title: field(value({}))}),
 ]);
 
+/** The items of the Collection at `path` in `draft`, holding what `collection` describes: as a session gives them. */
+function itemsAt(draft: EntityDraft, path: string, collection: ValueDescription): DraftCollectionItems {
+    const slot = {get: () => ReadTree.at(draft.values, path), set: (next: unknown) => draft.set(path, next, collection)};
+
+    return new DraftCollectionItems(draft, slot, path, collection, () => undefined);
+}
+
 /** A saved car. */
 function car(): Record<string, unknown> {
     return {
@@ -50,11 +58,9 @@ function car(): Record<string, unknown> {
 describe('EntityDraft', () => {
     it('sends each change by path, in the form an update takes', () => {
         const draft = new EntityDraft(car());
-        const values = draft.values;
-        draft.slot(values, 'name', 'name', value({})).set('Beta');
-        const chassis = values['chassis'] as {values: Record<string, unknown>};
-        draft.slot(chassis.values, 'weight', 'chassis:weight', value({scalarType: 'int'})).set(1200);
-        draft.slot(values, 'maker', 'maker', value({kind: 'reference', target: 'shop:maker', nullable: true})).set({type: 'shop:maker', id: 'm2'});
+        draft.set('name', 'Beta', value({}));
+        draft.set('chassis:weight', 1200, value({scalarType: 'int'}));
+        draft.set('maker', {type: 'shop:maker', id: 'm2'}, value({kind: 'reference', target: 'shop:maker', nullable: true}));
 
         expect(draft.isDirty).toBe(true);
         expect(draft.changes(catalog)).toEqual({'name': 'Beta', 'chassis:weight': 1200, 'maker': 'm2'});
@@ -63,27 +69,25 @@ describe('EntityDraft', () => {
     it('lets a whole Collection carry the edits made in its items', () => {
         const draft = new EntityDraft(car());
         const wheels = draft.values['wheels'] as {type: string; id: null; values: Record<string, unknown>}[];
-        draft.slot(wheels[0]!.values, 'size', 'wheels.0.size', value({scalarType: 'int'})).set(18);
-        draft.slot(draft.values, 'wheels', 'wheels', value({kind: 'collection', item: wheel}))
-            .set([...wheels, {type: 'shop:wheel', id: null, values: {size: 19}}]);
+        draft.set('wheels.0.size', 18, value({scalarType: 'int'}));
+        draft.set('wheels', [...wheels, {type: 'shop:wheel', id: null, values: {size: 19}}], value({kind: 'collection', item: wheel}));
 
         expect(draft.changes(catalog)).toEqual({wheels: [{values: {size: 18}}, {values: {size: 19}}]});
     });
 
     it('keeps an owned object\'s id, and a new one has none', () => {
         const draft = new EntityDraft(car());
-        draft.slot(draft.values, 'engine', 'engine', engine).set({type: 'shop:engine', id: 'e1', values: {horsepower: 150}});
+        draft.set('engine', {type: 'shop:engine', id: 'e1', values: {horsepower: 150}}, engine);
         expect(draft.changes(catalog)).toEqual({engine: {type: 'shop:engine', id: 'e1', values: {horsepower: 150}}});
 
-        draft.slot(draft.values, 'engine', 'engine', engine).set({type: 'shop:engine', id: null, values: {horsepower: 90}});
+        draft.set('engine', {type: 'shop:engine', id: null, values: {horsepower: 90}}, engine);
         expect(draft.changes(catalog)).toEqual({engine: {type: 'shop:engine', values: {horsepower: 90}}});
     });
 
     it('resets one property, or reverts them all', () => {
         const draft = new EntityDraft(car());
-        draft.slot(draft.values, 'name', 'name', value({})).set('Beta');
-        const chassis = draft.values['chassis'] as {values: Record<string, unknown>};
-        draft.slot(chassis.values, 'weight', 'chassis:weight', value({scalarType: 'int'})).set(1200);
+        draft.set('name', 'Beta', value({}));
+        draft.set('chassis:weight', 1200, value({scalarType: 'int'}));
 
         draft.resetAt('chassis');
         expect(draft.changes(catalog)).toEqual({name: 'Beta'});
@@ -96,9 +100,8 @@ describe('EntityDraft', () => {
 
     it('is clean again once a value is changed back', () => {
         const draft = new EntityDraft(car());
-        const name = draft.slot(draft.values, 'name', 'name', value({}));
-        name.set('Beta');
-        name.set('Alpha');
+        draft.set('name', 'Beta', value({}));
+        draft.set('name', 'Alpha', value({}));
 
         expect(draft.isDirty).toBe(false);
         expect(draft.changes(catalog)).toEqual({});
@@ -107,7 +110,7 @@ describe('EntityDraft', () => {
     it('tells new, moved and changed items apart, and counts the removed ones', () => {
         const draft = new EntityDraft({...car(), wheels: [17, 18, 19].map((size) => ({type: 'shop:wheel', id: null, values: {size}}))});
         const collection = value({kind: 'collection', item: wheel});
-        const items = new DraftCollectionItems(draft, draft.slot(draft.values, 'wheels', 'wheels', collection), 'wheels', collection, () => undefined);
+        const items = itemsAt(draft, 'wheels', collection);
 
         items.move(0, 2);
         expect([0, 1, 2].map((index) => items.statusOf(index))).toEqual([
@@ -119,8 +122,7 @@ describe('EntityDraft', () => {
 
         items.remove(0);
         items.insert({type: 'shop:wheel', id: null, values: {size: 20}}, 0);
-        const wheels = items.values as {values: Record<string, unknown>}[];
-        draft.slot(wheels[1]!.values, 'size', 'wheels.1.size', value({scalarType: 'int'})).set(21);
+        draft.set('wheels.1.size', 21, value({scalarType: 'int'}));
 
         expect(items.removedCount).toBe(1);
         expect(items.statusOf(0)).toEqual({isNew: true, movedFrom: null, isChanged: true});
@@ -132,7 +134,7 @@ describe('EntityDraft', () => {
     it('is clean again once items are moved back', () => {
         const draft = new EntityDraft({...car(), wheels: [17, 18].map((size) => ({type: 'shop:wheel', id: null, values: {size}}))});
         const collection = value({kind: 'collection', item: wheel});
-        const items = new DraftCollectionItems(draft, draft.slot(draft.values, 'wheels', 'wheels', collection), 'wheels', collection, () => undefined);
+        const items = itemsAt(draft, 'wheels', collection);
 
         items.move(0, 1);
         expect(draft.isDirty).toBe(true);
@@ -144,10 +146,9 @@ describe('EntityDraft', () => {
     it('resets a moved item to what it was saved as, not to what was at its index', () => {
         const draft = new EntityDraft({...car(), wheels: [17, 18].map((size) => ({type: 'shop:wheel', id: null, values: {size}}))});
         const collection = value({kind: 'collection', item: wheel});
-        const items = new DraftCollectionItems(draft, draft.slot(draft.values, 'wheels', 'wheels', collection), 'wheels', collection, () => undefined);
+        const items = itemsAt(draft, 'wheels', collection);
         items.move(0, 1);
-        const wheels = items.values as {values: Record<string, unknown>}[];
-        draft.slot(wheels[1]!.values, 'size', 'wheels.1.size', value({scalarType: 'int'})).set(30);
+        draft.set('wheels.1.size', 30, value({scalarType: 'int'}));
 
         draft.resetAt('wheels.1');
         expect((items.values[1] as {values: Record<string, unknown>}).values['size']).toBe(17);
@@ -157,7 +158,7 @@ describe('EntityDraft', () => {
     it('duplicates an owned item as a new one, every owned object in it without an id', () => {
         const draft = new EntityDraft({...car(), engines: [{type: 'shop:engine', id: 'e2', values: {spare: {type: 'shop:engine', id: 'e3', values: {}}}}]});
         const collection = value({kind: 'collection', item: engine});
-        const items = new DraftCollectionItems(draft, draft.slot(draft.values, 'engines', 'engines', collection), 'engines', collection, () => undefined);
+        const items = itemsAt(draft, 'engines', collection);
         items.duplicate(0);
 
         expect(items.values[1]).toEqual({type: 'shop:engine', id: null, values: {spare: {type: 'shop:engine', id: null, values: {}}}});
