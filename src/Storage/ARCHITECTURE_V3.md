@@ -1464,6 +1464,22 @@ changing a permission. So definitions and fixups come from one source, and
 can't disagree. Each operation is one small class: it reads its own form,
 checks it, and gives its change.
 
+The operations work on a draft, `SchemaDraft`. It holds every
+editor-created type's new definition, the fixups and the default changes.
+It only reads native types: an operation changing one throws
+`InvalidOperation`. A type the save creates holds no content, so it needs
+no fixup. Its final definition joins the plan's starting state, as if it
+had always been there, empty. So a field retyped to point at it finds it
+from the first fixup. A created type can't take a name a type had when the
+save started.
+
+Defaults move in two parts. The stored defaults move with the fixups, the
+same as in a native migration: renamed with their field, converted, or
+dropped. Then the save's default changes apply, with the final names:
+`SetDefault` pins a value at a path, `InheritDefault` removes the pin, and
+`AddField` can pin its new field's default. The compile then checks every
+default against its field.
+
 The server normalizes the list before planning, so nothing the admin
 undid touches the database (decided, not built). The editor keeps every
 action for undo, and shows the normalized list, from a preview, as what
@@ -1507,6 +1523,22 @@ server works out the footprint again on the current schemas. The save is
 stale when a type there is missing from what it sent, or has another
 fingerprint, or a type it sent is gone. A name collision needs no check of
 its own: applying the operations refuses it.
+
+A save can break other editor-created types (decided, not built). Deleting
+`shop:maker` breaks `shop:boat.maker`, a field pointing at it. The project's
+policy decides each break, as in a native migration. The strict policy
+blocks the save. The developer policy sets the field aside: its values are
+kept as NoType records, and the site keeps running until someone fixes it.
+The preview lists every break. A save causing breaks must say
+`"acceptBreaks": true`, or it's refused, listing them: nobody breaks a type
+without seeing it first.
+
+So what a save stores is the plan's result, not the operations' own
+definitions: a set-aside changes a type the admin never touched. The
+operations' definitions are the target the fixups take new shapes from.
+What's stored is every editor-created schema after every fixup and
+set-aside, with the defaults the operations set, compiled again the way a
+native migration compiles editor-created types.
 
 Saving type changes is a right of its own (decided, not built): it changes
 the shape of everything stored for those types, and blocks the site while
