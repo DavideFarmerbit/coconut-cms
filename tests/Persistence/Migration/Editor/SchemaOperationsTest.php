@@ -126,7 +126,7 @@ final class SchemaOperationsTest extends TestCase
     public function testACreatedTypeGivesNoFixupAndJoinsAsItEndsUp(): void {
         $draft = $this->apply(
             new CreateType('shop:yacht', 'shop:boat'),
-            new AddField('shop:yacht', self::int('cabins')),
+            new AddField('shop:yacht', self::int('cabins'), new DefaultValue(2)),
             new RenameField('shop:yacht', 'cabins', 'berths'),
             new RenameType('shop:yacht', 'shop:cruiser'),
         );
@@ -180,12 +180,12 @@ final class SchemaOperationsTest extends TestCase
     public function testNativeTypesAreOnlyRead(): void {
         $this->assertRefused('is a native type', new RenameType('shop:vehicle', 'shop:car'));
         $this->assertRefused('is a native type', new DeleteType('shop:engine'));
-        $this->assertRefused('is a native type', new AddField('shop:vehicle', self::int('wheels')));
+        $this->assertRefused('is a native type', new AddField('shop:vehicle', self::int('wheels'), new DefaultValue(4)));
         $this->assertRefused('is a native type', new SetDefault('shop:vehicle', 'name', new DefaultValue('Car')));
     }
 
     public function testAddingAFieldInitializesExistingEntriesAndPinsItsDefault(): void {
-        $draft = $this->apply(new AddField('shop:boat', self::int('masts'), new TwelveInitializer(), new DefaultValue(1)));
+        $draft = $this->apply(new AddField('shop:boat', self::int('masts'), new DefaultValue(1), new TwelveInitializer()));
 
         self::assertSame([sprintf('AddField(shop:boat, masts, %s)', TwelveInitializer::class)], self::fixups($draft));
         self::assertTrue($draft->targets()['shop:boat']->fields->has(FieldName::of('masts')));
@@ -193,14 +193,26 @@ final class SchemaOperationsTest extends TestCase
     }
 
     public function testAFieldNameMustBeFreeUpTheChain(): void {
-        $this->assertRefused('already has a field "length"', new AddField('shop:boat', self::int('length')));
-        $this->assertRefused('already has a field "name", from "shop:vehicle"', new AddField('shop:boat', self::text('name')));
+        $this->assertRefused('already has a field "length"', new AddField('shop:boat', self::int('length'), new DefaultValue(0)));
+        $this->assertRefused('already has a field "name", from "shop:vehicle"', new AddField('shop:boat', self::text('name'), new DefaultValue('')));
         $this->assertRefused('already has a field "name", from "shop:vehicle"', new RenameField('shop:boat', 'length', 'name'));
     }
 
     public function testATypeNewInTheSaveTakesNothingForEntriesItDoesntHave(): void {
-        $this->assertRefused('no entries to initialize', new AddField('shop:yacht', self::int('cabins'), new TwelveInitializer()), new CreateType('shop:yacht'));
-        $this->assertRefused('no values to convert', new RetypeField('shop:yacht', self::text('cabins'), new SameConverter()), new CreateType('shop:yacht'), new AddField('shop:yacht', self::int('cabins')));
+        $this->assertRefused('no entries to initialize', new AddField('shop:yacht', self::int('cabins'), new DefaultValue(2), new TwelveInitializer()), new CreateType('shop:yacht'));
+        $this->assertRefused('no values to convert', new RetypeField('shop:yacht', self::text('cabins'), new SameConverter()), new CreateType('shop:yacht'), new AddField('shop:yacht', self::int('cabins'), new DefaultValue(2)));
+    }
+
+    public function testEveryNewFieldButAnEmbedSaysItsDefault(): void {
+        $this->assertRefused('needs a default', new AddField('shop:boat', self::int('masts'), null));
+        $this->assertRefused('needs a default', new RetypeField('shop:boat', self::text('length')));
+        $this->assertRefused('is an Embed', new AddField('shop:boat', FieldDescriptor::embed('hull', 'shop:maker'), new DefaultValue(null)));
+
+        $draft = $this->apply(
+            new AddField('shop:boat', FieldDescriptor::embed('hull', 'shop:maker'), null),
+            new RetypeField('shop:maker', self::int('title'), default: new DefaultValue(0)),
+        );
+        self::assertSame(['title'], array_map(static fn (DefaultChange $change): string => (string) $change->path, $draft->defaultChanges()));
     }
 
     public function testRemovingAndRenamingOwnFieldsMoveTheirContent(): void {
@@ -228,7 +240,7 @@ final class SchemaOperationsTest extends TestCase
     public function testRetypingConvertsOrResets(): void {
         $draft = $this->apply(
             new RetypeField('shop:boat', self::text('length'), new SameConverter()),
-            new RetypeField('shop:maker', self::int('title')),
+            new RetypeField('shop:maker', self::int('title'), default: new DefaultValue(0)),
         );
 
         self::assertSame([

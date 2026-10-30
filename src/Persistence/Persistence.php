@@ -8,6 +8,12 @@ use ReflectionClass;
 use XyloIsCoding\CoconutCms\Persistence\Boot\CodeStateCache;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationState;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationUnfinished;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\BreaksNotAccepted;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSave;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\InvalidOperation;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\StaleSchemaRevision;
+use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationBlocked;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationReport;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationResult;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
@@ -187,6 +193,27 @@ final class Persistence
         $this->register(NativeRegistrations::classesOf($blueprints));
 
         return (new Migrator($this->connection, $this->registry, $this->schemas, $this->values, $this->policy))->check($blueprints, $this->steps());
+    }
+
+    /**
+     * Runs an editor save: changes the editor-created types as its operations
+     * say, moving their content as a migration does, under this policy. Reads
+     * every class, never the cache. Who may save is the caller's to check.
+     * @throws StaleSchemaRevision|InvalidOperation|MigrationBlocked|BreaksNotAccepted As Migrator::saveEditor() says.
+     */
+    public function saveSchemas(EditorSave $save): EditorSaveReport {
+        $blueprints = NativeEntityReader::readAll($this->allClasses());
+        $this->register(NativeRegistrations::classesOf($blueprints));
+
+        return (new Migrator($this->connection, $this->registry, $this->schemas, $this->values, $this->policy))->saveEditor($blueprints, $this->steps(), $save);
+    }
+
+    /** What saveSchemas() would do with $save, found without changing anything. */
+    public function previewSchemas(EditorSave $save): EditorSaveReport {
+        $blueprints = NativeEntityReader::readAll($this->allClasses());
+        $this->register(NativeRegistrations::classesOf($blueprints));
+
+        return (new Migrator($this->connection, $this->registry, $this->schemas, $this->values, $this->policy))->previewEditor($blueprints, $this->steps(), $save);
     }
 
     /** Throws unless status() says Ready. */

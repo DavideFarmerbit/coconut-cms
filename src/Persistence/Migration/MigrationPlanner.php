@@ -39,10 +39,13 @@ final readonly class MigrationPlanner
      *        from code, keyed by identifier.
      * @param MigrationSteps $pending The steps the database hasn't applied
      *        yet, in the order they run.
+     * @param array<string, EntitySchema> $editor The editor-created schemas an
+     *        editor save heads for, keyed by identifier; none in a native
+     *        migration.
      * @throws MigrationBlocked When anything is left unexplained.
      */
-    public function plan(array $stored, array $code, MigrationSteps $pending): MigrationPlan {
-        $draft = $this->draft($stored, $code, $pending);
+    public function plan(array $stored, array $code, MigrationSteps $pending, array $editor = []): MigrationPlan {
+        $draft = $this->draft($stored, $code, $pending, $editor);
         if ($draft->isBlocked()) {
             throw new MigrationBlocked($draft->blocked);
         }
@@ -55,9 +58,10 @@ final readonly class MigrationPlanner
      * what a dry run reports. The same arguments as plan().
      * @param list<StoredSchema> $stored
      * @param array<string, EntitySchema> $code
+     * @param array<string, EntitySchema> $editor
      */
-    public function draft(array $stored, array $code, MigrationSteps $pending): PlanDraft {
-        $schemas = SchemaState::of($stored, $code);
+    public function draft(array $stored, array $code, MigrationSteps $pending, array $editor = []): PlanDraft {
+        $schemas = SchemaState::of($stored, $code, $editor);
         $fixups = [];
         $blocked = [];
         $breaks = [];

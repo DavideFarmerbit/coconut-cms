@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations;
 
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\DefaultValue;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\InvalidOperation;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaDraft;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaOperation;
@@ -13,8 +14,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 /**
  * An editor-created type's own field holding something else: $field, named
  * as the field it replaces. $converter turns every stored value into a new
- * one; without one, every value is dropped and every entry follows the new
- * default. A type this save creates has no values, so it takes no converter.
+ * one, the default the type sets included; $default, when given, is pinned
+ * over it. Without a converter, every value and default is dropped, so
+ * $default is needed, as for AddField. A type this save creates has no
+ * values, so it takes no converter.
  */
 final readonly class RetypeField implements SchemaOperation
 {
@@ -22,6 +25,7 @@ final readonly class RetypeField implements SchemaOperation
         public string $type,
         public FieldDescriptor $field,
         public ?FieldConverter $converter = null,
+        public ?DefaultValue $default = null,
     ) {
     }
 
@@ -42,6 +46,10 @@ final readonly class RetypeField implements SchemaOperation
             $draft->fixup($this->converter === null
                 ? Fixup\RetypeField::reset($this->type, (string) $name)
                 : Fixup\RetypeField::converting($this->type, (string) $name, $this->converter));
+        }
+
+        if ($this->converter === null || $this->default !== null) {
+            NewDefaults::pin($draft, $this->type, $this->field, $this->default);
         }
     }
 

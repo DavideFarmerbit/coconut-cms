@@ -7,6 +7,7 @@ use Doctrine\DBAL\Connection;
 use InvalidArgumentException;
 use RuntimeException;
 use Closure;
+use Exception;
 use Throwable;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Cms;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityTables;
@@ -16,14 +17,24 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LayoutBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationState;
+use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationUnfinished;
 use XyloIsCoding\CoconutCms\Persistence\Entity\NoTypeCaptures;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateReader;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\ValueMark;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\BreaksNotAccepted;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSave;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EntriesFailToMove;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\InvalidOperation;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\PreparedEditorSave;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaDraft;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\StaleSchemaRevision;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MovesValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\MigrationPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\StrictPolicy;
+use XyloIsCoding\CoconutCms\Persistence\MigrationPending;
 use XyloIsCoding\CoconutCms\Persistence\Platform\DatabasePlatform;
 use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\CompiledBatch;
@@ -134,6 +145,144 @@ final readonly class Migrator
         );
     }
 
+    /**
+     * Runs an editor save as a migration: its operations change the
+     * editor-created types, its fixups move their content, under the
+     * project's policy. The schema revision goes up.
+     * @param array<string, EntityBlueprint> $blueprints The same as migrate()'s.
+     * @param MigrationSteps $steps The same as migrate()'s.
+     * @throws MigrationPending|MigrationUnfinished When the database doesn't match the code.
+     * @throws StaleSchemaRevision When the types changed since $save's revision.
+     * @throws InvalidOperation When an operation can't apply.
+     * @throws MigrationBlocked When the policy blocks a break the save causes.
+     * @throws BreaksNotAccepted When the save breaks a type, and $save doesn't accept it.
+     * @throws EntriesFailToMove When an entry's values can't move, found before anything changes.
+     */
+    public function saveEditor(array $blueprints, MigrationSteps $steps, EditorSave $save): EditorSaveReport {
+        $this->platform->prepare($this->connection);
+        if (!$this->platform->lockMigrations($this->connection, self::LOCK_TIMEOUT)) {
+            throw new RuntimeException(sprintf('Another migration has held the lock for over %d seconds.', self::LOCK_TIMEOUT));
+        }
+
+        try {
+            $this->schemas->ensureTable();
+            $this->values->ensureTable();
+            $this->log->ensureTable();
+            $this->state->ensureTable();
+
+            $prepared = $this->prepareEditor($blueprints, $steps, $save);
+            if ($prepared->plan->isBlocked()) {
+                throw new MigrationBlocked($prepared->plan->blocked);
+            }
+
+            if ($prepared->plan->breaks !== [] && !$save->acceptBreaks) {
+                throw new BreaksNotAccepted($prepared->plan->breaks);
+            }
+
+            if ($prepared->failures !== []) {
+                throw new EntriesFailToMove($prepared->failures);
+            }
+
+            $moved = $this->run($prepared->stored, false, $prepared->plan->plan, $prepared->batch, $prepared->stateKey, []);
+
+            return $prepared->report($this->state->revision(), $moved ?? 0);
+        } finally {
+            $this->platform->unlockMigrations($this->connection);
+        }
+    }
+
+    /**
+     * What saveEditor() would do with $save, found without changing
+     * anything: the fixups, the breaks and what blocks it. Takes no lock.
+     * Throws as saveEditor() does, but reports breaks and blocks instead.
+     * @param array<string, EntityBlueprint> $blueprints The same as migrate()'s.
+     */
+    public function previewEditor(array $blueprints, MigrationSteps $steps, EditorSave $save): EditorSaveReport {
+        $this->platform->prepare($this->connection);
+
+        return $this->prepareEditor($blueprints, $steps, $save)->report($save->revision, 0);
+    }
+
+    /**
+     * Applies $save's operations to a draft of the stored editor-created
+     * types, and plans its fixups: the created types join the starting state
+     * as they end up. Compiles the new schemas unless the plan is blocked.
+     * @param array<string, EntityBlueprint> $blueprints
+     */
+    private function prepareEditor(array $blueprints, MigrationSteps $steps, EditorSave $save): PreparedEditorSave {
+        $stored = $this->schemas->tableExists() ? $this->schemas->all() : [];
+        $nativeBatch = $this->compiler->compute($blueprints);
+        $stateKey = StateKey::of($nativeBatch, $steps);
+        $state = $this->state->read();
+        if ($state['startedAt'] !== null) {
+            throw new MigrationUnfinished($state['startedAt']);
+        }
+
+        if ($stored === [] || $state['stateKey'] !== $stateKey) {
+            throw new MigrationPending();
+        }
+
+        if ($state['revision'] !== $save->revision) {
+            throw new StaleSchemaRevision($save->revision, $state['revision']);
+        }
+
+        $editor = [];
+        foreach ($stored as $each) {
+            if ($each->source === SchemaSource::Editor) {
+                $editor[$each->schema->identifier] = $each->schema;
+            }
+        }
+
+        $draft = new SchemaDraft($nativeBatch->schemas, $editor);
+        foreach ($save->operations as $operation) {
+            $operation->applyTo($draft);
+        }
+
+        $created = array_map(static fn (EntitySchema $schema): StoredSchema => new StoredSchema($schema, SchemaSource::Editor, '', []), array_values($draft->created()));
+        $plan = (new MigrationPlanner($this->policy))->draft(
+            [...$stored, ...$created],
+            $nativeBatch->schemas,
+            MigrationSteps::none()->add('editor-save', $draft->fixups()),
+            $draft->targets(),
+        );
+
+        $batch = $plan->isBlocked() ? null : $this->compiler->compute([...$blueprints, ...$this->editorBlueprints($stored, $plan->plan, $draft)]);
+
+        return new PreparedEditorSave($stored, $stateKey, $plan, $batch, $batch === null ? [] : $this->failuresOf($stored, $plan->plan, $batch));
+    }
+
+    /**
+     * Moves every aggregate the plan changes without writing anything, and
+     * gives what fails: a converter cancelling, a value that doesn't fit its
+     * new field. Run before an editor save touches the database, so a failure
+     * leaves the site as it was.
+     * @param list<StoredSchema> $stored
+     * @return array<string, string> Why each failing aggregate fails, keyed by its root's id.
+     */
+    private function failuresOf(array $stored, MigrationPlan $plan, CompiledBatch $batch): array {
+        $target = [...$plan->schemas->schemas(), ...$batch->schemas];
+        $targetSchemas = new SchemaLookup($this->registry, $target);
+        $reader = new AggregateReader($this->connection, $this->registry, []);
+        $resolver = (new FieldValueResolver($this->registry, $this->values))->withBatch($target, $batch->values);
+        $storedForm = new StoredForm($targetSchemas);
+
+        $failures = [];
+        foreach ($this->rootsHolding(self::changedTypes($stored, $batch, $plan)) as $id) {
+            try {
+                $aggregate = $reader->read($id);
+                $plan->moveValues($aggregate);
+                if (isset($target[$aggregate->identifier])) {
+                    self::checkWritten($aggregate, $storedForm);
+                    self::entityValuesOf($aggregate, $targetSchemas, $resolver);
+                }
+            } catch (Exception $failure) {
+                $failures[$id] = $failure->getMessage();
+            }
+        }
+
+        return $failures;
+    }
+
     /** @param array<string, EntityBlueprint> $blueprints */
     private function migrateLocked(array $blueprints, MigrationSteps $steps): MigrationResult {
         $this->schemas->ensureTable();
@@ -153,6 +302,24 @@ final readonly class Migrator
         // fingerprints matching them.
         $batch = $fresh ? $nativeBatch : $this->compiler->compute([...$blueprints, ...$this->editorBlueprints($stored, $plan)]);
 
+        $recorded = $fresh ? $steps->ids() : $pending->ids();
+        $moved = $this->run($stored, $fresh, $plan, $batch, $stateKey, $recorded);
+
+        return $moved === null
+            ? new MigrationResult(false, $plan, [], 0, $stateKey)
+            : new MigrationResult($fresh, $plan, $recorded, $moved, $stateKey);
+    }
+
+    /**
+     * Brings the database to $batch, holding the lock: lays out the new
+     * tables, expands, moves every aggregate the plan changes, stores the
+     * schemas and $recorded, contracts, and raises the schema revision. Does
+     * nothing but finish when nothing changed.
+     * @param list<StoredSchema> $stored What's stored now.
+     * @param list<string> $recorded The step ids to record as applied.
+     * @return int|null How many aggregates moved; null when nothing changed.
+     */
+    private function run(array $stored, bool $fresh, MigrationPlan $plan, CompiledBatch $batch, string $stateKey, array $recorded): ?int {
         // The new shape: the code's schemas, and every editor-created one as
         // the plan left it. Laid out before any DDL, so a name collision
         // fails here, naming the type.
@@ -173,7 +340,7 @@ final readonly class Migrator
             $this->tables->contract($targetTables, $storedTables);
             $this->state->finish($stateKey, false);
 
-            return new MigrationResult(false, $plan, [], 0, $stateKey);
+            return null;
         }
 
         $this->state->start();
@@ -181,7 +348,6 @@ final readonly class Migrator
         (new EntityTables($this->connection))->seed($targetLevels);
         (new NoTypeCaptures($this->connection))->ensureTable();
 
-        $recorded = $fresh ? $steps->ids() : $pending->ids();
         try {
             $moved = $this->connection->transactional(function () use ($fresh, $plan, $batch, $stored, $target, $targetSchemas, $targetLevels, $storedSchemas, $movedAside, $recorded): int {
                 // Content is dense: with no fixup, a changed default still
@@ -220,7 +386,7 @@ final readonly class Migrator
         $this->tables->contract($targetTables, $storedTables);
         $this->state->finish($stateKey, true);
 
-        return new MigrationResult($fresh, $plan, $recorded, $moved, $stateKey);
+        return $moved;
     }
 
     /**
@@ -277,14 +443,18 @@ final readonly class Migrator
      * it, drops drop it. What it inherits is never kept, converted or not,
      * and nothing an initializer writes is: it follows its new ancestors, as
      * a native subtype's defaults follow the code.
+     *
+     * In an editor save, $draft adds the types it creates, setting nothing
+     * yet, and its default changes apply last, on the final names. A type
+     * the save renamed takes its new name; one it deleted is gone.
      * @param list<StoredSchema> $stored
      * @return array<string, EntityBlueprint> Keyed by identifier.
      */
-    private function editorBlueprints(array $stored, MigrationPlan $plan): array {
+    private function editorBlueprints(array $stored, MigrationPlan $plan, ?SchemaDraft $draft = null): array {
         $resolver = new FieldValueResolver($this->registry, $this->values);
         $flattener = new ValueFlattener(new SchemaLookup($this->registry));
 
-        $blueprints = [];
+        $own = [];
         foreach ($stored as $each) {
             if ($each->source !== SchemaSource::Editor) {
                 continue;
@@ -301,7 +471,28 @@ final readonly class Migrator
             );
             $plan->moveValues($defaults);
 
-            $blueprints[$identifier] = StoredBlueprintReader::of($plan->schemas->get($identifier), SchemaSource::Editor, FieldValues::fromArray($defaults->ownValues()));
+            if ($plan->schemas->has($defaults->identifier)) {
+                $own[$defaults->identifier] = $defaults->ownValues();
+            }
+        }
+
+        foreach ($draft?->created() ?? [] as $identifier => $schema) {
+            if ($plan->schemas->has($identifier)) {
+                $own[$identifier] = [];
+            }
+        }
+
+        foreach ($draft?->defaultChanges() ?? [] as $change) {
+            if (!isset($own[$change->type])) {
+                throw new InvalidOperation(sprintf('A default change names "%s", which this save leaves no type.', $change->type));
+            }
+
+            $own[$change->type] = $change->applyTo($own[$change->type]);
+        }
+
+        $blueprints = [];
+        foreach ($own as $identifier => $values) {
+            $blueprints[$identifier] = StoredBlueprintReader::of($plan->schemas->get($identifier), SchemaSource::Editor, FieldValues::fromArray($values));
         }
 
         return $blueprints;

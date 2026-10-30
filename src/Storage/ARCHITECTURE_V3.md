@@ -1421,9 +1421,32 @@ so a type that would fail to compile shows only when the migration runs.
 An admin changing an editor-created type changes what's stored for it, and
 for every type naming it. So an editor save runs as a migration: the same
 planner, the same lock, the same expand, move and contract, and the
-developer's policy (not built yet). While it runs, `migration_state` blocks
-the whole site, the same as a native migration. Moving only the aggregates
-it affects keeps that short. Blocking only the affected types is for later.
+project's policy. While it runs, `migration_state` blocks the whole site,
+the same as a native migration. Moving only the aggregates it affects keeps
+that short. Blocking only the affected types is for later.
+
+`Persistence::saveSchemas(EditorSave)` runs a save, and
+`previewSchemas(EditorSave)` reports what it would do, changing nothing.
+`EditorSave` holds the revision, the operations, and `acceptBreaks`. Both
+give an `EditorSaveReport`: the fixups, the breaks, what blocks the save,
+and which entries can't move. Both read every class, never the cache. A
+save is refused, before it changes anything, when:
+
+- the database doesn't match the code (`MigrationPending`,
+  `MigrationUnfinished`),
+- its revision isn't current (`StaleSchemaRevision`),
+- an operation can't apply (`InvalidOperation`),
+- the policy blocks a break (`MigrationBlocked`),
+- it causes breaks without `acceptBreaks` (`BreaksNotAccepted`),
+- an entry's values can't move (`EntriesFailToMove`).
+
+The last one comes from a dry pass. Before the save marks a migration
+started, it reads every aggregate the save affects, runs the plan over its
+values, and checks what it would write, writing nothing. A converter that
+cancels, or a value that doesn't fit its new field, fails there, naming the
+entry. So an admin's save never leaves the site blocked: only a database
+error during the run can, the same as for a native migration. A preview
+runs the same pass, so it lists the failing entries.
 
 A save stores exactly the defaults the admin set, pinned, and never works
 out what's set by comparing values: a field the admin set to what its
@@ -1453,8 +1476,8 @@ few real entries, since the content is right there.
 | Copy values between fields | `MoveValues` | The field to take them from. |
 | Add a unique group | `AddUniqueGroup` | Nothing; refused, listing duplicates, if content breaks it. |
 
-An operation says everything about its change (decided, not built). The
-save holds no type definitions beside the operations: the server starts
+An operation says everything about its change. The save holds no type
+definitions beside the operations: the server starts
 from the stored definitions, rebuilt as blueprints, and applies each
 operation in order. Each gives a change to the definitions and the fixups
 moving the data there: "add a field" carries its descriptor, its default
@@ -1476,9 +1499,16 @@ save started.
 Defaults move in two parts. The stored defaults move with the fixups, the
 same as in a native migration: renamed with their field, converted, or
 dropped. Then the save's default changes apply, with the final names:
-`SetDefault` pins a value at a path, `InheritDefault` removes the pin, and
-`AddField` can pin its new field's default. The compile then checks every
-default against its field.
+`SetDefault` pins a value at a path, and `InheritDefault` removes the pin.
+The compile then checks every default against its field.
+
+An editor-created field has no class to take a default from, so the save
+says it. `AddField` takes the new field's default, and so does
+`RetypeField` when it resets: without a converter, the stored default goes
+with the values. Every kind needs one but an Embed, whose defaults are its
+fields', set by path. A missing one is an `InvalidOperation`. The editor
+fills in a default the admin can change, as it does when editing an
+entity.
 
 The server normalizes the list before planning, so nothing the admin
 undid touches the database (decided, not built). The editor keeps every
@@ -1508,7 +1538,7 @@ migration that finds nothing to change leaves it. A database no migration
 ran on is at revision 0. `PersistenceSession::schemaRevision()` gives it,
 and `coconut-cms:types.list` gives it with the types. A save sends the
 revision it was built on. A save whose revision isn't current any more is
-refused (not built yet): the types changed since the admin started. The
+refused: the types changed since the admin started. The
 editor then loads them again, replays the admin's operations on them, and
 shows what no longer applies (not built yet). Nothing runs on definitions
 the admin never saw.
@@ -1524,7 +1554,7 @@ stale when a type there is missing from what it sent, or has another
 fingerprint, or a type it sent is gone. A name collision needs no check of
 its own: applying the operations refuses it.
 
-A save can break other editor-created types (decided, not built). Deleting
+A save can break other editor-created types. Deleting
 `shop:maker` breaks `shop:boat.maker`, a field pointing at it. The project's
 policy decides each break, as in a native migration. The strict policy
 blocks the save. The developer policy sets the field aside: its values are

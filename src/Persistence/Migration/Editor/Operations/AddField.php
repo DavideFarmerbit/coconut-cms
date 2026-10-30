@@ -3,18 +3,17 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations;
 
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldInitializer;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\DefaultChange;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\DefaultValue;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\InvalidOperation;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaDraft;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaOperation;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\DefaultValue;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 
 /**
- * A field added to an editor-created type, with the default it pins, if any.
+ * A field added to an editor-created type, with the default it pins: every
+ * kind needs one but an Embed, whose defaults are its fields', set by path.
  * Existing entries follow the default, or get what $initializer decides. A
  * type this save creates has no entries, so it takes no initializer.
  */
@@ -23,8 +22,8 @@ final readonly class AddField implements SchemaOperation
     public function __construct(
         public string $type,
         public FieldDescriptor $field,
+        public ?DefaultValue $default,
         public ?FieldInitializer $initializer = null,
-        public ?DefaultValue $default = null,
     ) {
     }
 
@@ -42,9 +41,7 @@ final readonly class AddField implements SchemaOperation
             $draft->fixup(new Fixup\AddField($this->type, (string) $name, $this->initializer));
         }
 
-        if ($this->default !== null) {
-            $draft->changeDefault(DefaultChange::pin($this->type, FieldPath::of($name), $this->default));
-        }
+        NewDefaults::pin($draft, $this->type, $this->field, $this->default);
     }
 
     public function describe(): string {
