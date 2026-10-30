@@ -11,6 +11,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReferenc
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Setter;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\AfterEdit;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\EditRefused;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\BlueprintDefaults;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
@@ -24,10 +25,21 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 
+/** Every afterEdit() call of the fixtures, in order: the class and the paths it was told. */
+final class DyEdits
+{
+    /** @var list<array{string, list<string>}> */
+    public static array $calls = [];
+}
+
 /** A craft: owns a motor and spare ones, may tow another craft. Editor-created types extend it. */
 #[Entity(identifier: 'dy:craft', editorExtensible: true)]
-class DyCraft
+class DyCraft implements AfterEdit
 {
+    public function afterEdit(array $paths): void {
+        DyEdits::$calls[] = [self::class, $paths];
+    }
+
     #[Scalar(ScalarType::String)]
     public string $name = '';
 
@@ -42,10 +54,17 @@ class DyCraft
     public ?DyCraft $tow = null;
 }
 
-/** A motor: its horsepower is set through a setter refusing a negative one. */
+/** A motor: its horsepower is set through a setter refusing a negative one; afterEdit() refuses 13. */
 #[Entity(identifier: 'dy:motor', editorExtensible: true)]
-class DyMotor
+class DyMotor implements AfterEdit
 {
+    public function afterEdit(array $paths): void {
+        DyEdits::$calls[] = [self::class, $paths];
+        if ($this->horsepower === 13) {
+            throw new EditRefused('13 horsepower brings bad luck.');
+        }
+    }
+
     #[Scalar(ScalarType::Int)]
     #[Setter('setHorsepower')]
     public int $horsepower = 100;

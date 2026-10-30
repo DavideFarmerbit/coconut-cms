@@ -6,6 +6,8 @@ use Closure;
 use Doctrine\DBAL\Connection;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Dynamic\DynamicEntities;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Dynamic\DynamicEntity;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Dynamic\DynamicEntityWriter;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\InvalidChange;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\NativeEditor;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
@@ -46,6 +48,7 @@ final class PersistenceSession
     private readonly NativeEntityLoader $loader;
     private readonly DynamicEntities $dynamic;
     private readonly NativeEntityWriter $writer;
+    private readonly DynamicEntityWriter $dynamicWriter;
     private readonly QueryRunner $queries;
     private readonly RecordReader $records;
     private readonly SchemaLookup $schemas;
@@ -77,7 +80,9 @@ final class PersistenceSession
         $resolver = new FieldValueResolver($registry, $values);
         $this->dynamic = new DynamicEntities($reader, $this->loader, $this->identities, $schemas, $views, $permissions, $resolver);
         $this->records = new RecordReader($reader, $schemas, $permissions, $resolver);
-        $this->writer = new NativeEntityWriter(EntityWriter::of($connection, $registry, $permissions, $values), $registry, $values, $this->identities, $this->hidden);
+        $entityWriter = EntityWriter::of($connection, $registry, $permissions, $values);
+        $this->writer = new NativeEntityWriter($entityWriter, $registry, $values, $this->identities, $this->hidden);
+        $this->dynamicWriter = new DynamicEntityWriter($entityWriter, new NativeEntityValues($registry, $values, $this->identities), $this->dynamic, $this->identities, $schemas, $resolver, $this->hidden);
         $this->queries = new QueryRunner($connection, $schemas, $permissions, $this->identities, $this->load(...), $guard);
         $this->editor = new NativeEditor($schemas, $permissions, $classes, $this->referenced(...), $this->identities->idOf(...));
         $this->classes = $classes;
@@ -210,11 +215,16 @@ final class PersistenceSession
         return $this->dynamic->load($id);
     }
 
-    /** Stores $entity with everything it owns. @return string Its id. */
+    /**
+     * Stores $entity with everything it owns: a native object, or a
+     * DynamicEntity, saved as its real type, afterEdit() first on what set()
+     * changed in it.
+     * @return string Its id.
+     */
     public function save(object $entity): string {
         ($this->guard)();
 
-        return $this->writer->save($entity);
+        return $entity instanceof DynamicEntity ? $this->dynamicWriter->save($entity) : $this->writer->save($entity);
     }
 
     /** Deletes $entity with everything it owns. */

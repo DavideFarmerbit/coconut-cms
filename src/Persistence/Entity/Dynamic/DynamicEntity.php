@@ -59,7 +59,7 @@ final class DynamicEntity implements EntityView
     public function __construct(
         private readonly DynamicEntities $entities,
         private readonly string $type,
-        private readonly ?string $id,
+        private ?string $id,
         private readonly ?object $view,
         private readonly ObjectNode $bag,
         private readonly array $ownedIds,
@@ -69,6 +69,51 @@ final class DynamicEntity implements EntityView
     /** Its id; null for an Embed, or an entity never saved. */
     public function id(): ?string {
         return $this->id;
+    }
+
+    /**
+     * Its bag, field by field, for the save writing it: each field's value
+     * in the form get() gives; for a field the reader may not read, and
+     * never set, what's stored, untouched.
+     * @internal
+     * @return array<string, array{FieldDescriptor, mixed, bool, ?ValueNode}> By name: its
+     *         field, its value, whether it's kept as stored, and then what's stored.
+     */
+    public function bagFields(): array {
+        $fields = $this->entities->schemas->hierarchyFieldsOf($this->type);
+        $bag = [];
+        foreach ($this->bag->names() as $name) {
+            $field = $fields->get($name);
+            $bag[(string) $name] = array_key_exists((string) $name, $this->values) || $this->entities->permissions->canRead($this->declaringTypeOf($name), (string) $name)
+                ? [$field, $this->valueOf($field, $name), false, null]
+                : [$field, null, true, $this->bag->find($name)];
+        }
+
+        return $bag;
+    }
+
+    /**
+     * The ids of the owned objects stored at $at in the bag and under it,
+     * by path from this entity: what a field the reader may not read keeps.
+     * @internal
+     * @return array<string, string>
+     */
+    public function heldIdsAt(string $at): array {
+        return array_filter(
+            $this->ownedIds,
+            static fn (string $path): bool => $path === $at || str_starts_with($path, $at . FieldPath::TRAVERSE) || str_starts_with($path, $at . FieldPath::EMBED),
+            ARRAY_FILTER_USE_KEY,
+        );
+    }
+
+    /**
+     * Takes the id its save gave it, the one it had or a new one, and
+     * forgets the paths set: the save wrote them. Called by the save only.
+     * @internal
+     */
+    public function saved(string $id): void {
+        $this->id = $id;
+        $this->changed = [];
     }
 
     /** Its native view: the object of its last native class; null for a type with no native ancestor. */
@@ -245,6 +290,11 @@ final class DynamicEntity implements EntityView
         }
 
         $this->changed[] = $path;
+    }
+
+    /** Forgets the paths set: once a save wrote them. Called by the save only. @internal */
+    public function clearChanged(): void {
+        $this->changed = [];
     }
 
     /** The value of $field, named $name, as a property holds it. */

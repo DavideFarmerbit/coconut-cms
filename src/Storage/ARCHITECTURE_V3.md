@@ -684,8 +684,28 @@ set elsewhere is moved as itself, its id with it. Every path set is
 remembered, by each entity from itself (`changed()`): what `afterEdit()`
 will be told. Nothing is saved by `set()`.
 
-Saving and `newDynamic()` aren't built yet: see
-`PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`.
+`save()` takes a `DynamicEntity` as it takes a native object, and saves
+it as its real type, with everything it owns (`DynamicEntityWriter`):
+
+1. `afterEdit()` runs first, on the view of every entity of the aggregate
+   whose `set()` changed it, the deepest first, each told the paths set on
+   it, as an edit by path runs it. A refusal is a `ValidationFailed` at
+   that entity's path, and nothing is written.
+2. The aggregate is locked, and the values read: the view's fields from
+   the view, the bag's from the bag, back in stored form. An owned object a
+   view holds takes its other fields from the bag of the `DynamicEntity`
+   standing for it, edits included; one nobody stood for keeps them as
+   stored, by id, as a native view's save does. An owned object a bag
+   holds is written from its `DynamicEntity`, its own view included.
+3. The values are compared with the real type's defaults, and written as
+   any save is.
+
+Ids are handed out and remembered once the write succeeded: a
+`DynamicEntity` takes its id, its view goes in the `IdentityMap` with it,
+and the paths set are forgotten. Changes made on a view by native code are
+saved too, but `afterEdit()` is only told what `set()` changed.
+
+`newDynamic()` isn't built yet: see `PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`.
 
 The `IdentityMap` keeps one object per id, however the entity was reached:
 loading an id twice, or reaching it through two References, or through a

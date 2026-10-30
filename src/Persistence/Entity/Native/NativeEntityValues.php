@@ -15,6 +15,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolve
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Overrides;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Subject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ObjectNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
 
@@ -61,6 +62,15 @@ final readonly class NativeEntityValues
             $tree = $whole->fields;
         }
 
+        return $this->fromTree($identifier, $tree);
+    }
+
+    /**
+     * The values of an $identifier entity holding $tree, every field of its
+     * type: flattened, and compared with what the type gives for what's
+     * touched. What a DynamicEntity's save writes too.
+     */
+    public function fromTree(string $identifier, ObjectNode $tree): EntityValues {
         $dense = (new ValueFlattener($this->schemas))->flatten($identifier, $tree);
 
         return new EntityValues(
@@ -71,7 +81,7 @@ final readonly class NativeEntityValues
     }
 
     /** A Reference stores its target's id: the target must have one already. */
-    private function referenceIdOf(object $target): string {
+    public function referenceIdOf(object $target): string {
         return $this->identities->idOf($target) ?? throw new LogicException(sprintf(
             'A Reference holds a %s that was never saved: save it first, so it has an id to point at.',
             $target::class,

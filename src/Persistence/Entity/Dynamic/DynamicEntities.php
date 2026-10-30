@@ -121,6 +121,18 @@ final class DynamicEntities
         return $this->make($type, $id, $view, $fields, $ownedIds);
     }
 
+    /** The DynamicEntity already standing for the native object $object; null when none was made. */
+    public function standingFor(object $object): ?DynamicEntity {
+        return $this->byView[$object] ?? null;
+    }
+
+    /** Remembers $entity, newly saved, by its id: one with no native view is found by it. */
+    public function rememberSaved(DynamicEntity $entity): void {
+        if ($entity->view() === null && $entity->id() !== null) {
+            $this->byId[$entity->id()] = WeakReference::create($entity);
+        }
+    }
+
     /** The id of the entity $object is; null when it has none. */
     public function idOf(object $object): ?string {
         return $this->identities->idOf($object);

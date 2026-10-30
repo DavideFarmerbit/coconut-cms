@@ -169,11 +169,9 @@ editor-created types the way the migration tests do, with
 4. **`DynamicEntity` writes.** Built (2026-10-30), now in
    `ARCHITECTURE_V3.md` "Dynamic entities": `set()`, `DynamicValues`,
    `InvalidValue`, `Setters` shared with `NativeEditor`.
-5. **`DynamicEntity` saves.** Its values are the native view's and the
-   bag's, for its real type, compared with that type's defaults: what's
-   touched. The writer writes every level. `afterEdit()` runs before, with
-   every path changed. Ids are handed out and remembered as for a native
-   save.
+5. **`DynamicEntity` saves.** Built (2026-10-30), now in
+   `ARCHITECTURE_V3.md` "Dynamic entities": `DynamicEntityWriter`,
+   `save()` taking a `DynamicEntity`.
 6. **`newDynamic(type)`.** The values of a new entity, as decided above.
 7. **The API edits through it.** See "One editing path for the API". Then
    `entities.create`, `entities.update` and `entities.delete` work for
