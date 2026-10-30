@@ -21,6 +21,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\AddField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CreateType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefault;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RetypeField;
@@ -74,6 +75,24 @@ final class EditorSaveTest extends DynamicTestCase
         self::assertSame(5, $this->session()->loadDynamic($yacht)->get('berths'));
         self::assertSame(3, $this->defaultsOf('dy:yacht')['berths']);
         self::assertArrayNotHasKey('cabins', $this->defaultsOf('dy:yacht'));
+    }
+
+    public function testWhatTheAdminUndidNeverRuns(): void {
+        $yacht = $this->store('dy:yacht', ['cabins' => 5]);
+
+        $report = $this->save(
+            new RenameField('dy:yacht', 'cabins', 'rooms'),
+            new AddField('dy:yacht', FieldDescriptor::scalar('masts', ScalarType::Int, Nullability::NotNullable), new DefaultValue(1)),
+            new RenameField('dy:yacht', 'rooms', 'berths'),
+            new SetDefault('dy:yacht', 'berths', new DefaultValue(6)),
+            new RemoveField('dy:yacht', 'masts'),
+            new SetDefault('dy:yacht', 'berths', new DefaultValue(3)),
+        );
+
+        self::assertSame(['RenameField(dy:yacht, cabins → berths)'], array_map(static fn (SchemaOperation $operation): string => $operation->describe(), $report->operations));
+        self::assertSame(['RenameField(dy:yacht, cabins → berths)'], $report->fixups);
+        self::assertSame(5, $this->session()->loadDynamic($yacht)->get('berths'));
+        self::assertSame(3, $this->defaultsOf('dy:yacht')['berths']);
     }
 
     public function testAnAddedFieldFillsExistingEntriesAndPinsTheDefaultForNewOnes(): void {

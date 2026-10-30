@@ -28,6 +28,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSave;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EntriesFailToMove;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\InvalidOperation;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Normalize\OperationNormalizer;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\PreparedEditorSave;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaDraft;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\StaleSchemaRevision;
@@ -204,8 +205,8 @@ final readonly class Migrator
     }
 
     /**
-     * Applies $save's operations to a draft of the stored editor-created
-     * types, and plans its fixups: the created types join the starting state
+     * Normalizes $save's operations, applies them to a draft of the stored
+     * editor-created types, and plans its fixups: the created types join the starting state
      * as they end up. Compiles the new schemas unless the plan is blocked.
      * @param array<string, EntityBlueprint> $blueprints
      */
@@ -227,14 +228,18 @@ final readonly class Migrator
         }
 
         $editor = [];
+        $ownDefaults = [];
         foreach ($stored as $each) {
             if ($each->source === SchemaSource::Editor) {
                 $editor[$each->schema->identifier] = $each->schema;
+                $ownDefaults[$each->schema->identifier] = $this->values->load($each->schema->identifier)->toArray();
             }
         }
 
+        // Nothing the admin undid reaches the database.
+        $operations = (new OperationNormalizer($nativeBatch->schemas, $editor, $ownDefaults))->normalize($save->operations);
         $draft = new SchemaDraft($nativeBatch->schemas, $editor);
-        foreach ($save->operations as $operation) {
+        foreach ($operations as $operation) {
             $operation->applyTo($draft);
         }
 
@@ -248,7 +253,7 @@ final readonly class Migrator
 
         $batch = $plan->isBlocked() ? null : $this->compiler->compute([...$blueprints, ...$this->editorBlueprints($stored, $plan->plan, $draft)]);
 
-        return new PreparedEditorSave($stored, $stateKey, $plan, $batch, $batch === null ? [] : $this->failuresOf($stored, $plan->plan, $batch));
+        return new PreparedEditorSave($operations, $stored, $stateKey, $plan, $batch, $batch === null ? [] : $this->failuresOf($stored, $plan->plan, $batch));
     }
 
     /**

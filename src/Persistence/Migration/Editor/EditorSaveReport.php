@@ -13,6 +13,8 @@ final readonly class EditorSaveReport
 {
     /**
      * @param int $revision The schema revision now: after the save, once it ran.
+     * @param list<SchemaOperation> $operations The save's operations,
+     *        normalized: what it runs, and what the editor shows.
      * @param list<string> $fixups Every fixup it runs, described, in order.
      * @param list<BreakResolution> $breaks Every break it causes on another
      *        editor-created type, and what the policy does with it.
@@ -24,6 +26,7 @@ final readonly class EditorSaveReport
      */
     public function __construct(
         public int $revision,
+        public array $operations,
         public array $fixups,
         public array $breaks,
         public array $blocked,

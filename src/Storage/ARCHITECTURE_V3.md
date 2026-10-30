@@ -1511,9 +1511,12 @@ fills in a default the admin can change, as it does when editing an
 entity.
 
 The server normalizes the list before planning, so nothing the admin
-undid touches the database (decided, not built). The editor keeps every
-action for undo, and shows the normalized list, from a preview, as what
-the save will run. Normalizing:
+undid touches the database. The editor keeps every action for undo, and
+shows the normalized list, from a preview, as what the save will run:
+`EditorSaveReport::$operations`. `OperationNormalizer` first checks the
+list as given, so an operation that can't apply is refused with its own
+message. Then it follows every type and field by identity through the
+operations, and gives what's left. Normalizing:
 
 - Renames chain: `a` to `b` then `b` to `c` is one rename, and one back to
   where it started is none. Types the same.
@@ -1521,15 +1524,27 @@ the save will run. Normalizing:
   then renamed, retyped, given a default or moved, is one "add a field"
   with its final name, descriptor and default; added, then removed, is
   nothing. A type the same.
-- A setting keeps its last value: a default, a permission,
-  `editorExtensible`, a table. One back where it started is none.
+- A default keeps its last change, under the final names. One back to what
+  the type stores is none. One a retype already pins is none. Permissions,
+  `editorExtensible` and tables will follow the same rule once operations
+  change them (not built yet).
 - An existing field removed, then added again with the same descriptor, is
   nothing: its values stay. With another descriptor, it's a reset
-  (`RetypeField::reset`).
+  (`RetypeField::reset`). With an initializer, it's removed and added
+  again, so the initializer runs.
 - An existing field retyped, then retyped back to its descriptor, is
   nothing: no converter runs, and its values stay as they are.
-- What's left is ordered so each operation finds what it names: a rename
-  comes before what uses the new name.
+- A field the save adds, then retyped with a converter, stays an "add a
+  field" and the retype after it: the converter changes what the
+  initializer gave.
+- What's left is ordered so each operation finds what it names: deletes,
+  type renames, new types (parents first), then each type's removed,
+  renamed, changed and added fields, then default changes. A rename waits
+  until its new name is free. Two names swapped in a cycle can't be
+  ordered: the save is refused, asking to save one rename first.
+
+A default path is followed by its first field only: in `engine:power`,
+`engine` follows a rename, `power` doesn't.
 
 A save applies only to the definitions its operations were built on. Every
 migration that changes stored schemas, native or editor, raises a schema

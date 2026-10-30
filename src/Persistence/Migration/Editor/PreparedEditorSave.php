@@ -14,6 +14,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\StoredSchema;
 final readonly class PreparedEditorSave
 {
     /**
+     * @param list<SchemaOperation> $operations The save's operations, normalized: what runs.
      * @param list<StoredSchema> $stored What's stored now.
      * @param string $stateKey The code's StateKey, which the database matches.
      * @param PlanDraft $plan Its fixups and the policy's set-asides, planned to the end.
@@ -21,6 +22,7 @@ final readonly class PreparedEditorSave
      * @param array<string, string> $failures Why each entry that can't move fails, keyed by its root's id.
      */
     public function __construct(
+        public array $operations,
         public array $stored,
         public string $stateKey,
         public PlanDraft $plan,
@@ -33,6 +35,7 @@ final readonly class PreparedEditorSave
     public function report(int $revision, int $moved): EditorSaveReport {
         return new EditorSaveReport(
             $revision,
+            $this->operations,
             array_map(static fn (PlannedFixup $planned): string => $planned->fixup->describe(), $this->plan->plan->fixups),
             $this->plan->breaks,
             $this->plan->blocked,
