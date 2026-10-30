@@ -1553,11 +1553,26 @@ or remove anything native. Such an operation is refused.
 
 A general transformation is code only. The editor offers built-in
 converters and initializers, data-driven classes with parameters, never
-closures: number to text and back with a format, text to number with "on
-failure: default or cancel", text to enum by value, one value to a
-Collection and back (the first item, or joined), date to datetime, one
-Reference to a Collection of them, a constant, a copy of another field. Any
-converter or initializer registered in code is offered where it fits.
+closures. They live in `Migration\Data\Builtin`, and a code step can use
+them too:
+
+- `ConstantValue(value)`: every existing entry gets one value.
+- `CopyOfField(path)`: each entry gets the value it holds at another path.
+- `NumberToText`: 150 as "150", the Decimal "12.500000" as "12.5".
+- `TextToNumber(to, onFailure)`: text to an Int, Float or Decimal.
+- `TextToEnum(enum, onFailure)`: text to the case it backs.
+- `DateToDateTime`: a day to its midnight, in UTC.
+
+A converter keeps null as null. A value that followed the old default
+follows the new one: the stored default is converted the same way. Text
+that holds no fitting value does what `OnFailure` says: the entry follows
+the default, or the migration fails with `ConversionFailed`, naming the
+value.
+
+Not built yet: number to text with a format, one value to a Collection and
+back (the first item, or joined), one Reference to a Collection of them.
+Any converter or initializer registered in code is offered where it fits
+(not built yet).
 
 An editor-created identifier is "namespace:key". The editor uses the
 namespace the admin gives, or `default`, the same as a native class. A save
