@@ -155,6 +155,9 @@ final class NativeEntityLoader
             if ($ownedId !== null) {
                 $this->identities->remember($owned, $ownedId, $ownedType);
                 IdProperty::assign($owned, $ownedId);
+            } else {
+                // A new entity's default: no id yet, its real type still known.
+                $this->identities->rememberType($owned, $ownedType);
             }
         }, function (object $holder, string $name, FieldPath $path, ?ValueNode $node) use ($ownedIds): void {
             // The owned objects the hidden value holds keep their ids, by
@@ -178,6 +181,8 @@ final class NativeEntityLoader
         if ($id !== null) {
             $this->identities->remember($object, $id, $identifier);
             IdProperty::assign($object, $id);
+        } else {
+            $this->identities->rememberType($object, $identifier);
         }
 
         return $object;

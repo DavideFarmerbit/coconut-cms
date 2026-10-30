@@ -172,7 +172,8 @@ editor-created types the way the migration tests do, with
 5. **`DynamicEntity` saves.** Built (2026-10-30), now in
    `ARCHITECTURE_V3.md` "Dynamic entities": `DynamicEntityWriter`,
    `save()` taking a `DynamicEntity`.
-6. **`newDynamic(type)`.** The values of a new entity, as decided above.
+6. **`newDynamic(type)`.** Built (2026-10-30), now in `ARCHITECTURE_V3.md`
+   "Dynamic entities".
 7. **The API edits through it.** See "One editing path for the API". Then
    `entities.create`, `entities.update` and `entities.delete` work for
    editor-created types too, and the admin edits them as it edits native

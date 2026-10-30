@@ -138,6 +138,8 @@ final class DynamicEntityWriter
 
         $this->identities->remember($held, $id);
         IdProperty::assign($held, $id);
+        // The DynamicEntity standing for a native object has its id too.
+        $this->entities->standingFor($held)?->saved($id);
     }
 
     /**

@@ -54,6 +54,14 @@ final class IdentityMap
         }
     }
 
+    /**
+     * Records that $entity, not saved yet, is of the type $type: a new
+     * entity's native view, whose class stops short of its real type.
+     */
+    public function rememberType(object $entity, string $type): void {
+        $this->types[$entity] = $type;
+    }
+
     /** $entity's id, or null when it was never saved nor loaded. */
     public function idOf(object $entity): ?string {
         return $this->ids[$entity] ?? null;

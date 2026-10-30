@@ -2,6 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Entity\Dynamic;
 
+use InvalidArgumentException;
 use LogicException;
 use WeakMap;
 use WeakReference;
@@ -90,6 +91,25 @@ final class DynamicEntities
         }
 
         return $this->make($loaded->identifier, $id, $this->loader->objectOf($loaded), $loaded->tree, $loaded->ownedIds);
+    }
+
+    /**
+     * A new entity of $type, any type, as a DynamicEntity: a `new Car()`'s
+     * lifetime. No id until its first save, which gives it one. Its values
+     * are its type's defaults, resolved on its real type; its native view is
+     * built the way loading builds one, so a default its type gives a native
+     * field is in the view. The objects it owns are new too.
+     * @throws InvalidArgumentException For a type there's no schema for.
+     */
+    public function create(string $type): DynamicEntity {
+        if (!$this->schemas->has($type)) {
+            throw new InvalidArgumentException(sprintf('There is no type "%s".', $type));
+        }
+
+        $defaults = $this->resolver->resolveTree(Subject::of($type));
+        $view = $this->classes->lastNativeClassOf($type) === null ? null : $this->loader->buildView($type, $defaults, null, []);
+
+        return $this->make($type, null, $view, $defaults, []);
     }
 
     /**

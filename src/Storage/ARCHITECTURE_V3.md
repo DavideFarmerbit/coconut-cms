@@ -705,7 +705,18 @@ Ids are handed out and remembered once the write succeeded: a
 and the paths set are forgotten. Changes made on a view by native code are
 saved too, but `afterEdit()` is only told what `set()` changed.
 
-`newDynamic()` isn't built yet: see `PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`.
+`newDynamic(type)` makes a new entity of any type, native or
+editor-created, as a `DynamicEntity`. Its lifetime is a `new Car()`'s: no
+id, and unknown to the `IdentityMap`, until its first save gives it one;
+from then on it's the one object for its id. Dropped unsaved, nothing was
+stored. Its values are its type's defaults, resolved on its real type, and
+untouched until set. Its native view is built the way loading builds one:
+a clone of the class's default instance, then every field set from those
+defaults, so a default the editor-created type gives a native field is the
+view's value. The constructor doesn't run per object. The objects it owns
+are new too: their real type is kept without an id
+(`IdentityMap::rememberType()`), and their first save fills what their
+class can't see from their real type's defaults.
 
 The `IdentityMap` keeps one object per id, however the entity was reached:
 loading an id twice, or reaching it through two References, or through a

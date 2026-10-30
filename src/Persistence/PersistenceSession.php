@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Persistence;
 
 use Closure;
+use InvalidArgumentException;
 use Doctrine\DBAL\Connection;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Dynamic\DynamicEntities;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Dynamic\DynamicEntity;
@@ -213,6 +214,19 @@ final class PersistenceSession
         ($this->guard)();
 
         return $this->dynamic->load($id);
+    }
+
+    /**
+     * A new entity of $type, any type, native or editor-created, as a
+     * DynamicEntity: the same as `new Car()`. It has no id until its first
+     * save. Its values are its type's defaults, resolved on its real type,
+     * its native view included.
+     * @throws InvalidArgumentException For a type there's no schema for.
+     */
+    public function newDynamic(string $type): DynamicEntity {
+        ($this->guard)();
+
+        return $this->dynamic->create($type);
     }
 
     /**
