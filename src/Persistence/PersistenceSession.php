@@ -10,7 +10,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Dynamic\DynamicEntity;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Dynamic\DynamicEntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\InvalidChange;
-use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\NativeEditor;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\StoredFormEditor;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\ValidationFailed;
 use XyloIsCoding\CoconutCms\Persistence\Permission\PermissionDenied;
@@ -55,8 +55,7 @@ final class PersistenceSession
     private readonly SchemaLookup $schemas;
     private readonly Permissions $permissions;
     private readonly EntityReader $reader;
-    private readonly NativeEditor $editor;
-    private readonly NativeEntityRegistry $classes;
+    private readonly StoredFormEditor $editor;
 
     /**
      * Made by Persistence::as().
@@ -85,14 +84,14 @@ final class PersistenceSession
         $this->writer = new NativeEntityWriter($entityWriter, $registry, $values, $this->identities, $this->hidden);
         $this->dynamicWriter = new DynamicEntityWriter($entityWriter, new NativeEntityValues($registry, $values, $this->identities), $this->dynamic, $this->identities, $schemas, $resolver, $this->hidden);
         $this->queries = new QueryRunner($connection, $schemas, $permissions, $this->identities, $this->load(...), $guard);
-        $this->editor = new NativeEditor($schemas, $permissions, $classes, $this->referenced(...), $this->identities->idOf(...));
-        $this->classes = $classes;
+        $this->editor = new StoredFormEditor($schemas, $this->dynamic, $this->referenced(...));
     }
 
     /**
-     * Creates a $type entity from its type's defaults, $changes applied by
-     * path in stored form, as NativeEditor describes, then saved: for code
-     * knowing no class. Its setters and afterEdit() run as for any edit.
+     * Creates a $type entity of any type from its type's defaults, $changes
+     * applied by path in stored form, as StoredFormEditor describes, then
+     * saved: for code knowing no class. Its setters and afterEdit() run as
+     * for any edit.
      * @param array<string, mixed> $changes By path.
      * @return string Its id.
      * @throws InvalidChange For an unknown type, or a change it can't apply.
@@ -109,16 +108,16 @@ final class PersistenceSession
             throw PermissionDenied::ofType($type, TypeAction::Create);
         }
 
-        return $this->writer->save($this->editor->create($type, $changes));
+        return $this->dynamicWriter->save($this->editor->create($type, $changes));
     }
 
     /**
-     * Loads the standalone entity stored as $id, applies $changes by path in
-     * stored form, as NativeEditor describes, and saves it: for code knowing
-     * no class. False when there's no such entity, or it's owned: an owned
-     * one is changed through its owner's paths.
+     * Loads the standalone entity stored as $id, of any type, applies
+     * $changes by path in stored form, as StoredFormEditor describes, and
+     * saves it: for code knowing no class. False when there's no such entity,
+     * or it's owned: an owned one is changed through its owner's paths.
      * @param array<string, mixed> $changes By path.
-     * @throws InvalidChange For an editor-created entity, or a change it can't apply.
+     * @throws InvalidChange For a change it can't apply.
      * @throws PermissionDenied When the actor may not read or update it, or write a field changed.
      * @throws ValidationFailed When a setter, afterEdit() or a validator refuses it.
      */
@@ -133,18 +132,17 @@ final class PersistenceSession
             throw PermissionDenied::ofType($type, TypeAction::Update);
         }
 
-        $entity = $this->loader->load($id);
+        $entity = $this->dynamic->load($id);
         $this->editor->edit($entity, $changes);
-        $this->writer->save($entity);
+        $this->dynamicWriter->save($entity);
 
         return true;
     }
 
     /**
-     * Deletes the standalone entity stored as $id with everything it owns:
-     * for code knowing no class. False when there's no such entity, or it's
-     * owned.
-     * @throws InvalidChange For an editor-created entity.
+     * Deletes the standalone entity stored as $id, of any type, with
+     * everything it owns: for code knowing no class. False when there's no
+     * such entity, or it's owned.
      * @throws PermissionDenied When the actor may not read or delete it.
      */
     public function deleteById(string $id): bool {
@@ -153,34 +151,25 @@ final class PersistenceSession
             return false;
         }
 
-        $this->writer->delete($this->loader->load($id));
+        $this->dynamicWriter->delete($this->dynamic->load($id));
 
         return true;
     }
 
-    /**
-     * The type of the standalone native entity stored as $id; null when
-     * there's none, or it's owned. Throws InvalidChange for an
-     * editor-created one: editor saves, not built yet, change those.
-     */
+    /** The type of the standalone entity stored as $id; null when there's none, or it's owned. */
     private function standaloneType(string $id): ?string {
         if ($this->reader->isOwned($id) !== false) {
             return null;
         }
 
-        $type = $this->reader->identifiersOf([$id])[$id] ?? null;
-        if ($type !== null && !$this->classes->has($type)) {
-            throw new InvalidChange('', sprintf('Entity %s is a %s, an editor-created type: editor saves, not built yet, change its entities.', $id, $type));
-        }
-
-        return $type;
+        return $this->reader->identifiersOf([$id])[$id] ?? null;
     }
 
     /**
      * The standalone entity an edit sets a Reference to, as this actor
-     * loads it. Throws InvalidChange naming $at when there's none.
+     * loads it, of any type. Throws InvalidChange naming $at when there's none.
      */
-    private function referenced(string $id, string $at): object {
+    private function referenced(string $id, string $at): DynamicEntity {
         $owned = $this->reader->isOwned($id);
         if ($owned === null) {
             throw new InvalidChange($at, sprintf('"%s" points at %s: there is no such entity.', $at, $id));
@@ -190,7 +179,7 @@ final class PersistenceSession
             throw new InvalidChange($at, sprintf('"%s" points at %s, an owned entity: an edit points a Reference at a standalone one only.', $at, $id));
         }
 
-        return $this->loader->load($id);
+        return $this->dynamic->load($id);
     }
 
     /**
@@ -241,10 +230,14 @@ final class PersistenceSession
         return $entity instanceof DynamicEntity ? $this->dynamicWriter->save($entity) : $this->writer->save($entity);
     }
 
-    /** Deletes $entity with everything it owns. */
+    /** Deletes $entity, a native object or a DynamicEntity, with everything it owns. */
     public function delete(object $entity): void {
         ($this->guard)();
-        $this->writer->delete($entity);
+        if ($entity instanceof DynamicEntity) {
+            $this->dynamicWriter->delete($entity);
+        } else {
+            $this->writer->delete($entity);
+        }
     }
 
     /**

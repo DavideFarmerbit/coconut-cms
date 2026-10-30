@@ -674,7 +674,7 @@ target type or one extending it, a Reference's target saved already. A
 wrong value throws `InvalidValue`, naming the path. Then:
 
 - a field the view's class declares is set on the view, through its
-  `#[Setter]` if it names one, called the way `NativeEditor` calls it
+  `#[Setter]` if it names one, called from the declaring class's scope
   (`Setters`). A setter refusing it is a `ValidationFailed` at the path;
 - any other goes into the bag.
 
@@ -717,6 +717,13 @@ view's value. The constructor doesn't run per object. The objects it owns
 are new too: their real type is kept without an id
 (`IdentityMap::rememberType()`), and their first save fills what their
 class can't see from their real type's defaults.
+
+The API edits every entity through a `DynamicEntity`, native types
+included: `StoredFormEditor` turns each change, a path and a value in
+stored form, into its PHP form and calls `set()`; `create()`, `update()`
+and `deleteById()` on a session make, load and save one. So
+`entities.create`, `update` and `delete` work on editor-created entities
+as on native ones.
 
 The `IdentityMap` keeps one object per id, however the entity was reached:
 loading an id twice, or reaching it through two References, or through a

@@ -1,10 +1,9 @@
 # Storage v3: Proposal: Dynamic Entities
 
-**Status: decided, not built (2026-10-22; writing, one shape and new
-entities decided 2026-10-30).** Native entities save and load
-(see "Saving an entity" and "Loading an entity" in `ARCHITECTURE_V3.md`).
-This records what was decided for editor-created entities, so it survives
-until it's built. Move each part into `ARCHITECTURE_V3.md` once it's built.
+**Status: built (2026-10-30).** Every step of the build plan is built,
+and described in `ARCHITECTURE_V3.md`: "Loading an entity", "Saving an
+entity" and "Dynamic entities". This proposal stays as the record of the
+decisions and their reasons.
 
 ## The problem
 
@@ -174,10 +173,10 @@ editor-created types the way the migration tests do, with
    `save()` taking a `DynamicEntity`.
 6. **`newDynamic(type)`.** Built (2026-10-30), now in `ARCHITECTURE_V3.md`
    "Dynamic entities".
-7. **The API edits through it.** See "One editing path for the API". Then
-   `entities.create`, `entities.update` and `entities.delete` work for
-   editor-created types too, and the admin edits them as it edits native
-   ones.
+7. **The API edits through it.** Built (2026-10-30), now in
+   `ARCHITECTURE_V3.md` "Dynamic entities": `StoredFormEditor` replaces
+   `NativeEditor`; `entities.create`, `entities.update` and
+   `entities.delete` work for editor-created types too.
 
 ### A view keeps what it can't see (decided)
 

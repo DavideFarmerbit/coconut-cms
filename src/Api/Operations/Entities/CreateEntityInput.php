@@ -8,9 +8,9 @@ use XyloIsCoding\CoconutCms\Api\Operation\OperationInput;
 final readonly class CreateEntityInput implements OperationInput
 {
     /**
-     * @param string $type The type of the entity created: "shop:car".
+     * @param string $type The type of the entity created, native or editor-created: "shop:car".
      * @param array<string, mixed> $changes Values by path, in stored form:
-     *        see NativeEditor for each kind's form.
+     *        see StoredFormEditor for each kind's form.
      */
     public function __construct(
         public string $type,

@@ -8,8 +8,8 @@ use XyloIsCoding\CoconutCms\Api\Operation\OperationContext;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\InvalidChange;
 
 /**
- * Changes a standalone native entity by path, through its setters and
- * afterEdit(), then saves it through the same permission and validation
+ * Changes a standalone entity of any type by path, through its native
+ * view's setters and afterEdit(), then saves it through the same permission and validation
  * rules as any save. Gives it back as entities.get reads it. An owned
  * entity is changed through its owner's paths: asked for by its own id,
  * it's not found.

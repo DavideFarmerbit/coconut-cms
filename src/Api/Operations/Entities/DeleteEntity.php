@@ -8,7 +8,7 @@ use XyloIsCoding\CoconutCms\Api\Operation\OperationContext;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\InvalidChange;
 
 /**
- * Deletes a standalone native entity with everything it owns. An owned
+ * Deletes a standalone entity, of any type, with everything it owns. An owned
  * entity is removed through its owner's paths: asked for by its own id,
  * it's not found.
  */

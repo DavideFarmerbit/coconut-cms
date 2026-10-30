@@ -323,10 +323,13 @@ Getters aren't part of editing: a value read through a method could differ
 from what's stored, and sending it back would change what's stored. They
 may come with scripting.
 
-An editor-created entity has no class of its own (see `DynamicEntity` in
-`../Storage/PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`). It comes with editor
-saves, since editor-created types are made by them, but plugs into the same
-path. Each change goes to the level declaring its field:
+An editor-created entity has no class of its own (see "Dynamic entities"
+in `../Storage/ARCHITECTURE_V3.md`). Every edit goes through a
+`DynamicEntity`, whatever the type: `entities.create` makes one with
+`newDynamic()`, `entities.update` and `entities.delete` load one with
+`loadDynamic()`. `StoredFormEditor` turns each change into its PHP form and
+calls `set()`. So a native type and an editor-created subtype of it edit
+alike. Each change goes to the level declaring its field:
 
 - a native level's field goes through the native view, the object of the
   entity's last native class: its setters and `afterEdit()` run;

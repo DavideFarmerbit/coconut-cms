@@ -8,8 +8,9 @@ use XyloIsCoding\CoconutCms\Api\Operation\OperationContext;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\InvalidChange;
 
 /**
- * Creates a standalone entity of a native type from its defaults, changes
- * applied by path through its setters and afterEdit(), then saved through
+ * Creates a standalone entity of any type, native or editor-created, from
+ * its defaults, changes applied by path through its native view's setters
+ * and afterEdit(), then saved through
  * the same permission and validation rules as any save. Gives it back as
  * entities.get reads it.
  */

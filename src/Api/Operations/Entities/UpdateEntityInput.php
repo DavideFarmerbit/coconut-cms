@@ -10,7 +10,7 @@ final readonly class UpdateEntityInput implements OperationInput
     /**
      * @param string $id A standalone entity's id.
      * @param array<string, mixed> $changes Values by path, in stored form:
-     *        see NativeEditor for each kind's form.
+     *        see StoredFormEditor for each kind's form.
      */
     public function __construct(
         public string $id,

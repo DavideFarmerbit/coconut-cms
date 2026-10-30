@@ -2,6 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Entity\Dynamic;
 
+use LogicException;
 use ReflectionClass;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\AfterEdit;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\EditRefused;
@@ -120,6 +121,19 @@ final class DynamicEntityWriter
         }
 
         return $id;
+    }
+
+    /** Deletes $entity and everything it owns. Throws when it was never saved. */
+    public function delete(DynamicEntity $entity): void {
+        $id = $entity->id() ?? throw new LogicException(sprintf('This %s was never saved, so there is nothing to delete.', $entity->type()));
+
+        foreach ($this->writer->delete($id) as $deletedId) {
+            $object = $this->identities->objectOf($deletedId);
+            $this->identities->forget($deletedId);
+            if ($object !== null) {
+                IdProperty::assign($object, null);
+            }
+        }
     }
 
     /** Remembers $held, a DynamicEntity or a native object, as entity $id, its view with it. */

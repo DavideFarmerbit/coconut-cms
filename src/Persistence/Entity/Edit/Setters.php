@@ -9,8 +9,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Setter;
 
 /**
  * Sets a native field the way PHP code sets it: through the #[Setter] its
- * declaring class names, or on the property. What every edit by path goes
- * through, NativeEditor's and DynamicEntity's alike.
+ * declaring class names, or on the property. What DynamicEntity::set()
+ * goes through for a field its native view declares, so every edit by path,
+ * the API's included.
  */
 final class Setters
 {
