@@ -16,6 +16,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeObjectBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeViewClasses;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ObjectNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
 
 /**
@@ -104,37 +105,80 @@ final class NativeEntityLoader
         return $this->build(null, $loaded);
     }
 
+    /**
+     * The native view of the entity $loaded holds, already read: the object
+     * known for its id, or one built from it. Null when its type has no
+     * native class. Its References' targets are looked up either way, so
+     * views built later for what it holds find them. The caller checks the
+     * type may be read.
+     */
+    public function objectOf(LoadedEntity $loaded): ?object {
+        $this->lookUpReferencedIdentifiers($loaded->referencedIds);
+
+        $known = $this->identities->objectOf($loaded->id);
+        if ($known !== null) {
+            return $known;
+        }
+
+        return $this->classes->lastNativeClassOf($loaded->identifier) === null ? null : $this->build(null, $loaded);
+    }
+
+    /**
+     * The native view of an Embed or an owned object only an editor-created
+     * level holds, which no native object reaches: built from $tree as
+     * $identifier's last native class. It's remembered with $id when it has
+     * one, an Embed having none; the objects it owns with $ownedIds, keyed
+     * by path from it. Its References' targets must be looked up already,
+     * by objectOf() for its aggregate.
+     * @param array<string, string> $ownedIds
+     */
+    public function buildView(string $identifier, ObjectNode $tree, ?string $id, array $ownedIds): object {
+        return $this->buildFrom(null, $identifier, $tree, $id, $ownedIds);
+    }
+
     /** Builds $loaded, into $into if given: a lazy ghost being initialized. */
     private function build(?object $into, LoadedEntity $loaded): object {
         $this->lookUpReferencedIdentifiers($loaded->referencedIds);
 
-        $object = $this->builder->build($this->classes->classOf($loaded->identifier), $loaded->tree, $into, function (FieldPath $path, object $owned, string $identifier) use ($loaded): void {
-            $ownedId = $loaded->ownedIds[(string) $path] ?? null;
+        return $this->buildFrom($into, $loaded->identifier, $loaded->tree, $loaded->id, $loaded->ownedIds);
+    }
+
+    /**
+     * Builds an entity of $identifier from $tree, into $into if given;
+     * remembers it with $id when it has one, and every object it owns with
+     * $ownedIds, keyed by path from it.
+     * @param array<string, string> $ownedIds
+     */
+    private function buildFrom(?object $into, string $identifier, ObjectNode $tree, ?string $id, array $ownedIds): object {
+        $object = $this->builder->build($this->classes->classOf($identifier), $tree, $into, function (FieldPath $path, object $owned, string $ownedType) use ($ownedIds): void {
+            $ownedId = $ownedIds[(string) $path] ?? null;
             if ($ownedId !== null) {
-                $this->identities->remember($owned, $ownedId, $identifier);
+                $this->identities->remember($owned, $ownedId, $ownedType);
                 IdProperty::assign($owned, $ownedId);
             }
-        }, function (object $holder, string $name, FieldPath $path, ?ValueNode $node) use ($loaded): void {
+        }, function (object $holder, string $name, FieldPath $path, ?ValueNode $node) use ($ownedIds): void {
             // The owned objects the hidden value holds keep their ids, by
             // their path from the field.
-            $ownedIds = [];
-            foreach ($loaded->ownedIds as $ownedPath => $ownedId) {
+            $hiddenIds = [];
+            foreach ($ownedIds as $ownedPath => $ownedId) {
                 $relative = self::relativeTo((string) $ownedPath, (string) $path);
                 if ($relative !== null) {
-                    $ownedIds[$relative] = $ownedId;
+                    $hiddenIds[$relative] = $ownedId;
                 }
             }
 
-            $this->hidden?->hide($holder, $name, $node, $ownedIds);
-        }, function (FieldPath $path) use ($loaded): ?object {
+            $this->hidden?->hide($holder, $name, $node, $hiddenIds);
+        }, function (FieldPath $path) use ($ownedIds): ?object {
             // A Reference may have reached this owned object first.
-            $ownedId = $loaded->ownedIds[(string) $path] ?? null;
+            $ownedId = $ownedIds[(string) $path] ?? null;
 
             return $ownedId === null ? null : $this->identities->objectOf($ownedId);
         });
 
-        $this->identities->remember($object, $loaded->id, $loaded->identifier);
-        IdProperty::assign($object, $loaded->id);
+        if ($id !== null) {
+            $this->identities->remember($object, $id, $identifier);
+            IdProperty::assign($object, $id);
+        }
 
         return $object;
     }

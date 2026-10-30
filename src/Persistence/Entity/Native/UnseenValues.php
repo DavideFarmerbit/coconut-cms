@@ -10,10 +10,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolver;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Subject;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\CollectionNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ObjectNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\OwnedNode;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueTrees;
 
 /**
  * What native views can't see, from what's stored: what saving an aggregate
@@ -127,25 +126,8 @@ final class UnseenValues
 
     /** The fields of the owned object at $path in $tree; null when it holds none. */
     private static function fieldsAt(ObjectNode $tree, FieldPath $path): ?ObjectNode {
-        $node = self::nodeAt($tree, $path);
+        $node = ValueTrees::nodeAt($tree, $path);
 
         return $node instanceof OwnedNode ? $node->fields : null;
-    }
-
-    /** What $tree holds at $path. */
-    private static function nodeAt(ValueNode $node, FieldPath $path): ?ValueNode {
-        if ($node instanceof OwnedNode) {
-            $node = $node->fields;
-        }
-
-        $head = $path->head();
-        $next = match (true) {
-            is_int($head) && $node instanceof CollectionNode => $node->items[$head] ?? null,
-            $head instanceof FieldName && $node instanceof ObjectNode => $node->find($head),
-            default => null,
-        };
-        $tail = $path->tail();
-
-        return $next === null || $tail === null ? $next : self::nodeAt($next, $tail);
     }
 }

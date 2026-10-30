@@ -163,12 +163,9 @@ editor-created types the way the migration tests do, with
 2. **A native view saves what it sees.** Built (2026-10-30), now in
    `ARCHITECTURE_V3.md` "Saving an entity": `EntityWriter::writeWith()`
    and `UnseenValues`. See "A view keeps what it can't see".
-3. **`DynamicEntity` reads.** `loadDynamic(id)` gives one per id, its
-   native view the object `load(id)` gives, its bag the editor-created
-   levels' values. It implements `EntityView`. An Embed or an owned
-   object comes back as the `DynamicEntity` standing for it: one per
-   object, so a native object in a view and the `DynamicEntity` standing
-   for it share their values.
+3. **`DynamicEntity` reads.** Built (2026-10-30), now in
+   `ARCHITECTURE_V3.md` "Dynamic entities": `loadDynamic(id)`,
+   `DynamicEntities`, the view and the bag, one per entity and per object.
 4. **`DynamicEntity` writes.** `set(path, value)`, checked when set; a
    native level's field through its setter, an editor-created level's
    into the bag.

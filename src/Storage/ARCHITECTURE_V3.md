@@ -627,6 +627,47 @@ names `loadDynamic()`.
 Saving a native view keeps what its class can't see: see "Saving an
 entity".
 
+## Dynamic entities
+
+`loadDynamic(id)` gives any standalone entity whole, whatever its type's
+source, as a `DynamicEntity`: what code wanting a whole entity works with.
+`load()` gives native code its native view; this gives the rest too.
+
+A `DynamicEntity` has two parts, and each field is held by one of them:
+
+- its native view, the object of its last native class: the very object
+  `load(id)` gives. A field that class declares is read from it, live;
+- its bag: every other field, those of its editor-created levels, in
+  stored form.
+
+A type with no native ancestor has no view, only a bag. A native type's
+bag is empty.
+
+There's one `DynamicEntity` per entity in a session: one per native view
+object, one per id for an entity with none. So native code and generic
+code editing the same entity see each other's changes.
+
+A `DynamicEntity` is an `EntityView`: `type()`, `isA()`, `has()`, `get()`,
+and its `id()` and `view()`. `get()` gives a value as a property holds it.
+An Embed or an owned object comes back as the `DynamicEntity` standing for
+it, one per object, wherever it's held:
+
+- in the view: the native object's own `DynamicEntity`, its bag from what
+  was read for its id. An `EditorEngine` in a native `engine` field is the
+  `BoatEngine` the view holds, and its editor-created fields;
+- in the bag: one made from what's stored there, with a native view of
+  its own when its type has a native ancestor. The loader builds it as it
+  builds any object, so ids, Reference ghosts and hidden fields behave
+  alike.
+
+A field the reader may not read throws `PermissionDenied` on `get()`;
+`has()` answers false for it. `loadDynamic()` of an owned entity throws:
+it's reached through its owner. `DynamicEntities` makes them for the
+session.
+
+Setting fields, saving and `newDynamic()` aren't built yet: see
+`PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`.
+
 The `IdentityMap` keeps one object per id, however the entity was reached:
 loading an id twice, or reaching it through two References, or through a
 Reference and through its owner, gives the same object. When a Reference

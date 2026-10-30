@@ -4,6 +4,8 @@ namespace XyloIsCoding\CoconutCms\Persistence;
 
 use Closure;
 use Doctrine\DBAL\Connection;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Dynamic\DynamicEntities;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Dynamic\DynamicEntity;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\InvalidChange;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\NativeEditor;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
@@ -30,7 +32,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolve
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
 
 /**
- * Loads, saves, deletes and queries native entities as one actor: what
+ * Loads, saves, deletes and queries entities as one actor, as native
+ * objects, or whole as DynamicEntitys: what
  * Persistence::as() gives. A field the actor may not read loads unset and
  * keeps its stored value on save; a save changing a field it may not write
  * throws PermissionDenied; a query through a field it may not read is
@@ -41,6 +44,7 @@ final class PersistenceSession
     private readonly IdentityMap $identities;
     private readonly HiddenValues $hidden;
     private readonly NativeEntityLoader $loader;
+    private readonly DynamicEntities $dynamic;
     private readonly NativeEntityWriter $writer;
     private readonly QueryRunner $queries;
     private readonly RecordReader $records;
@@ -68,8 +72,11 @@ final class PersistenceSession
         $this->identities = new IdentityMap();
         $this->hidden = new HiddenValues();
         $this->reader = $reader = new EntityReader($connection, $registry, $values);
-        $this->loader = new NativeEntityLoader($reader, new NativeViewClasses($classes, $schemas), $this->identities, $permissions, $this->hidden);
-        $this->records = new RecordReader($reader, $schemas, $permissions, new FieldValueResolver($registry, $values));
+        $views = new NativeViewClasses($classes, $schemas);
+        $this->loader = new NativeEntityLoader($reader, $views, $this->identities, $permissions, $this->hidden);
+        $resolver = new FieldValueResolver($registry, $values);
+        $this->dynamic = new DynamicEntities($reader, $this->loader, $this->identities, $schemas, $views, $permissions, $resolver);
+        $this->records = new RecordReader($reader, $schemas, $permissions, $resolver);
         $this->writer = new NativeEntityWriter(EntityWriter::of($connection, $registry, $permissions, $values), $registry, $values, $this->identities, $this->hidden);
         $this->queries = new QueryRunner($connection, $schemas, $permissions, $this->identities, $this->load(...), $guard);
         $this->editor = new NativeEditor($schemas, $permissions, $classes, $this->referenced(...), $this->identities->idOf(...));
@@ -180,11 +187,27 @@ final class PersistenceSession
         return $this->loader->load($id);
     }
 
-    /** The entity stored as $id, null when there's none. */
+    /**
+     * The entity stored as $id, null when there's none. An editor-created
+     * entity loads as its last native class, its native view; one with no
+     * native ancestor can't load here: loadDynamic() it.
+     */
     public function load(string $id): ?object {
         ($this->guard)();
 
         return $this->loader->load($id);
+    }
+
+    /**
+     * The standalone entity stored as $id, whole, whatever its type, as a
+     * DynamicEntity; null when there's none. One per entity, wrapping the
+     * object load() gives, when its type has a native ancestor.
+     * @throws PermissionDenied When the actor may not read its type.
+     */
+    public function loadDynamic(string $id): ?DynamicEntity {
+        ($this->guard)();
+
+        return $this->dynamic->load($id);
     }
 
     /** Stores $entity with everything it owns. @return string Its id. */
