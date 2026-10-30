@@ -45,9 +45,11 @@ export class Shell implements View, LayoutListener, Workspace {
         this.stripes = [new Stripe('left', runtime.tools, this.store), new Stripe('right', runtime.tools, this.store)];
         this.workspace = new WorkspaceArea(runtime.tools, runtime.tabTypes, this.store, host, contexts, this.dirty);
         this.dirty.onChange(() => this.render(this.store.current));
-        // Unsaved work isn't left by accident: the browser asks first.
+        // Unsaved work isn't left by accident: the browser asks first. The
+        // shell keeps its user's entity store: after signing out, the runtime has none.
+        const entities = runtime.entities;
         window.addEventListener('beforeunload', (event) => {
-            if (this.dirty.any || runtime.entities.hasUnsaved) {
+            if (this.dirty.any || entities.hasUnsaved) {
                 event.preventDefault();
             }
         });

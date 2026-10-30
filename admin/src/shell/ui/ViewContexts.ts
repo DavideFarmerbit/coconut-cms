@@ -34,7 +34,7 @@ export class ViewContexts {
             params,
             properties: runtime.properties,
             entities: runtime.entities,
-            typeCatalog: () => runtime.typeCatalog(),
+            types: runtime.types,
             markDirty: (isDirty: boolean) => dirty.set(key, isDirty),
             setTitle: (title: string) => {
                 if (tab !== null) {

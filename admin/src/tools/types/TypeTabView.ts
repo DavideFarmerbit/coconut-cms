@@ -15,14 +15,19 @@ import {TypesTool} from './TypesTool.ts';
  * The type inspector, one type per tab: what it extends, its subtypes in a
  * dropdown, what the user may do with its entities, then its own fields and
  * each ancestor's below, so the whole type shows with where each field comes
- * from. Every type named is a link. Opened with `{type: identifier}`.
+ * from. Every type named is a link. Opened with `{type: identifier}`. It
+ * shows the type again when the types change.
  */
 export class TypeTabView implements PanelView {
     public readonly element: HTMLElement;
+    private readonly listener = (): void => this.showType();
 
     public constructor(private readonly context: ViewContext) {
         this.element = Elements.create('div', {classes: ['inspector']});
-        void this.load();
+        context.types.ready.then(() => {
+            this.showType();
+            context.types.onChange(this.listener);
+        }, (failure: unknown) => this.showMessage(failure instanceof Error ? failure.message : String(failure)));
     }
 
     public shown(): void {
@@ -32,24 +37,21 @@ export class TypeTabView implements PanelView {
     }
 
     public dispose(): void {
+        this.context.types.offChange(this.listener);
     }
 
-    /** Shows the type the tab was opened with. */
-    private async load(): Promise<void> {
+    /** Shows the type the tab was opened with, as the catalog now has it. */
+    private showType(): void {
         const identifier = TypeTabView.typeIn(this.context.params);
-        try {
-            const catalog = await this.context.typeCatalog();
-            const type = identifier === null ? undefined : catalog.get(identifier);
-            if (type === undefined) {
-                this.showMessage(identifier === null ? 'This tab names no type.' : `There is no type "${identifier}" you may read.`);
+        const catalog = this.context.types.catalog;
+        const type = identifier === null ? undefined : catalog.get(identifier);
+        if (type === undefined) {
+            this.showMessage(identifier === null ? 'This tab names no type.' : `There is no type "${identifier}" you may read.`);
 
-                return;
-            }
-
-            this.show(type, catalog);
-        } catch (failure) {
-            this.showMessage(failure instanceof Error ? failure.message : String(failure));
+            return;
         }
+
+        this.show(type, catalog);
     }
 
     /** Shows `type`, its ancestors' fields from `catalog`. */

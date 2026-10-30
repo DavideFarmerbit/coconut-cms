@@ -8,7 +8,8 @@ import {TypeLink} from './TypeLink.ts';
 /**
  * The Types panel: every entity type the user may read, in a collapsible
  * group per namespace, each by its key. Opening one marks it. Which type is
- * marked and which groups are closed are remembered.
+ * marked and which groups are closed are remembered. It shows the types
+ * again when they change.
  */
 export class TypesView implements PanelView {
     /** The view state's name for the type marked. */
@@ -18,10 +19,16 @@ export class TypesView implements PanelView {
     private static readonly COLLAPSED = 'collapsed';
 
     public readonly element: HTMLElement;
+    private readonly listener = (): void => this.show();
 
     public constructor(private readonly context: ViewContext) {
         this.element = Elements.create('div', {classes: ['types-view']}, [Elements.create('p', {classes: ['list__note', 'muted'], text: 'Loading…'})]);
-        void this.load();
+        context.types.ready.then(() => {
+            this.show();
+            context.types.onChange(this.listener);
+        }, (failure: unknown) => {
+            this.element.replaceChildren(Elements.create('p', {classes: ['list__note', 'muted'], text: failure instanceof Error ? failure.message : String(failure)}));
+        });
     }
 
     public shown(): void {
@@ -31,17 +38,14 @@ export class TypesView implements PanelView {
     }
 
     public dispose(): void {
+        this.context.types.offChange(this.listener);
     }
 
-    /** Lists the types of the catalog. */
-    private async load(): Promise<void> {
-        try {
-            const groups = (await this.context.typeCatalog()).byNamespace();
-            this.element.replaceChildren(...[...groups.entries()].map(([namespace, types]) => this.group(namespace, types)));
-            this.markSelected();
-        } catch (failure) {
-            this.element.replaceChildren(Elements.create('p', {classes: ['list__note', 'muted'], text: failure instanceof Error ? failure.message : String(failure)}));
-        }
+    /** Lists the types of the catalog now. */
+    private show(): void {
+        const groups = this.context.types.catalog.byNamespace();
+        this.element.replaceChildren(...[...groups.entries()].map(([namespace, types]) => this.group(namespace, types)));
+        this.markSelected();
     }
 
     /** The collapsible group of `namespace`'s `types`. */

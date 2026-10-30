@@ -1,4 +1,4 @@
-import type {TypeCatalog} from '../types/TypeCatalog.ts';
+import type {TypeChange} from '../types/TypeChange.ts';
 import type {EntityChange} from './EntityChange.ts';
 import type {EntityData} from './EntityData.ts';
 import type {EntityPage, EntityQuery} from './EntityQuery.ts';
@@ -14,8 +14,9 @@ export type ListListener = () => void;
  * A query's entities, a page at a time, through the store, with no DOM: a
  * list view shows it and turns its pages. It reads its page again when the
  * store tells of a change it may show: an entity of its type created, one it
- * shows updated or deleted. So a rename shows in every list. dispose() of it
- * when its view goes.
+ * shows updated or deleted. So a rename shows in every list. It reads it
+ * again too when the types change for one it lists. dispose() of it when
+ * its view goes.
  *
  *     const cars = new EntityList(context.entities, {type: 'shop:car', orderBy: [{path: 'name'}], limit: 20});
  *     cars.onChange(() => this.render(cars.items));
@@ -28,9 +29,9 @@ export class EntityList {
     private readonly cursors: (string | null)[] = [null];
     /** Counts the reads asked for: an answer to an older one, overtaken, is dropped. */
     private reads = 0;
-    private catalog: TypeCatalog | undefined;
     private readonly listeners: ListListener[] = [];
     private readonly storeListener = (change: EntityChange): void => this.storeChanged(change);
+    private readonly typesListener = (change: TypeChange): void => this.typesChanged(change);
 
     /** @param query What it lists; its `after` is the list's to set. */
     public constructor(
@@ -38,9 +39,7 @@ export class EntityList {
         private readonly query: Omit<EntityQuery, 'after'>,
     ) {
         store.onChange(this.storeListener);
-        void store.types().then((catalog) => {
-            this.catalog = catalog;
-        }, () => undefined);
+        store.types.onChange(this.typesListener);
         void this.read();
     }
 
@@ -106,6 +105,7 @@ export class EntityList {
     /** Stops following the store. */
     public dispose(): void {
         this.store.offChange(this.storeListener);
+        this.store.types.offChange(this.typesListener);
         this.listeners.length = 0;
     }
 
@@ -135,8 +135,15 @@ export class EntityList {
     /** Reads the page again when `change` may show in it. */
     private storeChanged(change: EntityChange): void {
         const shown = this.page.items.some((entity) => entity.id === (change.kind === 'deleted' ? change.id : change.entity.id));
-        const ofType = change.kind !== 'deleted' && (change.entity.type === this.query.type || (this.catalog?.isA(change.entity.type, this.query.type) ?? false));
+        const ofType = change.kind !== 'deleted' && this.store.types.catalog.isA(change.entity.type, this.query.type);
         if (shown || ofType) {
+            this.reload();
+        }
+    }
+
+    /** Reads the page again when the types changed for one it lists: its type, or a subtype. */
+    private typesChanged(change: TypeChange): void {
+        if ([...change.affected].some((type) => change.next.isA(type, this.query.type) || change.previous.isA(type, this.query.type))) {
             this.reload();
         }
     }

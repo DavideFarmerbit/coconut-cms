@@ -16,6 +16,13 @@ import type {SessionChange, SessionListener} from './SessionChange.ts';
 /** Where a session is: reading its entity, ready to edit, or failed to read it. */
 export type SessionState = 'loading' | 'ready' | 'failed';
 
+/** What a session starts from: the types, the entity's values and its type. */
+interface SessionStart {
+    readonly catalog: TypeCatalog;
+    readonly values: Readonly<Record<string, unknown>>;
+    readonly type: string;
+}
+
 /** What a session saves through: the store, creating or updating. */
 export interface SessionSaver {
     /** Creates an entity of `type` from its defaults, `changes` applied. */
@@ -62,36 +69,33 @@ export class EntitySession {
         private readonly saver: SessionSaver,
         type: string,
         id: string | null,
-        entity: Promise<{readonly catalog: TypeCatalog; readonly values: Readonly<Record<string, unknown>>; readonly type: string}>,
+        entity: Promise<SessionStart>,
     ) {
         this.entityType = type;
         this.entityId = id;
-        this.ready = entity.then(({catalog, values, type: read}) => {
-            this.catalog = catalog;
-            this.entityType = read;
-            this.start(values);
-            this.currentState = 'ready';
-        }, (failure: unknown) => {
-            this.failureMessage = failure instanceof Error ? failure.message : String(failure);
-            this.currentState = 'failed';
-        }).finally(() => this.emit({kind: 'reloaded'}));
+        this.ready = this.load(entity);
     }
 
     /** A session of the saved entity `entity` will give. */
     public static of(saver: SessionSaver, id: string, entity: Promise<EntityData>, catalog: Promise<TypeCatalog>): EntitySession {
-        return new EntitySession(saver, '', id, Promise.all([entity, catalog]).then(([read, types]) => ({catalog: types, values: read.values, type: read.type})));
+        return new EntitySession(saver, '', id, Promise.all([entity, catalog]).then(([read, types]) => EntitySession.saved(types, read)));
     }
 
     /** A session of a new entity of `type`, from its defaults: its first save creates it. */
     public static fresh(saver: SessionSaver, type: string, catalog: Promise<TypeCatalog>): EntitySession {
-        return new EntitySession(saver, type, null, catalog.then((types) => {
-            const description = types.get(type);
-            if (description === undefined) {
-                throw new Error(`There is no type "${type}" you may read.`);
-            }
+        return new EntitySession(saver, type, null, catalog.then((types) => EntitySession.defaults(types, type)));
+    }
 
-            return {catalog: types, values: description.defaults, type};
-        }));
+    /**
+     * Reads its entity again, with `catalog`, the types now: after the types
+     * changed. A saved entity starts again from `entity`, what the store
+     * reads now; a new one from its type's defaults. Its unsaved edits are
+     * dropped: a session with some is settled first.
+     */
+    public refresh(catalog: TypeCatalog, entity: Promise<EntityData> | null): Promise<void> {
+        return this.load(entity === null
+            ? Promise.resolve().then(() => EntitySession.defaults(catalog, this.entityType))
+            : entity.then((read) => EntitySession.saved(catalog, read)));
     }
 
     /** Whether it's reading its entity, ready, or failed to read it. */
@@ -137,7 +141,12 @@ export class EntitySession {
 
     /** Whether anything differs from what was saved; a new entity always does. */
     public get isDirty(): boolean {
-        return this.entityId === null || (this.draft?.isDirty ?? false);
+        return this.entityId === null || this.hasEdits;
+    }
+
+    /** Whether it holds edits: what was saved, or a new entity's defaults, changed. */
+    public get hasEdits(): boolean {
+        return this.draft?.isDirty ?? false;
     }
 
     /** Whether a save is under way. */
@@ -295,6 +304,43 @@ export class EntitySession {
             this.saving = false;
             this.emit({kind: 'reloaded'});
         }
+    }
+
+    /** Shows it loading, then starts over from what `entity` gives, or fails with why it can't. */
+    private async load(entity: Promise<SessionStart>): Promise<void> {
+        if (this.draft !== undefined) {
+            this.currentState = 'loading';
+            this.emit({kind: 'reloaded'});
+        }
+
+        try {
+            const {catalog, values, type} = await entity;
+            this.catalog = catalog;
+            this.entityType = type;
+            this.clearErrors();
+            this.start(values);
+            this.failureMessage = '';
+            this.currentState = 'ready';
+        } catch (failure) {
+            this.failureMessage = failure instanceof Error ? failure.message : String(failure);
+            this.currentState = 'failed';
+        }
+        this.emit({kind: 'reloaded'});
+    }
+
+    /** What a session of the saved entity `read` starts from, with `catalog`. */
+    private static saved(catalog: TypeCatalog, read: EntityData): SessionStart {
+        return {catalog, values: read.values, type: read.type};
+    }
+
+    /** What a session of a new entity of `type` starts from: its defaults in `catalog`. */
+    private static defaults(catalog: TypeCatalog, type: string): SessionStart {
+        const description = catalog.get(type);
+        if (description === undefined) {
+            throw new Error(`There is no type "${type}" you may read.`);
+        }
+
+        return {catalog, values: description.defaults, type};
     }
 
     /** Starts over from `values`, what was stored. */

@@ -1,7 +1,10 @@
 import type {ApiClient} from '../api/ApiClient.ts';
 import {EntityLabels} from '../properties/EntityLabels.ts';
 import type {ReferenceValue} from '../properties/RecordValues.ts';
+import {TypeChanges} from '../../types/TypeChanges.ts';
 import type {TypeCatalog} from '../types/TypeCatalog.ts';
+import type {TypeChange} from '../types/TypeChange.ts';
+import type {TypeStore} from '../types/TypeStore.ts';
 import type {EntityChange, EntityListener} from './EntityChange.ts';
 import type {EntityData} from './EntityData.ts';
 import {EntityHold, type HoldReleaser} from './EntityHold.ts';
@@ -25,6 +28,10 @@ interface Held {
  * holding it, freed when the last hold is released. Releasing the last hold
  * on a session with unsaved changes asks first.
  *
+ * It follows the types: when they change, it forgets what it read of the
+ * types affected, and every session of one without edits reads its entity
+ * again. settle() asks about the sessions with edits before a change.
+ *
  *     const hold = context.entities.edit(id);
  *     // ...show hold.session...
  *     const closed = await hold.release();
@@ -32,6 +39,8 @@ interface Held {
 export class EntityStore implements SessionSaver, HoldReleaser {
     /** What was read, by id. */
     private readonly read = new Map<string, Promise<EntityData>>();
+    /** The type of each entity read, once known, by id. */
+    private readonly readTypes = new Map<string, string>();
     /** The sessions given out, by entity id. */
     private readonly sessions = new Map<string, Held>();
     /** The sessions of entities not saved yet: nothing finds them by id. */
@@ -39,24 +48,45 @@ export class EntityStore implements SessionSaver, HoldReleaser {
     private readonly listeners: EntityListener[] = [];
 
     /**
-     * @param catalog Gives the types the user may read: what sessions and labels work with.
-     * @param unsaved Asked when the last hold on a session with unsaved changes is released.
+     * @param types The types the user may read: what sessions, labels and lists work with.
+     * @param unsaved Asked when the last hold on a session with unsaved changes is released, and by settle().
      */
     public constructor(
         private readonly api: ApiClient,
-        private readonly catalog: () => Promise<TypeCatalog>,
+        public readonly types: TypeStore,
         private readonly unsaved: UnsavedQuestion,
     ) {
+        types.onChange((change) => this.typesChanged(change));
     }
 
     /** Whether any session has unsaved changes: leaving the page asks first then. */
     public get hasUnsaved(): boolean {
-        return [...this.sessions.values(), ...this.fresh.values()].some(({session}) => session.isDirty);
+        return this.allHeld().some(({session}) => session.isDirty);
     }
 
-    /** The types the user may read: what sessions, labels and lists work with. */
-    public types(): Promise<TypeCatalog> {
-        return this.catalog();
+    /**
+     * Settles the sessions with edits whose type a change of `types` affects:
+     * the types, their subtypes, the types holding them. Asks Save, Discard or
+     * Cancel for each; what the schema editor asks before it changes types.
+     * @return Whether every one was settled: false once one is cancelled, or fails to save.
+     */
+    public async settle(types: Iterable<string>): Promise<boolean> {
+        const affected = TypeChanges.affectedBy(new Set(types), [this.types.catalog]);
+        for (const {session} of this.allHeld()) {
+            if (!session.hasEdits || !affected.has(session.type)) {
+                continue;
+            }
+
+            const answer = await this.unsaved.ask(session.label);
+            if (answer === 'cancel' || (answer === 'save' && !await session.save())) {
+                return false;
+            }
+            if (answer === 'discard') {
+                session.revert();
+            }
+        }
+
+        return true;
     }
 
     /** Tells `listener` of every entity created, updated or deleted. */
@@ -76,10 +106,19 @@ export class EntityStore implements SessionSaver, HoldReleaser {
     public get(id: string): Promise<EntityData> {
         let entity = this.read.get(id);
         if (entity === undefined) {
-            entity = this.api.call<EntityData>('coconut-cms:entities.get', {id});
-            this.read.set(id, entity);
-            // A failed read isn't kept: the next asks again.
-            entity.catch(() => this.read.delete(id));
+            const reading = this.api.call<EntityData>('coconut-cms:entities.get', {id});
+            entity = reading;
+            this.read.set(id, reading);
+            reading.then((read) => {
+                if (this.read.get(id) === reading) {
+                    this.readTypes.set(id, read.type);
+                }
+            }, () => {
+                // A failed read isn't kept: the next asks again.
+                if (this.read.get(id) === reading) {
+                    this.read.delete(id);
+                }
+            });
         }
 
         return entity;
@@ -88,9 +127,7 @@ export class EntityStore implements SessionSaver, HoldReleaser {
     /** A page of `query`'s entities; each is kept as read. */
     public async query(query: EntityQuery): Promise<EntityPage> {
         const page = await this.api.call<EntityPage>('coconut-cms:entities.query', {...query});
-        for (const entity of page.items) {
-            this.read.set(entity.id, Promise.resolve(entity));
-        }
+        page.items.forEach((entity) => this.keep(entity));
 
         return page;
     }
@@ -128,7 +165,7 @@ export class EntityStore implements SessionSaver, HoldReleaser {
     /** Creates an entity of `type` from its defaults, `changes` applied, and tells the listeners. */
     public async add(type: string, changes: Readonly<Record<string, unknown>>): Promise<EntityData> {
         const entity = await this.api.call<EntityData>('coconut-cms:entities.create', {type, changes});
-        this.read.set(entity.id, Promise.resolve(entity));
+        this.keep(entity);
         this.emit({kind: 'created', entity});
 
         return entity;
@@ -137,7 +174,7 @@ export class EntityStore implements SessionSaver, HoldReleaser {
     /** Applies `changes` to the entity `id`, and tells the listeners. */
     public async update(id: string, changes: Readonly<Record<string, unknown>>): Promise<EntityData> {
         const entity = await this.api.call<EntityData>('coconut-cms:entities.update', {id, changes});
-        this.read.set(entity.id, Promise.resolve(entity));
+        this.keep(entity);
         this.emit({kind: 'updated', entity});
 
         return entity;
@@ -147,6 +184,7 @@ export class EntityStore implements SessionSaver, HoldReleaser {
     public async delete(id: string): Promise<void> {
         await this.api.call('coconut-cms:entities.delete', {id});
         this.read.delete(id);
+        this.readTypes.delete(id);
         this.emit({kind: 'deleted', id});
     }
 
@@ -188,6 +226,46 @@ export class EntityStore implements SessionSaver, HoldReleaser {
         this.forget(held);
 
         return true;
+    }
+
+    /** The types now, once read. */
+    private async catalog(): Promise<TypeCatalog> {
+        await this.types.ready;
+
+        return this.types.catalog;
+    }
+
+    /** Keeps `entity` as read. */
+    private keep(entity: EntityData): void {
+        this.read.set(entity.id, Promise.resolve(entity));
+        this.readTypes.set(entity.id, entity.type);
+    }
+
+    /**
+     * Follows a change of the types: forgets what it read of the types
+     * affected, and of what's still being read; every session of a type
+     * affected without edits reads its entity again. A session with edits
+     * keeps them as they are.
+     */
+    private typesChanged(change: TypeChange): void {
+        for (const id of [...this.read.keys()]) {
+            const type = this.readTypes.get(id);
+            if (type === undefined || change.affected.has(type)) {
+                this.read.delete(id);
+                this.readTypes.delete(id);
+            }
+        }
+
+        for (const {session} of this.allHeld()) {
+            if (change.affected.has(session.type) && !session.hasEdits) {
+                void session.refresh(change.next, session.id === null ? null : this.get(session.id));
+            }
+        }
+    }
+
+    /** Every session given out. */
+    private allHeld(): Held[] {
+        return [...this.sessions.values(), ...this.fresh.values()];
     }
 
     /** A new hold on `held`'s session. */

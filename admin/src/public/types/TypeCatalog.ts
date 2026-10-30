@@ -11,7 +11,7 @@ export interface CatalogField {
  * Every entity type the user may read, as coconut-cms:types.list gave
  * them, with their hierarchy worked out: a type's ancestors, its subtypes,
  * the types of a namespace. A readable type's ancestors are readable too,
- * so the whole chain is always here. Reached through admin.typeCatalog().
+ * so the whole chain is always here. A snapshot: the TypeStore, admin.types, holds the one now.
  */
 export class TypeCatalog {
     private constructor(private readonly types: ReadonlyMap<string, TypeDescription>) {

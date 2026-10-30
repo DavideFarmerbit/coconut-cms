@@ -9,8 +9,7 @@ panels, splitters and one tab group, tool and tab type registration, and
 the Types tool, loading modules' admin code, and editing native entities'
 properties. Not built yet: dragging icons and tabs, menus from manifests,
 uploaded and browser plugins, the layout kept per user on the server,
-edits saved elsewhere while an entity is edited, the type store following
-type changes. Each is noted inline.
+edits saved elsewhere while an entity is edited. Each is noted inline.
 
 The admin is a client-side app. It talks to the backend only through the API
 (`../Api/ARCHITECTURE.md`): every list, form and save is an operation, so the
@@ -333,12 +332,10 @@ going back and forward within a tab.
 
 ## Types
 
-Not built yet: the store below. Today `admin.typeCatalog()` loads the
-types once per page.
-
 `TypeStore` holds the entity types the user may read. There is one per
-admin, given to every view as `context.types`, and in the public module as
-`admin.types`. Types change while the admin is open: the schema editor
+signed-in user, given to every view as `context.types`, and in the public
+module as `admin.types`; signing in or out starts the types and the
+entities over. Types change while the admin is open: the schema editor
 migrates, and the store reads them again.
 
 - `catalog` is the current `TypeCatalog`: an immutable snapshot that works
@@ -365,10 +362,12 @@ a Collection's items, again until no type joins.
 
 What follows a change:
 
-- The entity store forgets what it read of affected types. Every
-  `EntityList` of an affected type reads its page again.
-- A session of an affected type without unsaved changes reads its entity
-  again, with the new types; its views show everything again.
+- The entity store forgets what it read of affected types, and what it
+  was still reading. Every `EntityList` listing an affected type, its own
+  or a subtype, reads its page again.
+- A session of an affected type without edits reads its entity again,
+  with the new types; a new entity starts again from its type's new
+  defaults. Its views show it loading, then everything again.
 - A session of an affected type with unsaved changes is settled before
   the change: `entities.settle(types)` asks Save, Discard or Cancel for
   each, and answers whether every one was settled. The schema editor asks
@@ -430,7 +429,8 @@ save creates the entity. The session then takes its id and is shared like
 any other. A "New" button comes with dynamic entities (not built yet).
 
 When the admin itself changes types, through the schema editor, open
-sessions are settled first (not built yet). Before the change applies,
+sessions are settled first, with `entities.settle(types)`, "Types" above
+(the schema editor asking it isn't built yet). Before the change applies,
 the admin finds the sessions with unsaved changes whose type the change
 affects: the type, its subtypes, and the types embedding or owning it. It
 asks Save, Discard or Cancel for them, the question asked when the last

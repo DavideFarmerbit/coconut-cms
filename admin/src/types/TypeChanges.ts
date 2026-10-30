@@ -13,15 +13,15 @@ export class TypeChanges {
             return null;
         }
 
-        return {previous, next, changed, affected: TypeChanges.affected(changed, [previous, next])};
+        return {previous, next, changed, affected: TypeChanges.affectedBy(changed, [previous, next])};
     }
 
     /**
      * `changed`, with their subtypes and the types holding them, embedded,
-     * owned or as a Collection's items, again until no type joins. Both
-     * catalogs count: a type gone was held by types in the one before.
+     * owned or as a Collection's items, again until no type joins, in every
+     * one of `catalogs`: a type gone was held by types in the one before.
      */
-    private static affected(changed: ReadonlySet<string>, catalogs: readonly TypeCatalog[]): Set<string> {
+    public static affectedBy(changed: ReadonlySet<string>, catalogs: readonly TypeCatalog[]): Set<string> {
         const affected = new Set(changed);
         let grew = true;
         while (grew) {

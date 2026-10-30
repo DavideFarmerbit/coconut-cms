@@ -2,7 +2,7 @@ import {ApiClient} from '../public/api/ApiClient.ts';
 import type {EntityData} from '../public/entities/EntityData.ts';
 import {EntityStore} from '../public/entities/EntityStore.ts';
 import type {UnsavedAnswer, UnsavedQuestion} from '../public/entities/UnsavedQuestion.ts';
-import {TypeCatalog} from '../public/types/TypeCatalog.ts';
+import {TypeStore} from '../public/types/TypeStore.ts';
 import type {FieldDescription, TypeDescription, ValueDescription} from '../public/types/TypeDescription.ts';
 
 /** A value description with `changes` over a non-null string scalar. */
@@ -30,9 +30,6 @@ export const wheelType: TypeDescription = {...carType, identifier: 'shop:wheel',
 
 /** The tests' bike: another type, never listed with cars. */
 export const bikeType: TypeDescription = {...carType, identifier: 'shop:bike', fields: {name: field(value({}))}, defaults: {name: ''}};
-
-/** Every type the tests know. */
-export const testCatalog = TypeCatalog.of([carType, wheelType, bikeType]);
 
 /**
  * The backend, in memory, behind a real ApiClient: types.list, and
@@ -144,7 +141,9 @@ export class FixedAnswer implements UnsavedQuestion {
     }
 }
 
-/** A store over `backend`, answering the unsaved question with `question`. */
+/** A store over `backend`, its types from backend's types.list, answering the unsaved question with `question`. */
 export function storeOf(backend: FakeBackend, question: UnsavedQuestion = new FixedAnswer('discard')): EntityStore {
-    return new EntityStore(backend.client(), () => Promise.resolve(testCatalog), question);
+    const client = backend.client();
+
+    return new EntityStore(client, new TypeStore(client), question);
 }
