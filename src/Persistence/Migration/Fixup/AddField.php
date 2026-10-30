@@ -9,7 +9,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 
 /**
- * A field added to a type, as the code declares it. Without an initializer,
+ * A field added to a type, as its target declares it. Without an initializer,
  * every existing entity follows its default; with one, existing entities get
  * what it decides, wherever the type lives.
  */
@@ -29,7 +29,7 @@ final readonly class AddField implements Fixup, MovesValues
         $schemas->assertNoField($this->type, $this->field);
         $schema = $schemas->get($this->type);
 
-        return $schemas->with($schema->withFields($schema->fields->with($this->field, $schemas->codeField($this->type, $this->field))));
+        return $schemas->with($schema->withFields($schema->fields->with($this->field, $schemas->targetField($this->type, $this->field))));
     }
 
     public function moveValues(AggregateValues $values, SchemaState $before, SchemaState $after): void {

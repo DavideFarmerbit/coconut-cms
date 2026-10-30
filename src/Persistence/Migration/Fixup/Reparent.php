@@ -10,7 +10,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 
 /**
- * A type moved under the parent the code gives it. A level it gains holds
+ * A type moved under the parent its target gives it. A level it gains holds
  * fields every existing entity should already have, so it's filled, not added:
  * following its defaults, or by the initializer. A level it loses takes its
  * values with it, unless a fixup before moves them.
@@ -24,7 +24,7 @@ final readonly class Reparent implements Fixup, MovesValues
     }
 
     public function applyTo(SchemaState $schemas): SchemaState {
-        $parent = $schemas->code($this->type)->parent;
+        $parent = $schemas->target($this->type)->parent;
         if ($parent !== null) {
             // Moving under a parent that doesn't exist yet: an AddType must come first.
             $schemas->get($parent);

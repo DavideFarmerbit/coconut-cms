@@ -1497,6 +1497,17 @@ editor then loads them again, replays the admin's operations on them, and
 shows what no longer applies (not built yet). Nothing runs on definitions
 the admin never saw.
 
+One revision for every type refuses a save after any schema change, even
+one to types the save never touches. A check per type can come later (not
+built yet), with no change to what a save sends now. A save depends on its
+footprint: the types its operations name, their ancestors, subtypes and
+targets, and the types holding them, to a fixpoint. `types.list` gives each
+type's own fingerprint. A save sends the fingerprints of its footprint. The
+server works out the footprint again on the current schemas. The save is
+stale when a type there is missing from what it sent, or has another
+fingerprint, or a type it sent is gone. A name collision needs no check of
+its own: applying the operations refuses it.
+
 Saving type changes is a right of its own (decided, not built): it changes
 the shape of everything stored for those types, and blocks the site while
 it runs. The project names one schema-editor role at boot; only a user
@@ -1574,6 +1585,10 @@ goes to the policy. So a chain of renames needs nothing special, and a fixup
 naming a type or field that doesn't exist at that point throws there, naming
 its step: a typo never passes silently. Data still moves once, from the
 stored schemas straight to the code's.
+
+A fixup takes a new shape from its target: the code's schema for a native
+type, the saved definition for an editor-created type in an editor save
+(see "Editor saves are migrations"). Below, "the code" means the target.
 
 The common fixups are shorthands:
 

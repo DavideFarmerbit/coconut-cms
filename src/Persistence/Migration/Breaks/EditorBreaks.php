@@ -115,7 +115,7 @@ final class EditorBreaks
             return true;
         }
 
-        return ($schemas->codeSchemas()[$identifier] ?? $schemas->get($identifier))->editorExtensible;
+        return ($schemas->targetSchemas()[$identifier] ?? $schemas->get($identifier))->editorExtensible;
     }
 
     /** The type $field declares, as its target or its items', that's gone; null when there's none. */

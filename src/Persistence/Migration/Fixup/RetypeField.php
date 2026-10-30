@@ -43,7 +43,7 @@ final readonly class RetypeField implements Fixup, MovesValues
         $schemas->field($this->type, $this->field);
         $schema = $schemas->get($this->type);
 
-        return $schemas->with($schema->withFields($schema->fields->with($this->field, $schemas->codeField($this->type, $this->field))));
+        return $schemas->with($schema->withFields($schema->fields->with($this->field, $schemas->targetField($this->type, $this->field))));
     }
 
     public function moveValues(AggregateValues $values, SchemaState $before, SchemaState $after): void {

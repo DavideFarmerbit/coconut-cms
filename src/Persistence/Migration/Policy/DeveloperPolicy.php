@@ -52,7 +52,7 @@ final readonly class DeveloperPolicy implements MigrationPolicy
      * order: every level it had, it keeps.
      */
     private static function onlyInsertsLevels(string $identifier, SchemaState $schemas): bool {
-        $new = self::ancestors($identifier, $schemas->codeSchemas());
+        $new = self::ancestors($identifier, $schemas->targetSchemas());
         $position = 0;
         foreach (self::ancestors($identifier, $schemas->native()) as $level) {
             $found = array_search($level, array_slice($new, $position), true);

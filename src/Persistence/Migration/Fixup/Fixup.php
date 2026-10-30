@@ -6,8 +6,9 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
 
 /**
  * One declared change to stored content, reviewed with the commit that needs
- * it. Transforms the stored schemas towards the code's, so whatever it
- * explains no longer shows up as a difference. Names things as they are when
+ * it, or given by an editor save. Transforms the stored schemas towards the
+ * target's (see SchemaState), so whatever it explains no longer shows up as
+ * a difference. Names things as they are when
  * it runs.
  */
 interface Fixup

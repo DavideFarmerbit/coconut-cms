@@ -14,9 +14,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 
 /**
  * The stored schemas as the fixups so far have transformed them, next to the
- * code's schemas they head for. Immutable: each fixup returns a new state.
- * Asking for something that doesn't exist throws InvalidFixup: what a fixup
- * names must exist when it runs.
+ * target schemas they head for: the code's native schemas, and in an editor
+ * save the editor-created schemas it saves. Immutable: each fixup returns a
+ * new state. Asking for something that doesn't exist throws InvalidFixup:
+ * what a fixup names must exist when it runs.
  */
 final readonly class SchemaState
 {
@@ -24,21 +25,27 @@ final readonly class SchemaState
      * @param array<string, EntitySchema> $schemas Keyed by identifier, every
      *        source included.
      * @param array<string, SchemaSource> $sources Keyed by identifier.
-     * @param array<string, EntitySchema> $code The native schemas compiled
-     *        from code, keyed by identifier.
+     * @param array<string, EntitySchema> $target The schemas the fixups head
+     *        for, keyed by identifier.
+     * @param array<string, SchemaSource> $targetSources Keyed by identifier.
      */
     private function __construct(
         private array $schemas,
         private array $sources,
-        private array $code,
+        private array $target,
+        private array $targetSources,
     ) {
     }
 
     /**
      * @param list<StoredSchema> $stored Every stored schema, of every source.
-     * @param array<string, EntitySchema> $code Keyed by identifier.
+     * @param array<string, EntitySchema> $code The native schemas compiled
+     *        from code, keyed by identifier.
+     * @param array<string, EntitySchema> $editor The editor-created schemas an
+     *        editor save heads for, keyed by identifier; none in a native
+     *        migration.
      */
-    public static function of(array $stored, array $code): self {
+    public static function of(array $stored, array $code, array $editor = []): self {
         $schemas = [];
         $sources = [];
         foreach ($stored as $each) {
@@ -46,7 +53,12 @@ final readonly class SchemaState
             $sources[$each->schema->identifier] = $each->source;
         }
 
-        return new self($schemas, $sources, $code);
+        return new self(
+            $schemas,
+            $sources,
+            [...$code, ...$editor],
+            [...array_map(static fn (): SchemaSource => SchemaSource::Native, $code), ...array_map(static fn (): SchemaSource => SchemaSource::Editor, $editor)],
+        );
     }
 
     public function has(string $identifier): bool {
@@ -145,16 +157,16 @@ final readonly class SchemaState
         }
     }
 
-    /** $identifier's schema in code: what a fixup takes a new shape from. */
-    public function code(string $identifier): EntitySchema {
-        return $this->code[$identifier] ?? throw new InvalidFixup(sprintf('the code has no type "%s".', $identifier));
+    /** $identifier's target schema: what a fixup takes a new shape from. */
+    public function target(string $identifier): EntitySchema {
+        return $this->target[$identifier] ?? throw new InvalidFixup(sprintf('the target has no type "%s".', $identifier));
     }
 
-    /** Field $name of type $identifier in code. */
-    public function codeField(string $identifier, FieldName $name): FieldDescriptor {
-        $schema = $this->code($identifier);
+    /** Field $name of type $identifier in its target schema. */
+    public function targetField(string $identifier, FieldName $name): FieldDescriptor {
+        $schema = $this->target($identifier);
         if (!$schema->fields->has($name)) {
-            throw new InvalidFixup(sprintf('type "%s" has no field "%s" in the code.', $identifier, $name));
+            throw new InvalidFixup(sprintf('type "%s" has no field "%s" in the target.', $identifier, $name));
         }
 
         return $schema->fields->get($name);
@@ -189,12 +201,12 @@ final readonly class SchemaState
     }
 
     /**
-     * $identifier's ancestors in code, nearest first.
+     * $identifier's ancestors in the target, nearest first.
      * @return list<string>
      */
-    public function codeAncestorsOf(string $identifier): array {
+    public function targetAncestorsOf(string $identifier): array {
         $ancestors = [];
-        for ($parent = $this->code($identifier)->parent; $parent !== null; $parent = $this->code($parent)->parent) {
+        for ($parent = $this->target($identifier)->parent; $parent !== null; $parent = $this->target($parent)->parent) {
             $ancestors[] = $parent;
         }
 
@@ -205,17 +217,18 @@ final readonly class SchemaState
     public function with(EntitySchema $schema): self {
         $this->get($schema->identifier);
 
-        return new self([...$this->schemas, $schema->identifier => $schema], $this->sources, $this->code);
+        return new self([...$this->schemas, $schema->identifier => $schema], $this->sources, $this->target, $this->targetSources);
     }
 
-    /** Type $identifier added from the code: a native type. */
-    public function withCodeType(string $identifier): self {
+    /** Type $identifier added from the target, with the target's source. */
+    public function withTargetType(string $identifier): self {
         $this->assertAbsent($identifier);
 
         return new self(
-            [...$this->schemas, $identifier => $this->code($identifier)],
-            [...$this->sources, $identifier => SchemaSource::Native],
-            $this->code,
+            [...$this->schemas, $identifier => $this->target($identifier)],
+            [...$this->sources, $identifier => $this->targetSources[$identifier]],
+            $this->target,
+            $this->targetSources,
         );
     }
 
@@ -225,7 +238,7 @@ final readonly class SchemaState
         $sources = $this->sources;
         unset($schemas[$identifier], $sources[$identifier]);
 
-        return new self($schemas, $sources, $this->code);
+        return new self($schemas, $sources, $this->target, $this->targetSources);
     }
 
     /** Type $old as $renamed, under its new identifier, keeping its source. */
@@ -237,13 +250,14 @@ final readonly class SchemaState
         return new self(
             [...$state->schemas, $renamed->identifier => $renamed],
             [...$state->sources, $renamed->identifier => $source],
-            $this->code,
+            $this->target,
+            $this->targetSources,
         );
     }
 
     /** @param Closure(EntitySchema): EntitySchema $change Applied to every schema, of every source. */
     public function map(Closure $change): self {
-        return new self(array_map($change, $this->schemas), $this->sources, $this->code);
+        return new self(array_map($change, $this->schemas), $this->sources, $this->target, $this->targetSources);
     }
 
     /**
@@ -270,10 +284,18 @@ final readonly class SchemaState
     }
 
     /**
-     * The code's schemas, unchanged by any fixup.
+     * The editor-created schemas at this point.
      * @return array<string, EntitySchema> Keyed by identifier.
      */
-    public function codeSchemas(): array {
-        return $this->code;
+    public function editor(): array {
+        return array_filter($this->schemas, fn (EntitySchema $schema): bool => $this->sources[$schema->identifier] === SchemaSource::Editor);
+    }
+
+    /**
+     * The target schemas, unchanged by any fixup.
+     * @return array<string, EntitySchema> Keyed by identifier.
+     */
+    public function targetSchemas(): array {
+        return $this->target;
     }
 }

@@ -38,8 +38,8 @@ final readonly class MoveField implements Fixup, MovesValues
     public function applyTo(SchemaState $schemas): SchemaState {
         $schemas->field($this->from, $this->field);
         $schemas->assertNoField($this->to, $this->field);
-        $up = in_array($this->to, $schemas->codeAncestorsOf($this->from), true);
-        if (!$up && !in_array($this->from, $schemas->codeAncestorsOf($this->to), true)) {
+        $up = in_array($this->to, $schemas->targetAncestorsOf($this->from), true);
+        if (!$up && !in_array($this->from, $schemas->targetAncestorsOf($this->to), true)) {
             throw new InvalidFixup(sprintf('"%s" and "%s" are not in one chain: a field only moves up or down its own chain.', $this->from, $this->to));
         }
 
@@ -54,7 +54,7 @@ final readonly class MoveField implements Fixup, MovesValues
 
         $to = $schemas->get($this->to);
 
-        return $schemas->with($to->withFields($to->fields->with($this->field, $schemas->codeField($this->to, $this->field))));
+        return $schemas->with($to->withFields($to->fields->with($this->field, $schemas->targetField($this->to, $this->field))));
     }
 
     /** Lets the initializer fill the field wherever an entity gains it: of the ancestor, and not of the type it left. */

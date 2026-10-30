@@ -60,9 +60,9 @@ final readonly class ReplaceType implements Fixup, MovesValues
             throw new InvalidFixup(sprintf('type "%s" can\'t replace itself.', $this->type));
         }
 
-        // A replacement new to the code comes with it: no AddType needed first.
+        // A replacement new to the target comes with it: no AddType needed first.
         if (!$schemas->has($this->with)) {
-            $schemas = $schemas->withCodeType($this->with);
+            $schemas = $schemas->withTargetType($this->with);
         }
 
         if ($schemas->isA($this->with, $this->type) && $schemas->get($this->with)->parent !== $this->type) {
