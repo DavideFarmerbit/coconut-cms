@@ -252,8 +252,30 @@ final readonly class Migrator
         );
 
         $batch = $plan->isBlocked() ? null : $this->compiler->compute([...$blueprints, ...$this->editorBlueprints($stored, $plan->plan, $draft)]);
+        if ($batch !== null) {
+            self::assertPinned($draft, $batch);
+        }
 
         return new PreparedEditorSave($operations, $stored, $stateKey, $plan, $batch, $batch === null ? [] : $this->failuresOf($stored, $plan->plan, $batch));
+    }
+
+    /**
+     * Throws when a default the save pins didn't make it into $batch: its
+     * path doesn't exist once the save ran, and compiling drops it. A default
+     * path follows renames of its first field only; one going into a field
+     * the same save renames inside an Embed or an owned object isn't followed
+     * yet. Refused, never dropped silently.
+     */
+    private static function assertPinned(SchemaDraft $draft, CompiledBatch $batch): void {
+        foreach ($draft->defaultChanges() as $change) {
+            if ($change->pins() && !array_key_exists((string) $change->path, ($batch->values[$change->type] ?? FieldValues::empty())->toArray())) {
+                throw new InvalidOperation(sprintf(
+                    'SetDefault(%1$s, %2$s): "%1$s" has no path "%2$s" once this save ran. A default path follows a rename of its first field only; following a rename inside it is not built yet. Save the rename first, or set the default with the new names.',
+                    $change->type,
+                    $change->path,
+                ));
+            }
+        }
     }
 
     /**

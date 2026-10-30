@@ -1543,8 +1543,24 @@ operations, and gives what's left. Normalizing:
   until its new name is free. Two names swapped in a cycle can't be
   ordered: the save is refused, asking to save one rename first.
 
-A default path is followed by its first field only: in `engine:power`,
-`engine` follows a rename, `power` doesn't.
+A default change's path follows a rename of its first field only: in
+`engine:power`, `engine` follows a rename, `power` doesn't (not built
+yet). It matters only when one save renames a field inside an Embed or an
+owned object, and sets a default through it before the rename. Defaults
+already stored aren't affected: they move with the fixups, at every depth.
+Such a default would end on a path the type no longer has, and compiling
+would drop it. So the save refuses it instead, as an `InvalidOperation`
+saying the feature is missing: save the rename first, or set the default
+with the new names. When the editor saves each type on its own, this
+can't happen: the other type's rename is saved first, and a save built on
+the old names comes back stale.
+
+Saving several types at once does hit it. Signing out with unsaved work
+offers "Save all", and so will any "save all tabs". Those can't be one save
+per type sent in a row: the first raises the revision, so every one after
+it comes back stale. They must be one save holding every type's
+operations. So following a rename inside a default path, through Embeds
+and owned objects, is needed before the schema editor joins "Save all".
 
 A save applies only to the definitions its operations were built on. Every
 migration that changes stored schemas, native or editor, raises a schema
