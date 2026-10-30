@@ -42,6 +42,8 @@ export type {PropertySlot} from './properties/PropertySlot.ts';
 export type {PropertyStatus} from './properties/PropertyStatus.ts';
 export {isObjectValue, isReferenceValue, type ObjectValue, type ReferenceValue} from './properties/RecordValues.ts';
 export {TypeCatalog, type CatalogField} from './types/TypeCatalog.ts';
+export type {TypeChange, TypeListener} from './types/TypeChange.ts';
+export {TypeStore} from './types/TypeStore.ts';
 export type {FieldDescription, TypeDescription, TypeList, ValueDescription, ValueKind} from './types/TypeDescription.ts';
 export {tabId, tabTypeId, toolId, type TabId, type TabTypeId, type ToolId} from './workspace/Ids.ts';
 export type {JsonValue} from './workspace/Json.ts';

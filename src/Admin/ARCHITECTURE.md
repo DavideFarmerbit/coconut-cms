@@ -344,12 +344,14 @@ migrates, and the store reads them again.
 - `catalog` is the current `TypeCatalog`: an immutable snapshot that works
   out ancestors, subtypes and namespaces. A readable type's ancestors are
   readable too, so a chain is always whole. A change swaps the snapshot
-  for a new one; nothing changes inside a snapshot.
+  for a new one; nothing changes inside a snapshot, and a reload finding
+  no change keeps it.
 - `ready` settles once the first catalog is read. `reload()` reads
   `coconut-cms:types.list` again; the schema editor calls it after a
   change.
 - It tells its listeners of each change, naming the types changed and the
-  types affected.
+  types affected. The first read isn't a change: nothing was shown before.
+  A reload overtaken by a later one is dropped.
 
 A view reads `types.catalog` when it shows something, and follows the
 changes. It doesn't keep a catalog: a kept one goes stale after a schema

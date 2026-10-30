@@ -35,8 +35,9 @@ export const bikeType: TypeDescription = {...carType, identifier: 'shop:bike', f
 export const testCatalog = TypeCatalog.of([carType, wheelType, bikeType]);
 
 /**
- * The backend, in memory, behind a real ApiClient: entities.get, query,
- * create, update and delete over entities by id, root paths only. A query
+ * The backend, in memory, behind a real ApiClient: types.list, and
+ * entities.get, query, create, update and delete over entities by id, root
+ * paths only. A query
  * lists a type's entities by id, a page at a time. Counts the calls, and
  * fails the next update when told.
  */
@@ -44,6 +45,8 @@ export class FakeBackend {
     public readonly entities = new Map<string, EntityData>();
     public readonly calls: {operation: string; input: Record<string, unknown>}[] = [];
     public failNextUpdate: {code: string; errors: Record<string, string[]>} | null = null;
+    /** What types.list gives: a test changes it to migrate. */
+    public types: TypeDescription[] = [carType, wheelType, bikeType];
     private nextId = 1;
 
     /** Puts a car named `name` in, and gives its id. */
@@ -80,6 +83,8 @@ export class FakeBackend {
 
     private answer(operation: string, input: Record<string, unknown>): unknown {
         switch (operation) {
+            case 'coconut-cms:types.list':
+                return {types: this.types};
             case 'coconut-cms:entities.get':
                 return this.entities.get(String(input['id'])) ?? FakeBackend.fail('not_found', 'No such entity.');
             case 'coconut-cms:entities.query':
