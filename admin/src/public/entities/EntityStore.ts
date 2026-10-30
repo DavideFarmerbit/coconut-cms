@@ -1,4 +1,5 @@
 import type {ApiClient} from '../api/ApiClient.ts';
+import type {SignOutGuard} from '../auth/SignOutGuard.ts';
 import {EntityLabels} from '../properties/EntityLabels.ts';
 import type {ReferenceValue} from '../properties/RecordValues.ts';
 import {TypeChanges} from '../../types/TypeChanges.ts';
@@ -30,13 +31,15 @@ interface Held {
  *
  * It follows the types: when they change, it forgets what it read of the
  * types affected, and every session of one without edits reads its entity
- * again. settle() asks about the sessions with edits before a change.
+ * again. settle() asks about the sessions with edits before a change. As a
+ * sign-out guard, it asks once about every unsaved session before its
+ * user signs out; close() it once they did.
  *
  *     const hold = context.entities.edit(id);
  *     // ...show hold.session...
  *     const closed = await hold.release();
  */
-export class EntityStore implements SessionSaver, HoldReleaser {
+export class EntityStore implements SessionSaver, HoldReleaser, SignOutGuard {
     /** What was read, by id. */
     private readonly read = new Map<string, Promise<EntityData>>();
     /** The type of each entity read, once known, by id. */
@@ -46,17 +49,20 @@ export class EntityStore implements SessionSaver, HoldReleaser {
     /** The sessions of entities not saved yet: nothing finds them by id. */
     private readonly fresh = new Map<EntitySession, Held>();
     private readonly listeners: EntityListener[] = [];
+    private readonly typesListener = (change: TypeChange): void => this.typesChanged(change);
+    /** Whether its user signed out. */
+    private closed = false;
 
     /**
      * @param types The types the user may read: what sessions, labels and lists work with.
-     * @param unsaved Asked when the last hold on a session with unsaved changes is released, and by settle().
+     * @param unsaved Asked when the last hold on a session with unsaved changes is released, by settle() and settleAll().
      */
     public constructor(
         private readonly api: ApiClient,
         public readonly types: TypeStore,
         private readonly unsaved: UnsavedQuestion,
     ) {
-        types.onChange((change) => this.typesChanged(change));
+        types.onChange(this.typesListener);
     }
 
     /** Whether any session has unsaved changes: leaving the page asks first then. */
@@ -87,6 +93,48 @@ export class EntityStore implements SessionSaver, HoldReleaser {
         }
 
         return true;
+    }
+
+    /**
+     * Settles every session with unsaved changes, asking once about all of
+     * them: Save all, Discard all or Cancel; what signing out asks.
+     * @return Whether every one was settled: false when cancelled, or when a save failed.
+     */
+    public async settleAll(): Promise<boolean> {
+        const unsaved = this.allHeld().map(({session}) => session).filter((session) => session.isDirty);
+        if (unsaved.length === 0) {
+            return true;
+        }
+
+        const answer = await this.unsaved.askAll(unsaved.map((session) => session.label));
+        if (answer === 'cancel') {
+            return false;
+        }
+
+        if (answer === 'discard') {
+            unsaved.forEach((session) => session.revert());
+
+            return true;
+        }
+
+        // Every one is tried, so each failed save shows its errors.
+        const saved = await Promise.all(unsaved.map((session) => session.save()));
+
+        return saved.every((each) => each);
+    }
+
+    public allowsSignOut(): Promise<boolean> {
+        return this.settleAll();
+    }
+
+    /**
+     * Closes it, once its user signed out: its sessions are let go without
+     * asking, the user having answered already, and it no longer follows
+     * the types.
+     */
+    public close(): void {
+        this.closed = true;
+        this.types.offChange(this.typesListener);
     }
 
     /** Tells `listener` of every entity created, updated or deleted. */
@@ -210,7 +258,7 @@ export class EntityStore implements SessionSaver, HoldReleaser {
 
         // Taken out before asking: two holds released at once never both think the other stays.
         held.holds.delete(hold);
-        if (held.holds.size > 0 || !held.session.isDirty) {
+        if (held.holds.size > 0 || !held.session.isDirty || this.closed) {
             this.forget(held);
 
             return true;

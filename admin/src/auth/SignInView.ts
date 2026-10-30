@@ -1,17 +1,13 @@
 import type {View} from '../app/View.ts';
 import {Elements} from '../dom/Elements.ts';
-import type {ApiClient} from '../public/api/ApiClient.ts';
 import {ApiFailure} from '../public/api/ApiFailure.ts';
 import {ErrorCode} from '../public/api/ErrorCode.ts';
-import type {Me} from '../public/auth/Me.ts';
-import type {User} from '../public/auth/User.ts';
-
-/** Told who signed in. */
-export type SignedIn = (user: User) => void;
+import type {Auth} from '../public/auth/Auth.ts';
 
 /**
  * The sign-in form: an email or username, a password, and "remember me".
- * Signs in through coconut-cms:auth.signIn, and tells why it couldn't.
+ * Signs in through `admin.auth`, and tells why it couldn't; the app follows
+ * the user signed in.
  */
 export class SignInView implements View {
     public readonly element: HTMLElement;
@@ -21,11 +17,7 @@ export class SignInView implements View {
     private readonly submit: HTMLButtonElement;
     private readonly message: HTMLElement;
 
-    /** @param onSignedIn Told who signed in, once they have. */
-    public constructor(
-        private readonly api: ApiClient,
-        private readonly onSignedIn: SignedIn,
-    ) {
+    public constructor(private readonly auth: Auth) {
         this.login = Elements.create('input', {classes: ['field__input'], attributes: {name: 'login', autocomplete: 'username', required: ''}});
         this.password = Elements.create('input', {classes: ['field__input'], attributes: {name: 'password', type: 'password', autocomplete: 'current-password', required: ''}});
         this.remember = Elements.create('input', {attributes: {name: 'remember', type: 'checkbox'}});
@@ -52,21 +44,15 @@ export class SignInView implements View {
         this.login.focus();
     }
 
-    /** Signs in with what the form holds, telling the result. */
+    public dispose(): void {
+    }
+
+    /** Signs in with what the form holds; tells why it couldn't. */
     private async signIn(): Promise<void> {
         this.setBusy(true);
         this.message.textContent = '';
         try {
-            const me = await this.api.call<Me>('coconut-cms:auth.signIn', {
-                login: this.login.value,
-                password: this.password.value,
-                remember: this.remember.checked,
-            });
-            if (me.user === null) {
-                throw new Error('The backend signed nobody in.');
-            }
-
-            this.onSignedIn(me.user);
+            await this.auth.signIn(this.login.value, this.password.value, this.remember.checked);
         } catch (failure) {
             this.message.textContent = SignInView.explain(failure);
             this.password.select();

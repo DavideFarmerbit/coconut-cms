@@ -1,4 +1,5 @@
 import {ApiClient} from '../public/api/ApiClient.ts';
+import type {User} from '../public/auth/User.ts';
 import type {EntityData} from '../public/entities/EntityData.ts';
 import {EntityStore} from '../public/entities/EntityStore.ts';
 import type {UnsavedAnswer, UnsavedQuestion} from '../public/entities/UnsavedQuestion.ts';
@@ -32,7 +33,8 @@ export const wheelType: TypeDescription = {...carType, identifier: 'shop:wheel',
 export const bikeType: TypeDescription = {...carType, identifier: 'shop:bike', fields: {name: field(value({}))}, defaults: {name: ''}};
 
 /**
- * The backend, in memory, behind a real ApiClient: types.list, and
+ * The backend, in memory, behind a real ApiClient: auth.me, signIn and
+ * signOut, types.list, and
  * entities.get, query, create, update and delete over entities by id, root
  * paths only. A query
  * lists a type's entities by id, a page at a time. Counts the calls, and
@@ -44,6 +46,8 @@ export class FakeBackend {
     public failNextUpdate: {code: string; errors: Record<string, string[]>} | null = null;
     /** What types.list gives: a test changes it to migrate. */
     public types: TypeDescription[] = [carType, wheelType, bikeType];
+    /** Who's signed in. The one user signs in as "ada" with the password "lovelace". */
+    public signedIn: User | null = null;
     private nextId = 1;
 
     /** Puts a car named `name` in, and gives its id. */
@@ -80,6 +84,19 @@ export class FakeBackend {
 
     private answer(operation: string, input: Record<string, unknown>): unknown {
         switch (operation) {
+            case 'coconut-cms:auth.me':
+                return {user: this.signedIn};
+            case 'coconut-cms:auth.signIn':
+                if (input['login'] !== 'ada' || input['password'] !== 'lovelace') {
+                    return FakeBackend.fail('sign_in_failed', 'Those credentials sign nobody in.');
+                }
+                this.signedIn = {id: 'u1', name: 'ada', roles: ['admin']};
+
+                return {user: this.signedIn};
+            case 'coconut-cms:auth.signOut':
+                this.signedIn = null;
+
+                return {user: null};
             case 'coconut-cms:types.list':
                 return {types: this.types};
             case 'coconut-cms:entities.get':
@@ -134,8 +151,17 @@ export class FixedAnswer implements UnsavedQuestion {
     public constructor(public answer: UnsavedAnswer) {
     }
 
+    /** The labels each askAll() was asked with. */
+    public readonly askedAll: (readonly string[])[] = [];
+
     public ask(): Promise<UnsavedAnswer> {
         this.asked++;
+
+        return Promise.resolve(this.answer);
+    }
+
+    public askAll(labels: readonly string[]): Promise<UnsavedAnswer> {
+        this.askedAll.push(labels);
 
         return Promise.resolve(this.answer);
     }

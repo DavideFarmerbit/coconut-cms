@@ -72,6 +72,13 @@ export class ViewHost {
         this.views.delete(key);
     }
 
+    /** Disposes of every view built: when the shell goes. */
+    public disposeAll(): void {
+        for (const key of this.keys()) {
+            this.dispose(key);
+        }
+    }
+
     /** Whether the view under `key` lets its tab close: it may ask about unsaved changes. True for one not built. */
     public async canClose(key: string): Promise<boolean> {
         const view = this.views.get(key)?.view;

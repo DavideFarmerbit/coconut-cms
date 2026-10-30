@@ -1,28 +1,31 @@
 import {SignInView} from '../auth/SignInView.ts';
 import {Elements} from '../dom/Elements.ts';
 import type {AdminRuntime} from '../public/AdminRuntime.ts';
-import type {Me} from '../public/auth/Me.ts';
 import type {User} from '../public/auth/User.ts';
 import {Shell} from '../shell/Shell.ts';
 import type {View} from './View.ts';
 
 /**
- * The admin app: asks who's signed in, then shows the sign-in form or the
- * shell, switching as people sign in and out.
+ * The admin app: the sign-in form for nobody, the shell for a user. It
+ * follows `admin.auth`: a sign-in shows the shell, a sign-out the form, the
+ * screen replaced disposed of.
  */
 export class AdminApp {
-    /** @param root Where the app shows its views: the page's body. */
+    /** The screen shown now. */
+    private current: View | undefined;
+
     public constructor(
         private readonly runtime: AdminRuntime,
         private readonly root: HTMLElement,
     ) {
     }
 
-    /** Asks who's signed in, and shows what fits. */
+    /** Asks who's signed in, shows what fits, then follows every change. */
     public async start(): Promise<void> {
+        const auth = this.runtime.auth;
         try {
-            const me = await this.runtime.api.call<Me>('coconut-cms:auth.me');
-            this.showFor(me.user);
+            this.showFor(await auth.check());
+            auth.onChange((user) => this.showFor(user));
         } catch (failure) {
             this.show({
                 element: Elements.create('main', {classes: ['sign-in']}, [
@@ -32,26 +35,23 @@ export class AdminApp {
                     ]),
                 ]),
                 shown: () => undefined,
+                dispose: () => undefined,
             });
         }
     }
 
-    /** Shows the view for `user`: the sign-in form for nobody. */
+    /** Shows the screen for `user`: the sign-in form for nobody. */
     private showFor(user: User | null): void {
-        this.runtime.setUser(user);
+        const auth = this.runtime.auth;
         this.show(user === null
-            ? new SignInView(this.runtime.api, (signedIn) => this.showFor(signedIn))
-            : new Shell(this.runtime, user, () => void this.signOut()));
+            ? new SignInView(auth)
+            : new Shell(this.runtime, user, () => void auth.signOut()));
     }
 
-    /** Signs out, then shows the sign-in form. */
-    private async signOut(): Promise<void> {
-        await this.runtime.api.call('coconut-cms:auth.signOut');
-        this.showFor(null);
-    }
-
-    /** Replaces what the root shows with `view`. */
+    /** Replaces what the root shows with `view`, disposing of the screen it replaces. */
     private show(view: View): void {
+        this.current?.dispose();
+        this.current = view;
         this.root.replaceChildren(view.element);
         view.shown();
     }

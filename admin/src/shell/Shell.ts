@@ -29,9 +29,13 @@ export class Shell implements View, LayoutListener, Workspace {
     private readonly store: LayoutStore;
     private readonly stripes: readonly [Stripe, Stripe];
     private readonly workspace: WorkspaceArea;
+    private readonly host: ViewHost;
 
     /** Which views have unsaved changes. */
     private readonly dirty = new DirtyViews();
+
+    /** Asks the browser to confirm leaving the page while there's unsaved work. */
+    private readonly beforeUnload: (event: BeforeUnloadEvent) => void;
 
     /** @param onSignOut Told when the user asks to sign out. */
     public constructor(runtime: AdminRuntime, user: User, onSignOut: SignOutRequested) {
@@ -40,19 +44,19 @@ export class Shell implements View, LayoutListener, Workspace {
         this.store = new LayoutStore((storage.load() ?? Layout.initial()).reconciled(placed, runtime.tabTypes.ids()), storage);
 
         const parking = Elements.create('div', {classes: ['view-parking'], attributes: {'aria-hidden': 'true'}});
-        const host = new ViewHost(parking);
+        this.host = new ViewHost(parking);
         const contexts = new ViewContexts(runtime, this.store, this, this.dirty);
         this.stripes = [new Stripe('left', runtime.tools, this.store), new Stripe('right', runtime.tools, this.store)];
-        this.workspace = new WorkspaceArea(runtime.tools, runtime.tabTypes, this.store, host, contexts, this.dirty);
+        this.workspace = new WorkspaceArea(runtime.tools, runtime.tabTypes, this.store, this.host, contexts, this.dirty);
         this.dirty.onChange(() => this.render(this.store.current));
-        // Unsaved work isn't left by accident: the browser asks first. The
-        // shell keeps its user's entity store: after signing out, the runtime has none.
+        // Unsaved work isn't left by accident: the browser asks first.
         const entities = runtime.entities;
-        window.addEventListener('beforeunload', (event) => {
+        this.beforeUnload = (event) => {
             if (this.dirty.any || entities.hasUnsaved) {
                 event.preventDefault();
             }
-        });
+        };
+        window.addEventListener('beforeunload', this.beforeUnload);
 
         this.element = Elements.create('div', {classes: ['shell']}, [
             new MenuBar(user, onSignOut).element,
@@ -65,6 +69,12 @@ export class Shell implements View, LayoutListener, Workspace {
     }
 
     public shown(): void {
+    }
+
+    /** Disposes of every view, which lets their sessions go, and stops asking before the page is left: once its user signed out. */
+    public dispose(): void {
+        window.removeEventListener('beforeunload', this.beforeUnload);
+        this.host.disposeAll();
     }
 
     public layoutChanged(_previous: Layout, next: Layout): void {

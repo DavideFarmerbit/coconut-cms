@@ -47,10 +47,36 @@ loads goes through the API.
 
 ## Signing in
 
-The app asks `coconut-cms:auth.me` first. Nobody signed in gets the sign-in
-form, an email or username, a password and "remember me", which calls
-`coconut-cms:auth.signIn` and tells why it failed. A signed-in user gets
-the shell; the menubar names them, and signs them out.
+`Auth` holds who's signed in, with no DOM: `admin.auth` in the public
+module. It calls the auth operations, and tells its listeners when the
+user changes. Before signing out it asks its sign-out guards, registered
+with `auth.guard()`, whether it may: whatever holds work signing out
+would lose registers one. The entity store does; a plugin may too.
+
+- `check()` asks `coconut-cms:auth.me`, when the page loads.
+- `signIn(login, password, remember)` calls `coconut-cms:auth.signIn`. It
+  fails with the server's error, which the form shows.
+- `signOut()` calls `coconut-cms:auth.signOut`. Unsaved work is settled
+  first: the entity store's guard asks one question for all of it, the
+  entities with unsaved changes by label, and Save all, Discard all or
+  Cancel. Cancel keeps the user signed in. A save that fails keeps them
+  signed in too, its errors at its properties.
+
+What follows the user:
+
+- The runtime starts the type store and the entity store over for each
+  user, and has none while nobody is signed in. The last user's entity
+  store closes: its sessions are let go without asking, the question
+  answered already.
+- The app shows the sign-in form to nobody, an email or username, a
+  password and "remember me"; and the shell to a user, whose menubar names
+  them and signs them out. On signing out, the app disposes of the shell:
+  every open view is disposed of, which releases its holds, and its
+  leave-page check goes.
+
+A server session ending on its own, by expiring or from another browser
+tab, isn't noticed yet (not built yet). The admin will see calls failing
+as not signed in, and offer to sign in again without losing open work.
 
 ## Assets
 

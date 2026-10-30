@@ -5,4 +5,7 @@ export interface View {
 
     /** Called once it's in the document: to focus a field, say. */
     shown(): void;
+
+    /** Called once another screen replaces it: to let go of what it holds. */
+    dispose(): void;
 }

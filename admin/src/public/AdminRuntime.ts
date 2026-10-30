@@ -1,5 +1,6 @@
 import {DialogUnsavedQuestion} from '../entities/DialogUnsavedQuestion.ts';
 import type {ApiClient} from './api/ApiClient.ts';
+import {Auth} from './auth/Auth.ts';
 import type {User} from './auth/User.ts';
 import {EntityStore} from './entities/EntityStore.ts';
 import {PropertyEditors} from './properties/PropertyEditors.ts';
@@ -11,8 +12,8 @@ import type {ToolDefinition} from './workspace/ToolDefinition.ts';
 
 /**
  * The running admin, as plugins reach it: its tools and tab types, the API
- * client it calls the backend with, the types and the entities, and who's
- * signed in. One instance, `admin`, exported by the
+ * client it calls the backend with, who's signed in, and their types and
+ * entities. One instance, `admin`, exported by the
  * public module: a plugin importing "@coconut-cms/admin" gets the app's own,
  * through the import map.
  */
@@ -29,8 +30,8 @@ export class AdminRuntime {
     /** Set once the app has started; undefined before. */
     private client: ApiClient | undefined;
 
-    /** Who's signed in; null before signing in. */
-    private signedIn: User | null = null;
+    /** Who's signed in; set once the app has started. */
+    private authentication: Auth | undefined;
 
     /** The types, for whoever is signed in; undefined while nobody is. */
     private typeStore: TypeStore | undefined;
@@ -65,9 +66,18 @@ export class AdminRuntime {
         return this.typeStore;
     }
 
+    /** Who's signed in, signing in and out. Throws before the app started. */
+    public get auth(): Auth {
+        if (this.authentication === undefined) {
+            throw new Error('The admin hasn\'t started: there is no auth yet.');
+        }
+
+        return this.authentication;
+    }
+
     /** Who's signed in; null for nobody. */
     public get user(): User | null {
-        return this.signedIn;
+        return this.authentication?.user ?? null;
     }
 
     /** Called once by the app at start, with its client. */
@@ -77,16 +87,27 @@ export class AdminRuntime {
         }
 
         this.client = client;
+        this.authentication = new Auth(client);
+        // Followed first: the stores start over before any view hears of the user.
+        this.authentication.onChange((user) => this.userChanged(user));
     }
 
     /**
-     * Called by the app when someone signs in or out: what they may read
-     * differs, so the types and the entities start over for them; nobody has
-     * none.
+     * Starts the types and the entities over for `user`: what they may read
+     * differs. The last user's entity store closes, so the views going let
+     * its sessions go without asking; nobody has no stores.
      */
-    public setUser(user: User | null): void {
-        this.signedIn = user;
+    private userChanged(user: User | null): void {
+        const auth = this.auth;
+        if (this.store !== undefined) {
+            auth.unguard(this.store);
+            this.store.close();
+        }
+
         this.typeStore = user === null ? undefined : new TypeStore(this.api);
         this.store = this.typeStore === undefined ? undefined : new EntityStore(this.api, this.typeStore, new DialogUnsavedQuestion());
+        if (this.store !== undefined) {
+            auth.guard(this.store);
+        }
     }
 }
