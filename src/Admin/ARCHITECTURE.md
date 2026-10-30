@@ -9,7 +9,8 @@ panels, splitters and one tab group, tool and tab type registration, and
 the Types tool, loading modules' admin code, and editing native entities'
 properties. Not built yet: dragging icons and tabs, menus from manifests,
 uploaded and browser plugins, the layout kept per user on the server,
-edits saved elsewhere while an entity is edited. Each is noted inline.
+edits saved elsewhere while an entity is edited, the type store following
+type changes. Each is noted inline.
 
 The admin is a client-side app. It talks to the backend only through the API
 (`../Api/ARCHITECTURE.md`): every list, form and save is an operation, so the
@@ -263,7 +264,8 @@ not its code): an IntelliJ-style window manager.
   SVG icon and default placement, with the `PanelView` class its panel
   shows; a tab type is an id with its view class. The shell builds a view
   with `new View(context)`, the context giving the API client, the view's
-  own saved state, the workspace (to open tabs) and a tab's parameters. A
+  own saved state, the workspace (to open tabs), a tab's parameters, the
+  property editors, the type store and the entity store. A
   tool or tab type that can't be built shows a message in its place.
 - Views stay alive when hidden, moved or switched: their element and state
   survive, parked off the layout while hidden; a move uses `moveBefore()`
@@ -329,6 +331,50 @@ Not built yet: dragging icons between sections and reordering tabs, menus
 and commands from manifests, splitting the canvas into several tab groups,
 going back and forward within a tab.
 
+## Types
+
+Not built yet: the store below. Today `admin.typeCatalog()` loads the
+types once per page.
+
+`TypeStore` holds the entity types the user may read. There is one per
+admin, given to every view as `context.types`, and in the public module as
+`admin.types`. Types change while the admin is open: the schema editor
+migrates, and the store reads them again.
+
+- `catalog` is the current `TypeCatalog`: an immutable snapshot that works
+  out ancestors, subtypes and namespaces. A readable type's ancestors are
+  readable too, so a chain is always whole. A change swaps the snapshot
+  for a new one; nothing changes inside a snapshot.
+- `ready` settles once the first catalog is read. `reload()` reads
+  `coconut-cms:types.list` again; the schema editor calls it after a
+  change.
+- It tells its listeners of each change, naming the types changed and the
+  types affected.
+
+A view reads `types.catalog` when it shows something, and follows the
+changes. It doesn't keep a catalog: a kept one goes stale after a schema
+change.
+
+How a change is found: `reload()` compares each type's description with
+the last one read. A type is changed when its description differs, or
+when it's new or gone. The types affected are the types changed, their
+subtypes, and every type holding an affected type, embedded, owned or as
+a Collection's items, again until no type joins.
+
+What follows a change:
+
+- The entity store forgets what it read of affected types. Every
+  `EntityList` of an affected type reads its page again.
+- A session of an affected type without unsaved changes reads its entity
+  again, with the new types; its views show everything again.
+- A session of an affected type with unsaved changes is settled before
+  the change: `entities.settle(types)` asks Save, Discard or Cancel for
+  each, and answers whether every one was settled. The schema editor asks
+  it first, and stops when it answers no. A session still holding unsaved
+  changes when the types change keeps them as they are, until rebasing
+  exists (not built yet).
+- The Types tool and the type inspector show the new catalog.
+
 ## Properties
 
 How the admin shows and edits entities, after Unreal's editor: an object
@@ -381,8 +427,27 @@ not saved yet, with no id, starting from the type's defaults. Its first
 save creates the entity. The session then takes its id and is shared like
 any other. A "New" button comes with dynamic entities (not built yet).
 
-Edits saved by someone else meanwhile aren't seen yet (not built yet). The
-store will hear of a newer version, and the session will show it is stale.
+When the admin itself changes types, through the schema editor, open
+sessions are settled first (not built yet). Before the change applies,
+the admin finds the sessions with unsaved changes whose type the change
+affects: the type, its subtypes, and the types embedding or owning it. It
+asks Save, Discard or Cancel for them, the question asked when the last
+hold is released. Cancel stops the change. After the migration, every
+affected session is clean: it reads its entity again, with the new types,
+and its views show it.
+
+Edits saved by someone else meanwhile, and migrations run by someone else,
+aren't seen yet (not built yet). The users will be told, and each session
+of an entity changed elsewhere will show it is stale, with a choice to
+read it again. Reading it again can keep the session's edits by rebasing
+them: the entity as the server has it now, with only the changed paths
+replayed. Fields not edited take the server's values, new defaults and
+values a migration derived included. The server maps each changed path
+through the migration's steps, as data follows paths. A path whose field
+was dropped or converted, or whose value the migration derived, is a
+conflict, shown as an error at its path for the user to settle. Once
+rebasing exists, the question before the admin's own type change gains a
+fourth answer, "Keep my changes", which rebases.
 
 ### The session
 
@@ -613,10 +678,8 @@ with their first uses.
   - per field: its type icon, its name, its type's name (`int`, or the
     entity type it holds as a link), and an eye and a pencil for reading
     and writing it.
-- **The type catalog** (`admin.typeCatalog()` in the public module) loads
-  `coconut-cms:types.list` once per page and works out ancestors, subtypes
-  and namespaces. A readable type's ancestors are readable too, so the
-  chain is always whole.
+- **The types** come from the type store, "Types" above. The panel and
+  the inspector show its catalog, and show it again when it changes.
 
 A type has no icon of its own: how a field holds it (embedded, owned,
 referenced) is the field's, not the type's. A field's icon is stacked from
