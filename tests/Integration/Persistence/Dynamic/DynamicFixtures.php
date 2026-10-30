@@ -10,6 +10,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Setter;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\EditRefused;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\BlueprintDefaults;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
@@ -40,11 +42,25 @@ class DyCraft
     public ?DyCraft $tow = null;
 }
 
+/** A motor: its horsepower is set through a setter refusing a negative one. */
 #[Entity(identifier: 'dy:motor', editorExtensible: true)]
 class DyMotor
 {
     #[Scalar(ScalarType::Int)]
+    #[Setter('setHorsepower')]
     public int $horsepower = 100;
+
+    /** How many times setHorsepower() ran: an edit by path must go through it. */
+    public static int $setterCalls = 0;
+
+    public function setHorsepower(int $horsepower): void {
+        self::$setterCalls++;
+        if ($horsepower < 0) {
+            throw new EditRefused('A motor can\'t have negative horsepower.');
+        }
+
+        $this->horsepower = $horsepower;
+    }
 }
 
 /** A native motor for boats: the last native class of an editor-created outboard. */

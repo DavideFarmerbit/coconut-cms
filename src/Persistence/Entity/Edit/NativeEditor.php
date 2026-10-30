@@ -206,25 +206,15 @@ final class NativeEditor
      * @throws ValidationFailed When the setter throws EditRefused.
      */
     private function assign(object $object, ReflectionProperty $property, mixed $value, string $at): void {
-        $setter = ($property->getAttributes(Setter::class)[0] ?? null)?->newInstance();
-        if ($setter !== null) {
-            try {
-                // From the declaring class's scope: any visibility, with PHP's own dispatch.
-                Closure::bind(static function (object $object, string $method, mixed $value): void {
-                    $object->{$method}($value);
-                }, null, $property->getDeclaringClass()->getName())($object, $setter->method, $value);
-            } catch (EditRefused $refused) {
-                throw new ValidationFailed($this->rootType, [$at => [$refused->getMessage()]]);
-            }
-
-            return;
-        }
-
-        if ($property->isReadOnly()) {
+        if ($property->isReadOnly() && $property->getAttributes(Setter::class) === []) {
             throw new InvalidChange($at, sprintf('"%s" is readonly: only a #[Setter] could change it.', $at));
         }
 
-        $property->setValue($object, $value);
+        try {
+            Setters::assign($object, $property, $value);
+        } catch (EditRefused $refused) {
+            throw new ValidationFailed($this->rootType, [$at => [$refused->getMessage()]]);
+        }
     }
 
     /**

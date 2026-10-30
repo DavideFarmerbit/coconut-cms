@@ -166,9 +166,9 @@ editor-created types the way the migration tests do, with
 3. **`DynamicEntity` reads.** Built (2026-10-30), now in
    `ARCHITECTURE_V3.md` "Dynamic entities": `loadDynamic(id)`,
    `DynamicEntities`, the view and the bag, one per entity and per object.
-4. **`DynamicEntity` writes.** `set(path, value)`, checked when set; a
-   native level's field through its setter, an editor-created level's
-   into the bag.
+4. **`DynamicEntity` writes.** Built (2026-10-30), now in
+   `ARCHITECTURE_V3.md` "Dynamic entities": `set()`, `DynamicValues`,
+   `InvalidValue`, `Setters` shared with `NativeEditor`.
 5. **`DynamicEntity` saves.** Its values are the native view's and the
    bag's, for its real type, compared with that type's defaults: what's
    touched. The writer writes every level. `afterEdit()` runs before, with

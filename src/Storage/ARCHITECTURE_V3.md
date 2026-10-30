@@ -665,7 +665,26 @@ A field the reader may not read throws `PermissionDenied` on `get()`;
 it's reached through its owner. `DynamicEntities` makes them for the
 session.
 
-Setting fields, saving and `newDynamic()` aren't built yet: see
+`set(path, value)` takes a value in the form `get()` gives: an Embed or an
+owned object as an `EntityView`, a `DynamicEntity` or a native object; a
+Reference as its target, in either form. `DynamicValues` checks it where
+it's set, the way PHP checks a typed property: its kind, its scalar or
+enum type, whether it may be null, and that an entity is of the field's
+target type or one extending it, a Reference's target saved already. A
+wrong value throws `InvalidValue`, naming the path. Then:
+
+- a field the view's class declares is set on the view, through its
+  `#[Setter]` if it names one, called the way `NativeEditor` calls it
+  (`Setters`). A setter refusing it is a `ValidationFailed` at the path;
+- any other goes into the bag.
+
+A path into an Embed, an owned object or a Collection's item sets it
+there; an error there names the path `set()` was given. An owned object
+set elsewhere is moved as itself, its id with it. Every path set is
+remembered, by each entity from itself (`changed()`): what `afterEdit()`
+will be told. Nothing is saved by `set()`.
+
+Saving and `newDynamic()` aren't built yet: see
 `PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`.
 
 The `IdentityMap` keeps one object per id, however the entity was reached:

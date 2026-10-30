@@ -41,6 +41,9 @@ final class DynamicEntities
     /** @var array<string, array{ObjectNode, array<string, string>}> Each owned entity read, by id: its values, and the ids of what it owns, by path from it. */
     private array $read = [];
 
+    /** What a value set is checked with, and put in the form a view or a bag holds. */
+    public readonly DynamicValues $values;
+
     public function __construct(
         private readonly EntityReader $reader,
         private readonly NativeEntityLoader $loader,
@@ -51,6 +54,7 @@ final class DynamicEntities
         private readonly FieldValueResolver $resolver,
     ) {
         $this->byView = new WeakMap();
+        $this->values = new DynamicValues($schemas, $identities, $this);
     }
 
     /**

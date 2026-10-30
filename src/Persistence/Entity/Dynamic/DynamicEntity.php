@@ -5,8 +5,12 @@ namespace XyloIsCoding\CoconutCms\Persistence\Entity\Dynamic;
 use InvalidArgumentException;
 use ReflectionClass;
 use ReflectionProperty;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\EditRefused;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\Setters;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityView;
+use XyloIsCoding\CoconutCms\Persistence\Entity\ValidationFailed;
 use XyloIsCoding\CoconutCms\Persistence\Permission\PermissionDenied;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Setter;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
@@ -36,8 +40,11 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
  */
 final class DynamicEntity implements EntityView
 {
-    /** @var array<string, DynamicEntity> What stands for each Embed and owned object the bag holds, by path from this entity. */
-    private array $held = [];
+    /** @var array<string, mixed> Each bag field's value in the form get() gives, by name, once read or set. */
+    private array $values = [];
+
+    /** @var list<string> Every path set on it, from it, in the order set. */
+    private array $changed = [];
 
     /** @var array<string, ReflectionProperty>|null The view's fields, by name, once looked up. */
     private ?array $viewFields = null;
@@ -134,6 +141,112 @@ final class DynamicEntity implements EntityView
         return $value->get((string) $next);
     }
 
+    /**
+     * Sets the value at $path, in the form get() gives: an Embed or an owned
+     * object as an EntityView, a DynamicEntity or a native object; a
+     * Reference as its target, in either form. A path into an Embed, an owned
+     * object or a Collection's item sets it there. The value is checked here,
+     * the way PHP checks a typed property. A field its native view's class
+     * declares is set on the view, through its #[Setter] if it names one; any
+     * other goes into the bag. Nothing is saved: saving is the session's.
+     * @throws InvalidValue For a value its field can't hold, or a path leading to no field.
+     * @throws ValidationFailed When a setter refuses the value.
+     */
+    public function set(string $path, mixed $value): void {
+        $rest = FieldPath::fromString($path);
+        $name = $rest->head();
+        $fields = $this->entities->schemas->hierarchyFieldsOf($this->type);
+        if (is_int($name) || !$fields->has($name)) {
+            throw new InvalidValue($path, sprintf('a %s has no such field.', $this->type));
+        }
+
+        $field = $fields->get($name);
+        $next = $rest->tail();
+        if ($next === null) {
+            $this->setField($field, $name, $value, $path);
+
+            return;
+        }
+
+        $join = $rest->headJoin();
+        if ($field->kind() === FieldKind::Collection && $join === FieldPath::TRAVERSE && is_int($next->head())) {
+            $items = $this->get((string) $name);
+            $index = $next->head();
+            if (!array_key_exists($index, $items)) {
+                throw new InvalidValue($path, sprintf('"%s" has no item %d.', $name, $index));
+            }
+
+            $after = $next->tail();
+            if ($after === null) {
+                $items[$index] = $value;
+                $this->setField($field, $name, $items, $path);
+
+                return;
+            }
+
+            $holder = $items[$index];
+            $prefix = $name . FieldPath::TRAVERSE . $index;
+            $join = FieldPath::TRAVERSE;
+        } elseif (($field->kind() === FieldKind::Embed && $join === FieldPath::EMBED) || ($field->kind() === FieldKind::OwningReference && $join === FieldPath::TRAVERSE)) {
+            $holder = $this->get((string) $name);
+            $after = $next;
+            $prefix = (string) $name;
+        } else {
+            throw new InvalidValue($path, sprintf('nothing of "%s" can be reached that way.', $name));
+        }
+
+        if (!$holder instanceof self) {
+            throw new InvalidValue($path, 'it\'s empty: set what holds it first.');
+        }
+
+        // What the holder refuses is told by the path set() was given here.
+        try {
+            $holder->set((string) $after, $value);
+        } catch (InvalidValue $invalid) {
+            throw $invalid->under($prefix, $join);
+        } catch (ValidationFailed $refused) {
+            $errors = [];
+            foreach ($refused->errors as $at => $messages) {
+                $errors[$at === '' ? $prefix : $prefix . $join . $at] = $messages;
+            }
+
+            throw new ValidationFailed($this->type, $errors);
+        }
+
+        $this->changed[] = $path;
+    }
+
+    /**
+     * Every path set on it, from it, in the order set: what afterEdit() is told.
+     * @return list<string>
+     */
+    public function changed(): array {
+        return $this->changed;
+    }
+
+    /** Sets $field, named $name, to $value, checked: on the view, or in the bag. */
+    private function setField(FieldDescriptor $field, FieldName $name, mixed $value, string $path): void {
+        $values = $this->entities->values;
+        $values->check($field, $value, $path);
+
+        $property = $this->viewFields()[(string) $name] ?? null;
+        if ($property !== null) {
+            if ($property->isReadOnly() && $property->getAttributes(Setter::class) === []) {
+                throw new InvalidValue($path, 'it\'s readonly: only a #[Setter] could change it.');
+            }
+
+            try {
+                Setters::assign($this->view, $property, $values->forView($field, $value, $path));
+            } catch (EditRefused $refused) {
+                throw new ValidationFailed($this->type, [$path => [$refused->getMessage()]]);
+            }
+        } else {
+            $this->values[(string) $name] = $values->forBag($field, $value);
+        }
+
+        $this->changed[] = $path;
+    }
+
     /** The value of $field, named $name, as a property holds it. */
     private function valueOf(FieldDescriptor $field, FieldName $name): mixed {
         $property = $this->viewFields()[(string) $name] ?? null;
@@ -149,7 +262,11 @@ final class DynamicEntity implements EntityView
             throw PermissionDenied::ofFields($this->type, [(string) $name]);
         }
 
-        return $this->fromBag($field, $this->bag->find($name), (string) $name);
+        if (!array_key_exists((string) $name, $this->values)) {
+            $this->values[(string) $name] = $this->fromBag($field, $this->bag->find($name), (string) $name);
+        }
+
+        return $this->values[(string) $name];
     }
 
     /** $value, as the view's property holds it, in the form get() gives. */
@@ -168,13 +285,13 @@ final class DynamicEntity implements EntityView
             FieldKind::Scalar => ScalarValues::fromStorage($field->scalarType(), $field->enumClass(), LeafNode::valueOf($node)),
             FieldKind::ValueObject => LeafNode::valueOf($node) === null ? null : $field->target()::fromStorage(LeafNode::valueOf($node)),
             FieldKind::Reference => LeafNode::valueOf($node),
-            FieldKind::Embed => $this->held[$at] ??= $this->entities->inBag($field->target(), ObjectNode::from($node) ?? ObjectNode::empty(), null, DynamicEntities::under($this->ownedIds, $at)),
-            FieldKind::OwningReference => OwnedNode::from($node) === null ? null : ($this->held[$at] ??= $this->entities->inBag(
+            FieldKind::Embed => $this->entities->inBag($field->target(), ObjectNode::from($node) ?? ObjectNode::empty(), null, DynamicEntities::under($this->ownedIds, $at)),
+            FieldKind::OwningReference => OwnedNode::from($node) === null ? null : $this->entities->inBag(
                 OwnedNode::from($node)->identifier,
                 OwnedNode::from($node)->fields,
                 $this->ownedIds[$at] ?? null,
                 DynamicEntities::under($this->ownedIds, $at),
-            )),
+            ),
             FieldKind::Collection => array_map(
                 fn (int $index): mixed => $this->fromBag($field->itemDescriptor(), CollectionNode::from($node)?->items[$index] ?? null, $at . FieldPath::TRAVERSE . $index),
                 array_keys(CollectionNode::from($node)?->items ?? []),
