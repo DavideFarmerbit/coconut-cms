@@ -14,6 +14,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRows;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsReader;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\StoredEntity;
 use XyloIsCoding\CoconutCms\Persistence\Permission\PermissionDenied;
 use XyloIsCoding\CoconutCms\Persistence\Permission\Permissions;
 use XyloIsCoding\CoconutCms\Persistence\Permission\TypeAction;
@@ -126,6 +127,33 @@ final class EntityWriter
         // Before anything is locked: a rule broken holds nothing up.
         $this->validator?->assertValid($values);
 
+        return $this->writeValues(static fn (): EntityValues => $values, $id, $ownedIdOf, false);
+    }
+
+    /**
+     * Stores, as entity $id, the values $valuesOf gives once the aggregate
+     * is locked, from what's stored then: what saving a native view writes,
+     * the fields its class can't see kept as stored, with nothing changing
+     * them between the read and the write. Throws ValidationFailed, writing
+     * nothing, when a rule its types declare is broken, or a unique group.
+     * @param Closure(?StoredEntity): EntityValues $valuesOf Given what's
+     *        stored as $id, owned objects included; null for a new entity.
+     * @param Closure(FieldPath): string $ownedIdOf As write() takes it; asked
+     *        only once $valuesOf has given the values.
+     * @return list<string> The id of every owned entity it deleted.
+     */
+    public function writeWith(string $id, Closure $valuesOf, Closure $ownedIdOf): array {
+        return $this->writeValues($valuesOf, $id, $ownedIdOf, true);
+    }
+
+    /**
+     * write() and writeWith(): writes what $valuesOf gives once the
+     * aggregate is locked, validated there when $validateLocked.
+     * @param Closure(?StoredEntity): EntityValues $valuesOf
+     * @param Closure(FieldPath): string $ownedIdOf
+     * @return list<string>
+     */
+    private function writeValues(Closure $valuesOf, string $id, Closure $ownedIdOf, bool $validateLocked): array {
         // Each written entity's path in the aggregate, and every entity of
         // it: what names a unique group the database refuses.
         $paths = [$id => ''];
@@ -137,12 +165,13 @@ final class EntityWriter
         };
         $wanted = [];
         $stored = [];
+        $values = null;
 
         try {
-            return $this->writeWhole($values, $id, $recordingIdOf, $wanted, $stored);
+            return $this->writeWhole($valuesOf, $id, $recordingIdOf, $validateLocked, $values, $wanted, $stored);
         } catch (UniqueConstraintViolationException $refused) {
             $errors = $this->validator === null ? [] : $this->uniqueConflicts->of(array_values($wanted), $paths, array_keys([...$stored, ...$wanted]));
-            if ($errors === []) {
+            if ($errors === [] || $values === null) {
                 throw $refused;
             }
 
@@ -151,16 +180,25 @@ final class EntityWriter
     }
 
     /**
-     * write()'s transaction.
+     * writeValues()' transaction.
+     * @param Closure(?StoredEntity): EntityValues $valuesOf
      * @param Closure(FieldPath): string $ownedIdOf
+     * @param EntityValues|null $values Filled in: what's written.
      * @param array<string, EntityRows> $wanted Filled in: every entity written, by id.
      * @param array<string, array{concrete_identifier: string, depth: int}> $stored Filled in: every entity stored before, by id.
      * @return list<string>
      */
-    private function writeWhole(EntityValues $values, string $id, Closure $ownedIdOf, array &$wanted, array &$stored): array {
-        return $this->transactional(function () use ($values, $id, $ownedIdOf, &$wanted, &$stored): array {
+    private function writeWhole(Closure $valuesOf, string $id, Closure $ownedIdOf, bool $validateLocked, ?EntityValues &$values, array &$wanted, array &$stored): array {
+        return $this->transactional(function () use ($valuesOf, $id, $ownedIdOf, $validateLocked, &$values, &$wanted, &$stored): array {
             $stored = $this->lockedAggregateOf($id);
-            $this->assertPermitted($values, $id, $stored !== []);
+            // Read only when something needs it: the values, or the permission check.
+            $storedEntity = $stored === [] || (!$validateLocked && $this->permissions === null) ? null : (new EntityRowsReader($this->connection, $this->schemas))->read($id);
+            $values = $valuesOf($storedEntity);
+            if ($validateLocked) {
+                $this->validator?->assertValid($values);
+            }
+
+            $this->assertPermitted($values, $storedEntity);
             $wanted = [];
             foreach ($this->rows->rowsOf($values, $id, Placement::standalone(), $ownedIdOf) as $entity) {
                 $wanted[$entity->id] = $entity;
@@ -198,20 +236,21 @@ final class EntityWriter
      * Throws PermissionDenied when the writer may not create a new entity of
      * the type, may not update a stored one that $values change, or when
      * $values change a field it may not write: from what's stored, or from the
-     * type's defaults for a new entity. Read after the aggregate is locked, so
-     * nothing changes it meanwhile.
+     * type's defaults for a new entity. $stored is read after the aggregate is
+     * locked, so nothing changes it meanwhile; null for a new entity.
      */
-    private function assertPermitted(EntityValues $values, string $id, bool $isStored): void {
+    private function assertPermitted(EntityValues $values, ?StoredEntity $stored): void {
         if ($this->permissions === null) {
             return;
         }
 
+        $isStored = $stored !== null;
         if (!$isStored && !$this->permissions->may($values->identifier, TypeAction::Create)) {
             throw PermissionDenied::ofType($values->identifier, TypeAction::Create);
         }
 
         $old = $isStored
-            ? (new EntityRowsReader($this->connection, $this->schemas))->read($id)->values
+            ? $stored->values
             : (new ValueFlattener($this->schemas))->flatten($values->identifier, $this->defaults->resolveTree(Subject::of($values->identifier)));
 
         // A save changing nothing is no update: it needs no right.

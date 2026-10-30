@@ -6,6 +6,7 @@ use XyloIsCoding\CoconutCms\Admin\AdminCode;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 use XyloIsCoding\CoconutCms\Persistence\Module;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
@@ -13,6 +14,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\BlueprintDefaults;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
@@ -20,7 +22,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 
-/** A craft: owns a motor, may tow another craft. Editor-created types extend it. */
+/** A craft: owns a motor and spare ones, may tow another craft. Editor-created types extend it. */
 #[Entity(identifier: 'dy:craft', editorExtensible: true)]
 class DyCraft
 {
@@ -29,6 +31,10 @@ class DyCraft
 
     #[OwningReference]
     public ?DyMotor $motor = null;
+
+    /** @var list<DyMotor|null> */
+    #[Collection(itemKind: FieldKind::OwningReference, itemTarget: DyMotor::class, itemNullability: Nullability::Nullable)]
+    public array $spares = [];
 
     #[Reference]
     public ?DyCraft $tow = null;
@@ -56,13 +62,16 @@ final class DynamicFixtures
 
     /**
      * Every editor-created type, by identifier: a yacht extending the craft,
-     * an outboard extending the boat motor, and a buoy with no native
-     * ancestor at all.
+     * owning a dinghy's motor on its own level; an outboard extending the boat
+     * motor; and a buoy with no native ancestor at all.
      * @return array<string, EntityBlueprint>
      */
     public static function editorTypes(): array {
         return [
-            'dy:yacht' => self::blueprint('dy:yacht', 'dy:craft', 'dy_yacht', ['cabins' => FieldDescriptor::scalar('cabins', ScalarType::Int, Nullability::NotNullable)], ['name' => 'Yacht', 'cabins' => 3]),
+            'dy:yacht' => self::blueprint('dy:yacht', 'dy:craft', 'dy_yacht', [
+                'cabins' => FieldDescriptor::scalar('cabins', ScalarType::Int, Nullability::NotNullable),
+                'dinghy' => FieldDescriptor::owningReference('dinghy', 'dy:motor', Nullability::Nullable),
+            ], ['name' => 'Yacht', 'cabins' => 3, 'dinghy' => null]),
             // It sets the native horsepower's default too: the view must show it.
             'dy:outboard' => self::blueprint('dy:outboard', 'dy:boat_motor', 'dy_outboard', ['fuel' => FieldDescriptor::scalar('fuel', ScalarType::String, Nullability::NotNullable)], ['fuel' => 'petrol', 'horsepower' => 300]),
             'dy:buoy' => self::blueprint('dy:buoy', null, 'dy_buoy', ['color' => FieldDescriptor::scalar('color', ScalarType::String, Nullability::NotNullable)], ['color' => 'red']),

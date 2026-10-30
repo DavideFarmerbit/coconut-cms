@@ -159,12 +159,10 @@ editor-created types the way the migration tests do, with
    "Loading an entity": `NativeViewClasses` gives an identifier's last
    native class, the loader, the builder and References build it, the
    `IdentityMap` keeps each entity's real type, and `load()` of an entity
-   with no native ancestor throws, naming `loadDynamic()`. Saving a view
-   throws until step 2 is built.
-2. **A native view saves what it sees.** Saving a native view of an
-   editor-created entity, or an aggregate holding one, keeps the
-   editor-created levels exactly as stored: their values, and the owned
-   objects under their fields. See "A view keeps what it can't see".
+   with no native ancestor throws, naming `loadDynamic()`.
+2. **A native view saves what it sees.** Built (2026-10-30), now in
+   `ARCHITECTURE_V3.md` "Saving an entity": `EntityWriter::writeWith()`
+   and `UnseenValues`. See "A view keeps what it can't see".
 3. **`DynamicEntity` reads.** `loadDynamic(id)` gives one per id, its
    native view the object `load(id)` gives, its bag the editor-created
    levels' values. It implements `EntityView`. An Embed or an owned

@@ -7,6 +7,8 @@ use LogicException;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityLoader;
 use XyloIsCoding\CoconutCms\Persistence\Permission\SystemActor;
 use XyloIsCoding\CoconutCms\Persistence\Persistence;
@@ -14,6 +16,7 @@ use XyloIsCoding\CoconutCms\Persistence\PersistenceSession;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeViewClasses;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\EntitySchemaCodec;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
@@ -25,7 +28,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Migration\MigratorEditorTypes;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 
-/** An editor-created entity loads in native code as its last native class: its native view. */
+/**
+ * An editor-created entity loads in native code as its last native class:
+ * its native view. Saving it keeps what its class can't see.
+ */
 final class NativeViewTest extends TestCase
 {
     private Connection $connection;
@@ -143,23 +149,104 @@ final class NativeViewTest extends TestCase
         $this->session()->load($id);
     }
 
-    public function testSavingAViewOfAnEditorCreatedEntityIsRefusedUntilItKeepsWhatItCannotSee(): void {
-        $session = $this->session();
-        $yacht = $session->load($this->store('dy:yacht', []));
-        $yacht->name = 'Renamed';
-
-        $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('native view of a dy:yacht');
-        $session->save($yacht);
+    /** The value of $column in $table's row for entity $id, as stored. */
+    private function stored(string $table, string $column, string $id): mixed {
+        return $this->connection->fetchOne(sprintf('SELECT %s FROM %s WHERE %s = ?', $column, $table, ColumnNames::ID), [$id]);
     }
 
-    public function testSavingANativeEntityHoldingAViewIsRefusedToo(): void {
-        $session = $this->session();
-        $craft = $session->load($this->craftWithOutboard());
-        $craft->name = 'Renamed';
+    /** The concrete identifier stored for entity $id. */
+    private function typeOf(string $id): string {
+        return $this->connection->fetchOne(sprintf('SELECT concrete_identifier FROM %s WHERE id = ?', DatabaseSchema::ENTITIES), [$id]);
+    }
 
-        $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('native view of a dy:outboard');
+    /** @return list<string> The ids owned by $ownerId at $field, in their order. */
+    private function ownedIds(string $ownerId, string $field): array {
+        return $this->connection->fetchFirstColumn(sprintf('SELECT id FROM %s WHERE owner = ? AND owner_field = ? ORDER BY position', DatabaseSchema::ENTITIES), [$ownerId, $field]);
+    }
+
+    public function testSavingAViewKeepsWhatItsClassCannotSee(): void {
+        $id = $this->store('dy:yacht', ['cabins' => 5]);
+        $session = $this->session();
+        $yacht = $session->load($id);
+        $yacht->name = 'Renamed';
+
+        $session->save($yacht);
+
+        self::assertSame('Renamed', $this->session()->load($id)->name);
+        self::assertSame(5, (int) $this->stored('dy_yacht', 'cabins', $id), 'The yacht\'s own field, which a DyCraft can\'t see.');
+        self::assertSame('dy:yacht', $this->typeOf($id), 'Still a yacht, never rewritten to its class.');
+    }
+
+    public function testSavingANativeEntityKeepsWhatItsOwnedViewCannotSee(): void {
+        $id = $this->craftWithOutboard();
+        $session = $this->session();
+        $craft = $session->load($id);
+        $craft->motor->horsepower = 450;
+
         $session->save($craft);
+
+        [$motorId] = $this->ownedIds($id, 'motor');
+        self::assertSame(450, $this->session()->load($id)->motor->horsepower);
+        self::assertSame('diesel', $this->stored('dy_outboard', 'fuel', $motorId));
+        self::assertSame('dy:outboard', $this->typeOf($motorId));
+    }
+
+    public function testAViewIsComparedWithItsRealTypesDefaults(): void {
+        $id = $this->craftWithOutboard();
+        [$motorId] = $this->ownedIds($id, 'motor');
+        $session = $this->session();
+
+        $session->save($session->load($id));
+
+        $motorState = ColumnNames::stateTable(NativeIdentifiers::tableOf('dy:motor'));
+        self::assertFalse((bool) $this->stored($motorState, 'horsepower', $motorId), 'Its 300 is the outboard\'s default, not touched: it keeps following that default.');
+    }
+
+    public function testAnOwnedObjectUnderAFieldTheViewCannotSeeKeepsItsId(): void {
+        $id = $this->store('dy:yacht', ['dinghy' => 'dy:outboard', 'dinghy.horsepower' => 20, 'dinghy.propellers' => 1, 'dinghy.fuel' => 'electric']);
+        [$dinghyId] = $this->ownedIds($id, 'dinghy');
+        $session = $this->session();
+        $yacht = $session->load($id);
+        $yacht->name = 'Renamed';
+
+        $session->save($yacht);
+
+        self::assertSame([$dinghyId], $this->ownedIds($id, 'dinghy'));
+        self::assertSame('electric', $this->stored('dy_outboard', 'fuel', $dinghyId));
+    }
+
+    public function testAMovedViewKeepsWhatItCannotSee(): void {
+        $outboard = static fn (string $fuel, int $index): array => [
+            "spares.$index" => 'dy:outboard',
+            "spares.$index.horsepower" => 300,
+            "spares.$index.propellers" => 2,
+            "spares.$index.fuel" => $fuel,
+        ];
+        $id = $this->store('dy:craft', ['spares' => 2, ...$outboard('first', 0), ...$outboard('second', 1)]);
+        [$firstId, $secondId] = $this->ownedIds($id, 'spares');
+        $session = $this->session();
+        $craft = $session->load($id);
+        $craft->spares = array_reverse($craft->spares);
+
+        $session->save($craft);
+
+        self::assertSame([$secondId, $firstId], $this->ownedIds($id, 'spares'));
+        self::assertSame('first', $this->stored('dy_outboard', 'fuel', $firstId), 'It goes by id, not by place.');
+        self::assertSame('second', $this->stored('dy_outboard', 'fuel', $secondId));
+    }
+
+    public function testAViewReplacedByANativeObjectGoesWithWhatItHeld(): void {
+        $id = $this->craftWithOutboard();
+        [$motorId] = $this->ownedIds($id, 'motor');
+        $session = $this->session();
+        $craft = $session->load($id);
+        $craft->motor = new DyBoatMotor();
+
+        $session->save($craft);
+
+        [$newId] = $this->ownedIds($id, 'motor');
+        self::assertNotSame($motorId, $newId);
+        self::assertSame('dy:boat_motor', $this->typeOf($newId));
+        self::assertFalse($this->stored('dy_outboard', 'fuel', $motorId), 'The outboard is gone, with its fuel.');
     }
 }

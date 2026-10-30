@@ -624,9 +624,8 @@ editor-created type gives a native field is the view's value. The
 type has no native ancestor has no native view: `load()` of it throws, and
 names `loadDynamic()`.
 
-Saving a native view of an editor-created entity, or an aggregate holding
-one, throws for now: its class can't hold what its real type adds, and
-keeping that isn't built yet (see `PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`).
+Saving a native view keeps what its class can't see: see "Saving an
+entity".
 
 The `IdentityMap` keeps one object per id, however the entity was reached:
 loading an id twice, or reaching it through two References, or through a
@@ -680,6 +679,21 @@ An owned object keeps its id while it's the same object, from the
 `IdentityMap`. A new object gets a new id, even in the same place.
 `NativeValueReader` tells the native writer which object sits at each owned
 path, the same way `NativeObjectBuilder` does when building one.
+
+A native view, an editor-created entity loaded as its last native class,
+is saved as its real type. An aggregate holding one is written with
+`EntityWriter::writeWith()`, which locks the aggregate, reads what's
+stored, and only then asks for the values. `UnseenValues` completes each
+entity whose real type goes deeper than its object's class: every field
+the class can't see comes from what's stored for that entity's id, with
+the owned objects under it and their ids, at any depth. An entity is
+found by its id, not its place: one moved keeps those fields. One replaced
+by a new object is a new entity, and the old one goes with what it held.
+An entity not stored any more takes them from its real type's defaults.
+Then the values are flattened and compared with the real type as for any
+save, so a default the editor-created type gives a native field isn't
+touched, and `concrete_identifier` keeps the real type. An aggregate with
+no view is written as before, without the extra read.
 
 The `IdentityMap` and `#[Id]` properties change only once the transaction
 commits. Every object written is remembered with its id. Every entity deleted
