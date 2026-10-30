@@ -1,6 +1,7 @@
 # Storage v3: Proposal: Dynamic Entities
 
-**Status: decided, not built (2026-10-22).** Native entities save and load
+**Status: decided, not built (2026-10-22; writing, one shape and new
+entities decided 2026-10-30).** Native entities save and load
 (see "Saving an entity" and "Loading an entity" in `ARCHITECTURE_V3.md`).
 This records what was decided for editor-created entities, so it survives
 until it's built. Move each part into `ARCHITECTURE_V3.md` once it's built.
@@ -85,11 +86,11 @@ To know this, an object must remember what it's a view of. So the
 
 ## What this asks of what's built
 
-- **`EntityWriter`'s reconcile.** It deletes every owned entity a save
-  doesn't want. A view can't see owned fields declared on editor-created
-  levels, so it must not delete what's under them. A view's save limits the
-  reconcile to the owned paths on its own levels, the same way it limits the
-  level rows it rewrites.
+- **`EntityWriter`.** It deletes every owned entity a save doesn't want,
+  and rewrites every row. A view can't see fields declared on
+  editor-created levels, so a save must keep them, and what's owned under
+  them. The writer fills them from what's stored, under the lock: see "A
+  view keeps what it can't see".
 - **`NativeObjectBuilder` and `NativeEntityLoader`.** They create objects
   from the identifier stored for an owned object or a Reference target. An
   editor-created identifier is not a class: both must create its last native
@@ -110,11 +111,136 @@ another `EntityView`, always, even where its type is native: one shape for a
 field, whatever its type's source. Native code wanting the native object asks
 `DynamicEntity` for it. A path reaches through them: `get('engine.horsepower')`.
 
-## Still open
+### Writing (decided)
 
-- `DynamicEntity`'s write side: setting fields, and checking a set value
-  against the field's descriptor.
-- Whether `loadDynamic()` on a fully native entity gives a `DynamicEntity`
-  with an empty bag, or the native object.
-- How an editor-created entity is created and given its defaults, before it
-  was ever saved.
+`set(path, value)` takes a value in the form `get()` gives: an enum case,
+a `DateTimeImmutable`, a value object; an Embed or an owned object as an
+`EntityView`, a `DynamicEntity` or a native object where its type is
+native; a Reference as its target, in either form. One shape for reading
+and writing.
+
+A value is checked when it's set, the way PHP checks a typed property: its
+kind, its scalar or enum type, whether it may be null, and that an Embed,
+an owned object or a Reference's target is the field's target type or a
+subtype of it. A wrong value throws `InvalidValue`, naming the path, where
+it was set. A native object gets the same checks from PHP itself, so both
+fail alike.
+
+Validation rules stay on save, as for native entities: validators and
+uniqueness check the whole aggregate then.
+
+A field declared on a native level is set through the native view, so its
+setter runs: the class guards its own field. A field declared on an
+editor-created level goes into the bag. `afterEdit()` runs on save, given
+every path changed, the bag's included.
+
+### One shape for the whole entity (decided)
+
+`loadDynamic(id)` always gives a `DynamicEntity`, whatever the type. For a
+fully native entity, its native view is the whole object, and its bag is
+empty. Code that wants any entity whole, the admin's API, the schema
+editor, an export, gets one shape, and keeps working when a native type
+gains an editor-created subtype.
+
+There's one object per entity. `loadDynamic(id)` wraps the very object
+`load(id)` gives, from the `IdentityMap`, and there's one `DynamicEntity`
+per id too: native code and generic code editing an entity in one request
+see each other's changes. Saving either saves what it holds: the native
+object its native levels, as above; the `DynamicEntity` its native levels
+through its view, and its editor-created levels from its bag.
+
+## Build plan
+
+Each step is built and tested before the next. The tests make
+editor-created types the way the migration tests do, with
+`MigratorEditorTypes`, until editor saves exist.
+
+1. **Native views load.** `NativeEntityRegistry` gives an identifier's
+   last native class: its own for a native type, the nearest native
+   ancestor's for an editor-created one. The loader, the builder and
+   References build that class. The `IdentityMap` keeps each entity's
+   concrete identifier next to its id. `load()` of an entity with no native
+   ancestor throws, naming `loadDynamic()`.
+2. **A native view saves what it sees.** Saving a native view of an
+   editor-created entity, or an aggregate holding one, keeps the
+   editor-created levels exactly as stored: their values, and the owned
+   objects under their fields. See "A view keeps what it can't see".
+3. **`DynamicEntity` reads.** `loadDynamic(id)` gives one per id, its
+   native view the object `load(id)` gives, its bag the editor-created
+   levels' values. It implements `EntityView`. An Embed or an owned
+   object comes back as the `DynamicEntity` standing for it: one per
+   object, so a native object in a view and the `DynamicEntity` standing
+   for it share their values.
+4. **`DynamicEntity` writes.** `set(path, value)`, checked when set; a
+   native level's field through its setter, an editor-created level's
+   into the bag.
+5. **`DynamicEntity` saves.** Its values are the native view's and the
+   bag's, for its real type, compared with that type's defaults: what's
+   touched. The writer writes every level. `afterEdit()` runs before, with
+   every path changed. Ids are handed out and remembered as for a native
+   save.
+6. **`newDynamic(type)`.** The values of a new entity, as decided above.
+7. **The API edits through it.** See "One editing path for the API". Then
+   `entities.create`, `entities.update` and `entities.delete` work for
+   editor-created types too, and the admin edits them as it edits native
+   ones.
+
+### A view keeps what it can't see (decided)
+
+The writer fills what a view can't see from what's stored, then writes
+the whole aggregate as for any save. One write path: the rows builder and
+the reconcile don't change.
+
+The rule holds for each entity in the aggregate, the root and every owned
+object, at any depth. An entity known by id whose real type goes deeper
+than its object's class gets every path that class can't see from what's
+stored for that id: the values of its editor-created levels, and the owned
+objects under their fields, with their ids and everything under them. It
+happens after the aggregate is locked, so no other save comes between the
+read and the write. The entity is written as its real type: its
+`concrete_identifier` is never rewritten to its object's class.
+
+It goes by entity id, not by path. A `Boat` holding an `EditorBoatEngine`
+in `Engine $engine` loads it as a `BoatEngine`, its last native class.
+Native code changing the engine's horsepower and saving the boat keeps
+the engine's editor-created fields, and whatever they own. An engine moved
+within an owned Collection keeps them too. An engine replaced by a
+`new BoatEngine()` is a new entity of a native type: the old one goes, with
+what it held, as any owned object replaced.
+
+### One editing path for the API (decided)
+
+Every API edit goes through a `DynamicEntity`, native types included.
+`entities.update` loads one with `loadDynamic()`, `entities.create` makes
+one with `newDynamic()`. The editor turns each change, a path and a value
+in stored form, into its PHP form, and calls `set()`. `set()` does the
+rest: the checks, the setter on a native level, the bag on an
+editor-created one; `afterEdit()` runs on save. So a native type and an
+editor-created subtype of it behave alike through the API, and setters
+and `afterEdit()` are called in one place. `NativeEditor` keeps only the
+stored-form conversion; what it does with setters and `afterEdit()` moves
+into `DynamicEntity`.
+
+### A new entity (decided)
+
+`newDynamic(type)`, on a `PersistenceSession`, gives a new `DynamicEntity`
+of any type, native or editor-created. Its lifetime is a `new Car()`'s:
+
+- until its first save it has no id, and the `IdentityMap` doesn't know
+  it. Dropped unsaved, nothing was stored;
+- its first save gives it an id. From then on it's the one object for that
+  id: `loadDynamic(id)` gives it back, and `load(id)` its native view;
+- the owned objects in it are new too, and get their ids on that save.
+
+Its values are its type's defaults, resolved on the real type: an
+editor-created type's own defaults override its native ancestors'. Nothing
+is touched until something is set.
+
+Its native view is built the way loading builds one. A clone of the last
+native class's default instance gives the object its non-field state;
+then every field is set from the defaults resolved on the real type. So a
+default the editor-created type overrides on a native field is in the view:
+an `EditorEngine` setting `Engine`'s horsepower to 300 gives a view whose
+`$horsepower` is 300. The constructor doesn't run per object, as on
+loading: state each object needs is copied by `__clone()`, and a value
+like a creation date comes from an initializer or `afterEdit()`.
