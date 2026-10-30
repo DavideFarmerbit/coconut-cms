@@ -25,6 +25,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeViewClasses;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\EntitySchemaCodec;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaStore;
@@ -123,7 +125,7 @@ final class MigratorTest extends TestCase
             $classes->register($class);
         }
 
-        return (new NativeEntityLoader(new EntityReader($this->connection, $registry, $values), $classes, new IdentityMap()))->load($id);
+        return (new NativeEntityLoader(new EntityReader($this->connection, $registry, $values), new NativeViewClasses($classes, new SchemaLookup($registry)), new IdentityMap()))->load($id);
     }
 
     /** @return list<string> Every table and column name a migration moved aside, "table.column". */
@@ -358,7 +360,7 @@ final class MigratorTest extends TestCase
         foreach (MigratorDroppedTarget::V2 as $class) {
             $classes->register($class);
         }
-        $loaded = (new NativeEntityLoader(new EntityReader($this->connection, $registry, $values), $classes, new IdentityMap()))->load($carId);
+        $loaded = (new NativeEntityLoader(new EntityReader($this->connection, $registry, $values), new NativeViewClasses($classes, new SchemaLookup($registry)), new IdentityMap()))->load($carId);
 
         self::assertNull($loaded->favorite, 'Its target is gone.');
         self::assertInstanceOf(MigDropEngine::class, $loaded->spares[0]);
@@ -392,7 +394,7 @@ final class MigratorTest extends TestCase
         foreach (MigratorDroppedTarget::V2 as $class) {
             $classes->register($class);
         }
-        $loader = new NativeEntityLoader(new EntityReader($this->connection, $registry, $values), $classes, new IdentityMap());
+        $loader = new NativeEntityLoader(new EntityReader($this->connection, $registry, $values), new NativeViewClasses($classes, new SchemaLookup($registry)), new IdentityMap());
 
         self::assertNull($loader->load($beforeId)->favorite, 'Its target is gone.');
         self::assertNull($loader->load($afterId)->favorite, 'Its target is gone.');

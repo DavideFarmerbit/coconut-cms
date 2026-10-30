@@ -155,12 +155,12 @@ Each step is built and tested before the next. The tests make
 editor-created types the way the migration tests do, with
 `MigratorEditorTypes`, until editor saves exist.
 
-1. **Native views load.** `NativeEntityRegistry` gives an identifier's
-   last native class: its own for a native type, the nearest native
-   ancestor's for an editor-created one. The loader, the builder and
-   References build that class. The `IdentityMap` keeps each entity's
-   concrete identifier next to its id. `load()` of an entity with no native
-   ancestor throws, naming `loadDynamic()`.
+1. **Native views load.** Built (2026-10-30), now in `ARCHITECTURE_V3.md`
+   "Loading an entity": `NativeViewClasses` gives an identifier's last
+   native class, the loader, the builder and References build it, the
+   `IdentityMap` keeps each entity's real type, and `load()` of an entity
+   with no native ancestor throws, naming `loadDynamic()`. Saving a view
+   throws until step 2 is built.
 2. **A native view saves what it sees.** Saving a native view of an
    editor-created entity, or an aggregate holding one, keeps the
    editor-created levels exactly as stored: their values, and the owned

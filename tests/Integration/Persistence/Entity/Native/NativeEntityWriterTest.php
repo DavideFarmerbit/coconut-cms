@@ -21,6 +21,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeViewClasses;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Rows\RowsCar;
@@ -77,7 +78,7 @@ final class NativeEntityWriterTest extends TestCase
 
     /** A loader with nothing in memory yet: what a fresh request starts with. */
     private function freshLoad(string $id): ?object {
-        return (new NativeEntityLoader(new EntityReader($this->connection, $this->stores->registry, $this->stores->values), $this->classes, new IdentityMap()))->load($id);
+        return (new NativeEntityLoader(new EntityReader($this->connection, $this->stores->registry, $this->stores->values), new NativeViewClasses($this->classes, new SchemaLookup($this->stores->registry)), new IdentityMap()))->load($id);
     }
 
     private function exists(string $id): bool {

@@ -37,8 +37,9 @@ final class NativeObjectBuilder
     private array $defaults = [];
 
     /**
-     * @param NativeEntityRegistry $classes Turns the identifier an owned
-     *        object is stored under into the class to build.
+     * @param EntityClasses $classes Turns the identifier an owned object is
+     *        stored under into the class to build: its last native class, for
+     *        an editor-created one.
      * @param Closure(class-string, string): ?object $referenceOf The object a
      *        Reference holds: given the field's declared class and the stored
      *        id. Null when the target no longer exists.
@@ -46,7 +47,7 @@ final class NativeObjectBuilder
      *        may be read; null for every field.
      */
     public function __construct(
-        private readonly NativeEntityRegistry $classes,
+        private readonly EntityClasses $classes,
         private readonly Closure $referenceOf,
         private readonly ?Closure $readable = null,
     ) {
@@ -56,8 +57,10 @@ final class NativeObjectBuilder
      * @param class-string $class
      * @param object|null $into An uninitialized object of $class to fill, such
      *        as a lazy ghost being initialized; a new one when null.
-     * @param Closure(FieldPath, object): void|null $onOwned Told about every
-     *        owned object built, with its path from $class.
+     * @param Closure(FieldPath, object, string): void|null $onOwned Told about
+     *        every owned object built, with its path from $class and the
+     *        identifier it's stored under: its real type, which an
+     *        editor-created one's class isn't.
      * @param Closure(object, string, FieldPath, ?ValueNode): void|null $onHidden
      *        Told about every field left unset, with its object, its name, its
      *        path from $class, and what it holds.
@@ -159,7 +162,7 @@ final class NativeObjectBuilder
         if ($into !== null) {
             $reflection = new ReflectionClass($into);
             if (!$reflection->isUninitializedLazyObject($into)) {
-                $onOwned($path, $into);
+                $onOwned($path, $into, $node->identifier);
 
                 return $into;
             }
@@ -170,7 +173,7 @@ final class NativeObjectBuilder
         }
 
         $owned = $this->buildAs(new ReflectionClass($this->classes->classOf($node->identifier)), $node->fields, $into, $path->traverse(...), $onOwned, $onHidden, $known);
-        $onOwned($path, $owned);
+        $onOwned($path, $owned, $node->identifier);
 
         return $owned;
     }

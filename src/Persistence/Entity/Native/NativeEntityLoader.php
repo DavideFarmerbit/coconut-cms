@@ -12,15 +12,17 @@ use XyloIsCoding\CoconutCms\Persistence\Permission\PermissionDenied;
 use XyloIsCoding\CoconutCms\Persistence\Permission\Permissions;
 use XyloIsCoding\CoconutCms\Persistence\Permission\TypeAction;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\IdProperty;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeObjectBuilder;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeViewClasses;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
 
 /**
- * Loads native entities as PHP objects, built from what EntityReader reads.
- * Owned objects load with their owner. A Reference loads as a lazy ghost of
+ * Loads entities as PHP objects, built from what EntityReader reads. An
+ * editor-created entity loads as its last native class, its native view:
+ * the IdentityMap keeps its real type. One with no native ancestor can't
+ * load here. Owned objects load with their owner. A Reference loads as a lazy ghost of
  * its target's concrete class, whose fields are read only when first used.
  * One object per id: loading an id already in the IdentityMap gives that
  * object. A field its reader may not read stays unset; its stored value waits
@@ -46,14 +48,14 @@ final class NativeEntityLoader
     private array $denied = [];
 
     /**
-     * @param NativeEntityRegistry $classes Turns a stored identifier into the class to build.
+     * @param NativeViewClasses $classes Turns a stored identifier into the class to build.
      * @param Permissions|null $permissions What the reader may read: a type it
      *        may not is refused; a field it may not stays unset, its value kept
      *        in $hidden. Null for everything.
      */
     public function __construct(
         private readonly EntityReader $reader,
-        private readonly NativeEntityRegistry $classes,
+        private readonly NativeViewClasses $classes,
         private readonly IdentityMap $identities,
         private readonly ?Permissions $permissions = null,
         private readonly ?HiddenValues $hidden = null,
@@ -65,7 +67,11 @@ final class NativeEntityLoader
         $this->builder = new NativeObjectBuilder($classes, $this->referenceOf(...), $readable);
     }
 
-    /** The entity with $id, or null when there's none. Throws PermissionDenied for one the reader may not read. */
+    /**
+     * The entity with $id, or null when there's none. Throws PermissionDenied
+     * for one the reader may not read, and LogicException for one whose type
+     * has no native class, its own or an ancestor's.
+     */
     public function load(string $id): ?object {
         if (isset($this->denied[$id])) {
             throw PermissionDenied::ofType($this->denied[$id], TypeAction::Read);
@@ -91,6 +97,10 @@ final class NativeEntityLoader
             throw PermissionDenied::ofType($loaded->identifier, TypeAction::Read);
         }
 
+        if ($this->classes->lastNativeClassOf($loaded->identifier) === null) {
+            throw new LogicException(sprintf('Entity %s is a %s, which has no native class, its own or an ancestor\'s: load it with loadDynamic().', $id, $loaded->identifier));
+        }
+
         return $this->build(null, $loaded);
     }
 
@@ -98,10 +108,10 @@ final class NativeEntityLoader
     private function build(?object $into, LoadedEntity $loaded): object {
         $this->lookUpReferencedIdentifiers($loaded->referencedIds);
 
-        $object = $this->builder->build($this->classes->classOf($loaded->identifier), $loaded->tree, $into, function (FieldPath $path, object $owned) use ($loaded): void {
+        $object = $this->builder->build($this->classes->classOf($loaded->identifier), $loaded->tree, $into, function (FieldPath $path, object $owned, string $identifier) use ($loaded): void {
             $ownedId = $loaded->ownedIds[(string) $path] ?? null;
             if ($ownedId !== null) {
-                $this->identities->remember($owned, $ownedId);
+                $this->identities->remember($owned, $ownedId, $identifier);
                 IdProperty::assign($owned, $ownedId);
             }
         }, function (object $holder, string $name, FieldPath $path, ?ValueNode $node) use ($loaded): void {
@@ -123,7 +133,7 @@ final class NativeEntityLoader
             return $ownedId === null ? null : $this->identities->objectOf($ownedId);
         });
 
-        $this->identities->remember($object, $loaded->id);
+        $this->identities->remember($object, $loaded->id, $loaded->identifier);
         IdProperty::assign($object, $loaded->id);
 
         return $object;
@@ -154,7 +164,7 @@ final class NativeEntityLoader
             $loaded = $this->reader->read($id) ?? throw new LogicException(sprintf('Entity %s was deleted before its reference was first used.', $id));
             $this->build($ghost, $loaded);
         });
-        $this->identities->remember($ghost, $id);
+        $this->identities->remember($ghost, $id, $identifier);
         // Readable without loading the rest of it.
         IdProperty::of($class)?->setRawValueWithoutLazyInitialization($ghost, $id);
 

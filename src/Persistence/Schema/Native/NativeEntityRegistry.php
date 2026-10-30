@@ -8,9 +8,9 @@ use InvalidArgumentException;
  * Which native class each native identifier stands for: the way back from
  * what's stored to a class to build. Every native entity class must be
  * registered before anything of it is loaded. Two classes can't share an
- * identifier.
+ * identifier. As EntityClasses, it builds native types only.
  */
-final class NativeEntityRegistry
+final class NativeEntityRegistry implements EntityClasses
 {
     /** @var array<string, class-string> Keyed by identifier. */
     private array $classes = [];

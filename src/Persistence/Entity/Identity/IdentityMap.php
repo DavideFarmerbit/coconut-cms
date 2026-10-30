@@ -11,24 +11,32 @@ use WeakReference;
  * object's id, whether or not its class has an #[Id] property. Holds objects
  * weakly, so remembering one never keeps it alive. One object per id: loading
  * the same entity twice gives the same object.
+ *
+ * It also keeps each entity's real type, where the object's class isn't it:
+ * an editor-created entity loads as its last native class, a native view.
  */
 final class IdentityMap
 {
     /** @var WeakMap<object, string> */
     private WeakMap $ids;
 
+    /** @var WeakMap<object, string> Each entity's concrete identifier, where one was given. */
+    private WeakMap $types;
+
     /** @var array<string, WeakReference<object>> */
     private array $objects = [];
 
     public function __construct() {
         $this->ids = new WeakMap();
+        $this->types = new WeakMap();
     }
 
     /**
-     * Records that $entity is the entity with $id. Throws if $entity already
+     * Records that $entity is the entity with $id, of the type $type when
+     * given; a type already known is kept otherwise. Throws if $entity already
      * has another id, or another live object already has $id.
      */
-    public function remember(object $entity, string $id): void {
+    public function remember(object $entity, string $id, ?string $type = null): void {
         $known = $this->ids[$entity] ?? null;
         if ($known !== null && $known !== $id) {
             throw new LogicException(sprintf('This %s is already entity %s, so it cannot also be %s.', $entity::class, $known, $id));
@@ -41,11 +49,22 @@ final class IdentityMap
 
         $this->ids[$entity] = $id;
         $this->objects[$id] = WeakReference::create($entity);
+        if ($type !== null) {
+            $this->types[$entity] = $type;
+        }
     }
 
     /** $entity's id, or null when it was never saved nor loaded. */
     public function idOf(object $entity): ?string {
         return $this->ids[$entity] ?? null;
+    }
+
+    /**
+     * The concrete identifier of the entity $entity is, as it was loaded or
+     * saved; null when none was given: its class says it then.
+     */
+    public function typeOf(object $entity): ?string {
+        return $this->types[$entity] ?? null;
     }
 
     /** The live object that is entity $id, or null when there's none. */
@@ -62,7 +81,7 @@ final class IdentityMap
     public function forget(string $id): void {
         $object = $this->objectOf($id);
         if ($object !== null) {
-            unset($this->ids[$object]);
+            unset($this->ids[$object], $this->types[$object]);
         }
 
         unset($this->objects[$id]);

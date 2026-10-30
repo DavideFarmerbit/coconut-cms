@@ -23,6 +23,7 @@ use XyloIsCoding\CoconutCms\Persistence\Query\Query;
 use XyloIsCoding\CoconutCms\Persistence\Query\QueryRunner;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeViewClasses;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolver;
@@ -67,7 +68,7 @@ final class PersistenceSession
         $this->identities = new IdentityMap();
         $this->hidden = new HiddenValues();
         $this->reader = $reader = new EntityReader($connection, $registry, $values);
-        $this->loader = new NativeEntityLoader($reader, $classes, $this->identities, $permissions, $this->hidden);
+        $this->loader = new NativeEntityLoader($reader, new NativeViewClasses($classes, $schemas), $this->identities, $permissions, $this->hidden);
         $this->records = new RecordReader($reader, $schemas, $permissions, new FieldValueResolver($registry, $values));
         $this->writer = new NativeEntityWriter(EntityWriter::of($connection, $registry, $permissions, $values), $registry, $values, $this->identities, $this->hidden);
         $this->queries = new QueryRunner($connection, $schemas, $permissions, $this->identities, $this->load(...), $guard);

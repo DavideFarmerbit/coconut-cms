@@ -15,6 +15,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeViewClasses;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\EntitySchemaCodec;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaStore;
@@ -69,7 +71,7 @@ final class ReferenceToDeletedTest extends TestCase
         foreach (MigratorDroppedTarget::V2 as $class) {
             $classes->register($class);
         }
-        $loaded = (new NativeEntityLoader(new EntityReader($this->connection, $this->registry, $this->values), $classes, new IdentityMap()))->load($id);
+        $loaded = (new NativeEntityLoader(new EntityReader($this->connection, $this->registry, $this->values), new NativeViewClasses($classes, new SchemaLookup($this->registry)), new IdentityMap()))->load($id);
 
         self::assertNull($loaded->favorite);
         self::assertCount(1, $loaded->spares);

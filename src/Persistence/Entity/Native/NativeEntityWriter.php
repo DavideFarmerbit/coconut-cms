@@ -7,6 +7,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\EntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\EntityIds;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\IdProperty;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
@@ -57,6 +58,10 @@ final readonly class NativeEntityWriter
             $owned[(string) $path] = $object;
         }, $kept);
 
+        foreach ([$entity, ...array_values($owned)] as $object) {
+            $this->assertWhole($object);
+        }
+
         $id = $this->identities->idOf($entity) ?? EntityIds::generate();
         $written = [$id => $entity];
         $deleted = $this->writer->write($values, $id, function (FieldPath $path) use ($owned, $keptIds, &$written): string {
@@ -89,6 +94,23 @@ final readonly class NativeEntityWriter
 
         foreach ($this->writer->delete($id) as $deletedId) {
             $this->forget($deletedId);
+        }
+    }
+
+    /**
+     * Throws when $object is the native view of an editor-created entity:
+     * its class can't hold the levels its real type adds, so saving it would
+     * drop them. Not built yet: the writer will keep them from what's stored.
+     */
+    private function assertWhole(object $object): void {
+        $type = $this->identities->typeOf($object);
+        if ($type !== null && $type !== NativeIdentifiers::of($object::class)) {
+            throw new LogicException(sprintf(
+                'This %s is the native view of a %s: saving it would drop what the %s adds, and keeping that isn\'t built yet.',
+                $object::class,
+                $type,
+                $type,
+            ));
         }
     }
 

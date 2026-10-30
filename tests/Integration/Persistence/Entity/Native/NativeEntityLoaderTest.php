@@ -18,6 +18,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityLoader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeViewClasses;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
@@ -80,7 +81,7 @@ final class NativeEntityLoaderTest extends TestCase
     }
 
     private function loaderWith(IdentityMap $identities): NativeEntityLoader {
-        return new NativeEntityLoader(new EntityReader($this->connection, $this->stores->registry, $this->stores->values), $this->classes, $identities);
+        return new NativeEntityLoader(new EntityReader($this->connection, $this->stores->registry, $this->stores->values), new NativeViewClasses($this->classes, new SchemaLookup($this->stores->registry)), $identities);
     }
 
     private function fullCar(IdentityMap $identities): RowsCar {

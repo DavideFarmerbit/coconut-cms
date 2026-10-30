@@ -612,6 +612,22 @@ migration dropped its type. That's what the foreign key does for any target.
 `load()` takes a standalone entity's id only. An owned object is reached
 through its owner, or through a Reference; loading its id throws.
 
+An editor-created entity loads as its last native class: its native view.
+`NativeViewClasses` finds it: the type's own class for a native type; for
+an editor-created one, the nearest native ancestor's, up its stored
+parents. The loader builds that class for the entity loaded, for every
+owned object, and for every Reference's ghost. An `EditorEngine` held in an
+`Engine` property loads as an `Engine`, or as the native subclass it
+extends. Its values resolve on its real type, so a default the
+editor-created type gives a native field is the view's value. The
+`IdentityMap` keeps each entity's real type next to its id. An entity whose
+type has no native ancestor has no native view: `load()` of it throws, and
+names `loadDynamic()`.
+
+Saving a native view of an editor-created entity, or an aggregate holding
+one, throws for now: its class can't hold what its real type adds, and
+keeping that isn't built yet (see `PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`).
+
 The `IdentityMap` keeps one object per id, however the entity was reached:
 loading an id twice, or reaching it through two References, or through a
 Reference and through its owner, gives the same object. When a Reference
