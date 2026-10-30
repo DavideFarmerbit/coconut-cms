@@ -6,12 +6,16 @@ use XyloIsCoding\CoconutCms\Api\Operation\OperationResult;
 use XyloIsCoding\CoconutCms\Api\Output\ForHumans;
 use XyloIsCoding\CoconutCms\Api\Output\TextTable;
 
-/** Every type the caller may read, sorted by identifier. */
+/**
+ * Every type the caller may read, sorted by identifier, and the schema
+ * revision they're at: what an editor save built on them sends back.
+ */
 final readonly class TypeList implements OperationResult, ForHumans
 {
     /** @param list<TypeDescription> $types */
     public function __construct(
         public array $types,
+        public int $revision,
     ) {
     }
 

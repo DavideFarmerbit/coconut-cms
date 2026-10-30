@@ -98,7 +98,7 @@ export class FakeBackend {
 
                 return {user: null};
             case 'coconut-cms:types.list':
-                return {types: this.types};
+                return {types: this.types, revision: 1};
             case 'coconut-cms:entities.get':
                 return this.entities.get(String(input['id'])) ?? FakeBackend.fail('not_found', 'No such entity.');
             case 'coconut-cms:entities.query':

@@ -1453,6 +1453,61 @@ few real entries, since the content is right there.
 | Copy values between fields | `MoveValues` | The field to take them from. |
 | Add a unique group | `AddUniqueGroup` | Nothing; refused, listing duplicates, if content breaks it. |
 
+An operation says everything about its change (decided, not built). The
+save holds no type definitions beside the operations: the server starts
+from the stored definitions, rebuilt as blueprints, and applies each
+operation in order. Each gives a change to the definitions and the fixups
+moving the data there: "add a field" carries its descriptor, its default
+and what existing entries get, and gives `AddField`. An operation moving no
+data gives no fixup: creating a type, setting or inheriting a default,
+changing a permission. So definitions and fixups come from one source, and
+can't disagree. Each operation is one small class: it reads its own form,
+checks it, and gives its change.
+
+The server normalizes the list before planning, so nothing the admin
+undid touches the database (decided, not built). The editor keeps every
+action for undo, and shows the normalized list, from a preview, as what
+the save will run. Normalizing:
+
+- Renames chain: `a` to `b` then `b` to `c` is one rename, and one back to
+  where it started is none. Types the same.
+- What the save creates takes in what's done to it after: a field added,
+  then renamed, retyped, given a default or moved, is one "add a field"
+  with its final name, descriptor and default; added, then removed, is
+  nothing. A type the same.
+- A setting keeps its last value: a default, a permission,
+  `editorExtensible`, a table. One back where it started is none.
+- An existing field removed, then added again with the same descriptor, is
+  nothing: its values stay. With another descriptor, it's a reset
+  (`RetypeField::reset`).
+- An existing field retyped, then retyped back to its descriptor, is
+  nothing: no converter runs, and its values stay as they are.
+- What's left is ordered so each operation finds what it names: a rename
+  comes before what uses the new name.
+
+A save applies only to the definitions its operations were built on. Every
+migration that changes stored schemas, native or editor, raises a schema
+revision, kept in the `schema_revision` column of `migration_state`. A
+migration that finds nothing to change leaves it. A database no migration
+ran on is at revision 0. `PersistenceSession::schemaRevision()` gives it,
+and `coconut-cms:types.list` gives it with the types. A save sends the
+revision it was built on. A save whose revision isn't current any more is
+refused (not built yet): the types changed since the admin started. The
+editor then loads them again, replays the admin's operations on them, and
+shows what no longer applies (not built yet). Nothing runs on definitions
+the admin never saw.
+
+Saving type changes is a right of its own (decided, not built): it changes
+the shape of everything stored for those types, and blocks the site while
+it runs. The project names one schema-editor role at boot; only a user
+holding it, or the system actor, may save. Reading types stays each type's
+own read permission. Permissions per type, who may change which types, may
+come later; a save works the same either way.
+
+The editor changes editor-created types only. Native types are the code's:
+the editor may extend one that's `editorExtensible`, never rename, retype
+or remove anything native. Such an operation is refused.
+
 A general transformation is code only. The editor offers built-in
 converters and initializers, data-driven classes with parameters, never
 closures: number to text and back with a format, text to number with "on

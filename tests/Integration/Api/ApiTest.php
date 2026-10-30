@@ -225,6 +225,7 @@ final class ApiTest extends TestCase
         [$status, $body] = $this->post('coconut-cms:types.list', '');
 
         self::assertSame(200, $status);
+        self::assertSame(1, $body['result']['revision'], 'One migration ran.');
         $types = array_column($body['result']['types'], null, 'identifier');
         self::assertArrayHasKey('perm:car', $types);
         self::assertArrayNotHasKey('perm:secret_maker', $types);

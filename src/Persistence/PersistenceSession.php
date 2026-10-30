@@ -12,6 +12,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\InvalidChange;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Edit\StoredFormEditor;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
+use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationState;
 use XyloIsCoding\CoconutCms\Persistence\Entity\ValidationFailed;
 use XyloIsCoding\CoconutCms\Persistence\Permission\PermissionDenied;
 use XyloIsCoding\CoconutCms\Persistence\Permission\TypeAction;
@@ -56,6 +57,7 @@ final class PersistenceSession
     private readonly Permissions $permissions;
     private readonly EntityReader $reader;
     private readonly StoredFormEditor $editor;
+    private readonly MigrationState $migrationState;
 
     /**
      * Made by Persistence::as().
@@ -71,6 +73,7 @@ final class PersistenceSession
         private readonly Closure $guard,
     ) {
         $this->schemas = $schemas = new SchemaLookup($registry);
+        $this->migrationState = new MigrationState($connection);
         $this->permissions = $permissions = new Permissions($schemas, $actor);
         $this->identities = new IdentityMap();
         $this->hidden = new HiddenValues();
@@ -287,6 +290,17 @@ final class PersistenceSession
         ($this->guard)();
 
         return $this->schemas;
+    }
+
+    /**
+     * The schema revision the types are at: raised by every migration that
+     * changes stored schemas, native or editor. An editor save sends the one
+     * it was built on.
+     */
+    public function schemaRevision(): int {
+        ($this->guard)();
+
+        return $this->migrationState->revision();
     }
 
     /** What the actor may do, type by type and field by field. */

@@ -169,8 +169,9 @@ final readonly class Migrator
 
         if (!$fresh && $plan->isEmpty() && !self::anyFingerprintChanged($stored, $batch)) {
             // Nothing to move, but an earlier run may have stopped before contract.
+            // No stored schema changed: the schema revision stays.
             $this->tables->contract($targetTables, $storedTables);
-            $this->state->finish($stateKey);
+            $this->state->finish($stateKey, false);
 
             return new MigrationResult(false, $plan, [], 0, $stateKey);
         }
@@ -217,7 +218,7 @@ final readonly class Migrator
         }
 
         $this->tables->contract($targetTables, $storedTables);
-        $this->state->finish($stateKey);
+        $this->state->finish($stateKey, true);
 
         return new MigrationResult($fresh, $plan, $recorded, $moved, $stateKey);
     }

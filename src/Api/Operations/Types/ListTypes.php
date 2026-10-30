@@ -8,7 +8,8 @@ use XyloIsCoding\CoconutCms\Persistence\Permission\TypeAction;
 
 /**
  * Every entity type the caller may read, native or editor-created, as the
- * database holds it now. A type the caller may not read isn't listed.
+ * database holds it now, with the schema revision they're at. A type the
+ * caller may not read isn't listed.
  */
 #[Operation('coconut-cms:types.list')]
 final readonly class ListTypes
@@ -27,6 +28,6 @@ final readonly class ListTypes
             }
         }
 
-        return new TypeList($types);
+        return new TypeList($types, $context->session->schemaRevision());
     }
 }

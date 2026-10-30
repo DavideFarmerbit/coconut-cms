@@ -34,4 +34,6 @@ export interface TypeDescription {
 /** What coconut-cms:types.list gives. */
 export interface TypeList {
     readonly types: readonly TypeDescription[];
+    /** The schema revision the types are at: what a type change built on them sends back. */
+    readonly revision: number;
 }

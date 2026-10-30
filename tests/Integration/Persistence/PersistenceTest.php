@@ -169,6 +169,31 @@ final class PersistenceTest extends TestCase
         self::assertSame(PersistenceStatus::MigrationPending, $this->boot(new PersistenceV1Module())->status());
     }
 
+    public function testEveryMigrationChangingSchemasRaisesTheSchemaRevision(): void {
+        self::assertSame(0, (new MigrationState($this->connection))->revision(), 'Never migrated.');
+
+        $this->boot(new PersistenceV1Module())->migrate();
+        self::assertSame(1, $this->boot(new PersistenceV1Module())->as(new SystemActor())->schemaRevision());
+
+        $this->boot(new PersistenceV1Module())->migrate();
+        self::assertSame(1, $this->boot(new PersistenceV1Module())->as(new SystemActor())->schemaRevision(), 'Nothing changed.');
+
+        $this->boot(new PersistenceV2Module())->migrate();
+        self::assertSame(2, $this->boot(new PersistenceV2Module())->as(new SystemActor())->schemaRevision());
+    }
+
+    public function testAStateTableFromBeforeTheSchemaRevisionGainsIt(): void {
+        $this->boot(new PersistenceV1Module())->migrate();
+        $this->connection->executeStatement(sprintf('DROP TABLE %s', MigrationState::TABLE));
+        $this->connection->executeStatement(sprintf('CREATE TABLE %s (id SMALLINT NOT NULL, state_key VARCHAR(64) DEFAULT NULL, migration_started_at DATETIME DEFAULT NULL, PRIMARY KEY (id))', MigrationState::TABLE));
+        $this->connection->insert(MigrationState::TABLE, ['id' => 1, 'state_key' => 'old']);
+        self::assertSame(0, (new MigrationState($this->connection))->revision(), 'No column yet.');
+
+        $this->boot(new PersistenceV2Module())->migrate();
+
+        self::assertSame(1, (new MigrationState($this->connection))->revision());
+    }
+
     public function testAnUnfinishedMigrationRefusesEverything(): void {
         $this->boot(new PersistenceV1Module())->migrate();
         (new MigrationState($this->connection))->start();

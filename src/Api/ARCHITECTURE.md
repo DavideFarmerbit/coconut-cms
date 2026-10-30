@@ -148,7 +148,9 @@ editor-created types.
 ### Reading a schema
 
 `coconut-cms:types.list` gives every type the caller may read, sorted by
-identifier; a type it may not read isn't listed. `coconut-cms:types.get`
+identifier; a type it may not read isn't listed. It gives them as
+`{"types": [...], "revision": 3}`: the revision is the schema revision the
+types are at. A schema save sends it back. `coconut-cms:types.get`
 gives one, refusing a type it may not read. A type reads as:
 
 ```json

@@ -11,9 +11,13 @@ use Doctrine\DBAL\Types\Types;
 
 /**
  * What the database says about migrations, in one row: the state key of the
- * code it was last migrated to, and whether a migration is reshaping the
- * tables right now. One query answers both "is a migration pending?" and
- * "is one unfinished?".
+ * code it was last migrated to, whether a migration is reshaping the tables
+ * right now, and the schema revision. One query answers "is a migration
+ * pending?", "is one unfinished?" and "did the types change since?".
+ *
+ * The schema revision counts the migrations that changed stored schemas,
+ * native or editor. An editor save is built on one revision, and is refused
+ * once another migration raised it.
  *
  * A migration marks itself started before its first DDL and finished after
  * its last. While it's started, the tables and the stored schemas don't
@@ -35,10 +39,17 @@ final class MigrationState
     ) {
     }
 
-    /** Creates the table, unless it exists. */
+    /** Creates the table, unless it exists; one made before the schema revision gains its column. */
     public function ensureTable(): void {
         $schemaManager = $this->connection->createSchemaManager();
         if ($schemaManager->tablesExist([self::TABLE])) {
+            if (!$schemaManager->introspectTable(self::TABLE)->hasColumn('schema_revision')) {
+                $this->connection->executeStatement(sprintf(
+                    'ALTER TABLE %s ADD COLUMN schema_revision INTEGER NOT NULL DEFAULT 0',
+                    $this->connection->quoteSingleIdentifier(self::TABLE),
+                ));
+            }
+
             return;
         }
 
@@ -46,6 +57,7 @@ final class MigrationState
         $table->addColumn('id', Types::SMALLINT);
         $table->addColumn('state_key', Types::STRING, ['length' => 64, 'notnull' => false]);
         $table->addColumn('migration_started_at', Types::DATETIME_IMMUTABLE, ['notnull' => false]);
+        $table->addColumn('schema_revision', Types::INTEGER, ['default' => 0]);
         $table->setPrimaryKey(['id']);
         $schemaManager->createTable($table);
     }
@@ -73,21 +85,27 @@ final class MigrationState
 
     /**
      * Marks the migration finished, the database now matching the code whose
-     * state key is $stateKey. Holds the migration lock too.
+     * state key is $stateKey. Raises the schema revision when $schemasChanged:
+     * one that only moved nothing leaves it. Holds the migration lock too.
      */
-    public function finish(string $stateKey): void {
+    public function finish(string $stateKey, bool $schemasChanged): void {
         $table = $this->connection->quoteSingleIdentifier(self::TABLE);
+        $raise = $schemasChanged ? 1 : 0;
 
         $updated = $this->connection->executeStatement(
-            sprintf('UPDATE %s SET state_key = ?, migration_started_at = NULL WHERE id = ?', $table),
-            [$stateKey, self::ROW],
-            [Types::STRING, Types::SMALLINT],
+            sprintf('UPDATE %s SET state_key = ?, migration_started_at = NULL, schema_revision = schema_revision + ? WHERE id = ?', $table),
+            [$stateKey, $raise, self::ROW],
+            [Types::STRING, Types::INTEGER, Types::SMALLINT],
         );
         if ($this->exists($updated)) {
             return;
         }
 
-        $this->connection->insert($table, ['id' => self::ROW, 'state_key' => $stateKey], ['id' => Types::SMALLINT, 'state_key' => Types::STRING]);
+        $this->connection->insert(
+            $table,
+            ['id' => self::ROW, 'state_key' => $stateKey, 'schema_revision' => $raise],
+            ['id' => Types::SMALLINT, 'state_key' => Types::STRING, 'schema_revision' => Types::INTEGER],
+        );
     }
 
     /**
@@ -100,18 +118,29 @@ final class MigrationState
 
     /**
      * The state key the database was last migrated to, and when the migration
-     * running now started, both null when there's none. A database no
-     * migration ever ran on has neither.
-     * @return array{stateKey: ?string, startedAt: ?string}
+     * running now started, both null when there's none; and the schema
+     * revision. A database no migration ever ran on has neither, and
+     * revision 0.
+     * @return array{stateKey: ?string, startedAt: ?string, revision: int}
      */
     public function read(): array {
         try {
-            $row = $this->connection->fetchAssociative(sprintf('SELECT state_key, migration_started_at FROM %s WHERE id = ?', $this->connection->quoteSingleIdentifier(self::TABLE)), [self::ROW]);
+            // Every column: one made before the schema revision has none yet.
+            $row = $this->connection->fetchAssociative(sprintf('SELECT * FROM %s WHERE id = ?', $this->connection->quoteSingleIdentifier(self::TABLE)), [self::ROW]);
         } catch (TableNotFoundException) {
             $row = false;
         }
 
-        return ['stateKey' => $row['state_key'] ?? null, 'startedAt' => $row['migration_started_at'] ?? null];
+        return [
+            'stateKey' => $row['state_key'] ?? null,
+            'startedAt' => $row['migration_started_at'] ?? null,
+            'revision' => (int) ($row['schema_revision'] ?? 0),
+        ];
+    }
+
+    /** The schema revision: how many migrations changed stored schemas. */
+    public function revision(): int {
+        return $this->read()['revision'];
     }
 
     /**
