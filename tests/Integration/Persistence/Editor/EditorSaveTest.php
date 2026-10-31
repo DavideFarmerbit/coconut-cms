@@ -172,23 +172,17 @@ final class EditorSaveTest extends DynamicTestCase
         self::assertSame('', $loaded->get('name'), 'Following the default: it follows the new one.');
     }
 
-    public function testADefaultPathFollowsARenameOfItsFirstFieldOnly(): void {
+    public function testADefaultSetThroughAnEmbedFollowsARenameInsideIt(): void {
         $this->save(
             new CreateType('dy:sail'),
             new AddField('dy:sail', FieldDescriptor::scalar('area', ScalarType::Int, Nullability::NotNullable), new DefaultValue(10)),
             new AddField('dy:yacht', FieldDescriptor::embed('sail', 'dy:sail'), null),
         );
 
-        try {
-            $this->saveAs(new StrictPolicy(),new EditorSave(2, [new SetDefault('dy:yacht', 'sail:area', new DefaultValue(20)), new RenameField('dy:sail', 'area', 'size')]));
-            self::fail('The path inside the Embed isn\'t followed: the default would be lost.');
-        } catch (InvalidOperation $refused) {
-            self::assertStringContainsString('following a rename inside it is not built yet', $refused->getMessage());
-        }
+        $this->saveAs(new StrictPolicy(), new EditorSave(2, [new SetDefault('dy:yacht', 'sail:area', new DefaultValue(20)), new RenameField('dy:sail', 'area', 'size')]));
 
-        self::assertSame(2, $this->revision(), 'Nothing ran.');
-        $this->saveAs(new StrictPolicy(),new EditorSave(2, [new RenameField('dy:sail', 'area', 'size'), new SetDefault('dy:yacht', 'sail:size', new DefaultValue(20))]));
-        self::assertSame(20, $this->session()->newDynamic('dy:yacht')->get('sail:size'));
+        self::assertSame(20, $this->session()->newDynamic('dy:yacht')->get('sail:size'), 'Set before the rename inside the Embed, pinned under the new name.');
+        self::assertSame(10, $this->session()->newDynamic('dy:sail')->get('size'));
     }
 
     public function testACreatedTypeIsReadyWithItsFieldsAndDefaults(): void {

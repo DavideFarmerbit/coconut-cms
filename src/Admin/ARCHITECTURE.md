@@ -747,7 +747,11 @@ admin's job:
 - **The admin writes the operations.** From the objects, in an order where
   each finds what it names, the way a person would write them on the
   command line: a rename before what uses the new name, a swap of two names
-  through a temporary one, a default set after a rename inside the path it
-  goes through. A thing created then deleted sends nothing.
-- **The preview shows what will run:** the fixups, the breaks, and the
-  entries that can't move, before the admin saves.
+  through a temporary one. A thing created then deleted sends nothing.
+  Defaults set earlier follow later renames, at any depth of their path.
+- **"Save all" is one save.** Saving every open type at sign-out sends all
+  their operations in one save: saves sent in a row go stale after the
+  first.
+- **The preview shows what will run:** the fixups, the breaks, the entries
+  that can't move and the values a unique group would hold twice, before
+  the admin saves.

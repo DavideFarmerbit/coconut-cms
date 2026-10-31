@@ -7,7 +7,9 @@ use XyloIsCoding\CoconutCms\Core\Identifier;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\Fixup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 
 /**
  * What an editor save makes of the editor-created types, built operation by
@@ -175,7 +177,17 @@ final class SchemaDraft
                 ->withFields($schema->fields->retargeted($old, $renamed->identifier));
         }
 
-        $this->defaults = array_map(static fn (DefaultChange $change): DefaultChange => $change->type === $old ? $change->onType($renamed->identifier) : $change, $this->defaults);
+        // A default change on the type follows it, and so does one pinning it
+        // as the class an owned slot holds, at any depth.
+        $this->defaults = array_map(function (DefaultChange $change) use ($old, $renamed): DefaultChange {
+            $change = $change->type === $old ? $change->onType($renamed->identifier) : $change;
+            $segments = $this->walk($change->type, $change->path);
+            $last = $segments[array_key_last($segments)][3];
+
+            return $change->pins() && $change->value->value === $old && $last?->kind() === FieldKind::OwningReference
+                ? $change->pinning(new DefaultValue($renamed->identifier))
+                : $change;
+        }, $this->defaults);
     }
 
     /** Editor-created type $identifier removed, with the default changes made on it. */
@@ -187,29 +199,133 @@ final class SchemaDraft
 
     /**
      * Field $old of type $identifier renamed $new: every default change made
-     * so far through it, on the type or a subtype, starts at $new now. Default
-     * changes apply once the content moved, under the final names.
+     * so far through it starts at, or goes through, $new now, at any depth:
+     * on the type or a subtype, or on any type reaching it through an Embed,
+     * an owned object or a Collection's item. Default changes apply once the
+     * content moved, under the final names.
      */
     public function fieldRenamed(string $identifier, FieldName $old, FieldName $new): void {
+        $renames = fn (string $owner, FieldName $name): FieldName => (string) $name === (string) $old && $this->declares($owner, $identifier, $old) ? $new : $name;
         $this->defaults = array_map(
-            fn (DefaultChange $change): DefaultChange => $change->firstField() === (string) $old && $this->isA($change->type, $identifier) ? $change->startingAt((string) $new) : $change,
+            fn (DefaultChange $change): DefaultChange => $change->onPath(self::pathOf($this->walk($change->type, $change->path, $renames))),
             $this->defaults,
         );
     }
 
     /**
-     * Drops every default change made so far through field $name, on type
-     * $identifier or a subtype, but those on $kept or its subtypes: the field
-     * is removed, moved down to $kept, or retyped, so what was pinned no
-     * longer fits it.
+     * Drops every default change made so far through field $name of type
+     * $identifier, at any depth, but those reaching it on $kept or its
+     * subtypes: the field is removed, moved down to $kept, or retyped, so
+     * what was pinned no longer fits it.
      */
     public function dropDefaultChanges(string $identifier, FieldName $name, ?string $kept = null): void {
-        $this->defaults = array_values(array_filter(
-            $this->defaults,
-            fn (DefaultChange $change): bool => $change->firstField() !== (string) $name
-                || !$this->isA($change->type, $identifier)
-                || ($kept !== null && $this->isA($change->type, $kept)),
-        ));
+        $this->defaults = array_values(array_filter($this->defaults, function (DefaultChange $change) use ($identifier, $name, $kept): bool {
+            foreach ($this->walk($change->type, $change->path) as [$segment, , $owner]) {
+                if ($owner !== null && (string) $segment === (string) $name && $this->reaches($owner, $identifier, $name) && !($kept !== null && $this->isA($owner, $kept))) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
+    }
+
+    /**
+     * Whether field $name, found on $owner, is type $identifier's: $owner is
+     * $identifier or a subtype, or an ancestor holding no field of that name
+     * itself, reached where it holds an $identifier.
+     */
+    private function reaches(string $owner, string $identifier, FieldName $name): bool {
+        if (!$this->relates($owner, $identifier)) {
+            return false;
+        }
+
+        return $this->isA($owner, $identifier) || $this->tryFieldOf($owner, $name) === null;
+    }
+
+    /**
+     * Whether field $name of $owner is the one type $identifier declares: $owner
+     * is $identifier, a subtype or an ancestor of it, and holds no other
+     * field of that name. Called once $identifier's field changed, so a field
+     * $owner still finds by $name is one of its own.
+     */
+    private function declares(string $owner, string $identifier, FieldName $name): bool {
+        if (!$this->relates($owner, $identifier)) {
+            return false;
+        }
+
+        try {
+            $this->fieldOf($owner, $name);
+
+            return false;
+        } catch (InvalidOperation) {
+            return true;
+        }
+    }
+
+    /** Whether $a and $b are one chain: either is the other or extends it. False when either is gone. */
+    private function relates(string $a, string $b): bool {
+        try {
+            return $this->isA($a, $b) || $this->isA($b, $a);
+        } catch (InvalidOperation) {
+            return false;
+        }
+    }
+
+    /**
+     * Each segment of $path from type $type: the segment, the join before it,
+     * the type it's a field of (null for an index, or past what doesn't
+     * resolve), and the field it resolves to. $named gives the name a segment
+     * resolves by, on the type it's a field of: what a rename makes of it.
+     * @param (callable(string, FieldName): FieldName)|null $named
+     * @return list<array{FieldName|int, ?string, ?string, ?FieldDescriptor}>
+     */
+    private function walk(string $type, FieldPath $path, ?callable $named = null): array {
+        $segments = [];
+        $owner = $type;
+        $item = null;
+        $join = null;
+        for ($rest = $path; $rest !== null; $rest = $rest->tail()) {
+            $head = $rest->head();
+            if (is_int($head)) {
+                // A Collection's index: what follows is a field of its item.
+                $segments[] = [$head, $join, null, $item];
+                $owner = $item !== null && in_array($item->kind(), [FieldKind::Embed, FieldKind::OwningReference], true) ? $item->target() : null;
+                $item = null;
+            } else {
+                $name = $owner !== null && $named !== null ? $named($owner, $head) : $head;
+                $field = $owner === null ? null : $this->tryFieldOf($owner, $name);
+                $segments[] = [$name, $join, $owner, $field];
+                $owner = in_array($field?->kind(), [FieldKind::Embed, FieldKind::OwningReference], true) ? $field->target() : null;
+                $item = $field?->kind() === FieldKind::Collection ? $field->itemDescriptor() : null;
+            }
+
+            $join = $rest->headJoin();
+        }
+
+        return $segments;
+    }
+
+    /**
+     * The path $segments spell, as walk() gives them.
+     * @param list<array{FieldName|int, ?string, ?string, ?FieldDescriptor}> $segments
+     */
+    private static function pathOf(array $segments): FieldPath {
+        $path = '';
+        foreach ($segments as [$segment, $join]) {
+            $path .= ($join ?? '') . $segment;
+        }
+
+        return FieldPath::fromString($path);
+    }
+
+    /** Field $name of $owner, or null when $owner or the field is gone. */
+    private function tryFieldOf(string $owner, FieldName $name): ?FieldDescriptor {
+        try {
+            return $this->fieldOf($owner, $name);
+        } catch (InvalidOperation) {
+            return null;
+        }
     }
 
     /**

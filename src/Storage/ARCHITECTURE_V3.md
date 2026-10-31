@@ -1607,15 +1607,28 @@ converter giving its own step's field. The draft records them as it applies
 the operations.
 
 Default changes apply once the content moved, so the draft keeps them in
-step with what the save does after them. A field rename moves a default
-change made through it, on the type or a subtype, to the new name; a type
-rename, to the new type. A field removed, moved down or retyped drops the
-default changes made through it before: they no longer fit it. A deeper
-segment of a path, in `engine:power` the `power`, isn't followed (not built
-yet): a default set through it before a rename inside the Embed would end
-on a path the type no longer has. The save refuses it, as an
-`InvalidOperation` saying the feature is missing: set the default after
-the rename. The admin, writing the chain, puts it there.
+step with what the save does after them, at every segment of their paths.
+It walks each pending path, finding the type each segment is a field of:
+through an Embed its target, through an owned object the type the field
+declares, through a Collection's index its item's. So:
+
+- A field rename moves every default change going through the field to the
+  new name: in `engine:power`, `power` follows a rename on the engine's
+  type, `engine` one on the type holding it.
+- A type rename moves the default changes made on it to the new type, and
+  a pin naming it as the class an owned slot holds names the new one.
+- A field removed, moved down or retyped drops the default changes made
+  through it before, at any depth: they no longer fit it.
+
+A pin the walk can't follow still fails loudly, never silently: a path
+into an owned slot holding a subtype of the type the field declares, say.
+Compiling would drop a path the type no longer has, so the save refuses it
+as an `InvalidOperation`: set the default with the names the save ends
+with.
+
+This is what lets one save hold several types' operations: "Save all" at
+sign-out sends every open type's changes as one save, since saves sent in
+a row would go stale after the first.
 
 A save is one migration, whatever its length: the plan runs in memory, the
 tables change once, and each entry it touches is read and written once.

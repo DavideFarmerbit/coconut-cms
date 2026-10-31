@@ -262,16 +262,17 @@ final readonly class Migrator
 
     /**
      * Throws when a default the save pins didn't make it into $batch: its
-     * path doesn't exist once the save ran, and compiling drops it. A default
-     * path follows renames of its first field only; one going into a field
-     * the same save renames inside an Embed or an owned object isn't followed
-     * yet. Refused, never dropped silently.
+     * path doesn't exist once the save ran, and compiling drops it. The
+     * draft follows every rename along a pending default's path, so this is
+     * a safety net: a path no operation could follow, such as one into an
+     * owned slot holding a subtype of what the field declares. Refused, never
+     * dropped silently.
      */
     private static function assertPinned(SchemaDraft $draft, CompiledBatch $batch): void {
         foreach ($draft->defaultChanges() as $change) {
             if ($change->pins() && !array_key_exists((string) $change->path, ($batch->values[$change->type] ?? FieldValues::empty())->toArray())) {
                 throw new InvalidOperation(sprintf(
-                    'SetDefault(%1$s, %2$s): "%1$s" has no path "%2$s" once this save ran. A default path follows a rename of its first field only; following a rename inside it is not built yet. Save the rename first, or set the default with the new names.',
+                    'SetDefault(%1$s, %2$s): "%1$s" has no path "%2$s" once this save ran. Set the default with the names the save ends with.',
                     $change->type,
                     $change->path,
                 ));

@@ -382,6 +382,43 @@ final class SchemaOperationsTest extends TestCase
         )), 'Moved down: the boat\'s pin goes; the yacht keeps its own, and the move\'s, applied last, wins.');
     }
 
+    public function testDefaultChangesFollowRenamesAtAnyDepth(): void {
+        $described = static fn (SchemaDraft $draft): array => array_map(static fn (DefaultChange $change): string => $change->type . ' ' . $change->path . ($change->pins() ? '=' . json_encode($change->value->value) : ''), $draft->defaultChanges());
+        $sail = [
+            new CreateType('shop:sail'),
+            new AddField('shop:sail', self::int('area'), new DefaultValue(1)),
+            new AddField('shop:boat', FieldDescriptor::embed('sail', 'shop:sail'), null),
+            new AddField('shop:boat', FieldDescriptor::collection('spares', FieldDescriptor::embed('spares', 'shop:sail')), new DefaultValue(0)),
+            new AddField('shop:boat', FieldDescriptor::owningReference('builder', 'shop:maker', Nullability::Nullable), new DefaultValue(null)),
+        ];
+
+        self::assertSame(
+            ['shop:boat sail:size=5', 'shop:boat spares.0:size=3', 'shop:yacht builder.label="Acme"'],
+            array_slice($described($this->draftWithYacht(
+                ...$sail,
+                ...[
+                    new SetDefault('shop:boat', 'sail:area', new DefaultValue(5)),
+                    new SetDefault('shop:boat', 'spares.0:area', new DefaultValue(3)),
+                    new SetDefault('shop:yacht', 'builder.title', new DefaultValue('Acme')),
+                    new RenameField('shop:sail', 'area', 'size'),
+                    new RenameField('shop:maker', 'title', 'label'),
+                ],
+            )), -3),
+            'Through an Embed, a Collection\'s item and an owned object.',
+        );
+
+        self::assertSame([], array_values(array_filter($described($this->draftWithYacht(
+            ...$sail,
+            ...[new SetDefault('shop:boat', 'sail:area', new DefaultValue(5)), new RemoveField('shop:sail', 'area')],
+        )), static fn (string $change): bool => str_contains($change, 'sail:'))), 'Removed deep in the path: the pin goes.');
+
+        $pinned = $described($this->draftWithYacht(
+            ...$sail,
+            ...[new SetDefault('shop:boat', 'builder', new DefaultValue('shop:maker')), new RenameType('shop:maker', 'shop:builder')],
+        ));
+        self::assertSame('shop:boat builder="shop:builder"', end($pinned), 'The class an owned slot pins follows its type\'s rename.');
+    }
+
     public function testAConverterMustFitTheFieldChange(): void {
         $this->assertRefused(
             'NumberToText converts a Scalar of int, float or decimal into a Scalar of string or text: it doesn\'t fit field "title" of "shop:maker".',
