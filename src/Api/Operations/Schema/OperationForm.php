@@ -12,6 +12,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\ConversionRegist
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\InvalidParameters;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\DefaultValue;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\AddField;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CopyValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CreateType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefault;
@@ -71,10 +72,11 @@ final readonly class OperationForm
             'addField' => ['type', 'field', 'default', 'initializer'],
             'removeField', 'makeRequired' => ['type', 'field'],
             'moveField' => ['type', 'field', 'to', 'default', 'initializer'],
+            'copyValues' => ['type', 'from', 'to'],
             'retypeField' => ['type', 'field', 'converter', 'default'],
             'setDefault' => ['type', 'path', 'value'],
             'inheritDefault' => ['type', 'path'],
-            default => throw InvalidInput::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, deleteType, reparent, addField, removeField, renameField, moveField, makeRequired, retypeField, setDefault, inheritDefault.', $op)),
+            default => throw InvalidInput::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, deleteType, reparent, addField, removeField, renameField, moveField, copyValues, makeRequired, retypeField, setDefault, inheritDefault.', $op)),
         };
         Json::onlyKeys($data, ['op', ...$keys], $path);
         $string = static fn (string $key): string => Json::string($data, $key, $path);
@@ -108,6 +110,7 @@ final readonly class OperationForm
                 isset($data['initializer']) ? $this->initializer($data['initializer'], "$path.initializer") : null,
             ),
             'removeField' => new RemoveField($string('type'), $string('field')),
+            'copyValues' => new CopyValues($string('type'), $string('from'), $string('to')),
             'renameField' => new RenameField($string('type'), $string('old'), $string('new')),
             'moveField' => new MoveField(
                 $string('type'),
@@ -188,6 +191,7 @@ final readonly class OperationForm
                 + self::defaultForm('default', $operation->default)
                 + ($operation->initializer === null ? [] : ['initializer' => $this->conversionForm($operation->initializer)]),
             $operation instanceof RemoveField => ['op' => 'removeField', 'type' => $operation->type, 'field' => (string) $operation->field],
+            $operation instanceof CopyValues => ['op' => 'copyValues', 'type' => $operation->type, 'from' => (string) $operation->from, 'to' => (string) $operation->to],
             $operation instanceof RenameField => ['op' => 'renameField', 'type' => $operation->type, 'old' => (string) $operation->old, 'new' => (string) $operation->new],
             $operation instanceof MoveField => ['op' => 'moveField', 'type' => $operation->type, 'field' => (string) $operation->field, 'to' => $operation->to]
                 + self::defaultForm('default', $operation->default)

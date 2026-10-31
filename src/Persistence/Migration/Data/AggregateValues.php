@@ -135,6 +135,33 @@ final class AggregateValues
     }
 
     /**
+     * Everything at $from and under it copied to $to, replacing whatever was
+     * there; $from keeps it all. Each copy is converted, so it's compared with
+     * $to's default like a converter's output. An owned object copied is
+     * another one: it gets new ids, so References keep pointing at the one
+     * left at $from. A default instance is left as it is: a copy changes
+     * entries, never what a type sets itself.
+     */
+    public function copy(FieldPath $from, FieldPath $to): void {
+        if ($this->own !== null || (string) $from === (string) $to) {
+            return;
+        }
+
+        // Keeps whatever joins the rest on: "name" copies to "title", "price:amount" to "cost:amount".
+        $copied = [];
+        foreach ($this->values as $key => $value) {
+            if (self::isAtOrUnder((string) $key, (string) $from)) {
+                $copied[(string) $to . substr((string) $key, strlen((string) $from))] = $value;
+            }
+        }
+
+        $this->removeAt($to);
+        foreach ($copied as $key => $value) {
+            $this->set(FieldPath::fromString((string) $key), $value, ValueMark::Converted);
+        }
+    }
+
+    /**
      * The values rooted at $root, as an initializer sees them: every value for
      * the aggregate's root itself, when $root is null.
      */

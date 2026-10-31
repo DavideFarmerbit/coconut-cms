@@ -18,6 +18,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EntriesFailToMove;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\InvalidOperation;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\AddField;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CopyValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CreateType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefault;
@@ -245,6 +246,36 @@ final class EditorSaveTest extends DynamicTestCase
 
         self::assertArrayNotHasKey('flag', $this->defaultsOf('dy:yacht'));
         self::assertSame('Sea', $this->session()->loadDynamic($yacht)->get('name'));
+    }
+
+    public function testCopiedValuesFillAFieldAndTheSourceKeepsThem(): void {
+        $named = $this->store('dy:yacht', ['name' => 'Sea']);
+        $unnamed = $this->store('dy:yacht', ['cabins' => 2]);
+
+        $report = $this->save(
+            new AddField('dy:yacht', FieldDescriptor::scalar('title', ScalarType::String, Nullability::NotNullable), new DefaultValue('')),
+            new CopyValues('dy:yacht', 'name', 'title'),
+        );
+
+        self::assertSame(['AddField(dy:yacht, title)', 'CopyValues(dy:yacht, name → title)'], $report->fixups);
+        self::assertSame(['Sea', 'Sea'], [$this->session()->loadDynamic($named)->get('title'), $this->session()->loadDynamic($named)->get('name')]);
+        self::assertSame('Yacht', $this->session()->loadDynamic($unnamed)->get('title'), 'Following the name\'s default, copied and pinned.');
+        self::assertSame('', $this->defaultsOf('dy:yacht')['title'], 'A copy changes entries, never the type\'s defaults.');
+    }
+
+    public function testACopyNeedsFieldsHoldingTheSameThing(): void {
+        foreach ([
+            ['hold different things', new CopyValues('dy:yacht', 'cabins', 'name')],
+            ['holds owned objects', new CopyValues('dy:yacht', 'dinghy', 'motor')],
+        ] as [$message, $operation]) {
+            try {
+                $this->save($operation);
+                self::fail($message);
+            } catch (InvalidOperation $refused) {
+                self::assertStringContainsString($message, $refused->getMessage());
+                self::assertSame(0, $refused->index);
+            }
+        }
     }
 
     public function testARenamedTypeKeepsItsEntities(): void {

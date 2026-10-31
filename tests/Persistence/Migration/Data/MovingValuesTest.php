@@ -19,6 +19,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\DropField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\DropType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MakeNotNullable;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\Fixup;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\CopyValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MoveValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\RenameType;
@@ -276,6 +277,31 @@ final class MovingValuesTest extends TestCase
 
         self::assertSame(['engine' => ['test:turbo_engine', 'Touched'], 'engine.boost' => [9, 'Touched'], 'spares' => [1, 'Touched']], self::valuesOf($car));
         self::assertSame(['engine' => 'spare-id'], $car->ownedIds());
+    }
+
+    public function testCopyingValuesAcrossAnOwnedBoundaryMakesAnotherObject(): void {
+        $plan = self::plan(self::types(self::carFields()), self::types(self::carFields()), new CopyValues('test:car', 'spares.0', 'engine'));
+        $car = self::aggregate(['spares' => 1, 'spares.0' => 'test:turbo_engine', 'spares.0.boost' => 9], [], ['spares.0' => 'spare-id', 'engine' => 'engine-id']);
+
+        $plan->moveValues($car);
+
+        self::assertSame([
+            'engine' => ['test:turbo_engine', 'Converted'],
+            'engine.boost' => [9, 'Converted'],
+            'spares' => [1, 'Touched'],
+            'spares.0' => ['test:turbo_engine', 'Touched'],
+            'spares.0.boost' => [9, 'Touched'],
+        ], self::valuesOf($car), 'The spare stays; the engine is a copy of it.');
+        self::assertSame(['spares.0' => 'spare-id'], $car->ownedIds(), 'The copy gets a new id when written: References keep the spare.');
+    }
+
+    public function testCopyingPinsAValueThatFollowedItsDefault(): void {
+        $plan = self::plan(self::types(self::carFields()), self::types(self::carFields()), new CopyValues('test:car', 'price', 'chassis:weight'));
+        $car = self::aggregate([], ['price' => 90, 'chassis:weight' => 1200]);
+
+        $plan->moveValues($car);
+
+        self::assertSame(['chassis:weight' => [90, 'Converted'], 'price' => [90, 'Untouched']], self::valuesOf($car));
     }
 
     public function testRenamingATypeRenamesEverySlotHoldingItAndTheRoot(): void {

@@ -104,9 +104,14 @@ final class SchemaDraft
 
     /** Throws unless type $identifier or one of its ancestors has a field $name. */
     public function assertHasField(string $identifier, FieldName $name): void {
+        $this->fieldOf($identifier, $name);
+    }
+
+    /** Field $name of type $identifier: its own, or an ancestor's. */
+    public function fieldOf(string $identifier, FieldName $name): FieldDescriptor {
         for ($level = $identifier; $level !== null; $level = $this->schema($level)->parent) {
             if ($this->schema($level)->fields->has($name)) {
-                return;
+                return $this->schema($level)->fields->get($name);
             }
         }
 

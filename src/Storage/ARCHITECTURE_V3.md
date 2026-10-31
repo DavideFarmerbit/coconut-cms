@@ -1473,7 +1473,7 @@ few real entries, since the content is right there.
 | Replace a type | `ReplaceType` | The type replacing it, then initializers and converters field by field. |
 | Delete a type | `DropType` | Nothing; it confirms. |
 | Change the parent | `Reparent` | What the fields gained get, as for adding. |
-| Copy values between fields | `MoveValues` | The field to take them from. |
+| Copy values between fields | `CopyValues` | The field to take them from. |
 | Add a unique group | `AddUniqueGroup` | Nothing; refused, listing duplicates, if content breaks it. |
 
 An operation says everything about its change. The save holds no type
@@ -1522,11 +1522,20 @@ the code's. A type the save creates has no entries, so only what exists
 moves: a field moved down into one is dropped from the type it leaves, and
 one moved up out of one is added to the existing ancestor.
 
+`CopyValues(type, from, to)` gives every entry of an editor-created type, in
+field `to`, what it holds in field `from`, as the `CopyValues` fixup does.
+Both are the type's fields, its own or inherited, and hold the same thing
+but for nullability; a null copied into a required field is caught by the
+dry pass, entry by entry. Fields only for now: no path into an Embed or an
+owned object, and no owned object copied (not built yet). It's how a value
+survives a field removed, or a level a reparent loses: copy it first.
+
 `Reparent(type, parent, initializer)` moves an editor-created type under
 another parent, as the `Reparent` fixup does: an editor-created type, a
 native one that's `editorExtensible`, or none. A level it gains is filled
 with its defaults, or by the level initializer. A level it loses takes its
-values with it: to keep one, copy it to another field first. A type can't
+values with it: to keep one, copy it to another field first, with
+`CopyValues`. A type can't
 move under itself or one of its own descendants: one check, walking the new
 parent's chain. A field of the type clashing with one the new ancestors
 declare is refused; one in a subtype is a break. A type the save creates
@@ -1792,7 +1801,16 @@ The common fixups are shorthands:
   Data only: the schema changes it goes with are declared next to it. Both
   paths must exist when it runs, like any name a fixup gives: a field it
   moves into is added before it, with `AddField` or `RenameField`. Past an
-  owned slot, a field of any type extending the target counts.
+  owned slot, a field of any type extending the target counts. An owned
+  object moved keeps its identity, so a Reference to it keeps working; a
+  value following its default keeps following, the new path's.
+- `CopyValues(type, from, to)`: values copied between any two paths, the
+  same way, `from` keeping them. Each copy is pinned, a value following
+  `from`'s default included, and compared with `to`'s default like a
+  converter's output: "every entry's `title` is its `name`". An owned object
+  copied is another one, with new ids: References keep pointing at the one
+  left at `from`. A type's own defaults never change: a copy fills entries.
+  Restructuring owned objects that may be referenced takes `MoveValues`.
 - `RetypeField::converting(type, field, converter)`: a retype always has a
   converter, even where the old and new stored forms look alike. Nothing
   converts from one type to another implicitly.
