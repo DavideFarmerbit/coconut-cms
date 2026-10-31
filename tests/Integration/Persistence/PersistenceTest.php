@@ -44,6 +44,10 @@ final class PersistenceV1Module implements Module
         return [];
     }
 
+    public function validators(): array {
+        return [];
+    }
+
     public function adminCode(): ?AdminCode {
         return null;
     }
@@ -69,6 +73,10 @@ final class PersistenceV2Module implements Module
     }
 
     public function converters(): array {
+        return [];
+    }
+
+    public function validators(): array {
         return [];
     }
 

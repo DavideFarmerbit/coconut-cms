@@ -58,6 +58,11 @@ final readonly class CoreModule implements Module
         ];
     }
 
+    /** None yet: the built-in rules come next. */
+    public function validators(): array {
+        return [];
+    }
+
     /** None: the admin's own tools are part of the admin. */
     public function adminCode(): ?AdminCode {
         return null;

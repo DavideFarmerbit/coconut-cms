@@ -41,6 +41,15 @@ interface Module
      */
     public function converters(): array;
 
+    /**
+     * Every validator rule it offers editor-created types: FieldValidatorRule
+     * and PrototypeValidatorRule classes, named by #[FieldRule] or
+     * #[PrototypeRule]. One its classes use is found through them and needs
+     * no entry.
+     * @return list<class-string>
+     */
+    public function validators(): array;
+
     /** Its admin code, which `npm run build:admin` builds or copies into the admin; null for none. */
     public function adminCode(): ?AdminCode;
 }

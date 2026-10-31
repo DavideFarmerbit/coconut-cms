@@ -2337,6 +2337,17 @@ names the kind: `#[ValueObjectType('shop:money')]`, `#[EnumType('shop:color')]`,
 A class registered by a module reads the same attribute, so it has one
 identifier however it gets registered.
 
+A module also lists, in `validators()`, rules it offers editor-created types
+that its classes don't use. They're registered with the found ones, on every
+request, and kept in the same cache: a stored editor-created type that uses
+one can't be read without it. The editor offers every registered rule, found
+or listed (not built yet).
+
+A rule that's only found, never listed, stays registered only while some
+class uses it. If the code stops using it, an editor-created type that
+still uses it can't be read. Listing it in `validators()` keeps it. Value
+objects and enums have the same limit.
+
 ### When a request may read and write
 
 Every request checks, once, on its first `status()`, `load()`, `save()` or

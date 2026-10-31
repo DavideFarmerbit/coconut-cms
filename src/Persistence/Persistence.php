@@ -32,6 +32,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeRegistrations;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\EntitySchemaCodec;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
@@ -184,7 +185,7 @@ final class Persistence
      */
     public function migrate(): MigrationResult {
         $blueprints = NativeEntityReader::readAll($this->allClasses());
-        $classes = NativeRegistrations::classesOf($blueprints);
+        $classes = $this->registrationsOf($blueprints);
         $this->register($classes);
 
         $result = (new Migrator($this->connection, $this->registry, $this->schemas, $this->values, $this->policy))->migrate($blueprints, $this->steps());
@@ -201,7 +202,7 @@ final class Persistence
      */
     public function check(): MigrationReport {
         $blueprints = NativeEntityReader::readAll($this->allClasses());
-        $this->register(NativeRegistrations::classesOf($blueprints));
+        $this->register($this->registrationsOf($blueprints));
 
         return (new Migrator($this->connection, $this->registry, $this->schemas, $this->values, $this->policy))->check($blueprints, $this->steps());
     }
@@ -216,7 +217,7 @@ final class Persistence
     public function saveSchemas(EditorSave $save, Actor $actor): EditorSaveReport {
         $this->assertSchemaEditor($actor);
         $blueprints = NativeEntityReader::readAll($this->allClasses());
-        $this->register(NativeRegistrations::classesOf($blueprints));
+        $this->register($this->registrationsOf($blueprints));
 
         return (new Migrator($this->connection, $this->registry, $this->schemas, $this->values, $this->policy))->saveEditor($blueprints, $this->steps(), $save);
     }
@@ -228,7 +229,7 @@ final class Persistence
     public function previewSchemas(EditorSave $save, Actor $actor): EditorSaveReport {
         $this->assertSchemaEditor($actor);
         $blueprints = NativeEntityReader::readAll($this->allClasses());
-        $this->register(NativeRegistrations::classesOf($blueprints));
+        $this->register($this->registrationsOf($blueprints));
 
         return (new Migrator($this->connection, $this->registry, $this->schemas, $this->values, $this->policy))->previewEditor($blueprints, $this->steps(), $save);
     }
@@ -247,7 +248,7 @@ final class Persistence
      */
     public function conversions(): ConversionRegistry {
         if ($this->conversions === null) {
-            $this->register(NativeRegistrations::classesOf(NativeEntityReader::readAll($this->allClasses())));
+            $this->register($this->registrationsOf(NativeEntityReader::readAll($this->allClasses())));
             $this->conversions = new ConversionRegistry($this->enums);
             foreach ($this->modules as $module) {
                 foreach ($module->converters() as $class) {
@@ -296,7 +297,7 @@ final class Persistence
         }
 
         $blueprints = NativeEntityReader::readAll($this->allClasses());
-        $classes = NativeRegistrations::classesOf($blueprints);
+        $classes = $this->registrationsOf($blueprints);
         $this->register($classes);
 
         $batch = (new SchemaCompiler($this->registry, $this->values, $this->schemas))->compute($blueprints);
@@ -343,6 +344,16 @@ final class Persistence
         }
 
         NativeRegistrations::registerAll($new, $this->valueObjects, $this->enums, $this->fieldValidators, $this->prototypeValidators);
+    }
+
+    /**
+     * The classes to register for $blueprints: the ones they use, and every
+     * validator rule the modules list.
+     * @param array<string, EntityBlueprint> $blueprints
+     * @return array{valueObjects: list<class-string>, enums: list<class-string>, fieldValidators: list<class-string>, prototypeValidators: list<class-string>}
+     */
+    private function registrationsOf(array $blueprints): array {
+        return NativeRegistrations::classesOf($blueprints, array_merge(...array_map(static fn (Module $module): array => $module->validators(), $this->modules)));
     }
 
     /** Every module's steps, each recorded under its module's name, core's first. */

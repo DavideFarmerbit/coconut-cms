@@ -259,6 +259,10 @@ final class ValidationModule implements Module
         return [];
     }
 
+    public function validators(): array {
+        return [];
+    }
+
     public function adminCode(): ?AdminCode {
         return null;
     }

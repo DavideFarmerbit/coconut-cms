@@ -60,6 +60,10 @@ final readonly class UqModule implements Module
         return [];
     }
 
+    public function validators(): array {
+        return [];
+    }
+
     public function adminCode(): ?AdminCode {
         return null;
     }
