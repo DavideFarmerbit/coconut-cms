@@ -10,6 +10,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CreateType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefault;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MakeRequired;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameType;
@@ -120,6 +121,7 @@ final class OperationNormalizer
             $operation instanceof AddField => $this->addField($operation),
             $operation instanceof RemoveField => $this->removeField($operation),
             $operation instanceof RenameField => $this->renameField($operation),
+            $operation instanceof MoveField => $this->moveField($operation),
             $operation instanceof MakeRequired => $this->changeField($operation->type, (string) $operation->field, $operation),
             $operation instanceof RetypeField => $this->changeField($operation->type, $operation->field->name(), $operation),
             $operation instanceof SetDefault => $this->changeDefault($operation->type, $operation->path, $operation->value),
@@ -184,6 +186,29 @@ final class OperationNormalizer
         $field->name = (string) $operation->new;
         $field->descriptor = $field->descriptor->renamed((string) $operation->new);
         $type->fields[(string) $operation->new] = $field;
+    }
+
+    /**
+     * A field moved to another type of its chain. A new field takes the
+     * move's default as its own. Moves with initializers don't fold: a field
+     * added with one, or moved more than once with one, is refused.
+     */
+    private function moveField(MoveField $operation): void {
+        $field = $this->byName[$operation->type]->fields[(string) $operation->field];
+        $this->byName[$operation->to]->takeOver($field);
+        $field->moves[] = $operation;
+        if ($field->isNew()) {
+            if ($field->initializer !== null) {
+                throw new InvalidOperation(sprintf('Field "%s" is added with an initializer in this save: save it, then move it.', $operation->field));
+            }
+
+            $field->default = $operation->default ?? $field->default;
+        }
+
+        $initializers = array_filter($field->moves, static fn (MoveField $move): bool => $move->initializer !== null);
+        if (count($field->moves) > 1 && $initializers !== []) {
+            throw new InvalidOperation(sprintf('Field "%s" moves more than once, with an initializer: save the first move, then the next.', $operation->field));
+        }
     }
 
     /** $operation changing what field $name of $type holds. */
@@ -318,15 +343,24 @@ final class OperationNormalizer
                 $operations[] = new RenameField($type->name, $old, $new);
             }
 
+            // A stored field ending on another type of its chain moves there
+            // once, from where it started; what changes it after, changes it there.
             foreach ($type->all as $field) {
-                if (!$field->isNew() && !$field->removed && !$field->holdsWhatItHeld()) {
-                    array_push($operations, ...$this->changesOf($type, $field, $field->originalDescriptor->renamed($field->name)));
+                if (!$field->isNew() && !$field->removed && $field->moved()) {
+                    $last = $field->moves[array_key_last($field->moves)];
+                    $operations[] = new MoveField($type->name, $field->name, $field->owner->name, $last->default, count($field->moves) === 1 ? $last->initializer : null);
+                }
+            }
+
+            foreach ($type->all as $field) {
+                if (!$field->isNew() && !$field->removed && !$field->holdsItsDescriptor()) {
+                    array_push($operations, ...$this->changesOf($field->owner, $field, $field->originalDescriptor->renamed($field->name)));
                 }
             }
 
             foreach ($type->all as $field) {
                 if ($field->isNew() && !$field->removed) {
-                    array_push($operations, ...$this->added($type, $field));
+                    array_push($operations, ...$this->added($field));
                 }
             }
         }
@@ -372,17 +406,30 @@ final class OperationNormalizer
     }
 
     /**
-     * A new field, as it ends up: one "add a field". One whose values a
-     * converter changed after an initializer gave them is added as it was,
-     * then changed, then given its last default.
+     * A new field, as it ends up: one "add a field", on the type it ends on.
+     * One whose values a converter changed after an initializer gave them is
+     * added as it was, then changed, then given its last default. One added
+     * to an existing type, then moved up with an initializer, is added there
+     * and moved: the type's own entries follow its default, the others get
+     * what the initializer decides.
      * @return list<SchemaOperation>
      */
-    private function added(TypeTrack $type, FieldTrack $field): array {
+    private function added(FieldTrack $field): array {
+        $type = $field->owner;
+        $lastMove = $field->moves === [] ? null : $field->moves[array_key_last($field->moves)];
+        if ($lastMove?->initializer !== null && !$field->firstOwner->isNew()) {
+            return [
+                new AddField($field->firstOwner->name, $field->descriptor, $field->addedBy->default),
+                new MoveField($field->firstOwner->name, $field->name, $type->name, $field->default, $lastMove->initializer),
+            ];
+        }
+
+        $initializer = $lastMove?->initializer ?? $field->initializer;
         $converts = array_filter($field->changes, static fn (SchemaOperation $change): bool => $change instanceof RetypeField && $change->converter !== null);
-        if ($field->initializer === null && $converts === []) {
+        if ($initializer === null && $converts === []) {
             $default = $field->descriptor->kind() === FieldKind::Embed ? null : $field->default;
 
-            return [new AddField($type->name, $field->descriptor, $default, $field->initializer)];
+            return [new AddField($type->name, $field->descriptor, $default)];
         }
 
         $added = $field->addedBy;

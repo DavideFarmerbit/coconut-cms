@@ -91,6 +91,17 @@ final class SchemaDraft
         }
     }
 
+    /** Whether type $identifier is $ancestor or extends it, now. */
+    public function isA(string $identifier, string $ancestor): bool {
+        for ($level = $identifier; $level !== null; $level = $this->schema($level)->parent) {
+            if ($level === $ancestor) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** Throws unless type $identifier or one of its ancestors has a field $name. */
     public function assertHasField(string $identifier, FieldName $name): void {
         for ($level = $identifier; $level !== null; $level = $this->schema($level)->parent) {

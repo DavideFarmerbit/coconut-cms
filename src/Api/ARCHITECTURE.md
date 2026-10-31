@@ -372,7 +372,8 @@ input:
   `createType` (`type`, `parent`), `renameType` (`old`, `new`),
   `deleteType` (`type`), `addField` (`type`, `field`, `default`,
   `initializer`), `removeField` (`type`, `field`), `renameField` (`type`,
-  `old`, `new`), `makeRequired` (`type`, `field`), `retypeField` (`type`,
+  `old`, `new`), `moveField` (`type`, `field`, `to`, `default`,
+  `initializer`), `makeRequired` (`type`, `field`), `retypeField` (`type`,
   `field`, `converter`, `default`), `setDefault` (`type`, `path`, `value`),
   `inheritDefault` (`type`, `path`). An unknown key is refused.
 - A field is described as `types.get` describes what a field holds, with

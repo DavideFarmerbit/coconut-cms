@@ -39,10 +39,19 @@ final class TypeTrack
         return $this->original === null;
     }
 
-    /** Adds $field as one of its own. */
+    /** Adds $field as one it starts with, or the save adds to it. */
     public function add(FieldTrack $field): void {
         $this->fields[$field->name] = $field;
         $this->all[] = $field;
+        $field->owner = $this;
+        $field->firstOwner = $this;
+    }
+
+    /** Takes $field over from the type declaring it now: a move up or down the chain. */
+    public function takeOver(FieldTrack $field): void {
+        unset($field->owner->fields[$field->name]);
+        $this->fields[$field->name] = $field;
+        $field->owner = $this;
     }
 
     /** A field it had when the save started, as stored. */

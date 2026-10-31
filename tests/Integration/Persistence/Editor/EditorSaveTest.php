@@ -21,6 +21,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\AddField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CreateType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefault;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameType;
@@ -176,6 +177,28 @@ final class EditorSaveTest extends DynamicTestCase
         self::assertSame(2, $dinghy->get('oars'));
         $dinghy->set('name', 'Little');
         self::assertSame('Little', $session->loadDynamic($session->save($dinghy))->get('name'));
+    }
+
+    public function testAFieldMovedUpReachesEveryEntryOfTheAncestorAndMovedDownLeavesThem(): void {
+        $this->save(
+            new CreateType('dy:schooner', 'dy:yacht'),
+            new AddField('dy:schooner', FieldDescriptor::scalar('masts', ScalarType::Int, Nullability::NotNullable), new DefaultValue(2)),
+        );
+        $schooner = $this->store('dy:schooner', ['masts' => 3]);
+        $yacht = $this->store('dy:yacht', ['cabins' => 4]);
+
+        $report = $this->saveAs(new StrictPolicy(), new EditorSave(2, [new MoveField('dy:schooner', 'masts', 'dy:yacht', new DefaultValue(0), new ConstantValue(1))]));
+
+        self::assertSame(['MoveField(masts, dy:schooner → dy:yacht, ' . ConstantValue::class . ')'], $report->fixups);
+        self::assertSame(1, $this->session()->loadDynamic($yacht)->get('masts'), 'A yacht gains it: the initializer decides.');
+        self::assertSame(3, $this->session()->loadDynamic($schooner)->get('masts'), 'A schooner keeps its own.');
+        self::assertSame(0, $this->defaultsOf('dy:yacht')['masts']);
+        self::assertSame(2, $this->defaultsOf('dy:schooner')['masts'], 'What the schooner set itself stays.');
+
+        $this->saveAs(new StrictPolicy(), new EditorSave(3, [new MoveField('dy:yacht', 'masts', 'dy:schooner', new DefaultValue(2))]));
+
+        self::assertArrayNotHasKey('masts', $this->defaultsOf('dy:yacht'));
+        self::assertSame(3, $this->session()->loadDynamic($schooner)->get('masts'));
     }
 
     public function testARenamedTypeKeepsItsEntities(): void {

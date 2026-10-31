@@ -17,6 +17,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CreateType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefault;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MakeRequired;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameType;
@@ -256,6 +257,64 @@ final class SchemaOperationsTest extends TestCase
         ], self::fixups($draft));
         self::assertSame(ScalarType::String, $draft->targets()['shop:boat']->fields->get(FieldName::of('length'))->scalarType());
         $this->assertRefused('already holds that', new RetypeField('shop:boat', self::int('length')));
+    }
+
+    /** The draft with a stored yacht under the boat, holding cabins. */
+    private function draftWithYacht(SchemaOperation ...$operations): SchemaDraft {
+        $draft = new SchemaDraft(
+            ['shop:vehicle' => self::schema('shop:vehicle', ['name' => self::text('name')], editorExtensible: true)],
+            [
+                'shop:boat' => self::schema('shop:boat', ['length' => self::int('length')], parent: 'shop:vehicle', editorExtensible: true),
+                'shop:yacht' => self::schema('shop:yacht', ['cabins' => self::int('cabins')], parent: 'shop:boat', editorExtensible: true),
+                'shop:maker' => self::schema('shop:maker', ['title' => self::text('title')], editorExtensible: true),
+            ],
+        );
+        foreach ($operations as $operation) {
+            $operation->applyTo($draft);
+        }
+
+        return $draft;
+    }
+
+    public function testAFieldMovesUpOrDownItsChain(): void {
+        $up = $this->draftWithYacht(new MoveField('shop:yacht', 'cabins', 'shop:boat', new DefaultValue(0), new TwelveInitializer()));
+        self::assertSame([sprintf('MoveField(cabins, shop:yacht → shop:boat, %s)', TwelveInitializer::class)], self::fixups($up));
+        self::assertTrue($up->targets()['shop:boat']->fields->has(FieldName::of('cabins')));
+        self::assertFalse($up->targets()['shop:yacht']->fields->has(FieldName::of('cabins')));
+        self::assertSame(['shop:boat'], array_map(static fn (DefaultChange $change): string => $change->type, $up->defaultChanges()), 'The type declaring it now takes the default.');
+
+        $down = $this->draftWithYacht(new MoveField('shop:boat', 'length', 'shop:yacht', new DefaultValue(5)));
+        self::assertSame(['MoveField(length, shop:boat → shop:yacht)'], self::fixups($down));
+    }
+
+    public function testAMoveInvolvingANewTypeMovesOnlyWhatExists(): void {
+        $intoNew = $this->draftWithYacht(new CreateType('shop:dinghy', 'shop:boat'), new MoveField('shop:boat', 'length', 'shop:dinghy', new DefaultValue(2)));
+        self::assertSame(['DropField(shop:boat, length)'], self::fixups($intoNew), 'Only the boat\'s entries existed: they lose it.');
+
+        $outOfNew = $this->draftWithYacht(
+            new CreateType('shop:dinghy', 'shop:boat'),
+            new AddField('shop:dinghy', self::int('oars'), new DefaultValue(2)),
+            new MoveField('shop:dinghy', 'oars', 'shop:boat', new DefaultValue(0), new TwelveInitializer()),
+        );
+        self::assertSame([sprintf('AddField(shop:boat, oars, %s)', TwelveInitializer::class)], self::fixups($outOfNew), 'Every existing boat gains it.');
+    }
+
+    public function testAMoveStaysOnItsChainAndAmongEditorTypes(): void {
+        $refusals = [
+            ['aren\'t one chain', new MoveField('shop:boat', 'length', 'shop:maker', new DefaultValue(0))],
+            ['nobody gains it', new MoveField('shop:boat', 'length', 'shop:yacht', new DefaultValue(0), new TwelveInitializer())],
+            ['is a native type', new MoveField('shop:boat', 'length', 'shop:vehicle', new DefaultValue(0))],
+            ['needs a default', new MoveField('shop:yacht', 'cabins', 'shop:boat', null)],
+            ['has no field "name" of its own', new MoveField('shop:yacht', 'name', 'shop:boat', new DefaultValue(''))],
+        ];
+        foreach ($refusals as [$message, $operation]) {
+            try {
+                $this->draftWithYacht($operation);
+                self::fail($message);
+            } catch (InvalidOperation $refused) {
+                self::assertStringContainsString($message, $refused->getMessage());
+            }
+        }
     }
 
     public function testAConverterMustFitTheFieldChange(): void {

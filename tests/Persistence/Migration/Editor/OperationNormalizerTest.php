@@ -10,7 +10,9 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\AddField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CreateType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefault;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\ConstantValue;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MakeRequired;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameType;
@@ -124,6 +126,49 @@ final class OperationNormalizerTest extends TestCase
         self::assertSame(
             ['RenameType(shop:maker → shop:builder)', 'RenameType(shop:boat → shop:maker)'],
             self::described(new RenameType('shop:maker', 'shop:builder'), new RenameType('shop:boat', 'shop:maker')),
+        );
+    }
+
+    /** @return list<string> $operations normalized over the boat with a stored yacht under it, holding cabins, described. */
+    private static function withYacht(SchemaOperation ...$operations): array {
+        $normalized = (new OperationNormalizer(
+            ['shop:vehicle' => self::schema('shop:vehicle', ['name' => self::text('name')])],
+            [
+                'shop:boat' => self::schema('shop:boat', ['length' => self::int('length')], 'shop:vehicle'),
+                'shop:yacht' => self::schema('shop:yacht', ['cabins' => self::int('cabins')], 'shop:boat'),
+            ],
+            [],
+        ))->normalize(array_values($operations));
+
+        return array_map(static fn (SchemaOperation $operation): string => $operation->describe(), $normalized);
+    }
+
+    public function testAFieldMovedSeveralTimesMovesOnceFromWhereItWas(): void {
+        self::assertSame([], self::withYacht(new MoveField('shop:yacht', 'cabins', 'shop:boat', new DefaultValue(0)), new MoveField('shop:boat', 'cabins', 'shop:yacht', new DefaultValue(0))));
+        self::assertSame(
+            ['RenameField(shop:yacht, cabins → berths)', 'MoveField(berths, shop:yacht → shop:boat)', 'RetypeField(shop:boat, berths, reset)'],
+            self::withYacht(
+                new MoveField('shop:yacht', 'cabins', 'shop:boat', new DefaultValue(0)),
+                new RenameField('shop:boat', 'cabins', 'berths'),
+                new RetypeField('shop:boat', self::text('berths'), default: new DefaultValue('')),
+            ),
+        );
+    }
+
+    public function testAFieldAddedThenMovedIsAddedWhereItEnds(): void {
+        self::assertSame(['AddField(shop:boat, masts)'], self::withYacht(
+            new AddField('shop:yacht', self::int('masts'), new DefaultValue(1)),
+            new MoveField('shop:yacht', 'masts', 'shop:boat', new DefaultValue(2)),
+        ));
+    }
+
+    public function testMovesWithInitializersDontFold(): void {
+        $this->expectException(InvalidOperation::class);
+        $this->expectExceptionMessage('moves more than once, with an initializer');
+
+        self::withYacht(
+            new MoveField('shop:boat', 'length', 'shop:yacht', new DefaultValue(0)),
+            new MoveField('shop:yacht', 'length', 'shop:boat', new DefaultValue(0), new ConstantValue(4)),
         );
     }
 

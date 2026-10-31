@@ -1510,6 +1510,18 @@ fields', set by path. A missing one is an `InvalidOperation`. The editor
 fills in a default the admin can change, as it does when editing an
 entity.
 
+`MoveField(type, field, to, default, initializer)` moves an editor-created
+type's own field to another editor-created type of its chain, as the
+`MoveField` fixup does. Moved up, every entry of `to` gains it: the type's
+own entries keep their values, the others get the default, or what the
+initializer decides. Moved down, entries no longer of a type declaring it
+lose their values, and nothing takes an initializer. Either way `to`
+declares it now, so the save gives its default, as for `AddField`. What the
+old type set itself stays its own. A native type never takes part: it's
+the code's. A type the save creates has no entries, so only what exists
+moves: a field moved down into one is dropped from the type it leaves, and
+one moved up out of one is added to the existing ancestor.
+
 The server normalizes the list before planning, so nothing the admin
 undid touches the database. The editor keeps every action for undo, and
 shows the normalized list, from a preview, as what the save will run:
@@ -1537,9 +1549,15 @@ operations, and gives what's left. Normalizing:
 - A field the save adds, then retyped with a converter, stays an "add a
   field" and the retype after it: the converter changes what the
   initializer gave.
+- An existing field moved several times is one move, from the type it
+  started on to the one it ends on; moved back, none. What changes it
+  after, changes it there. A field the save adds, then moves, is added
+  where it ends. Moves with initializers don't fold: a field moved more
+  than once with one, or added with one and then moved, is refused, asking
+  to save the first step.
 - What's left is ordered so each operation finds what it names: deletes,
   type renames, new types (parents first), then each type's removed,
-  renamed, changed and added fields, then default changes. A rename waits
+  renamed, moved, changed and added fields, then default changes. A rename waits
   until its new name is free. Two names swapped in a cycle can't be
   ordered: the save is refused, asking to save one rename first.
 
