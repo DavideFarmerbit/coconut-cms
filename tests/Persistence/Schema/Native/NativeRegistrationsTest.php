@@ -5,7 +5,8 @@ namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Native;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Core\Identifier;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\StoredAs;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\EnumType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\ValueObjectType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
@@ -21,7 +22,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeRegistrations;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
 
-#[StoredAs('shop:money')]
+#[ValueObjectType('shop:money')]
 final readonly class RegistrationsMoney implements StorableValue
 {
     public function __construct(public string $stored = '0 EUR') {
@@ -43,6 +44,12 @@ final readonly class RegistrationsMoney implements StorableValue
 enum RegistrationsFuelType: string
 {
     case Petrol = 'petrol';
+}
+
+#[EnumType('shop:color')]
+enum RegistrationsColor: string
+{
+    case Red = 'red';
 }
 
 #[Entity]
@@ -67,6 +74,7 @@ final class NativeRegistrationsTest extends TestCase
     public function testAClassIsStoredAsItsAttributeSaysOrByItsShortName(): void {
         self::assertSame('shop:money', (string) NativeIdentifiers::storedAs(RegistrationsMoney::class));
         self::assertSame('default:registrations_fuel_type', (string) NativeIdentifiers::storedAs(RegistrationsFuelType::class));
+        self::assertSame('shop:color', (string) NativeIdentifiers::storedAs(RegistrationsColor::class));
     }
 
     public function testEveryClassTheFieldsUseIsFoundOnceAndRegistered(): void {

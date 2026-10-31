@@ -3,10 +3,11 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Native;
 
 use InvalidArgumentException;
+use ReflectionAttribute;
 use ReflectionClass;
 use XyloIsCoding\CoconutCms\Core\Identifier;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\StoredAs;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\NamesStoredClass;
 
 /**
  * The identifier a native entity class is stored under: the one its #[Entity]
@@ -48,13 +49,13 @@ final class NativeIdentifiers
 
     /**
      * The identifier a value object, enum or validator rule class is stored
-     * under: the one its #[StoredAs] declares, or "default:" and its short
-     * name, snake-cased.
+     * under: the one its #[ValueObjectType], #[EnumType], #[FieldRule] or
+     * #[PrototypeRule] declares, or "default:" and its short name, snake-cased.
      * @param class-string $class
      */
     public static function storedAs(string $class): Identifier {
         $reflection = new ReflectionClass($class);
-        $attributes = $reflection->getAttributes(StoredAs::class);
+        $attributes = $reflection->getAttributes(NamesStoredClass::class, ReflectionAttribute::IS_INSTANCEOF);
 
         return $attributes === []
             ? Identifier::of(self::DEFAULT_NAMESPACE, self::snakeCase($reflection->getShortName()))

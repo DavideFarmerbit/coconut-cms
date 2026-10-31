@@ -2330,8 +2330,12 @@ of schemas.
 
 The value objects, enums and validator rules a module's classes use are found
 through their fields and validators, never listed. Each is registered under
-the identifier its `#[StoredAs]` declares, or `default:` and its short class
-name, snake-cased: the same rule as an `#[Entity]` identifier.
+the identifier its own attribute declares, or `default:` and its short class
+name, snake-cased: the same rule as an `#[Entity]` identifier. The attribute
+names the kind: `#[ValueObjectType('shop:money')]`, `#[EnumType('shop:color')]`,
+`#[FieldRule('shop:max-length')]`, `#[PrototypeRule('shop:dates-in-order')]`.
+A class registered by a module reads the same attribute, so it has one
+identifier however it gets registered.
 
 ### When a request may read and write
 
