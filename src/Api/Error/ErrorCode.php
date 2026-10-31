@@ -17,6 +17,10 @@ enum ErrorCode: string
     case SignInFailed = 'sign_in_failed';
     case TooManyRequests = 'too_many_requests';
     case CsrfFailed = 'csrf_failed';
+    /** A schema save built on types that changed since. */
+    case StaleRevision = 'stale_revision';
+    /** A schema save refused before it changed anything. */
+    case SchemaSaveRefused = 'schema_save_refused';
 
     /** The HTTP status an HTTP call answers with. */
     public function httpStatus(): int {
@@ -25,7 +29,8 @@ enum ErrorCode: string
             self::SignInFailed => 401,
             self::PermissionDenied, self::CsrfFailed => 403,
             self::NotFound => 404,
-            self::ValidationFailed => 422,
+            self::StaleRevision => 409,
+            self::ValidationFailed, self::SchemaSaveRefused => 422,
             self::TooManyRequests => 429,
             self::Unavailable => 503,
             self::Internal => 500,
@@ -44,6 +49,8 @@ enum ErrorCode: string
             self::SignInFailed => 7,
             self::TooManyRequests => 8,
             self::CsrfFailed => 9,
+            self::StaleRevision => 10,
+            self::SchemaSaveRefused => 11,
         };
     }
 }

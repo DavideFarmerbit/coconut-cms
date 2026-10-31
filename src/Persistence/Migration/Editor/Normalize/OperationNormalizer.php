@@ -72,8 +72,12 @@ final class OperationNormalizer
      */
     public function normalize(array $operations): array {
         $check = new SchemaDraft($this->native, $this->editor);
-        foreach ($operations as $operation) {
-            $operation->applyTo($check);
+        foreach ($operations as $index => $operation) {
+            try {
+                $operation->applyTo($check);
+            } catch (InvalidOperation $refused) {
+                throw InvalidOperation::at($index, $refused);
+            }
         }
 
         $this->start();

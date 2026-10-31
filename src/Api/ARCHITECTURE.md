@@ -8,8 +8,9 @@ Built: the operations core (registry, input reader, result writer, errors,
 HTTP and command-line transports), the read operations (`types.list`,
 `types.get`, `entities.get`, `entities.query`), and the write operations
 for native types (`entities.create`, `entities.update`, `entities.delete`),
-and authentication (sign-in operations, CSRF, `--as`). Not built yet:
-writing editor-created entities, API tokens. Each is noted inline.
+changing editor-created types (`schema.preview`, `schema.save`), and
+authentication (sign-in operations, CSRF, `--as`). Not built yet: listing
+the converters a field change can use, API tokens. Each is noted inline.
 
 Scope:
 
@@ -17,6 +18,7 @@ Scope:
   one contract for every transport.
 - **Generic entity access:** reading and writing any entity's values by its
   schema, native or editor-created.
+- **Changing types:** saving an admin's changes to editor-created types.
 - **Authentication:** how a request or a command becomes an `Actor`.
 
 - **Mounting:** how a project serves the API, and the command line.
@@ -123,12 +125,15 @@ Every transport reports a failure the same way:
 | Thrown | Code | HTTP | Exit | Details |
 |---|---|---|---|---|
 | `InvalidInput` | `invalid_input` | 400 | 2 | `errors`: a message per path |
+| `InvalidOperation` | `invalid_input` | 400 | 2 | `errors`: the message at `operations.N`, the operation as sent |
 | `SignInFailed` | `sign_in_failed` | 401 | 7 | none: one message, whatever was wrong |
 | `PermissionDenied` | `permission_denied` | 403 | 3 | `type`, `action`, `paths` |
-| `Forbidden` | `permission_denied` | 403 | 3 | none: the operation refuses its caller outright |
+| `Forbidden`, `SchemaEditingDenied` | `permission_denied` | 403 | 3 | none: the operation refuses its caller outright |
 | `CsrfRejected` | `csrf_failed` | 403 | 9 | none: reload the page for a new token |
 | `NotFound` | `not_found` | 404 | 4 | `kind` and `key`: what's missing |
+| `StaleSchemaRevision` | `stale_revision` | 409 | 10 | `sent`, `current`: the revisions |
 | `ValidationFailed` | `validation_failed` | 422 | 5 | `type`, `errors`: messages by path, for a form |
+| `SchemaSaveRefused` | `schema_save_refused` | 422 | 11 | `reason`, then `blocked`, `breaks` or `failures` |
 | `TooManyAttempts` | `too_many_requests` | 429 | 8 | none |
 | `PersistenceUnavailable` | `unavailable` | 503 | 6 | `reason`: `migration_pending` or `migration_unfinished` |
 | anything else | `internal` | 500 | 1 | the message only in debug mode |
@@ -341,6 +346,63 @@ alike. Each change goes to the level declaring its field:
 `afterEdit()` on the native view gets every path changed, the bag's
 included, so a native rule can react to editor fields. A type with no
 native ancestor runs no hook; editor-defined rules may come with scripting.
+
+## Changing types
+
+`coconut-cms:schema.save` saves an admin's changes to editor-created types,
+as a migration (see the storage document, "Editor saves are migrations").
+`coconut-cms:schema.preview` takes the same input and changes nothing. Both
+need the schema-editor role the project names at `Persistence::boot()`. The
+input:
+
+```json
+{"revision": 3, "acceptBreaks": false, "operations": [
+  {"op": "renameField", "type": "shop:boat", "old": "length", "new": "size"},
+  {"op": "addField", "type": "shop:boat",
+   "field": {"name": "masts", "kind": "scalar", "scalarType": "int", "nullable": false},
+   "default": 1,
+   "initializer": {"kind": "coconut-cms:constant", "value": 2}}
+]}
+```
+
+- `revision` is the one `types.list` gave. A save on another one is
+  refused with `stale_revision`.
+- `operations` are the admin's operations, in the order made, undone ones
+  included: the server normalizes them. `op` names each one:
+  `createType` (`type`, `parent`), `renameType` (`old`, `new`),
+  `deleteType` (`type`), `addField` (`type`, `field`, `default`,
+  `initializer`), `removeField` (`type`, `field`), `renameField` (`type`,
+  `old`, `new`), `makeRequired` (`type`, `field`), `retypeField` (`type`,
+  `field`, `converter`, `default`), `setDefault` (`type`, `path`, `value`),
+  `inheritDefault` (`type`, `path`). An unknown key is refused.
+- A field is described as `types.get` describes what a field holds, with
+  its `name`. An enum Scalar names its enum by identifier, `"enum":
+  "shop:color"`; a value object, its `target`, the same way. A
+  Collection's `item` has no name.
+- A default is in stored form, as `entities.update` writes values. No
+  `default` key gives none; `"default": null` pins null.
+- A converter or initializer is `{"kind": <identifier>, ...its
+  parameters}`. Modules register them (see the storage document); the
+  built-ins are `coconut-cms:constant` (`value`), `coconut-cms:copy`
+  (`path`), `coconut-cms:number-to-text`, `coconut-cms:text-to-number`
+  (`to`, `onFailure`), `coconut-cms:text-to-enum` (`enum`, `onFailure`),
+  `coconut-cms:date-to-date-time`.
+- `acceptBreaks` says the admin saw the breaks the preview listed.
+
+Each error names its path: `operations.2.field.kind`. An operation that
+can't apply where it stands is refused at `operations.N`.
+
+Both answer the same report: `revision` (the new one, once saved),
+`operations` (normalized, in the same form: what runs), `fixups`
+(described), `breaks` (`type`, `description`, `setAside`: the fixup, or
+null when blocked), `blocked`, `failures` (why each entry can't move, by
+its id), and `moved`. A save the policy blocks, with breaks not accepted,
+or with entries that can't move is refused with `schema_save_refused`:
+`reason` is `blocked`, `breaks_not_accepted` or `entries_fail`, beside the
+same lists.
+
+Listing the converters and initializers registered, and which fit a field
+change, is not built yet: the schema editor needs it.
 
 ## Authentication
 

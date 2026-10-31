@@ -266,6 +266,13 @@ final class Persistence
         return $this->enums;
     }
 
+    /** The value objects the modules' classes use, by identifier: what a field the editor adds names one by. */
+    public function valueObjects(): ValueObjectRegistry {
+        $this->conversions();
+
+        return $this->valueObjects;
+    }
+
     /** Throws unless status() says Ready. */
     private function assertReady(): void {
         match ($this->status()) {

@@ -9,6 +9,8 @@ export const ErrorCode = {
     TooManyRequests: 'too_many_requests',
     Unavailable: 'unavailable',
     Internal: 'internal',
+    StaleRevision: 'stale_revision',
+    SchemaSaveRefused: 'schema_save_refused',
 } as const;
 
 /** One of ErrorCode's values. */

@@ -1601,12 +1601,15 @@ What's stored is every editor-created schema after every fixup and
 set-aside, with the defaults the operations set, compiled again the way a
 native migration compiles editor-created types.
 
-Saving type changes is a right of its own (decided, not built): it changes
-the shape of everything stored for those types, and blocks the site while
-it runs. The project names one schema-editor role at boot; only a user
-holding it, or the system actor, may save. Reading types stays each type's
-own read permission. Permissions per type, who may change which types, may
-come later; a save works the same either way.
+Saving type changes is a right of its own: it changes the shape of
+everything stored for those types, and blocks the site while it runs. The
+project names one schema-editor role at boot, `Persistence::boot(...,
+schemaEditorRole: 'admin')`. `saveSchemas()` and `previewSchemas()` take
+the actor, and refuse one without that role with `SchemaEditingDenied`.
+The preview needs it too: it lists entries by id. With no role named, only
+the system actor may save. Reading types stays each type's own read
+permission. Permissions per type, who may change which types, may come
+later; a save works the same either way.
 
 The editor changes editor-created types only. Native types are the code's:
 the editor may extend one that's `editorExtensible`, never rename, retype
@@ -1632,8 +1635,21 @@ value.
 
 Not built yet: number to text with a format, one value to a Collection and
 back (the first item, or joined), one Reference to a Collection of them.
-Any converter or initializer registered in code is offered where it fits
-(not built yet).
+
+A save picks a converter or initializer by identifier. Modules register
+them: `Module::converters()` lists the classes, each a `FieldConverter`
+marked `#[Converter('shop:euro-price')]` or a `FieldInitializer` marked
+`#[Initializer('...')]`. The core module registers the built-ins, as
+`coconut-cms:constant`, `coconut-cms:copy`, `coconut-cms:number-to-text`,
+`coconut-cms:text-to-number`, `coconut-cms:text-to-enum` and
+`coconut-cms:date-to-date-time`. `ConversionRegistry` builds one from the
+parameters a save gives, by its constructor's parameter names, and writes
+one back the same way. So each parameter is a public property of the same
+name, and takes a string, int, float, bool, mixed value or backed enum. A
+parameter holding an enum class is marked `#[RegisteredEnum]`: a save names
+the enum by its registered identifier. A converter used only by a code step
+needs no registration. Offering the ones that fit a field change in the
+editor is not built yet.
 
 An editor-created identifier is "namespace:key". The editor uses the
 namespace the admin gives, or `default`, the same as a native class. A save
