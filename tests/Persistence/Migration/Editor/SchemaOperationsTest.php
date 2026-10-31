@@ -18,6 +18,9 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefault;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MakeRequired;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MoveField;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\Reparent;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\LevelInitializer;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\MigratingValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameType;
@@ -45,6 +48,13 @@ final readonly class TwelveInitializer implements FieldInitializer
 
     public function initialize(Values $values): Conversion {
         return Conversion::of(12);
+    }
+}
+
+/** Fills nothing: what a test's Reparent names. */
+final readonly class NothingToFill implements LevelInitializer
+{
+    public function initialize(MigratingValues $values): void {
     }
 }
 
@@ -262,7 +272,10 @@ final class SchemaOperationsTest extends TestCase
     /** The draft with a stored yacht under the boat, holding cabins. */
     private function draftWithYacht(SchemaOperation ...$operations): SchemaDraft {
         $draft = new SchemaDraft(
-            ['shop:vehicle' => self::schema('shop:vehicle', ['name' => self::text('name')], editorExtensible: true)],
+            [
+                'shop:vehicle' => self::schema('shop:vehicle', ['name' => self::text('name')], editorExtensible: true),
+                'shop:engine' => self::schema('shop:engine', ['power' => self::int('power')]),
+            ],
             [
                 'shop:boat' => self::schema('shop:boat', ['length' => self::int('length')], parent: 'shop:vehicle', editorExtensible: true),
                 'shop:yacht' => self::schema('shop:yacht', ['cabins' => self::int('cabins')], parent: 'shop:boat', editorExtensible: true),
@@ -315,6 +328,36 @@ final class SchemaOperationsTest extends TestCase
                 self::assertStringContainsString($message, $refused->getMessage());
             }
         }
+    }
+
+    public function testATypeMovesUnderAnotherParent(): void {
+        $draft = $this->draftWithYacht(new Reparent('shop:yacht', 'shop:maker', new NothingToFill()));
+        self::assertSame([sprintf('Reparent(shop:yacht, %s)', NothingToFill::class)], self::fixups($draft));
+        self::assertSame('shop:maker', $draft->targets()['shop:yacht']->parent);
+
+        self::assertSame(['Reparent(shop:yacht)'], self::fixups($this->draftWithYacht(new Reparent('shop:yacht', null))));
+        self::assertSame([], self::fixups($this->draftWithYacht(new CreateType('shop:dinghy', 'shop:boat'), new Reparent('shop:dinghy', 'shop:maker'))), 'A new type only changes its definition.');
+    }
+
+    public function testAReparentNeverLoopsAndRespectsNativeTypes(): void {
+        $refusals = [
+            ['can\'t extend itself', new Reparent('shop:boat', 'shop:yacht')],
+            ['can\'t extend itself', new Reparent('shop:boat', 'shop:boat')],
+            ['extends "shop:boat" already', new Reparent('shop:yacht', 'shop:boat')],
+            ['doesn\'t allow editor-created subtypes', new Reparent('shop:yacht', 'shop:engine')],
+            ['is a native type', new Reparent('shop:vehicle', null)],
+        ];
+        foreach ($refusals as [$message, $operation]) {
+            try {
+                $this->draftWithYacht($operation);
+                self::fail($message);
+            } catch (InvalidOperation $refused) {
+                self::assertStringContainsString($message, $refused->getMessage());
+            }
+        }
+
+        $this->expectExceptionMessage('already has a field "cabins"');
+        $this->draftWithYacht(new CreateType('shop:cabin'), new AddField('shop:cabin', self::int('cabins'), new DefaultValue(1)), new Reparent('shop:yacht', 'shop:cabin'));
     }
 
     public function testAConverterMustFitTheFieldChange(): void {

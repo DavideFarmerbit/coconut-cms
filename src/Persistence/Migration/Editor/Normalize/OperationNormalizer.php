@@ -12,6 +12,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefau
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MakeRequired;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\Reparent;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RetypeField;
@@ -86,7 +87,7 @@ final class OperationNormalizer
             $this->replay($operation);
         }
 
-        return [...$this->deletes(), ...$this->typeRenames(), ...$this->creates(), ...$this->fieldChanges(), ...$this->defaultChanges()];
+        return [...$this->deletes(), ...$this->typeRenames(), ...$this->creates(), ...$this->reparents(), ...$this->fieldChanges(), ...$this->defaultChanges()];
     }
 
     /** Follows every stored editor-created type and its own fields. */
@@ -109,6 +110,8 @@ final class OperationNormalizer
             if (is_string($type->parent)) {
                 $type->parent = $this->byName[$type->parent] ?? $type->parent;
             }
+
+            $type->originalParent = $type->parent;
         }
     }
 
@@ -118,6 +121,7 @@ final class OperationNormalizer
             $operation instanceof CreateType => $this->create($operation),
             $operation instanceof RenameType => $this->renameType($operation),
             $operation instanceof DeleteType => $this->delete($operation),
+            $operation instanceof Reparent => $this->reparent($operation),
             $operation instanceof AddField => $this->addField($operation),
             $operation instanceof RemoveField => $this->removeField($operation),
             $operation instanceof RenameField => $this->renameField($operation),
@@ -186,6 +190,22 @@ final class OperationNormalizer
         $field->name = (string) $operation->new;
         $field->descriptor = $field->descriptor->renamed((string) $operation->new);
         $type->fields[(string) $operation->new] = $field;
+    }
+
+    /**
+     * A type moved under another parent. Reparents with initializers don't
+     * fold: a type reparented more than once, one with an initializer, is
+     * refused.
+     */
+    private function reparent(Reparent $operation): void {
+        $type = $this->byName[$operation->type];
+        $type->parent = $operation->parent === null ? null : ($this->byName[$operation->parent] ?? $operation->parent);
+        $type->reparents[] = $operation;
+
+        $initializers = array_filter($type->reparents, static fn (Reparent $each): bool => $each->initializer !== null);
+        if (count($type->reparents) > 1 && $initializers !== []) {
+            throw new InvalidOperation(sprintf('Type "%s" moves under another parent more than once, with an initializer: save the first move, then the next.', $operation->type));
+        }
     }
 
     /**
@@ -307,6 +327,23 @@ final class OperationNormalizer
                 $operations[] = new CreateType($type->name, $type->parentName());
                 $done[spl_object_id($type)] = true;
                 unset($left[$index]);
+            }
+        }
+
+        return $operations;
+    }
+
+    /**
+     * Every stored type ending under another parent: one move, from where it
+     * started. After the new types, which may be its parent; before the
+     * fields, whose moves follow the final chains.
+     * @return list<SchemaOperation>
+     */
+    private function reparents(): array {
+        $operations = [];
+        foreach ($this->types as $type) {
+            if (!$type->deleted && $type->reparented()) {
+                $operations[] = new Reparent($type->name, $type->parentName(), count($type->reparents) === 1 ? $type->reparents[0]->initializer : null);
             }
         }
 

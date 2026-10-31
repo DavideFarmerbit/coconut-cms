@@ -370,7 +370,8 @@ input:
 - `operations` are the admin's operations, in the order made, undone ones
   included: the server normalizes them. `op` names each one:
   `createType` (`type`, `parent`), `renameType` (`old`, `new`),
-  `deleteType` (`type`), `addField` (`type`, `field`, `default`,
+  `deleteType` (`type`), `reparent` (`type`, `parent`, `initializer`: a
+  level initializer), `addField` (`type`, `field`, `default`,
   `initializer`), `removeField` (`type`, `field`), `renameField` (`type`,
   `old`, `new`), `moveField` (`type`, `field`, `to`, `default`,
   `initializer`), `makeRequired` (`type`, `field`), `retypeField` (`type`,
@@ -404,9 +405,12 @@ or with entries that can't move is refused with `schema_save_refused`:
 same lists.
 
 `coconut-cms:schema.conversions` lists the converters and initializers the
-modules register, for the editor to offer. Each gives its `kind` (the
-identifier to send), `from` (the fields a converter takes; null for an
-initializer), `to` (the fields it gives or fills), and `parameters`: each
+modules register, for the editor to offer, in three groups: `converters`
+for a retype, `initializers` for a field added or moved up, and
+`levelInitializers` for a reparent. Each gives its `kind` (the identifier
+to send), `from` (the fields a converter takes; null otherwise), `to` (the
+fields it gives or fills; null for a level initializer), and `parameters`:
+each
 one's `name`, `type` (`string`, `int`, `float`, `bool`, `mixed`, `enum`
 with its `choices`, or `registered_enum`), `nullable`, `optional` and
 `default`. A signature has the keys `types.get` describes a field with,
@@ -417,7 +421,8 @@ operation to. The input may give `from` and
 `to`, what a field holds now and will hold, as `types.get` describes it,
 without a name. Then only what fits is listed: with `from`, converters
 taking it and giving `to`; with `to` alone, converters giving it and
-initializers filling it.
+initializers filling it. Level initializers are listed only when neither
+is given.
 
 ## Authentication
 

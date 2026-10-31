@@ -1522,6 +1522,16 @@ the code's. A type the save creates has no entries, so only what exists
 moves: a field moved down into one is dropped from the type it leaves, and
 one moved up out of one is added to the existing ancestor.
 
+`Reparent(type, parent, initializer)` moves an editor-created type under
+another parent, as the `Reparent` fixup does: an editor-created type, a
+native one that's `editorExtensible`, or none. A level it gains is filled
+with its defaults, or by the level initializer. A level it loses takes its
+values with it: to keep one, copy it to another field first. A type can't
+move under itself or one of its own descendants: one check, walking the new
+parent's chain. A field of the type clashing with one the new ancestors
+declare is refused; one in a subtype is a break. A type the save creates
+only changes its definition.
+
 The server normalizes the list before planning, so nothing the admin
 undid touches the database. The editor keeps every action for undo, and
 shows the normalized list, from a preview, as what the save will run:
@@ -1555,9 +1565,13 @@ operations, and gives what's left. Normalizing:
   where it ends. Moves with initializers don't fold: a field moved more
   than once with one, or added with one and then moved, is refused, asking
   to save the first step.
+- A stored type reparented several times is one reparent, to the parent it
+  ends under; back under its first parent, none. A new type is created
+  under the parent it ends under. Reparents with initializers don't fold,
+  the same as moves.
 - What's left is ordered so each operation finds what it names: deletes,
-  type renames, new types (parents first), then each type's removed,
-  renamed, moved, changed and added fields, then default changes. A rename waits
+  type renames, new types (parents first), reparents, then each type's
+  removed, renamed, moved, changed and added fields, then default changes. A rename waits
   until its new name is free. Two names swapped in a cycle can't be
   ordered: the save is refused, asking to save one rename first.
 
@@ -1658,8 +1672,10 @@ back (the first item, or joined), one Reference to a Collection of them.
 
 A save picks a converter or initializer by identifier. Modules register
 them: `Module::converters()` lists the classes, each a `FieldConverter`
-marked `#[Converter('shop:euro-price')]` or a `FieldInitializer` marked
-`#[Initializer('...')]`. The core module registers the built-ins, as
+marked `#[Converter('shop:euro-price')]`, or a `FieldInitializer` or a
+`LevelInitializer` marked `#[Initializer('...')]`: the interface says which.
+A level initializer has no signature: it's written for the types it fills,
+so the editor offers it for any reparent. The core module registers the built-ins, as
 `coconut-cms:constant`, `coconut-cms:copy`, `coconut-cms:number-to-text`,
 `coconut-cms:text-to-number`, `coconut-cms:text-to-enum` and
 `coconut-cms:date-to-date-time`. `ConversionRegistry` builds one from the

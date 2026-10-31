@@ -165,6 +165,7 @@ final class SchemaApiTest extends DynamicTestCase
 
         [, $body] = $this->post('coconut-cms:schema.conversions', []);
         self::assertCount(4, $body['result']['converters']);
+        self::assertSame([], $body['result']['levelInitializers'], 'No module registers one here.');
     }
 
     public function testOnlyTheSchemaEditorRoleChangesTypes(): void {

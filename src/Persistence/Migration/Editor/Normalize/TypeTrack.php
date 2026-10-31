@@ -2,6 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Normalize;
 
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\Reparent;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 
 /**
@@ -22,6 +23,12 @@ final class TypeTrack
 
     /** @var list<FieldTrack> Every field it had or got, in the order they appeared. */
     public array $all = [];
+
+    /** Its parent when the save started, followed; null for a type the save creates, or one with none. */
+    public TypeTrack|string|null $originalParent = null;
+
+    /** @var list<Reparent> Every move under another parent, in order. */
+    public array $reparents = [];
 
     /**
      * @param string|null $original Its identifier when the save started; null for one the save creates.
@@ -57,6 +64,11 @@ final class TypeTrack
     /** A field it had when the save started, as stored. */
     public function addOriginal(FieldDescriptor $descriptor): void {
         $this->add(new FieldTrack($descriptor->name(), $descriptor, $descriptor->name(), $descriptor));
+    }
+
+    /** Whether a stored type ends under another parent than it started under. */
+    public function reparented(): bool {
+        return !$this->isNew() && $this->parent !== $this->originalParent;
     }
 
     /** Its parent's identifier now: an editor-created parent under its name now. */

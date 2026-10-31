@@ -22,6 +22,10 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CreateType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefault;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MoveField;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\Reparent;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\LevelInitializer;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\MigratingValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameType;
@@ -43,6 +47,14 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Dynamic\DynamicModule;
 use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Dynamic\DynamicTestCase;
+
+/** Flags every yacht moving under a vessel: what a test's Reparent fills the vessel's level with. */
+final readonly class FlagOfYachts implements LevelInitializer
+{
+    public function initialize(MigratingValues $values): void {
+        $values->set('flag', Conversion::of('yacht'));
+    }
+}
 
 /**
  * Editor saves, run as migrations over the dynamic tests' types: a yacht
@@ -199,6 +211,28 @@ final class EditorSaveTest extends DynamicTestCase
 
         self::assertArrayNotHasKey('masts', $this->defaultsOf('dy:yacht'));
         self::assertSame(3, $this->session()->loadDynamic($schooner)->get('masts'));
+    }
+
+    public function testAReparentedTypeFillsTheLevelsItGainsAndLosesTheOnesItLeaves(): void {
+        $this->save(
+            new CreateType('dy:vessel', 'dy:craft'),
+            new AddField('dy:vessel', FieldDescriptor::scalar('flag', ScalarType::String, Nullability::NotNullable), new DefaultValue('none')),
+        );
+        $yacht = $this->store('dy:yacht', ['name' => 'Sea', 'cabins' => 4]);
+
+        $report = $this->saveAs(new StrictPolicy(), new EditorSave(2, [new Reparent('dy:yacht', 'dy:vessel', new FlagOfYachts())]));
+
+        self::assertSame(['Reparent(dy:yacht, ' . FlagOfYachts::class . ')'], $report->fixups);
+        $loaded = $this->session()->loadDynamic($yacht);
+        self::assertSame('yacht', $loaded->get('flag'), 'The level gained, filled by the initializer.');
+        self::assertSame('Sea', $loaded->get('name'), 'The levels kept keep their values.');
+        self::assertSame(4, $loaded->get('cabins'));
+        self::assertSame('none', $this->defaultsOf('dy:yacht')['flag'], 'A new yacht follows the vessel.');
+
+        $this->saveAs(new StrictPolicy(), new EditorSave(3, [new Reparent('dy:yacht', 'dy:craft')]));
+
+        self::assertArrayNotHasKey('flag', $this->defaultsOf('dy:yacht'));
+        self::assertSame('Sea', $this->session()->loadDynamic($yacht)->get('name'));
     }
 
     public function testARenamedTypeKeepsItsEntities(): void {

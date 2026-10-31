@@ -13,6 +13,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefau
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\ConstantValue;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MakeRequired;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MoveField;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\Reparent;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameType;
@@ -160,6 +161,16 @@ final class OperationNormalizerTest extends TestCase
             new AddField('shop:yacht', self::int('masts'), new DefaultValue(1)),
             new MoveField('shop:yacht', 'masts', 'shop:boat', new DefaultValue(2)),
         ));
+    }
+
+    public function testATypeReparentedSeveralTimesMovesOnce(): void {
+        self::assertSame(['Reparent(shop:yacht under shop:vehicle)'], self::withYacht(new Reparent('shop:yacht', null), new Reparent('shop:yacht', 'shop:vehicle')));
+        self::assertSame([], self::withYacht(new Reparent('shop:yacht', null), new Reparent('shop:yacht', 'shop:boat')));
+        self::assertSame(
+            ['CreateType(shop:dinghy extends shop:vehicle)'],
+            self::withYacht(new CreateType('shop:dinghy', 'shop:boat'), new Reparent('shop:dinghy', 'shop:vehicle')),
+            'A new type is created where it ends.',
+        );
     }
 
     public function testMovesWithInitializersDontFold(): void {

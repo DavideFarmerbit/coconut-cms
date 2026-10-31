@@ -8,12 +8,14 @@ use XyloIsCoding\CoconutCms\Api\Operation\OperationResult;
 final readonly class ConversionList implements OperationResult
 {
     /**
-     * @param list<ConversionDescription> $converters
-     * @param list<ConversionDescription> $initializers
+     * @param list<ConversionDescription> $converters For a retype.
+     * @param list<ConversionDescription> $initializers For a field added or moved up.
+     * @param list<ConversionDescription> $levelInitializers For the levels a reparent gains.
      */
     public function __construct(
         public array $converters,
         public array $initializers,
+        public array $levelInitializers,
     ) {
     }
 }

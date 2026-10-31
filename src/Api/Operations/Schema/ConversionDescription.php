@@ -10,13 +10,13 @@ final readonly class ConversionDescription
 {
     /**
      * @param array<string, mixed>|null $from The fields a converter takes, as SignatureForm writes them; null for an initializer.
-     * @param array<string, mixed> $to The fields it gives, or fills.
+     * @param array<string, mixed>|null $to The fields it gives, or fills; null for a level initializer.
      * @param list<ParameterDescription> $parameters
      */
     public function __construct(
         public string $kind,
         public ?array $from,
-        public array $to,
+        public ?array $to,
         public array $parameters,
     ) {
     }

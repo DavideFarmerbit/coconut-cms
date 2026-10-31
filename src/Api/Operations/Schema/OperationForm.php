@@ -7,6 +7,7 @@ use LogicException;
 use XyloIsCoding\CoconutCms\Api\Error\InvalidInput;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldInitializer;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\LevelInitializer;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\ConversionRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\InvalidParameters;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\DefaultValue;
@@ -19,6 +20,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameType;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\Reparent;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RetypeField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetDefault;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaOperation;
@@ -65,13 +67,14 @@ final readonly class OperationForm
             'createType' => ['type', 'parent'],
             'renameType', 'renameField' => $op === 'renameType' ? ['old', 'new'] : ['type', 'old', 'new'],
             'deleteType' => ['type'],
+            'reparent' => ['type', 'parent', 'initializer'],
             'addField' => ['type', 'field', 'default', 'initializer'],
             'removeField', 'makeRequired' => ['type', 'field'],
             'moveField' => ['type', 'field', 'to', 'default', 'initializer'],
             'retypeField' => ['type', 'field', 'converter', 'default'],
             'setDefault' => ['type', 'path', 'value'],
             'inheritDefault' => ['type', 'path'],
-            default => throw InvalidInput::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, deleteType, addField, removeField, renameField, moveField, makeRequired, retypeField, setDefault, inheritDefault.', $op)),
+            default => throw InvalidInput::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, deleteType, reparent, addField, removeField, renameField, moveField, makeRequired, retypeField, setDefault, inheritDefault.', $op)),
         };
         Json::onlyKeys($data, ['op', ...$keys], $path);
         $string = static fn (string $key): string => Json::string($data, $key, $path);
@@ -93,6 +96,11 @@ final readonly class OperationForm
             'createType' => new CreateType($string('type'), Json::optionalString($data, 'parent', $path)),
             'renameType' => new RenameType($string('old'), $string('new')),
             'deleteType' => new DeleteType($string('type')),
+            'reparent' => new Reparent(
+                $string('type'),
+                Json::optionalString($data, 'parent', $path),
+                isset($data['initializer']) ? $this->levelInitializer($data['initializer'], "$path.initializer") : null,
+            ),
             'addField' => new AddField(
                 $string('type'),
                 $this->fields->read($data['field'] ?? null, "$path.field"),
@@ -147,6 +155,15 @@ final readonly class OperationForm
         }
     }
 
+    private function levelInitializer(mixed $data, string $path): LevelInitializer {
+        [$identifier, $parameters] = self::conversionOf($data, $path);
+        try {
+            return $this->conversions->levelInitializer($identifier, $parameters);
+        } catch (InvalidParameters $refused) {
+            throw InvalidInput::at(Json::at($path, $refused->parameter ?? 'kind'), $refused->getMessage());
+        }
+    }
+
     /** @return array{string, array<string, mixed>} The identifier $data names in "kind", and its other keys. */
     private static function conversionOf(mixed $data, string $path): array {
         $data = Json::object($data, $path);
@@ -165,6 +182,8 @@ final readonly class OperationForm
             $operation instanceof CreateType => ['op' => 'createType', 'type' => $operation->type, 'parent' => $operation->parent],
             $operation instanceof RenameType => ['op' => 'renameType', 'old' => $operation->old, 'new' => $operation->new],
             $operation instanceof DeleteType => ['op' => 'deleteType', 'type' => $operation->type],
+            $operation instanceof Reparent => ['op' => 'reparent', 'type' => $operation->type, 'parent' => $operation->parent]
+                + ($operation->initializer === null ? [] : ['initializer' => $this->conversionForm($operation->initializer)]),
             $operation instanceof AddField => ['op' => 'addField', 'type' => $operation->type, 'field' => $this->fields->write($operation->field)]
                 + self::defaultForm('default', $operation->default)
                 + ($operation->initializer === null ? [] : ['initializer' => $this->conversionForm($operation->initializer)]),
@@ -189,7 +208,7 @@ final readonly class OperationForm
     }
 
     /** @return array<string, mixed> */
-    private function conversionForm(FieldConverter|FieldInitializer $conversion): array {
+    private function conversionForm(FieldConverter|FieldInitializer|LevelInitializer $conversion): array {
         [$identifier, $parameters] = $this->conversions->describe($conversion) ?? throw new LogicException(sprintf('%s is registered by no module: it has no JSON form.', $conversion::class));
 
         return ['kind' => $identifier, ...$parameters];

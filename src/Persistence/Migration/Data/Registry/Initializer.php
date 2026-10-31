@@ -5,9 +5,10 @@ namespace XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry;
 use Attribute;
 
 /**
- * Names a FieldInitializer a module registers, so an editor save can pick
- * it: `#[Initializer('shop:serial-from-power')]`. Its constructor's
- * parameters are what the save gives it, by name.
+ * Names a FieldInitializer or a LevelInitializer a module registers, so an
+ * editor save can pick it: `#[Initializer('shop:serial-from-power')]`. The
+ * interface it implements says which. Its constructor's parameters are what
+ * the save gives it, by name.
  */
 #[Attribute(Attribute::TARGET_CLASS)]
 final readonly class Initializer
