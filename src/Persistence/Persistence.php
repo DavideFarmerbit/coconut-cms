@@ -8,7 +8,11 @@ use ReflectionClass;
 use XyloIsCoding\CoconutCms\Persistence\Boot\CodeStateCache;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationState;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationUnfinished;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\ConversionRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\BreaksNotAccepted;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EntriesFailToMove;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaEditingDenied;
+use XyloIsCoding\CoconutCms\Persistence\Permission\SystemActor;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSave;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\InvalidOperation;
@@ -71,6 +75,9 @@ final class Persistence
     /** Every module's entity class, registered on the first session. */
     private ?NativeEntityRegistry $entityClasses = null;
 
+    /** Every module's converters and initializers, registered on first use. */
+    private ?ConversionRegistry $conversions = null;
+
     /** @param list<Module> $modules Core first. */
     private function __construct(
         private readonly Connection $connection,
@@ -78,6 +85,7 @@ final class Persistence
         private readonly MigrateOn $migrateOn,
         private readonly MigrationPolicy $policy,
         ?string $cacheDirectory,
+        private readonly ?string $schemaEditorRole,
     ) {
         $this->valueObjects = new ValueObjectRegistry();
         $this->enums = new EnumRegistry();
@@ -98,6 +106,8 @@ final class Persistence
      *        code's state in; null reads every class on each first check.
      * @param MigrationPolicy $policy Strict unless given: a looser one is
      *        always a visible line of code.
+     * @param string|null $schemaEditorRole The role an actor needs to save
+     *        changes to editor-created types; null lets only the system do it.
      */
     public static function boot(
         Connection $connection,
@@ -105,6 +115,7 @@ final class Persistence
         ?string $cacheDirectory = null,
         MigrateOn $migrateOn = MigrateOn::Command,
         MigrationPolicy $policy = new StrictPolicy(),
+        ?string $schemaEditorRole = null,
     ): self {
         $all = [new CoreModule(), ...$modules];
         $names = [];
@@ -120,7 +131,7 @@ final class Persistence
             $names[$module->name()] = $module::class;
         }
 
-        return new self($connection, $all, $migrateOn, $policy, $cacheDirectory);
+        return new self($connection, $all, $migrateOn, $policy, $cacheDirectory, $schemaEditorRole);
     }
 
     /** @return list<Module> Every module booted, in order, the core module first. */
@@ -196,24 +207,63 @@ final class Persistence
     }
 
     /**
-     * Runs an editor save: changes the editor-created types as its operations
-     * say, moving their content as a migration does, under this policy. Reads
-     * every class, never the cache. Who may save is the caller's to check.
-     * @throws StaleSchemaRevision|InvalidOperation|MigrationBlocked|BreaksNotAccepted As Migrator::saveEditor() says.
+     * Runs an editor save as $actor: changes the editor-created types as its
+     * operations say, moving their content as a migration does, under this
+     * policy. Reads every class, never the cache.
+     * @throws SchemaEditingDenied When $actor doesn't hold the schema-editor role.
+     * @throws StaleSchemaRevision|InvalidOperation|MigrationBlocked|BreaksNotAccepted|EntriesFailToMove As Migrator::saveEditor() says.
      */
-    public function saveSchemas(EditorSave $save): EditorSaveReport {
+    public function saveSchemas(EditorSave $save, Actor $actor): EditorSaveReport {
+        $this->assertSchemaEditor($actor);
         $blueprints = NativeEntityReader::readAll($this->allClasses());
         $this->register(NativeRegistrations::classesOf($blueprints));
 
         return (new Migrator($this->connection, $this->registry, $this->schemas, $this->values, $this->policy))->saveEditor($blueprints, $this->steps(), $save);
     }
 
-    /** What saveSchemas() would do with $save, found without changing anything. */
-    public function previewSchemas(EditorSave $save): EditorSaveReport {
+    /**
+     * What saveSchemas() would do with $save, found without changing
+     * anything. Takes the same right: it lists entries by id.
+     */
+    public function previewSchemas(EditorSave $save, Actor $actor): EditorSaveReport {
+        $this->assertSchemaEditor($actor);
         $blueprints = NativeEntityReader::readAll($this->allClasses());
         $this->register(NativeRegistrations::classesOf($blueprints));
 
         return (new Migrator($this->connection, $this->registry, $this->schemas, $this->values, $this->policy))->previewEditor($blueprints, $this->steps(), $save);
+    }
+
+    /** Throws unless $actor holds the schema-editor role; with none named, unless it's the system. */
+    private function assertSchemaEditor(Actor $actor): void {
+        $allowed = $this->schemaEditorRole === null ? $actor instanceof SystemActor : $actor->hasRole($this->schemaEditorRole);
+        if (!$allowed) {
+            throw new SchemaEditingDenied();
+        }
+    }
+
+    /**
+     * Every converter and initializer the modules offer editor saves, by
+     * identifier. Registers them, and the enums they may name, on first use.
+     */
+    public function conversions(): ConversionRegistry {
+        if ($this->conversions === null) {
+            $this->register(NativeRegistrations::classesOf(NativeEntityReader::readAll($this->allClasses())));
+            $this->conversions = new ConversionRegistry($this->enums);
+            foreach ($this->modules as $module) {
+                foreach ($module->converters() as $class) {
+                    $this->conversions->register($class);
+                }
+            }
+        }
+
+        return $this->conversions;
+    }
+
+    /** The enums the modules' classes use, by identifier: what a field the editor adds names one by. */
+    public function enums(): EnumRegistry {
+        $this->conversions();
+
+        return $this->enums;
     }
 
     /** Throws unless status() says Ready. */

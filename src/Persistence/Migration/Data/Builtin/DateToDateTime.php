@@ -6,6 +6,7 @@ use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Captured;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\Converter;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarValues;
 
 /**
@@ -13,6 +14,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarValues;
  * its midnight, in UTC, as a DateTime is stored. Null stays null; a value
  * following the old default follows the new one.
  */
+#[Converter('coconut-cms:date-to-date-time')]
 final readonly class DateToDateTime implements FieldConverter
 {
     public function convert(Captured $old): Conversion {

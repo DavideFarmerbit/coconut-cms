@@ -8,6 +8,8 @@ use ReflectionEnum;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Captured;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\Converter;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\RegisteredEnum;
 
 /**
  * A text field turned into an Enum one, for RetypeField: each text becomes
@@ -16,10 +18,12 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
  * says. Null stays null; a value following the old default follows the new
  * one.
  */
+#[Converter('coconut-cms:text-to-enum')]
 final readonly class TextToEnum implements FieldConverter
 {
-    /** @param class-string<BackedEnum> $enum */
+    /** @param class-string<BackedEnum> $enum Given by its registered identifier in a save. */
     public function __construct(
+        #[RegisteredEnum]
         public string $enum,
         public OnFailure $onFailure,
     ) {

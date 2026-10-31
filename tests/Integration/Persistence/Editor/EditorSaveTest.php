@@ -32,7 +32,11 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationBlocked;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\DeveloperPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\MigrationPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\StrictPolicy;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaEditingDenied;
+use XyloIsCoding\CoconutCms\Persistence\Permission\SystemActor;
 use XyloIsCoding\CoconutCms\Persistence\Persistence;
+use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Permission\PermActor;
+use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Permission\PermissionFixtures;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
@@ -52,7 +56,17 @@ final class EditorSaveTest extends DynamicTestCase
 
     /** Saves $operations at revision 1, as an admin who loaded the types once. */
     private function save(SchemaOperation ...$operations): EditorSaveReport {
-        return $this->persistence()->saveSchemas(new EditorSave(1, $operations));
+        return $this->saveAs(new StrictPolicy(), new EditorSave(1, $operations));
+    }
+
+    /** Runs $save as the system, under $policy. */
+    private function saveAs(MigrationPolicy $policy, EditorSave $save): EditorSaveReport {
+        return $this->persistence($policy)->saveSchemas($save, new SystemActor());
+    }
+
+    /** Previews $save as the system, under $policy. */
+    private function previewAs(MigrationPolicy $policy, EditorSave $save): EditorSaveReport {
+        return $this->persistence($policy)->previewSchemas($save, new SystemActor());
     }
 
     private function revision(): int {
@@ -138,14 +152,14 @@ final class EditorSaveTest extends DynamicTestCase
         );
 
         try {
-            $this->persistence()->saveSchemas(new EditorSave(2, [new SetDefault('dy:yacht', 'sail:area', new DefaultValue(20)), new RenameField('dy:sail', 'area', 'size')]));
+            $this->saveAs(new StrictPolicy(),new EditorSave(2, [new SetDefault('dy:yacht', 'sail:area', new DefaultValue(20)), new RenameField('dy:sail', 'area', 'size')]));
             self::fail('The path inside the Embed isn\'t followed: the default would be lost.');
         } catch (InvalidOperation $refused) {
             self::assertStringContainsString('following a rename inside it is not built yet', $refused->getMessage());
         }
 
         self::assertSame(2, $this->revision(), 'Nothing ran.');
-        $this->persistence()->saveSchemas(new EditorSave(2, [new RenameField('dy:sail', 'area', 'size'), new SetDefault('dy:yacht', 'sail:size', new DefaultValue(20))]));
+        $this->saveAs(new StrictPolicy(),new EditorSave(2, [new RenameField('dy:sail', 'area', 'size'), new SetDefault('dy:yacht', 'sail:size', new DefaultValue(20))]));
         self::assertSame(20, $this->session()->newDynamic('dy:yacht')->get('sail:size'));
     }
 
@@ -178,24 +192,24 @@ final class EditorSaveTest extends DynamicTestCase
         $delete = [new DeleteType('dy:buoy')];
 
         try {
-            $this->persistence()->saveSchemas(new EditorSave(2, $delete, acceptBreaks: true));
+            $this->saveAs(new StrictPolicy(),new EditorSave(2, $delete, acceptBreaks: true));
             self::fail('The strict policy blocks a break.');
         } catch (MigrationBlocked) {
         }
 
-        $preview = $this->persistence(new DeveloperPolicy())->previewSchemas(new EditorSave(2, $delete));
+        $preview = $this->previewAs(new DeveloperPolicy(),new EditorSave(2, $delete));
         self::assertSame(['mooring'], array_map(static fn (BreakResolution $each): string => (string) $each->break->field, $preview->breaks));
         self::assertFalse($preview->isBlocked());
 
         try {
-            $this->persistence(new DeveloperPolicy())->saveSchemas(new EditorSave(2, $delete));
+            $this->saveAs(new DeveloperPolicy(),new EditorSave(2, $delete));
             self::fail('A break must be accepted.');
         } catch (BreaksNotAccepted $refused) {
             self::assertCount(1, $refused->breaks);
         }
 
         self::assertSame(2, $this->revision(), 'Nothing ran.');
-        $this->persistence(new DeveloperPolicy())->saveSchemas(new EditorSave(2, $delete, acceptBreaks: true));
+        $this->saveAs(new DeveloperPolicy(),new EditorSave(2, $delete, acceptBreaks: true));
 
         self::assertSame(3, $this->revision());
         self::assertFalse($this->session()->schemas()->has('dy:buoy'));
@@ -209,12 +223,12 @@ final class EditorSaveTest extends DynamicTestCase
         $this->store('dy:buoy', ['color' => '12']);
         $retype = [new RetypeField('dy:buoy', FieldDescriptor::scalar('color', ScalarType::Int, Nullability::NotNullable), new TextToNumber(ScalarType::Int, OnFailure::Cancel))];
 
-        $preview = $this->persistence()->previewSchemas(new EditorSave(2, $retype));
+        $preview = $this->previewAs(new StrictPolicy(),new EditorSave(2, $retype));
         self::assertSame([$buoy => 'TextToNumber can\'t convert "red".'], $preview->failures);
         self::assertTrue($preview->isBlocked());
 
         try {
-            $this->persistence()->saveSchemas(new EditorSave(2, $retype));
+            $this->saveAs(new StrictPolicy(),new EditorSave(2, $retype));
             self::fail('"red" is no number.');
         } catch (EntriesFailToMove $refused) {
             self::assertSame([$buoy], array_keys($refused->failures));
@@ -225,11 +239,32 @@ final class EditorSaveTest extends DynamicTestCase
         self::assertSame('red', $this->session()->loadDynamic($buoy)->get('color'));
     }
 
+    public function testOnlyTheSchemaEditorRoleSavesOrPreviews(): void {
+        // The fixture file holds several classes: load it by its own.
+        class_exists(PermissionFixtures::class);
+        $persistence = Persistence::boot($this->connection, [new DynamicModule()], schemaEditorRole: 'architect');
+        $rename = new EditorSave(1, [new RenameType('dy:buoy', 'dy:marker')]);
+
+        foreach ([static fn () => $persistence->previewSchemas($rename, new PermActor(['editor'])), static fn () => $persistence->saveSchemas($rename, new PermActor(['editor']))] as $refused) {
+            try {
+                $refused();
+                self::fail('An editor isn\'t an architect.');
+            } catch (SchemaEditingDenied) {
+            }
+        }
+
+        $persistence->saveSchemas($rename, new PermActor(['architect']));
+        self::assertSame(2, $this->revision());
+
+        $this->expectException(SchemaEditingDenied::class);
+        $this->persistence()->previewSchemas(new EditorSave(2, []), new PermActor(['architect']));
+    }
+
     public function testASaveBuiltOnAnOldRevisionIsRefused(): void {
         $this->expectException(StaleSchemaRevision::class);
         $this->expectExceptionMessage('The types changed since revision 0; they are at revision 1 now.');
 
-        $this->persistence()->saveSchemas(new EditorSave(0, [new RenameType('dy:buoy', 'dy:marker')]));
+        $this->saveAs(new StrictPolicy(),new EditorSave(0, [new RenameType('dy:buoy', 'dy:marker')]));
     }
 
     public function testAnOperationOnANativeTypeIsRefused(): void {
@@ -239,7 +274,7 @@ final class EditorSaveTest extends DynamicTestCase
     }
 
     public function testAPreviewChangesNothing(): void {
-        $report = $this->persistence()->previewSchemas(new EditorSave(1, [new RenameField('dy:yacht', 'cabins', 'berths')]));
+        $report = $this->previewAs(new StrictPolicy(),new EditorSave(1, [new RenameField('dy:yacht', 'cabins', 'berths')]));
 
         self::assertSame(['RenameField(dy:yacht, cabins → berths)'], $report->fixups);
         self::assertSame(1, $report->revision);

@@ -50,6 +50,10 @@ final readonly class AdminTestModule implements Module
         return [];
     }
 
+    public function converters(): array {
+        return [];
+    }
+
     public function adminCode(): ?AdminCode {
         return AdminCode::source(__DIR__ . '/admin-test.ts');
     }

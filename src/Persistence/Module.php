@@ -33,6 +33,14 @@ interface Module
      */
     public function operations(): array;
 
+    /**
+     * Every converter and initializer it offers editor saves: FieldConverter
+     * classes marked #[Converter], FieldInitializer classes marked
+     * #[Initializer]. One a migration step uses only in code needs no entry.
+     * @return list<class-string>
+     */
+    public function converters(): array;
+
     /** Its admin code, which `npm run build:admin` builds or copies into the admin; null for none. */
     public function adminCode(): ?AdminCode;
 }

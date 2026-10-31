@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin;
 
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldInitializer;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\Initializer;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Values;
 
 /**
@@ -13,6 +14,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Values;
  * "engine.power" into what it owns. An entry holding nothing there follows
  * the new field's default.
  */
+#[Initializer('coconut-cms:copy')]
 final readonly class CopyOfField implements FieldInitializer
 {
     public function __construct(

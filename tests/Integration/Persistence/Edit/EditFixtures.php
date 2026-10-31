@@ -232,6 +232,10 @@ final class EditModule implements Module
         return [];
     }
 
+    public function converters(): array {
+        return [];
+    }
+
     public function adminCode(): ?AdminCode {
         return null;
     }

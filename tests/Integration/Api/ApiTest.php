@@ -132,6 +132,10 @@ final class ApiTestModule implements Module
         return [ApiTestExplode::class, ApiTestGreet::class];
     }
 
+    public function converters(): array {
+        return [];
+    }
+
     public function adminCode(): ?AdminCode {
         return null;
     }

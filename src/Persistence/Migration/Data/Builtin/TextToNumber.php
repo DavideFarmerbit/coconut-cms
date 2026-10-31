@@ -6,6 +6,7 @@ use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Captured;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\Converter;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 
 /**
@@ -14,6 +15,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
  * "1.5" for an Int, does what $onFailure says. Null stays null; a value
  * following the old default follows the new one.
  */
+#[Converter('coconut-cms:text-to-number')]
 final readonly class TextToNumber implements FieldConverter
 {
     public function __construct(

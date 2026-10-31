@@ -6,12 +6,14 @@ use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Captured;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\Converter;
 
 /**
  * An Int, Float or Decimal field turned into text, for RetypeField: 150 as
  * "150", 2.5 as "2.5", the Decimal "12.500000" as "12.5". Null stays null;
  * a value following the old default follows the new one.
  */
+#[Converter('coconut-cms:number-to-text')]
 final readonly class NumberToText implements FieldConverter
 {
     public function convert(Captured $old): Conversion {
