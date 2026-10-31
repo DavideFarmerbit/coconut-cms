@@ -37,6 +37,9 @@ final class AggregateValues
      */
     private array $setAside = [];
 
+    /** Whether a ReplaceType made the root another type: a default instance's then belongs to nobody. */
+    private bool $replaced = false;
+
     /**
      * @param string $identifier The root's concrete identifier.
      * @param array<string, mixed> $values Keyed by path.
@@ -49,6 +52,21 @@ final class AggregateValues
         private array $marks,
         private array $ownedIds,
     ) {
+    }
+
+    /**
+     * The root made a $with by a ReplaceType: an entity becomes one, keeping
+     * its id. A default instance's values then belong to no type: the
+     * replacing type keeps its own defaults.
+     */
+    public function replaceRoot(string $with): void {
+        $this->identifier = $with;
+        $this->replaced = true;
+    }
+
+    /** Whether a ReplaceType made the root another type. */
+    public function wasReplaced(): bool {
+        return $this->replaced;
     }
 
     /**

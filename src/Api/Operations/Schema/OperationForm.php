@@ -24,6 +24,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\Reparent;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\ReplaceType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RetypeField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetDefault;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaOperation;
@@ -71,6 +72,7 @@ final readonly class OperationForm
             'renameType', 'renameField' => $op === 'renameType' ? ['old', 'new'] : ['type', 'old', 'new'],
             'deleteType' => ['type'],
             'reparent' => ['type', 'parent', 'initializer'],
+            'replaceType' => ['type', 'with', 'initializers', 'converters', 'resets'],
             'addField' => ['type', 'field', 'default', 'initializer'],
             'removeField', 'makeRequired' => ['type', 'field'],
             'moveField' => ['type', 'field', 'to', 'default', 'initializer'],
@@ -79,7 +81,7 @@ final readonly class OperationForm
             'retypeField' => ['type', 'field', 'converter', 'default'],
             'setDefault' => ['type', 'path', 'value'],
             'inheritDefault' => ['type', 'path'],
-            default => throw InvalidInput::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, deleteType, reparent, addField, removeField, renameField, moveField, copyValues, makeRequired, retypeField, setDefault, inheritDefault, addUniqueGroup, removeUniqueGroup.', $op)),
+            default => throw InvalidInput::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, deleteType, reparent, replaceType, addField, removeField, renameField, moveField, copyValues, makeRequired, retypeField, setDefault, inheritDefault, addUniqueGroup, removeUniqueGroup.', $op)),
         };
         Json::onlyKeys($data, ['op', ...$keys], $path);
         $string = static fn (string $key): string => Json::string($data, $key, $path);
@@ -114,6 +116,13 @@ final readonly class OperationForm
             ),
             'removeField' => new RemoveField($string('type'), $string('field')),
             'copyValues' => new CopyValues($string('type'), $string('from'), $string('to')),
+            'replaceType' => new ReplaceType(
+                $string('type'),
+                $string('with'),
+                $this->byField($data['initializers'] ?? [], "$path.initializers", $this->initializer(...)),
+                $this->byField($data['converters'] ?? [], "$path.converters", $this->converter(...)),
+                isset($data['resets']) ? self::names($data['resets'], "$path.resets") : [],
+            ),
             'addUniqueGroup' => new AddUniqueGroup($string('type'), ...self::names($data['fields'] ?? null, "$path.fields")),
             'removeUniqueGroup' => new RemoveUniqueGroup($string('type'), ...self::names($data['fields'] ?? null, "$path.fields")),
             'renameField' => new RenameField($string('type'), $string('old'), $string('new')),
@@ -135,6 +144,22 @@ final readonly class OperationForm
             'inheritDefault' => new InheritDefault($string('type'), $string('path')),
             default => throw new LogicException(sprintf('"%s" was checked as known.', $op)),
         };
+    }
+
+    /**
+     * $data as an object keyed by field name, each value read by $read.
+     * @template T
+     * @param callable(mixed, string): T $readOne Reads one value, at its path.
+     * @return array<string, T>
+     */
+    private function byField(mixed $data, string $path, callable $readOne): array {
+        $fields = $data === [] ? [] : Json::object($data, $path);
+        $byField = [];
+        foreach ($fields as $field => $each) {
+            $byField[(string) $field] = $readOne($each, Json::at($path, (string) $field));
+        }
+
+        return $byField;
     }
 
     /**
@@ -202,6 +227,12 @@ final readonly class OperationForm
             $operation instanceof CreateType => ['op' => 'createType', 'type' => $operation->type, 'parent' => $operation->parent],
             $operation instanceof RenameType => ['op' => 'renameType', 'old' => $operation->old, 'new' => $operation->new],
             $operation instanceof DeleteType => ['op' => 'deleteType', 'type' => $operation->type],
+            $operation instanceof ReplaceType => [
+                'op' => 'replaceType', 'type' => $operation->type, 'with' => $operation->with,
+                'initializers' => (object) array_map($this->conversionForm(...), $operation->initializers),
+                'converters' => (object) array_map($this->conversionForm(...), $operation->converters),
+                'resets' => $operation->resets,
+            ],
             $operation instanceof Reparent => ['op' => 'reparent', 'type' => $operation->type, 'parent' => $operation->parent]
                 + ($operation->initializer === null ? [] : ['initializer' => $this->conversionForm($operation->initializer)]),
             $operation instanceof AddField => ['op' => 'addField', 'type' => $operation->type, 'field' => $this->fields->write($operation->field)]

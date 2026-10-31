@@ -19,6 +19,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefau
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MakeRequired;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\Reparent;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\ReplaceType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\LevelInitializer;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\MigratingValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
@@ -417,6 +418,38 @@ final class SchemaOperationsTest extends TestCase
             ...[new SetDefault('shop:boat', 'builder', new DefaultValue('shop:maker')), new RenameType('shop:maker', 'shop:builder')],
         ));
         self::assertSame('shop:boat builder="shop:builder"', end($pinned), 'The class an owned slot pins follows its type\'s rename.');
+    }
+
+    public function testATypeIsReplacedByAnother(): void {
+        $draft = $this->draftWithYacht(new ReplaceType('shop:yacht', 'shop:maker', ['title' => new TwelveInitializer()]));
+        self::assertSame(['ReplaceType(shop:yacht → shop:maker)'], self::fixups($draft));
+        self::assertArrayNotHasKey('shop:yacht', $draft->targets());
+
+        $subtype = $this->draftWithYacht(new ReplaceType('shop:boat', 'shop:yacht'));
+        self::assertSame('shop:vehicle', $subtype->targets()['shop:yacht']->parent, 'A direct subtype takes its place in the chain.');
+    }
+
+    public function testAReplacementDeclaresEveryFieldThatDiffers(): void {
+        $skiff = [new CreateType('shop:skiff', 'shop:vehicle'), new AddField('shop:skiff', self::text('length'), new DefaultValue(''))];
+        $refusals = [
+            ['give each a converter, or reset it', [...$skiff, new ReplaceType('shop:boat', 'shop:skiff')]],
+            ['nothing to convert or reset', [...$skiff, new ReplaceType('shop:boat', 'shop:skiff', resets: ['length', 'name'])]],
+            ['nothing to initialize', [new ReplaceType('shop:yacht', 'shop:maker', ['cabins' => new TwelveInitializer()])]],
+            ['only a direct subtype can take its place', [new CreateType('shop:superyacht', 'shop:yacht'), new ReplaceType('shop:boat', 'shop:superyacht')]],
+            ['doesn\'t allow editor-created subtypes', [new ReplaceType('shop:boat', 'shop:engine')]],
+            ['is a native type', [new ReplaceType('shop:vehicle', 'shop:boat')]],
+            ['can\'t replace itself', [new ReplaceType('shop:boat', 'shop:boat')]],
+        ];
+        foreach ($refusals as [$message, $operations]) {
+            try {
+                $this->draftWithYacht(...$operations);
+                self::fail($message);
+            } catch (InvalidOperation $refused) {
+                self::assertStringContainsString($message, $refused->getMessage());
+            }
+        }
+
+        self::assertSame(['ReplaceType(shop:boat → shop:skiff)'], self::fixups($this->draftWithYacht(...$skiff, ...[new ReplaceType('shop:boat', 'shop:skiff', resets: ['length'])])));
     }
 
     public function testAConverterMustFitTheFieldChange(): void {

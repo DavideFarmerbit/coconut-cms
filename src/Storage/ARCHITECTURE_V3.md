@@ -1571,6 +1571,21 @@ dry pass, entry by entry. Fields only for now: no path into an Embed or an
 owned object, and no owned object copied (not built yet). It's how a value
 survives a field removed, or a level a reparent loses: copy it first.
 
+`ReplaceType(type, with, initializers, converters, resets)` replaces an
+editor-created type, as the `ReplaceType` fixup does: every entry becomes a
+`with`, keeping its id, so References and owned slots holding it stay
+valid. `with` is any type but a deeper descendant: an editor-created one,
+or a native one, which moves the content into the code's type. That's how
+an editor type is promoted once a developer writes a class for it. A native
+type is never replaced: only the code removes one. Values follow field
+names, as the fixup says; the draft checks the declarations before
+anything is planned: every field both types hold differently has a
+converter or a reset, nothing declared is unneeded, and each converter and
+initializer fits its field. Subtypes move under `with`, which must allow
+editor-created subtypes; every field naming the old type names `with`. The
+old type's defaults go with it: `with` keeps its own, or the code's. A
+value only the old type holds goes: copy it first, with `CopyValues`.
+
 `Reparent(type, parent, initializer)` moves an editor-created type under
 another parent, as the `Reparent` fixup does: an editor-created type, a
 native one that's `editorExtensible`, or none. A level it gains is filled

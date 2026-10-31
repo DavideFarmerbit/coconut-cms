@@ -373,7 +373,9 @@ input:
   nothing (see the storage document). `op` names each one:
   `createType` (`type`, `parent`), `renameType` (`old`, `new`),
   `deleteType` (`type`), `reparent` (`type`, `parent`, `initializer`: a
-  level initializer), `addField` (`type`, `field`, `default`,
+  level initializer), `replaceType` (`type`, `with`, `initializers` and
+  `converters` by field name, `resets`: a list of field names), `addField`
+  (`type`, `field`, `default`,
   `initializer`), `removeField` (`type`, `field`), `renameField` (`type`,
   `old`, `new`), `moveField` (`type`, `field`, `to`, `default`,
   `initializer`), `copyValues` (`type`, `from`, `to`), `makeRequired`

@@ -20,6 +20,8 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\AddField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\AddUniqueGroup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CopyValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveUniqueGroup;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\ReplaceType;
+use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Dynamic\DyBoatMotor;
 use XyloIsCoding\CoconutCms\Persistence\Migration\ContentRefused;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CreateType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
@@ -315,6 +317,41 @@ final class EditorSaveTest extends DynamicTestCase
         $this->expectExceptionMessage('has no column to index');
 
         $this->save(new AddUniqueGroup('dy:yacht', 'dinghy'));
+    }
+
+    public function testAReplacedTypesEntriesKeepTheirIdsAndWhatPointsAtThem(): void {
+        $this->save(
+            new CreateType('dy:marker'),
+            new AddField('dy:marker', FieldDescriptor::scalar('color', ScalarType::String, Nullability::NotNullable), new DefaultValue('white')),
+            new AddField('dy:marker', FieldDescriptor::scalar('lit', ScalarType::Bool, Nullability::NotNullable), new DefaultValue(false)),
+            new AddField('dy:yacht', FieldDescriptor::reference('mooring', 'dy:buoy'), new DefaultValue(null)),
+        );
+        $buoy = $this->store('dy:buoy', ['color' => 'green']);
+        $yacht = $this->session()->newDynamic('dy:yacht');
+        $yacht->set('mooring', $this->session()->loadDynamic($buoy));
+        $yachtId = $this->session()->save($yacht);
+
+        $report = $this->saveAs(new StrictPolicy(), new EditorSave(2, [new ReplaceType('dy:buoy', 'dy:marker', ['lit' => new ConstantValue(true)])]));
+
+        self::assertSame(['ReplaceType(dy:buoy → dy:marker)'], $report->fixups);
+        self::assertSame('dy:marker', $this->typeOf($buoy));
+        $marker = $this->session()->loadDynamic($buoy);
+        self::assertSame(['green', true], [$marker->get('color'), $marker->get('lit')], 'A field both have keeps its value; one only the marker has, the initializer fills.');
+        self::assertSame($buoy, $this->session()->loadDynamic($yachtId)->get('mooring'), 'The Reference holds the same entity, a marker now.');
+        self::assertSame('white', $this->session()->newDynamic('dy:marker')->get('color'), 'The marker keeps its own defaults: the buoy\'s don\'t carry over.');
+        self::assertFalse($this->session()->schemas()->has('dy:buoy'));
+    }
+
+    public function testAnEditorTypeIsPromotedIntoTheCodesType(): void {
+        $craft = $this->craftWithOutboard();
+        [$motor] = $this->ownedIds($craft, 'motor');
+
+        $this->save(new ReplaceType('dy:outboard', 'dy:boat_motor'));
+
+        self::assertSame('dy:boat_motor', $this->typeOf($motor), 'Same id, the code\'s type now.');
+        $loaded = $this->session()->load($craft);
+        self::assertInstanceOf(DyBoatMotor::class, $loaded->motor);
+        self::assertSame([300, 3], [$loaded->motor->horsepower, $loaded->motor->propellers], 'What both hold stays; the outboard\'s fuel goes.');
     }
 
     public function testARenamedTypeKeepsItsEntities(): void {

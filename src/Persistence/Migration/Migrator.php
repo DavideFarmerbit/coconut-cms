@@ -508,7 +508,8 @@ final readonly class Migrator
      *
      * In an editor save, $draft adds the types it creates, setting nothing
      * yet, and its default changes apply last, on the final names. A type
-     * the save renamed takes its new name; one it deleted is gone.
+     * the save renamed takes its new name; one it deleted or replaced is
+     * gone.
      * @param list<StoredSchema> $stored
      * @return array<string, EntityBlueprint> Keyed by identifier.
      */
@@ -533,7 +534,9 @@ final readonly class Migrator
             );
             $plan->moveValues($defaults);
 
-            if ($plan->schemas->has($defaults->identifier)) {
+            // A replaced type is gone: its defaults don't become the replacing
+            // type's, which keeps its own, or the code's.
+            if ($plan->schemas->has($defaults->identifier) && !$defaults->wasReplaced()) {
                 $own[$defaults->identifier] = $defaults->ownValues();
             }
         }

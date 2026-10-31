@@ -7,6 +7,7 @@ use XyloIsCoding\CoconutCms\Core\Identifier;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\Fixup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
@@ -177,16 +178,46 @@ final class SchemaDraft
                 ->withFields($schema->fields->retargeted($old, $renamed->identifier));
         }
 
-        // A default change on the type follows it, and so does one pinning it
-        // as the class an owned slot holds, at any depth.
-        $this->defaults = array_map(function (DefaultChange $change) use ($old, $renamed): DefaultChange {
-            $change = $change->type === $old ? $change->onType($renamed->identifier) : $change;
-            $segments = $this->walk($change->type, $change->path);
-            $last = $segments[array_key_last($segments)][3];
+        // A default change on the type follows it.
+        $this->defaults = array_map(static fn (DefaultChange $change): DefaultChange => $change->type === $old ? $change->onType($renamed->identifier) : $change, $this->defaults);
+        $this->pinnedClassRenamed($old, $renamed->identifier);
+    }
 
-            return $change->pins() && $change->value->value === $old && $last?->kind() === FieldKind::OwningReference
-                ? $change->pinning(new DefaultValue($renamed->identifier))
-                : $change;
+    /**
+     * Editor-created type $old replaced by $with, as ReplaceType replaces it:
+     * $old goes, with the default changes made on it; a direct subtype
+     * replacing it takes its place in the chain; every other subtype moves
+     * under $with, and every field naming $old names $with.
+     */
+    public function replaceType(string $old, string $with): void {
+        $replaced = $this->editorType($old);
+        if (isset($this->editor[$with]) && $this->editor[$with]->parent === $old) {
+            $this->editor[$with] = $this->editor[$with]->withParent($replaced->parent);
+        }
+
+        $this->remove($old);
+        foreach ($this->editor as $identifier => $schema) {
+            $this->editor[$identifier] = $schema
+                ->withParent($schema->parent === $old ? $with : $schema->parent)
+                ->withFields($schema->fields->retargeted($old, $with));
+        }
+
+        $this->pinnedClassRenamed($old, $with);
+    }
+
+    /**
+     * Every pending pin naming $old as the class an owned slot holds, at any
+     * depth, names $new now.
+     */
+    private function pinnedClassRenamed(string $old, string $new): void {
+        $this->defaults = array_map(function (DefaultChange $change) use ($old, $new): DefaultChange {
+            if (!$change->pins() || $change->value->value !== $old) {
+                return $change;
+            }
+
+            $segments = $this->walk($change->type, $change->path);
+
+            return $segments[array_key_last($segments)][3]?->kind() === FieldKind::OwningReference ? $change->pinning(new DefaultValue($new)) : $change;
         }, $this->defaults);
     }
 
@@ -195,6 +226,21 @@ final class SchemaDraft
         $this->editorType($identifier);
         unset($this->editor[$identifier], $this->created[$identifier]);
         $this->defaults = array_values(array_filter($this->defaults, static fn (DefaultChange $change): bool => $change->type !== $identifier));
+    }
+
+    /** Every field type $identifier holds now, its ancestors' included, root level first. */
+    public function fieldsOf(string $identifier): FieldDescriptorCollection {
+        $chain = [];
+        for ($level = $identifier; $level !== null; $level = $this->schema($level)->parent) {
+            array_unshift($chain, $this->schema($level));
+        }
+
+        $fields = FieldDescriptorCollection::empty();
+        foreach ($chain as $schema) {
+            $fields = $fields->merge($schema->fields);
+        }
+
+        return $fields;
     }
 
     /**

@@ -188,7 +188,7 @@ final readonly class ReplaceType implements Fixup, MovesValues
             }
 
             if ($occurrence->kind === OccurrenceKind::Root) {
-                $values->identifier = $this->with;
+                $values->replaceRoot($this->with);
             } elseif ($occurrence->kind === OccurrenceKind::Owned && $occurrence->path !== null) {
                 $values->set($occurrence->path, $this->with, $values->markOf($occurrence->path));
             }
