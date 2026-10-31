@@ -33,33 +33,26 @@ final class NativeIdentifiers
             return self::$byClass[$class];
         }
 
-        $reflection = new ReflectionClass($class);
-        $attributes = $reflection->getAttributes(Entity::class);
-        if ($attributes === []) {
+        if ((new ReflectionClass($class))->getAttributes(Entity::class) === []) {
             throw new InvalidArgumentException(sprintf('%s must be marked #[Entity].', $class));
         }
 
-        $declared = $attributes[0]->newInstance()->identifier;
-        $identifier = $declared === null
-            ? Identifier::of(self::DEFAULT_NAMESPACE, self::snakeCase($reflection->getShortName()))
-            : Identifier::fromString($declared);
-
-        return self::$byClass[$class] = (string) $identifier;
+        return self::$byClass[$class] = (string) self::storedAs($class);
     }
 
     /**
-     * The identifier a value object, enum or validator rule class is stored
-     * under: the one its #[ValueObjectType], #[EnumType], #[FieldRule] or
-     * #[PrototypeRule] declares, or "default:" and its short name, snake-cased.
+     * The identifier a class is stored under: the one its #[Entity],
+     * #[ValueObjectType], #[EnumType], #[FieldRule] or #[PrototypeRule]
+     * declares, or "default:" and its short name, snake-cased.
      * @param class-string $class
      */
     public static function storedAs(string $class): Identifier {
         $reflection = new ReflectionClass($class);
-        $attributes = $reflection->getAttributes(NamesStoredClass::class, ReflectionAttribute::IS_INSTANCEOF);
+        $declared = ($reflection->getAttributes(NamesStoredClass::class, ReflectionAttribute::IS_INSTANCEOF)[0] ?? null)?->newInstance()->identifier;
 
-        return $attributes === []
+        return $declared === null
             ? Identifier::of(self::DEFAULT_NAMESPACE, self::snakeCase($reflection->getShortName()))
-            : Identifier::fromString($attributes[0]->newInstance()->identifier);
+            : Identifier::fromString($declared);
     }
 
     /**

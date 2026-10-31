@@ -9,7 +9,7 @@ use Attribute;
  * table.
  */
 #[Attribute(Attribute::TARGET_CLASS)]
-final readonly class Entity
+final readonly class Entity implements NamesStoredClass
 {
     /**
      * @param string|null $identifier What everything stored names this class by,
