@@ -35,6 +35,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolve
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Subject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\ConvertsAnyField;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\FillsAnyField;
 
 #[Entity(identifier: 'ed:vehicle', editorExtensible: true)]
 class EdVehicle
@@ -163,6 +165,8 @@ class EdSealedVehicle
 /** Every existing vehicle gets the same serial. */
 final class EdSerialInitializer implements FieldInitializer
 {
+    use FillsAnyField;
+
     public function initialize(Values $values): Conversion {
         return Conversion::of('SN-1');
     }
@@ -171,6 +175,8 @@ final class EdSerialInitializer implements FieldInitializer
 /** Every existing vehicle's hull, painted. */
 final class EdPaintedHull implements FieldInitializer
 {
+    use FillsAnyField;
+
     public function initialize(Values $values): Conversion {
         return Conversion::of('painted');
     }
@@ -179,7 +185,9 @@ final class EdPaintedHull implements FieldInitializer
 /** An int price, as euros. */
 final class EdPriceToEuros implements FieldConverter
 {
-    public function convert(Captured $old): Conversion {
+    use ConvertsAnyField;
+
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         return Conversion::of($old->value() . ' EUR');
     }
 }
@@ -187,7 +195,9 @@ final class EdPriceToEuros implements FieldConverter
 /** A color, shouted. */
 final class EdUpperCase implements FieldConverter
 {
-    public function convert(Captured $old): Conversion {
+    use ConvertsAnyField;
+
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         return Conversion::of(strtoupper($old->value()));
     }
 }

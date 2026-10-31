@@ -122,6 +122,17 @@ final readonly class ReplaceType implements Fixup, MovesValues
                 throw new InvalidFixup(sprintf('"%s" isn\'t a field only "%s" has: nothing to initialize.', $name, $this->with));
             }
         }
+
+        // Each converter takes the field as the old type has it and gives
+        // it as the replacing type has it; each initializer fills its field.
+        foreach ($this->converters as $name => $converter) {
+            $converter::from()->assertMatches($old->get(FieldName::of($name)), $converter::class, 'takes', $this->type, $name);
+            $converter::to()->assertMatches($new->get(FieldName::of($name)), $converter::class, 'gives', $this->with, $name);
+        }
+
+        foreach ($this->initializers as $name => $initializer) {
+            $initializer::to()->assertMatches($new->get(FieldName::of($name)), $initializer::class, 'fills', $this->with, $name);
+        }
     }
 
     /**
@@ -168,7 +179,7 @@ final readonly class ReplaceType implements Fixup, MovesValues
                 } elseif (isset($this->converters[$name])) {
                     $under = $values->valuesUnder($path);
                     $isDefault = $old->get(FieldName::of($name))->kind() === FieldKind::Embed ? self::allDefault($under) : $values->markOf($path)->isDefault();
-                    $values->write($path, $field, $this->converters[$name]->convert(new Captured($values->get($path), $isDefault, $under)));
+                    $values->write($path, $field, $this->converters[$name]->convert(new Captured($values->get($path), $isDefault, $under), $field));
                 }
             }
 

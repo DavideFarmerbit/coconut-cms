@@ -25,11 +25,14 @@ final readonly class AddField implements Fixup, MovesValues
         $this->field = FieldName::of($field);
     }
 
+    /** Throws InvalidFixup when the initializer can't fill the field. */
     public function applyTo(SchemaState $schemas): SchemaState {
         $schemas->assertNoField($this->type, $this->field);
+        $field = $schemas->targetField($this->type, $this->field);
+        $this->initializer?->to()->assertMatches($field, $this->initializer::class, 'fills', $this->type, (string) $this->field);
         $schema = $schemas->get($this->type);
 
-        return $schemas->with($schema->withFields($schema->fields->with($this->field, $schemas->targetField($this->type, $this->field))));
+        return $schemas->with($schema->withFields($schema->fields->with($this->field, $field)));
     }
 
     public function moveValues(AggregateValues $values, SchemaState $before, SchemaState $after): void {

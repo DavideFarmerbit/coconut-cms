@@ -6,6 +6,9 @@ use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Captured;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldSignature;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\Converter;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarValues;
 
@@ -17,7 +20,15 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarValues;
 #[Converter('coconut-cms:date-to-date-time')]
 final readonly class DateToDateTime implements FieldConverter
 {
-    public function convert(Captured $old): Conversion {
+    public static function from(): FieldSignature {
+        return FieldSignature::scalar(ScalarType::Date);
+    }
+
+    public static function to(): FieldSignature {
+        return FieldSignature::scalar(ScalarType::DateTime);
+    }
+
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         if ($old->isDefault()) {
             return Conversion::default();
         }

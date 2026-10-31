@@ -36,6 +36,10 @@ final readonly class AddField implements SchemaOperation
             throw new InvalidOperation(sprintf('Type "%s" is new in this save: it has no entries to initialize.', $this->type));
         }
 
+        if ($this->initializer !== null && !$this->initializer::to()->matches($this->field)) {
+            throw new InvalidOperation(sprintf('%s fills %s: it doesn\'t fit field "%s" of "%s".', $this->initializer::class, $this->initializer::to()->describe(), $name, $this->type));
+        }
+
         $draft->replace($schema->withFields($schema->fields->with($name, $this->field)));
         if (!$created) {
             $draft->fixup(new Fixup\AddField($this->type, (string) $name, $this->initializer));

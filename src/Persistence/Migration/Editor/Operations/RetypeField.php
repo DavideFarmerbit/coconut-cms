@@ -31,8 +31,20 @@ final readonly class RetypeField implements SchemaOperation
 
     public function applyTo(SchemaDraft $draft): void {
         $name = FieldName::of($this->field->name());
-        if ($draft->ownField($this->type, $name) == $this->field) {
+        $old = $draft->ownField($this->type, $name);
+        if ($old == $this->field) {
             throw new InvalidOperation(sprintf('Field "%s" of "%s" already holds that.', $name, $this->type));
+        }
+
+        if ($this->converter !== null && (!$this->converter::from()->matches($old) || !$this->converter::to()->matches($this->field))) {
+            throw new InvalidOperation(sprintf(
+                '%s converts %s into %s: it doesn\'t fit field "%s" of "%s".',
+                $this->converter::class,
+                $this->converter::from()->describe(),
+                $this->converter::to()->describe(),
+                $name,
+                $this->type,
+            ));
         }
 
         $created = $draft->isCreated($this->type);

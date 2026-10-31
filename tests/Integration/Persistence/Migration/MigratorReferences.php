@@ -11,7 +11,9 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\ConvertsAnyField;
 
 #[Entity(identifier: 'migref:car')]
 final class MigRefCar
@@ -46,7 +48,9 @@ final class MigRefV2Garage
 /** Keeps the id as it is: right only if it points at a bike. */
 final class MigRefKeepId implements FieldConverter
 {
-    public function convert(Captured $old): Conversion {
+    use ConvertsAnyField;
+
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         return $old->isDefault() ? Conversion::default() : Conversion::of($old->value());
     }
 }

@@ -221,7 +221,7 @@ final class EditorSaveTest extends DynamicTestCase
         $this->save(new SetDefault('dy:buoy', 'color', new DefaultValue('7')));
         $buoy = $this->store('dy:buoy', ['color' => 'red']);
         $this->store('dy:buoy', ['color' => '12']);
-        $retype = [new RetypeField('dy:buoy', FieldDescriptor::scalar('color', ScalarType::Int, Nullability::NotNullable), new TextToNumber(ScalarType::Int, OnFailure::Cancel))];
+        $retype = [new RetypeField('dy:buoy', FieldDescriptor::scalar('color', ScalarType::Int, Nullability::NotNullable), new TextToNumber(OnFailure::Cancel))];
 
         $preview = $this->previewAs(new StrictPolicy(),new EditorSave(2, $retype));
         self::assertSame([$buoy => 'TextToNumber can\'t convert "red".'], $preview->failures);

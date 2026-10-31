@@ -22,6 +22,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationResult;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Migrator;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityRegistry;
@@ -34,23 +35,28 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\ConvertsAnyField;
 
 /** Fails on a car whose price is 999: a converter bug only real content shows. */
 final class MigFailingPriceToText implements FieldConverter
 {
-    public function convert(Captured $old): Conversion {
+    use ConvertsAnyField;
+
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         if ($old->value() === 999) {
             throw new RuntimeException('cannot convert 999');
         }
 
-        return (new MigPriceToText())->convert($old);
+        return (new MigPriceToText())->convert($old, $to);
     }
 }
 
 /** Keeps the price an int: not what a String field holds. */
 final class MigPriceKeptAsInt implements FieldConverter
 {
-    public function convert(Captured $old): Conversion {
+    use ConvertsAnyField;
+
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         return Conversion::of($old->value());
     }
 }
@@ -58,7 +64,9 @@ final class MigPriceKeptAsInt implements FieldConverter
 /** Writes a value under the price, as if it were an Embed: no field is there. */
 final class MigPriceWithAStrayValue implements FieldConverter
 {
-    public function convert(Captured $old): Conversion {
+    use ConvertsAnyField;
+
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         return Conversion::of('0 EUR', ['currency' => 'EUR']);
     }
 }

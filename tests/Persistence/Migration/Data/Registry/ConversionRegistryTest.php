@@ -17,7 +17,9 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\ConversionRegist
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\Converter;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\InvalidParameters;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\RegisteredEnum;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\ConvertsAnyField;
 
 /** A string-backed enum registered as "test:hue". */
 enum RegistryHue: string
@@ -29,14 +31,34 @@ enum RegistryHue: string
 #[Converter('shop:price-in')]
 final readonly class PriceIn implements FieldConverter
 {
+    use ConvertsAnyField;
+
     public function __construct(
         public string $currency,
         public int $cents = 100,
     ) {
     }
 
-    public function convert(Captured $old): Conversion {
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         return Conversion::of($old->value() . ' ' . $this->currency);
+    }
+}
+
+/** A project's converter naming an enum: the hue a colour name had in it. */
+#[Converter('shop:hue-of')]
+final readonly class HueOf implements FieldConverter
+{
+    use ConvertsAnyField;
+
+    /** @param class-string<\BackedEnum> $enum */
+    public function __construct(
+        #[RegisteredEnum]
+        public string $enum,
+    ) {
+    }
+
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
+        return Conversion::default();
     }
 }
 
@@ -44,10 +66,12 @@ final readonly class PriceIn implements FieldConverter
 #[Converter('shop:hidden')]
 final readonly class HiddenParameter implements FieldConverter
 {
+    use ConvertsAnyField;
+
     public function __construct(string $secret) {
     }
 
-    public function convert(Captured $old): Conversion {
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         return Conversion::default();
     }
 }
@@ -64,6 +88,7 @@ final class ConversionRegistryTest extends TestCase
         }
 
         $registry->register(PriceIn::class);
+        $registry->register(HueOf::class);
 
         return $registry;
     }
@@ -71,22 +96,22 @@ final class ConversionRegistryTest extends TestCase
     public function testABuiltInIsBuiltFromItsParametersAndWrittenBack(): void {
         $registry = $this->registry();
 
-        $converter = $registry->converter('coconut-cms:text-to-number', ['to' => 'int', 'onFailure' => 'cancel']);
+        $converter = $registry->converter('coconut-cms:text-to-number', ['onFailure' => 'cancel']);
 
-        self::assertEquals(new TextToNumber(ScalarType::Int, OnFailure::Cancel), $converter);
-        self::assertSame(['coconut-cms:text-to-number', ['to' => 'int', 'onFailure' => 'cancel']], $registry->describe($converter));
+        self::assertEquals(new TextToNumber(OnFailure::Cancel), $converter);
+        self::assertSame(['coconut-cms:text-to-number', ['onFailure' => 'cancel']], $registry->describe($converter));
         self::assertEquals(new ConstantValue(['a' => 1]), $registry->initializer('coconut-cms:constant', ['value' => ['a' => 1]]));
     }
 
     public function testAnEnumIsNamedByItsIdentifier(): void {
         $registry = $this->registry();
 
-        $converter = $registry->converter('coconut-cms:text-to-enum', ['enum' => 'test:hue', 'onFailure' => 'default']);
+        $converter = $registry->converter('shop:hue-of', ['enum' => 'test:hue']);
 
         self::assertSame(RegistryHue::class, $converter->enum);
-        self::assertSame(['coconut-cms:text-to-enum', ['enum' => 'test:hue', 'onFailure' => 'default']], $registry->describe($converter));
+        self::assertSame(['shop:hue-of', ['enum' => 'test:hue']], $registry->describe($converter));
         $this->expectException(InvalidParameters::class);
-        $registry->converter('coconut-cms:text-to-enum', ['enum' => 'test:nothing', 'onFailure' => 'default']);
+        $registry->converter('shop:hue-of', ['enum' => 'test:nothing']);
     }
 
     public function testAProjectsOwnConverterTakesItsParametersByName(): void {
@@ -137,6 +162,6 @@ final class ConversionRegistryTest extends TestCase
     }
 
     public function testAnUnregisteredOneIsNotWrittenBack(): void {
-        self::assertNull((new ConversionRegistry(new EnumRegistry()))->describe(new TextToEnum(RegistryHue::class, OnFailure::Default)));
+        self::assertNull((new ConversionRegistry(new EnumRegistry()))->describe(new TextToEnum(OnFailure::Default)));
     }
 }

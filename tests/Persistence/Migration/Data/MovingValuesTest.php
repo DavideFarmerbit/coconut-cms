@@ -41,7 +41,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollecti
 /** Writes a price as text, and leaves a price that followed its default following the new one. */
 final class MovingPriceToText implements FieldConverter
 {
-    public function convert(Captured $old): Conversion {
+    use ConvertsAnyField;
+
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         return $old->isDefault() ? Conversion::default() : Conversion::of(sprintf('%d EUR', $old->value()));
     }
 }
@@ -49,10 +51,12 @@ final class MovingPriceToText implements FieldConverter
 /** Records what it's given, and turns a chassis into its weight. */
 final class MovingChassisToWeight implements FieldConverter
 {
+    use ConvertsAnyField;
+
     /** @var list<array{mixed, bool, list<string>}> */
     public array $captured = [];
 
-    public function convert(Captured $old): Conversion {
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         $this->captured[] = [$old->value(), $old->isDefault(), $old->under()->paths()];
 
         return Conversion::of($old->under()->get('weight'));
@@ -62,6 +66,8 @@ final class MovingChassisToWeight implements FieldConverter
 /** A new rating that starts from the car's price. */
 final class MovingRatingFromPrice implements FieldInitializer
 {
+    use FillsAnyField;
+
     public function initialize(Values $values): Conversion {
         return Conversion::of($values->get('price') > 100 ? 5 : 1);
     }

@@ -1623,8 +1623,10 @@ them too:
 - `ConstantValue(value)`: every existing entry gets one value.
 - `CopyOfField(path)`: each entry gets the value it holds at another path.
 - `NumberToText`: 150 as "150", the Decimal "12.500000" as "12.5".
-- `TextToNumber(to, onFailure)`: text to an Int, Float or Decimal.
-- `TextToEnum(enum, onFailure)`: text to the case it backs.
+- `TextToNumber(onFailure)`: text to the Int, Float or Decimal the new
+  field holds.
+- `TextToEnum(onFailure)`: text to the case it backs, in the new field's
+  enum.
 - `DateToDateTime`: a day to its midnight, in UTC.
 
 A converter keeps null as null. A value that followed the old default
@@ -1648,8 +1650,9 @@ one back the same way. So each parameter is a public property of the same
 name, and takes a string, int, float, bool, mixed value or backed enum. A
 parameter holding an enum class is marked `#[RegisteredEnum]`: a save names
 the enum by its registered identifier. A converter used only by a code step
-needs no registration. Offering the ones that fit a field change in the
-editor is not built yet.
+needs no registration. `ConversionRegistry::all()` lists every registered
+one with its signatures and parameters, for the editor to offer the ones
+that fit.
 
 An editor-created identifier is "namespace:key". The editor uses the
 namespace the admin gives, or `default`, the same as a native class. A save
@@ -1853,7 +1856,9 @@ declaration everywhere, so it's declared once.
 
 ```php
 interface FieldConverter {
-    public function convert(Captured $old): Conversion;
+    public function convert(Captured $old, FieldDescriptor $to): Conversion;   // $to: the field it becomes
+    public static function from(): FieldSignature;   // the fields it takes
+    public static function to(): FieldSignature;     // the fields it gives
 }
 
 final class Captured {
@@ -1870,6 +1875,7 @@ final class Conversion {
 
 interface FieldInitializer {             // AddField(type, field, initializer)
     public function initialize(Values $values): Conversion;
+    public static function to(): FieldSignature;     // the fields it can fill
 }
 
 interface LevelInitializer {             // Reparent(type, initializer)
@@ -1885,6 +1891,36 @@ interface Transformation {               // Transform(type, transformation)
 
 `Values` is read-only: `get`, `has`, `isDefault`, `paths`. `MigratingValues`
 adds `set(path, Conversion)`, `remove` and `move`, scoped to one call.
+
+A converter declares, statically, the retypes it's valid for: `from()` the
+fields it takes, `to()` the fields it gives. An initializer declares the
+fields it can fill: `to()`. Each is a `FieldSignature`: a field
+descriptor's shape, where each part is a value or "any" (a kind, a scalar
+type, a target, a Collection's items), or a union of signatures. What it
+leaves out matches any: `FieldSignature::scalar()` any Scalar,
+`scalar(ScalarType::Int)` an Int, `reference()` a Reference to any type,
+`collection(scalar())` a Collection of any Scalars, `any()` any field.
+`oneOf(...)` matches any of its signatures, and nests:
+`collection(oneOf(reference(), owningReference()))`. The common unions are
+named: `text()` (String or Text) and `number()` (Int, Float or Decimal).
+Nullability is never part of it. It isn't a `FieldDescriptor`: that
+describes one real field, a signature a set of them. It's plain data, so
+it crosses to the editor, which can match it against what `types.get`
+gives with the same rules. Two uses, from the one declaration:
+
+- A fixup naming a converter or initializer that doesn't match its field
+  is an `InvalidFixup`, naming the mismatch: `RetypeField`, `AddField`,
+  `MoveField` and `ReplaceType` check. In an editor save, the operation
+  refuses it first, as an `InvalidOperation`.
+- The editor offers only those that fit a field change (see the API
+  document, `schema.conversions`).
+
+A signature says what a converter can give; which of those this retype
+gives is the new field's. So `convert()` gets the new field, `$to`: a
+converter giving several kinds of field reads which one from it, and never
+asks for it as a parameter. `TextToNumber` gives the number type the field
+holds; `TextToEnum`, the field's enum.
+
 Converters, initializers and transformations are always classes, never
 closures: named, testable, and readable in a step. Every output is checked
 before anything is written; see "Checking what's written".

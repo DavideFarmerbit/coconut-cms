@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Editor;
 
 use PHPUnit\Framework\TestCase;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\NumberToText;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Captured;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
@@ -33,10 +34,14 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\ConvertsAnyField;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\FillsAnyField;
 
 /** Gives every existing entry 12: what a test's AddField names. */
 final readonly class TwelveInitializer implements FieldInitializer
 {
+    use FillsAnyField;
+
     public function initialize(Values $values): Conversion {
         return Conversion::of(12);
     }
@@ -45,7 +50,9 @@ final readonly class TwelveInitializer implements FieldInitializer
 /** Keeps every value: what a test's RetypeField names. */
 final readonly class SameConverter implements FieldConverter
 {
-    public function convert(Captured $old): Conversion {
+    use ConvertsAnyField;
+
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         return Conversion::of($old->value());
     }
 }
@@ -249,6 +256,14 @@ final class SchemaOperationsTest extends TestCase
         ], self::fixups($draft));
         self::assertSame(ScalarType::String, $draft->targets()['shop:boat']->fields->get(FieldName::of('length'))->scalarType());
         $this->assertRefused('already holds that', new RetypeField('shop:boat', self::int('length')));
+    }
+
+    public function testAConverterMustFitTheFieldChange(): void {
+        $this->assertRefused(
+            'NumberToText converts a Scalar of int, float or decimal into a Scalar of string or text: it doesn\'t fit field "title" of "shop:maker".',
+            new RetypeField('shop:maker', self::int('title'), new NumberToText(), new DefaultValue(0)),
+        );
+        $this->assertRefused('it doesn\'t fit field "length"', new RetypeField('shop:boat', FieldDescriptor::scalar('length', ScalarType::Date, Nullability::Nullable), new NumberToText()));
     }
 
     public function testDefaultChangesWaitForTheContentToMove(): void {

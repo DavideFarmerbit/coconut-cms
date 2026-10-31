@@ -83,6 +83,24 @@ final class ConversionRegistry
     }
 
     /**
+     * Every converter registered, then every initializer, each in the order
+     * registered: what the editor offers.
+     * @return list<RegisteredConversion>
+     */
+    public function all(): array {
+        $all = [];
+        foreach ($this->converters as $identifier => $shape) {
+            $all[] = new RegisteredConversion($identifier, $shape->class, $shape->class::from(), $shape->class::to(), $shape);
+        }
+
+        foreach ($this->initializers as $identifier => $shape) {
+            $all[] = new RegisteredConversion($identifier, $shape->class, null, $shape->class::to(), $shape);
+        }
+
+        return $all;
+    }
+
+    /**
      * $built written back: its identifier, and its parameters the way
      * converter() or initializer() takes them. Null for one not registered,
      * a step's own in code.

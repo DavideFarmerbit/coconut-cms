@@ -53,8 +53,10 @@ final readonly class MoveField implements Fixup, MovesValues
             ->withUniqueGroups(UniqueGroups::withoutField($from->uniqueGroups, $this->field)));
 
         $to = $schemas->get($this->to);
+        $field = $schemas->targetField($this->to, $this->field);
+        $this->initializer?->to()->assertMatches($field, $this->initializer::class, 'fills', $this->to, (string) $this->field);
 
-        return $schemas->with($to->withFields($to->fields->with($this->field, $schemas->targetField($this->to, $this->field))));
+        return $schemas->with($to->withFields($to->fields->with($this->field, $field)));
     }
 
     /** Lets the initializer fill the field wherever an entity gains it: of the ancestor, and not of the type it left. */

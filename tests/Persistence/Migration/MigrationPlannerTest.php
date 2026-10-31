@@ -35,10 +35,13 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\StoredSchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\FillsAnyField;
 
 /** Any initializer: planning never runs it. */
 final class MoveFieldTestInitializer implements FieldInitializer
 {
+    use FillsAnyField;
+
     public function initialize(Values $values): Conversion {
         return Conversion::default();
     }

@@ -11,6 +11,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\FillsAnyField;
 
 #[Entity(identifier: 'scope:engine')]
 class ScopeEngine
@@ -142,6 +143,8 @@ final class ScopeTurboOfEngineWithBoost extends ScopeEngineWithBoost
 /** A plain engine gaining a boost gets one: what MoveField's initializer decides. */
 final class ScopeBoostForPlainEngines implements FieldInitializer
 {
+    use FillsAnyField;
+
     public function initialize(Values $values): Conversion {
         return Conversion::of(1);
     }

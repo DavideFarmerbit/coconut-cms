@@ -6,7 +6,9 @@ use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Captured;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldSignature;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\Converter;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 
 /**
  * An Int, Float or Decimal field turned into text, for RetypeField: 150 as
@@ -16,7 +18,15 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\Converter;
 #[Converter('coconut-cms:number-to-text')]
 final readonly class NumberToText implements FieldConverter
 {
-    public function convert(Captured $old): Conversion {
+    public static function from(): FieldSignature {
+        return FieldSignature::number();
+    }
+
+    public static function to(): FieldSignature {
+        return FieldSignature::text();
+    }
+
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         if ($old->isDefault()) {
             return Conversion::default();
         }

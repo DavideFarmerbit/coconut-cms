@@ -97,7 +97,7 @@ final class SchemaApiTest extends DynamicTestCase
             [['op' => 'shrinkType', 'type' => 'dy:yacht'], 'operations.0.op'],
             [['op' => 'addField', 'type' => 'dy:yacht', 'field' => ['name' => 'masts', 'kind' => 'blob'], 'default' => 1], 'operations.0.field.kind'],
             [['op' => 'addField', 'type' => 'dy:yacht', 'field' => self::int('masts'), 'default' => 1, 'colour' => 'red'], 'operations.0.colour'],
-            [['op' => 'retypeField', 'type' => 'dy:buoy', 'field' => self::int('color'), 'converter' => ['kind' => 'coconut-cms:text-to-number', 'to' => 'int']], 'operations.0.converter.onFailure'],
+            [['op' => 'retypeField', 'type' => 'dy:buoy', 'field' => self::int('color'), 'converter' => ['kind' => 'coconut-cms:text-to-number']], 'operations.0.converter.onFailure'],
             [['op' => 'retypeField', 'type' => 'dy:buoy', 'field' => self::int('color'), 'converter' => ['kind' => 'shop:nothing']], 'operations.0.converter.kind'],
             [['op' => 'removeField', 'type' => 'dy:yacht', 'field' => 'not a name!'], 'operations.0'],
         ];
@@ -133,12 +133,38 @@ final class SchemaApiTest extends DynamicTestCase
 
         [$status, $body] = $this->save([[
             'op' => 'retypeField', 'type' => 'dy:buoy', 'field' => self::int('color'),
-            'converter' => ['kind' => 'coconut-cms:text-to-number', 'to' => 'int', 'onFailure' => 'cancel'],
+            'converter' => ['kind' => 'coconut-cms:text-to-number', 'onFailure' => 'cancel'],
         ]], revision: 2);
 
         self::assertSame(422, $status);
         self::assertSame('schema_save_refused', $body['error']['code']);
         self::assertSame(['reason' => 'entries_fail', 'failures' => [$buoy => 'TextToNumber can\'t convert "red".']], $body['error']['details']);
+    }
+
+    public function testTheConversionsListedAreThoseFittingTheChange(): void {
+        [$status, $body] = $this->post('coconut-cms:schema.conversions', [
+            'from' => ['kind' => 'scalar', 'scalarType' => 'string', 'nullable' => false],
+            'to' => ['kind' => 'scalar', 'scalarType' => 'int', 'nullable' => false],
+        ]);
+
+        self::assertSame(200, $status, json_encode($body));
+        self::assertSame(['coconut-cms:text-to-number'], array_column($body['result']['converters'], 'kind'));
+        self::assertSame([], $body['result']['initializers'], 'A retype takes converters only.');
+        $converter = $body['result']['converters'][0];
+        self::assertSame(['oneOf' => [
+            ['kind' => 'scalar', 'scalarType' => 'string', 'target' => null, 'item' => null],
+            ['kind' => 'scalar', 'scalarType' => 'text', 'target' => null, 'item' => null],
+        ]], $converter['from']);
+        self::assertSame([
+            ['name' => 'onFailure', 'type' => 'enum', 'nullable' => false, 'optional' => false, 'default' => null, 'choices' => ['default', 'cancel']],
+        ], $converter['parameters'], 'The number type is the new field\'s: nothing to ask.');
+
+        [, $body] = $this->post('coconut-cms:schema.conversions', ['to' => ['kind' => 'scalar', 'scalarType' => 'int', 'nullable' => false]]);
+        self::assertSame(['coconut-cms:text-to-number'], array_column($body['result']['converters'], 'kind'));
+        self::assertSame(['coconut-cms:constant', 'coconut-cms:copy'], array_column($body['result']['initializers'], 'kind'));
+
+        [, $body] = $this->post('coconut-cms:schema.conversions', []);
+        self::assertCount(4, $body['result']['converters']);
     }
 
     public function testOnlyTheSchemaEditorRoleChangesTypes(): void {

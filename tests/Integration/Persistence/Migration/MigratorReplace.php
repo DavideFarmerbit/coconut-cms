@@ -12,7 +12,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\ConvertsAnyField;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\FillsAnyField;
 
 #[Entity(identifier: 'rep:engine')]
 class RepEngine
@@ -76,7 +79,9 @@ final class RepCar
 /** An int power, as kilowatts. */
 final class RepPowerToKilowatts implements FieldConverter
 {
-    public function convert(Captured $old): Conversion {
+    use ConvertsAnyField;
+
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         return Conversion::of(sprintf('%d kW', $old->value()));
     }
 }
@@ -84,6 +89,8 @@ final class RepPowerToKilowatts implements FieldConverter
 /** Every former turbo gets a full battery. */
 final class RepFullBattery implements FieldInitializer
 {
+    use FillsAnyField;
+
     public function initialize(Values $values): Conversion {
         return Conversion::of(100);
     }

@@ -39,11 +39,18 @@ final readonly class RetypeField implements Fixup, MovesValues
         return new self($type, $field, null);
     }
 
+    /** Throws InvalidFixup when the converter doesn't take the field as it is, or give it as it becomes. */
     public function applyTo(SchemaState $schemas): SchemaState {
-        $schemas->field($this->type, $this->field);
+        $old = $schemas->field($this->type, $this->field);
+        $new = $schemas->targetField($this->type, $this->field);
+        if ($this->converter !== null) {
+            $this->converter::from()->assertMatches($old, $this->converter::class, 'takes', $this->type, (string) $this->field);
+            $this->converter::to()->assertMatches($new, $this->converter::class, 'gives', $this->type, (string) $this->field);
+        }
+
         $schema = $schemas->get($this->type);
 
-        return $schemas->with($schema->withFields($schema->fields->with($this->field, $schemas->targetField($this->type, $this->field))));
+        return $schemas->with($schema->withFields($schema->fields->with($this->field, $new)));
     }
 
     public function moveValues(AggregateValues $values, SchemaState $before, SchemaState $after): void {
@@ -64,7 +71,7 @@ final readonly class RetypeField implements Fixup, MovesValues
                 ? self::allDefault($under)
                 : $values->markOf($path)->isDefault();
 
-            $values->write($path, $new, $this->converter->convert(new Captured($values->get($path), $isDefault, $under)));
+            $values->write($path, $new, $this->converter->convert(new Captured($values->get($path), $isDefault, $under), $new));
         }
     }
 

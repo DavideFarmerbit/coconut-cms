@@ -8,9 +8,9 @@ Built: the operations core (registry, input reader, result writer, errors,
 HTTP and command-line transports), the read operations (`types.list`,
 `types.get`, `entities.get`, `entities.query`), and the write operations
 for native types (`entities.create`, `entities.update`, `entities.delete`),
-changing editor-created types (`schema.preview`, `schema.save`), and
-authentication (sign-in operations, CSRF, `--as`). Not built yet: listing
-the converters a field change can use, API tokens. Each is noted inline.
+changing editor-created types (`schema.preview`, `schema.save`,
+`schema.conversions`), and authentication (sign-in operations, CSRF,
+`--as`). Not built yet: API tokens. Each is noted inline.
 
 Scope:
 
@@ -385,8 +385,9 @@ input:
   parameters}`. Modules register them (see the storage document); the
   built-ins are `coconut-cms:constant` (`value`), `coconut-cms:copy`
   (`path`), `coconut-cms:number-to-text`, `coconut-cms:text-to-number`
-  (`to`, `onFailure`), `coconut-cms:text-to-enum` (`enum`, `onFailure`),
-  `coconut-cms:date-to-date-time`.
+  (`onFailure`), `coconut-cms:text-to-enum` (`onFailure`),
+  `coconut-cms:date-to-date-time`. What a converter gives, such as the
+  number type or the enum, is the new field's: never a parameter.
 - `acceptBreaks` says the admin saw the breaks the preview listed.
 
 Each error names its path: `operations.2.field.kind`. An operation that
@@ -401,8 +402,21 @@ or with entries that can't move is refused with `schema_save_refused`:
 `reason` is `blocked`, `breaks_not_accepted` or `entries_fail`, beside the
 same lists.
 
-Listing the converters and initializers registered, and which fit a field
-change, is not built yet: the schema editor needs it.
+`coconut-cms:schema.conversions` lists the converters and initializers the
+modules register, for the editor to offer. Each gives its `kind` (the
+identifier to send), `from` (the fields a converter takes; null for an
+initializer), `to` (the fields it gives or fills), and `parameters`: each
+one's `name`, `type` (`string`, `int`, `float`, `bool`, `mixed`, `enum`
+with its `choices`, or `registered_enum`), `nullable`, `optional` and
+`default`. A signature has the keys `types.get` describes a field with,
+`{"kind", "scalarType", "target", "item"}`, where null matches any; or it's
+a union, `{"oneOf": [...]}`, matching any of its signatures. The editor can
+match a signature against a field itself, with those rules, or ask this
+operation to. The input may give `from` and
+`to`, what a field holds now and will hold, as `types.get` describes it,
+without a name. Then only what fits is listed: with `from`, converters
+taking it and giving `to`; with `to` alone, converters giving it and
+initializers filling it.
 
 ## Authentication
 

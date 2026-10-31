@@ -24,9 +24,12 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\ConvertsAnyField;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\FillsAnyField;
 
 /** V2: gains "tags", moved up from the car. */
 #[Entity(identifier: 'migtest:vehicle')]
@@ -94,7 +97,9 @@ final class MigV2Car extends MigV2MotorVehicle
 /** 150 becomes "150 EUR"; a price following its default follows the new one. */
 final class MigPriceToText implements FieldConverter
 {
-    public function convert(Captured $old): Conversion {
+    use ConvertsAnyField;
+
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         return $old->isDefault() ? Conversion::default() : Conversion::of(sprintf('%d EUR', $old->value()));
     }
 }
@@ -102,7 +107,9 @@ final class MigPriceToText implements FieldConverter
 /** An Int weight as a Float; a weight following its default follows the new one. */
 final class MigWeightToFloat implements FieldConverter
 {
-    public function convert(Captured $old): Conversion {
+    use ConvertsAnyField;
+
+    public function convert(Captured $old, FieldDescriptor $to): Conversion {
         return $old->isDefault() ? Conversion::default() : Conversion::of((float) $old->value());
     }
 }
@@ -110,6 +117,8 @@ final class MigWeightToFloat implements FieldConverter
 /** A serial from the horsepower, for a motor someone set up; a default motor keeps the default. */
 final class MigSerialFromHorsepower implements FieldInitializer
 {
+    use FillsAnyField;
+
     public function initialize(Values $values): Conversion {
         return $values->isDefault('horsepower') ? Conversion::default() : Conversion::of(sprintf('SN-%d', $values->get('horsepower')));
     }
