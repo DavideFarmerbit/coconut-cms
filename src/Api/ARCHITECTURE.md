@@ -262,7 +262,9 @@ a read gives:
 ```
 
 - A scalar or a value object as stored; a Reference as its target's id, a
-  standalone entity of the field's type.
+  standalone entity of the field's type. Storage lets a Reference point at
+  an owned object too; an edit pointing one there is refused for now (not
+  built yet).
 - An Embed as `{"values": {...}}`, a new one from its type's defaults.
 - An owned slot as `{"type": ..., "values": {...}}`, a new owned object of
   that type from its defaults; with the id of the object already there,
@@ -367,8 +369,8 @@ input:
 
 - `revision` is the one `types.list` gave. A save on another one is
   refused with `stale_revision`.
-- `operations` are the admin's operations, in the order made, undone ones
-  included: the server normalizes them. `op` names each one:
+- `operations` are a clean chain, in the order they run: the server folds
+  nothing (see the storage document). `op` names each one:
   `createType` (`type`, `parent`), `renameType` (`old`, `new`),
   `deleteType` (`type`), `reparent` (`type`, `parent`, `initializer`: a
   level initializer), `addField` (`type`, `field`, `default`,
@@ -396,7 +398,7 @@ Each error names its path: `operations.2.field.kind`. An operation that
 can't apply where it stands is refused at `operations.N`.
 
 Both answer the same report: `revision` (the new one, once saved),
-`operations` (normalized, in the same form: what runs), `fixups`
+`operations` (as given, in the same form: what runs), `fixups`
 (described), `breaks` (`type`, `description`, `setAside`: the fixup, or
 null when blocked), `blocked`, `failures` (why each entry can't move, by
 its id), and `moved`. A save the policy blocks, with breaks not accepted,

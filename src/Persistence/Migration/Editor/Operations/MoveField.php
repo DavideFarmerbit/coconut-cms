@@ -75,6 +75,10 @@ final readonly class MoveField implements SchemaOperation
             $draft->fixup($fixup);
         }
 
+        if (!$up) {
+            $draft->dropDefaultChanges($this->type, $this->field, $this->to);
+        }
+
         NewDefaults::pin($draft, $this->to, $descriptor, $this->default);
     }
 

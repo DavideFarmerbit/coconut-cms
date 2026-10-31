@@ -33,6 +33,8 @@ final readonly class RemoveField implements SchemaOperation
         if (!$draft->isCreated($this->type)) {
             $draft->fixup(new Fixup\DropField($this->type, (string) $this->field));
         }
+
+        $draft->dropDefaultChanges($this->type, $this->field);
     }
 
     public function describe(): string {

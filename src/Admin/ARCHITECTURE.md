@@ -727,3 +727,27 @@ independent layers, after Unreal's pins, so no combination is drawn whole:
 
 Its tooltip says it all in words: "An owned default:demo_turbo or subtypes,
 saved and deleted with the entity; may be empty."
+
+## Editing types
+
+The schema editor changes editor-created types (not built yet). The server
+runs a save's operations as given and folds nothing (see the storage
+document, "Editor saves are migrations"), so building a clean chain is the
+admin's job:
+
+- **Types and fields are objects.** Every action attaches to an object,
+  never to a name or a path. Renamed three times, retyped twice, a field is
+  one object, as it ends up. Undo and redo stay in the admin.
+- **Each object knows what it was and what it is now.** For each change,
+  the editor asks only what it needs: a converter for a retype (from
+  `schema.conversions`, the ones fitting it), an initializer for a field
+  existing entries gain, a default for a field the type now declares.
+  A converter's signature is plain data: the admin can match it against a
+  field itself, with the same rules as the server.
+- **The admin writes the operations.** From the objects, in an order where
+  each finds what it names, the way a person would write them on the
+  command line: a rename before what uses the new name, a swap of two names
+  through a temporary one, a default set after a rename inside the path it
+  goes through. A thing created then deleted sends nothing.
+- **The preview shows what will run:** the fixups, the breaks, and the
+  entries that can't move, before the admin saves.

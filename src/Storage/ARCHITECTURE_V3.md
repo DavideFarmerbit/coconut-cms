@@ -1532,67 +1532,47 @@ parent's chain. A field of the type clashing with one the new ancestors
 declare is refused; one in a subtype is a break. A type the save creates
 only changes its definition.
 
-The server normalizes the list before planning, so nothing the admin
-undid touches the database. The editor keeps every action for undo, and
-shows the normalized list, from a preview, as what the save will run:
-`EditorSaveReport::$operations`. `OperationNormalizer` first checks the
-list as given, so an operation that can't apply is refused with its own
-message. Then it follows every type and field by identity through the
-operations, and gives what's left. Normalizing:
+The server runs the operations as given, in order, and folds nothing. It
+checks each one where it stands, applies it to the draft, and takes its
+fixups in that order. An operation that can't apply is refused with its
+index. The command line, a script and the admin all send the same thing:
+a clean chain of operations, in an order a person would write it. "Rename
+`cost` to `price`, then make `price` a Float."
 
-- Renames chain: `a` to `b` then `b` to `c` is one rename, and one back to
-  where it started is none. Types the same.
-- What the save creates takes in what's done to it after: a field added,
-  then renamed, retyped, given a default or moved, is one "add a field"
-  with its final name, descriptor and default; added, then removed, is
-  nothing. A type the same.
-- A default keeps its last change, under the final names. One back to what
-  the type stores is none. One a retype already pins is none. Permissions,
-  `editorExtensible` and tables will follow the same rule once operations
-  change them (not built yet).
-- An existing field removed, then added again with the same descriptor, is
-  nothing: its values stay. With another descriptor, it's a reset
-  (`RetypeField::reset`). With an initializer, it's removed and added
-  again, so the initializer runs.
-- An existing field retyped, then retyped back to its descriptor, is
-  nothing: no converter runs, and its values stay as they are.
-- A field the save adds, then retyped with a converter, stays an "add a
-  field" and the retype after it: the converter changes what the
-  initializer gave.
-- An existing field moved several times is one move, from the type it
-  started on to the one it ends on; moved back, none. What changes it
-  after, changes it there. A field the save adds, then moves, is added
-  where it ends. Moves with initializers don't fold: a field moved more
-  than once with one, or added with one and then moved, is refused, asking
-  to save the first step.
-- A stored type reparented several times is one reparent, to the parent it
-  ends under; back under its first parent, none. A new type is created
-  under the parent it ends under. Reparents with initializers don't fold,
-  the same as moves.
-- What's left is ordered so each operation finds what it names: deletes,
-  type renames, new types (parents first), reparents, then each type's
-  removed, renamed, moved, changed and added fields, then default changes. A rename waits
-  until its new name is free. Two names swapped in a cycle can't be
-  ordered: the save is refused, asking to save one rename first.
+The admin builds that chain itself (see the admin document, "Editing
+types"). It holds each type and field as an object, so every action
+attaches to the object, not to a name: renamed three times, a field is one
+object with a final name. Undo stays in the admin. From each object it
+knows what it was and what it is now, asks the admin only what that change
+needs (a converter, an initializer, a default), and writes the operations.
+It orders them so each finds what it names: a swap of two names goes
+through a temporary name, as a person would do it. A client sending
+redundant steps, a rename and back, gets them run: correct, only wasted
+work.
 
-A default change's path follows a rename of its first field only: in
-`engine:power`, `engine` follows a rename, `power` doesn't (not built
-yet). It matters only when one save renames a field inside an Embed or an
-owned object, and sets a default through it before the rename. Defaults
-already stored aren't affected: they move with the fixups, at every depth.
-Such a default would end on a path the type no longer has, and compiling
-would drop it. So the save refuses it instead, as an `InvalidOperation`
-saying the feature is missing: save the rename first, or set the default
-with the new names. When the editor saves each type on its own, this
-can't happen: the other type's rename is saved first, and a save built on
-the old names comes back stale.
+Each fixup heads for the definitions as they were after its own operation,
+not for the end of the save: `FixupAtStep` holds them. So the same field
+can change twice in one save: int to text, then text to Float, each
+converter giving its own step's field. The draft records them as it applies
+the operations.
 
-Saving several types at once does hit it. Signing out with unsaved work
-offers "Save all", and so will any "save all tabs". Those can't be one save
-per type sent in a row: the first raises the revision, so every one after
-it comes back stale. They must be one save holding every type's
-operations. So following a rename inside a default path, through Embeds
-and owned objects, is needed before the schema editor joins "Save all".
+Default changes apply once the content moved, so the draft keeps them in
+step with what the save does after them. A field rename moves a default
+change made through it, on the type or a subtype, to the new name; a type
+rename, to the new type. A field removed, moved down or retyped drops the
+default changes made through it before: they no longer fit it. A deeper
+segment of a path, in `engine:power` the `power`, isn't followed (not built
+yet): a default set through it before a rename inside the Embed would end
+on a path the type no longer has. The save refuses it, as an
+`InvalidOperation` saying the feature is missing: set the default after
+the rename. The admin, writing the chain, puts it there.
+
+A save is one migration, whatever its length: the plan runs in memory, the
+tables change once, and each entry it touches is read and written once.
+Its cost in CPU still grows with the number of operations times the
+entries they touch, and the site is blocked while it runs. A limit on the
+operations one save may hold, a project setting, may be worth adding at
+some point (not built yet).
 
 A save applies only to the definitions its operations were built on. Every
 migration that changes stored schemas, native or editor, raises a schema

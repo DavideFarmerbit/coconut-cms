@@ -34,6 +34,8 @@ final readonly class RenameField implements SchemaOperation
         if (!$draft->isCreated($this->type)) {
             $draft->fixup(new Fixup\RenameField($this->type, (string) $this->old, (string) $this->new));
         }
+
+        $draft->fieldRenamed($this->type, $this->old, $this->new);
     }
 
     public function describe(): string {

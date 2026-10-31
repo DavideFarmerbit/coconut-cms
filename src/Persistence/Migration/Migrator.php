@@ -28,7 +28,6 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSave;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EntriesFailToMove;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\InvalidOperation;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Normalize\OperationNormalizer;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\PreparedEditorSave;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaDraft;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\StaleSchemaRevision;
@@ -205,7 +204,7 @@ final readonly class Migrator
     }
 
     /**
-     * Normalizes $save's operations, applies them to a draft of the stored
+     * Applies $save's operations, in order, to a draft of the stored
      * editor-created types, and plans its fixups: the created types join the starting state
      * as they end up. Compiles the new schemas unless the plan is blocked.
      * @param array<string, EntityBlueprint> $blueprints
@@ -228,19 +227,20 @@ final readonly class Migrator
         }
 
         $editor = [];
-        $ownDefaults = [];
         foreach ($stored as $each) {
             if ($each->source === SchemaSource::Editor) {
                 $editor[$each->schema->identifier] = $each->schema;
-                $ownDefaults[$each->schema->identifier] = $this->values->load($each->schema->identifier)->toArray();
             }
         }
 
-        // Nothing the admin undid reaches the database.
-        $operations = (new OperationNormalizer($nativeBatch->schemas, $editor, $ownDefaults))->normalize($save->operations);
+        // Applied as given, in order: whoever sends them says what runs.
         $draft = new SchemaDraft($nativeBatch->schemas, $editor);
-        foreach ($operations as $operation) {
-            $operation->applyTo($draft);
+        foreach ($save->operations as $index => $operation) {
+            try {
+                $operation->applyTo($draft);
+            } catch (InvalidOperation $refused) {
+                throw InvalidOperation::at($index, $refused);
+            }
         }
 
         $created = array_map(static fn (EntitySchema $schema): StoredSchema => new StoredSchema($schema, SchemaSource::Editor, '', []), array_values($draft->created()));
@@ -256,7 +256,7 @@ final readonly class Migrator
             self::assertPinned($draft, $batch);
         }
 
-        return new PreparedEditorSave($operations, $stored, $stateKey, $plan, $batch, $batch === null ? [] : $this->failuresOf($stored, $plan->plan, $batch));
+        return new PreparedEditorSave($save->operations, $stored, $stateKey, $plan, $batch, $batch === null ? [] : $this->failuresOf($stored, $plan->plan, $batch));
     }
 
     /**

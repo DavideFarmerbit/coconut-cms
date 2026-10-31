@@ -14,7 +14,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\StoredSchema;
 final readonly class PreparedEditorSave
 {
     /**
-     * @param list<SchemaOperation> $operations The save's operations, normalized: what runs.
+     * @param list<SchemaOperation> $operations The save's operations, as given: what runs.
      * @param list<StoredSchema> $stored What's stored now.
      * @param string $stateKey The code's StateKey, which the database matches.
      * @param PlanDraft $plan Its fixups and the policy's set-asides, planned to the end.

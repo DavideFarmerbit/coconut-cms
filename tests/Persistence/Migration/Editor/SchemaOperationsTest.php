@@ -360,6 +360,28 @@ final class SchemaOperationsTest extends TestCase
         $this->draftWithYacht(new CreateType('shop:cabin'), new AddField('shop:cabin', self::int('cabins'), new DefaultValue(1)), new Reparent('shop:yacht', 'shop:cabin'));
     }
 
+    public function testDefaultChangesFollowWhatTheSaveDoesAfter(): void {
+        $described = static fn (SchemaDraft $draft): array => array_map(static fn (DefaultChange $change): string => $change->type . ' ' . $change->path, $draft->defaultChanges());
+
+        self::assertSame(['shop:hull size', 'shop:yacht size'], $described($this->draftWithYacht(
+            new SetDefault('shop:boat', 'length', new DefaultValue(5)),
+            new SetDefault('shop:yacht', 'length', new DefaultValue(7)),
+            new RenameField('shop:boat', 'length', 'size'),
+            new RenameType('shop:boat', 'shop:hull'),
+        )), 'A rename reaches what a subtype pins too.');
+
+        self::assertSame([], $described($this->draftWithYacht(
+            new SetDefault('shop:yacht', 'cabins', new DefaultValue(2)),
+            new RemoveField('shop:yacht', 'cabins'),
+        )));
+
+        self::assertSame(['shop:yacht length', 'shop:yacht length'], $described($this->draftWithYacht(
+            new SetDefault('shop:boat', 'length', new DefaultValue(5)),
+            new SetDefault('shop:yacht', 'length', new DefaultValue(7)),
+            new MoveField('shop:boat', 'length', 'shop:yacht', new DefaultValue(9)),
+        )), 'Moved down: the boat\'s pin goes; the yacht keeps its own, and the move\'s, applied last, wins.');
+    }
+
     public function testAConverterMustFitTheFieldChange(): void {
         $this->assertRefused(
             'NumberToText converts a Scalar of int, float or decimal into a Scalar of string or text: it doesn\'t fit field "title" of "shop:maker".',

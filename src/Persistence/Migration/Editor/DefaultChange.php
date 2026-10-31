@@ -28,6 +28,23 @@ final readonly class DefaultChange
         return new self($type, $path, null);
     }
 
+    /** The field its path starts with. */
+    public function firstField(): string {
+        return (string) $this->path->head();
+    }
+
+    /** The same change on type $type: what a type rename makes of it. */
+    public function onType(string $type): self {
+        return new self($type, $this->path, $this->value);
+    }
+
+    /** The same change with its path starting at field $name: what a field rename makes of it. */
+    public function startingAt(string $name): self {
+        $rest = substr((string) $this->path, strlen($this->firstField()));
+
+        return new self($this->type, FieldPath::fromString($name . $rest), $this->value);
+    }
+
     /** Whether it pins a value, rather than inheriting. */
     public function pins(): bool {
         return $this->value !== null;

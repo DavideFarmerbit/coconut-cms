@@ -57,19 +57,16 @@ final class SchemaApiTest extends DynamicTestCase
         return ['name' => $name, 'kind' => 'scalar', 'scalarType' => 'int', 'nullable' => false];
     }
 
-    public function testAPreviewGivesTheOperationsNormalizedAsJson(): void {
-        [$status, $body] = $this->post('coconut-cms:schema.preview', ['revision' => 1, 'operations' => [
+    public function testAPreviewGivesTheOperationsAndTheirFixupsInOrder(): void {
+        $operations = [
             ['op' => 'renameField', 'type' => 'dy:yacht', 'old' => 'cabins', 'new' => 'rooms'],
             ['op' => 'addField', 'type' => 'dy:yacht', 'field' => self::int('masts'), 'default' => 1],
-            ['op' => 'renameField', 'type' => 'dy:yacht', 'old' => 'rooms', 'new' => 'berths'],
-        ]]);
+        ];
+        [$status, $body] = $this->post('coconut-cms:schema.preview', ['revision' => 1, 'operations' => $operations]);
 
         self::assertSame(200, $status, json_encode($body));
-        self::assertEquals([
-            ['op' => 'renameField', 'type' => 'dy:yacht', 'old' => 'cabins', 'new' => 'berths'],
-            ['op' => 'addField', 'type' => 'dy:yacht', 'field' => self::int('masts'), 'default' => 1],
-        ], $body['result']['operations']);
-        self::assertSame(['RenameField(dy:yacht, cabins → berths)', 'AddField(dy:yacht, masts)'], $body['result']['fixups']);
+        self::assertEquals($operations, $body['result']['operations'], 'Written back as given.');
+        self::assertSame(['RenameField(dy:yacht, cabins → rooms)', 'AddField(dy:yacht, masts)'], $body['result']['fixups']);
         self::assertSame(1, $body['result']['revision']);
         self::assertSame(1, (new MigrationState($this->connection))->revision(), 'Nothing ran.');
     }
@@ -84,9 +81,9 @@ final class SchemaApiTest extends DynamicTestCase
 
         self::assertSame(200, $status, json_encode($body));
         self::assertSame(2, $body['result']['revision']);
-        self::assertSame(['retypeField', 'addField'], array_column($body['result']['operations'], 'op'), 'A stored field\'s change, then the new field.');
-        self::assertSame(['kind' => 'coconut-cms:constant', 'value' => 2], $body['result']['operations'][1]['initializer']);
-        self::assertSame(['kind' => 'coconut-cms:number-to-text'], $body['result']['operations'][0]['converter']);
+        self::assertSame(['addField', 'retypeField'], array_column($body['result']['operations'], 'op'), 'In the order sent.');
+        self::assertSame(['kind' => 'coconut-cms:constant', 'value' => 2], $body['result']['operations'][0]['initializer']);
+        self::assertSame(['kind' => 'coconut-cms:number-to-text'], $body['result']['operations'][1]['converter']);
         $loaded = $this->session()->loadDynamic($yacht);
         self::assertSame(2, $loaded->get('masts'));
         self::assertSame('3', $loaded->get('cabins'));

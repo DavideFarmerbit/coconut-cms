@@ -8,14 +8,13 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
 
 /**
  * What a schema save does, or did: what schema.preview and schema.save give.
- * The editor shows its operations as what the save runs.
  */
 final readonly class SchemaReport implements OperationResult
 {
     /**
      * @param int $revision The schema revision now: the new one, once saved.
-     * @param list<array<string, mixed>> $operations The admin's operations
-     *        normalized, as OperationForm writes them: what runs.
+     * @param list<array<string, mixed>> $operations The operations, as given,
+     *        as OperationForm writes them: what runs, in order.
      * @param list<string> $fixups Every fixup it runs, described, in order.
      * @param list<SchemaBreak> $breaks Every break it causes on another editor-created type.
      * @param list<string> $blocked Every break the policy blocks, described.

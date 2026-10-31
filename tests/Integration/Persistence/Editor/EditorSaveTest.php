@@ -104,22 +104,34 @@ final class EditorSaveTest extends DynamicTestCase
         self::assertArrayNotHasKey('cabins', $this->defaultsOf('dy:yacht'));
     }
 
-    public function testWhatTheAdminUndidNeverRuns(): void {
+    public function testOperationsRunAsGivenAndADefaultFollowsALaterRename(): void {
         $yacht = $this->store('dy:yacht', ['cabins' => 5]);
 
         $report = $this->save(
+            new SetDefault('dy:yacht', 'cabins', new DefaultValue(6)),
             new RenameField('dy:yacht', 'cabins', 'rooms'),
             new AddField('dy:yacht', FieldDescriptor::scalar('masts', ScalarType::Int, Nullability::NotNullable), new DefaultValue(1)),
-            new RenameField('dy:yacht', 'rooms', 'berths'),
-            new SetDefault('dy:yacht', 'berths', new DefaultValue(6)),
+            new SetDefault('dy:yacht', 'masts', new DefaultValue(2)),
             new RemoveField('dy:yacht', 'masts'),
-            new SetDefault('dy:yacht', 'berths', new DefaultValue(3)),
         );
 
-        self::assertSame(['RenameField(dy:yacht, cabins → berths)'], array_map(static fn (SchemaOperation $operation): string => $operation->describe(), $report->operations));
-        self::assertSame(['RenameField(dy:yacht, cabins → berths)'], $report->fixups);
-        self::assertSame(5, $this->session()->loadDynamic($yacht)->get('berths'));
-        self::assertSame(3, $this->defaultsOf('dy:yacht')['berths']);
+        self::assertSame(['RenameField(dy:yacht, cabins → rooms)', 'AddField(dy:yacht, masts)', 'DropField(dy:yacht, masts)'], $report->fixups, 'Nothing is folded: what was sent runs.');
+        self::assertCount(5, $report->operations);
+        self::assertSame(5, $this->session()->loadDynamic($yacht)->get('rooms'));
+        self::assertSame(6, $this->defaultsOf('dy:yacht')['rooms'], 'Set before the rename, pinned under the new name.');
+        self::assertArrayNotHasKey('masts', $this->defaultsOf('dy:yacht'));
+    }
+
+    public function testEachFixupHeadsForItsOwnStep(): void {
+        $yacht = $this->store('dy:yacht', ['cabins' => 5]);
+
+        $this->save(
+            new RetypeField('dy:yacht', FieldDescriptor::scalar('cabins', ScalarType::String, Nullability::NotNullable), new NumberToText()),
+            new RetypeField('dy:yacht', FieldDescriptor::scalar('cabins', ScalarType::Float, Nullability::NotNullable), new TextToNumber(OnFailure::Cancel)),
+        );
+
+        self::assertSame(5.0, $this->session()->loadDynamic($yacht)->get('cabins'), 'Int to text, then text to float: each converter gives its own step\'s field.');
+        self::assertEquals(3.0, $this->defaultsOf('dy:yacht')['cabins'], 'Converted twice too; a Float default reads back as 3, not 3.0.');
     }
 
     public function testAnAddedFieldFillsExistingEntriesAndPinsTheDefaultForNewOnes(): void {

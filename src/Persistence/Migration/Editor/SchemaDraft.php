@@ -169,17 +169,51 @@ final class SchemaDraft
                 ->withParent($schema->parent === $old ? $renamed->identifier : $schema->parent)
                 ->withFields($schema->fields->retargeted($old, $renamed->identifier));
         }
+
+        $this->defaults = array_map(static fn (DefaultChange $change): DefaultChange => $change->type === $old ? $change->onType($renamed->identifier) : $change, $this->defaults);
     }
 
-    /** Editor-created type $identifier removed. */
+    /** Editor-created type $identifier removed, with the default changes made on it. */
     public function remove(string $identifier): void {
         $this->editorType($identifier);
         unset($this->editor[$identifier], $this->created[$identifier]);
+        $this->defaults = array_values(array_filter($this->defaults, static fn (DefaultChange $change): bool => $change->type !== $identifier));
     }
 
-    /** Adds $fixup, moving stored content: never for a type this save creates. */
+    /**
+     * Field $old of type $identifier renamed $new: every default change made
+     * so far through it, on the type or a subtype, starts at $new now. Default
+     * changes apply once the content moved, under the final names.
+     */
+    public function fieldRenamed(string $identifier, FieldName $old, FieldName $new): void {
+        $this->defaults = array_map(
+            fn (DefaultChange $change): DefaultChange => $change->firstField() === (string) $old && $this->isA($change->type, $identifier) ? $change->startingAt((string) $new) : $change,
+            $this->defaults,
+        );
+    }
+
+    /**
+     * Drops every default change made so far through field $name, on type
+     * $identifier or a subtype, but those on $kept or its subtypes: the field
+     * is removed, moved down to $kept, or retyped, so what was pinned no
+     * longer fits it.
+     */
+    public function dropDefaultChanges(string $identifier, FieldName $name, ?string $kept = null): void {
+        $this->defaults = array_values(array_filter(
+            $this->defaults,
+            fn (DefaultChange $change): bool => $change->firstField() !== (string) $name
+                || !$this->isA($change->type, $identifier)
+                || ($kept !== null && $this->isA($change->type, $kept)),
+        ));
+    }
+
+    /**
+     * Adds $fixup, moving stored content: never for a type this save creates.
+     * Called once its operation changed the definitions: it heads for them as
+     * they are now.
+     */
     public function fixup(Fixup $fixup): void {
-        $this->fixups[] = $fixup;
+        $this->fixups[] = new FixupAtStep($fixup, $this->editor);
     }
 
     /** Adds $change, applied once the content moved. */

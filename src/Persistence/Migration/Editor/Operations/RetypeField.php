@@ -60,6 +60,7 @@ final readonly class RetypeField implements SchemaOperation
                 : Fixup\RetypeField::converting($this->type, (string) $name, $this->converter));
         }
 
+        $draft->dropDefaultChanges($this->type, $name);
         if ($this->converter === null || $this->default !== null) {
             NewDefaults::pin($draft, $this->type, $this->field, $this->default);
         }

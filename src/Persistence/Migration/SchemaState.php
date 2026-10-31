@@ -213,6 +213,38 @@ final readonly class SchemaState
         return $ancestors;
     }
 
+    /**
+     * The editor-created schemas the fixups head for: an editor save's.
+     * @return array<string, EntitySchema> Keyed by identifier.
+     */
+    public function editorTarget(): array {
+        return array_filter($this->target, fn (EntitySchema $schema): bool => $this->targetSources[$schema->identifier] === SchemaSource::Editor);
+    }
+
+    /**
+     * The same state heading for $editor as its editor-created target, the
+     * code's kept: what an editor save's fixup applies with, the definitions
+     * as they were at its operation.
+     * @param array<string, EntitySchema> $editor Keyed by identifier.
+     */
+    public function withEditorTarget(array $editor): self {
+        $target = [];
+        $sources = [];
+        foreach ($this->target as $identifier => $schema) {
+            if ($this->targetSources[$identifier] === SchemaSource::Native) {
+                $target[$identifier] = $schema;
+                $sources[$identifier] = SchemaSource::Native;
+            }
+        }
+
+        foreach ($editor as $identifier => $schema) {
+            $target[$identifier] = $schema;
+            $sources[$identifier] = SchemaSource::Editor;
+        }
+
+        return new self($this->schemas, $this->sources, $target, $sources);
+    }
+
     /** $schema replacing the type with its identifier, keeping its source. */
     public function with(EntitySchema $schema): self {
         $this->get($schema->identifier);
