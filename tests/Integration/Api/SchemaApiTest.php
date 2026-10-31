@@ -135,7 +135,7 @@ final class SchemaApiTest extends DynamicTestCase
 
         self::assertSame(422, $status);
         self::assertSame('schema_save_refused', $body['error']['code']);
-        self::assertSame(['reason' => 'entries_fail', 'failures' => [$buoy => 'TextToNumber can\'t convert "red".']], $body['error']['details']);
+        self::assertSame(['reason' => 'content_refused', 'failures' => [$buoy => 'TextToNumber can\'t convert "red".'], 'duplicates' => []], $body['error']['details']);
     }
 
     public function testTheConversionsListedAreThoseFittingTheChange(): void {

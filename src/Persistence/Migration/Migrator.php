@@ -26,7 +26,10 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Data\ValueMark;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\BreaksNotAccepted;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSave;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EntriesFailToMove;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Uniqueness\UniqueIndex;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Uniqueness\UniquenessCheck;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsBuilder;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\Placement;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\InvalidOperation;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\PreparedEditorSave;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaDraft;
@@ -156,7 +159,7 @@ final readonly class Migrator
      * @throws InvalidOperation When an operation can't apply.
      * @throws MigrationBlocked When the policy blocks a break the save causes.
      * @throws BreaksNotAccepted When the save breaks a type, and $save doesn't accept it.
-     * @throws EntriesFailToMove When an entry's values can't move, found before anything changes.
+     * @throws ContentRefused When the content can't take the save, found before anything changes.
      */
     public function saveEditor(array $blueprints, MigrationSteps $steps, EditorSave $save): EditorSaveReport {
         $this->platform->prepare($this->connection);
@@ -179,9 +182,7 @@ final readonly class Migrator
                 throw new BreaksNotAccepted($prepared->plan->breaks);
             }
 
-            if ($prepared->failures !== []) {
-                throw new EntriesFailToMove($prepared->failures);
-            }
+            $prepared->content->assertPasses();
 
             $moved = $this->run($prepared->stored, false, $prepared->plan->plan, $prepared->batch, $prepared->stateKey, []);
 
@@ -256,7 +257,7 @@ final readonly class Migrator
             self::assertPinned($draft, $batch);
         }
 
-        return new PreparedEditorSave($save->operations, $stored, $stateKey, $plan, $batch, $batch === null ? [] : $this->failuresOf($stored, $plan->plan, $batch));
+        return new PreparedEditorSave($save->operations, $stored, $stateKey, $plan, $batch, $batch === null ? new ContentCheck([], []) : $this->checkContent($stored, $plan->plan, $batch));
     }
 
     /**
@@ -280,34 +281,62 @@ final readonly class Migrator
 
     /**
      * Moves every aggregate the plan changes without writing anything, and
-     * gives what fails: a converter cancelling, a value that doesn't fit its
-     * new field. Run before an editor save touches the database, so a failure
-     * leaves the site as it was.
+     * gives what would fail once the migration started: an entry whose
+     * values can't move (a converter cancelling, a value that doesn't fit
+     * its new field), and values a unique index would hold twice. Run before
+     * anything changes, so a failure leaves the site as it was.
      * @param list<StoredSchema> $stored
-     * @return array<string, string> Why each failing aggregate fails, keyed by its root's id.
      */
-    private function failuresOf(array $stored, MigrationPlan $plan, CompiledBatch $batch): array {
+    private function checkContent(array $stored, MigrationPlan $plan, CompiledBatch $batch): ContentCheck {
         $target = [...$plan->schemas->schemas(), ...$batch->schemas];
         $targetSchemas = new SchemaLookup($this->registry, $target);
         $reader = new AggregateReader($this->connection, $this->registry, []);
         $resolver = (new FieldValueResolver($this->registry, $this->values))->withBatch($target, $batch->values);
         $storedForm = new StoredForm($targetSchemas);
+        $rows = new EntityRowsBuilder($targetSchemas);
 
+        $targetLevels = self::levelsOf($targetSchemas, array_keys($target));
+        $storedLevels = self::levelsOf(new SchemaLookup($this->registry), array_map(static fn (StoredSchema $each): string => $each->schema->identifier, $stored));
+        $uniqueness = new UniquenessCheck($this->connection, UniqueIndex::allOf($targetLevels, $storedLevels), DatabaseSchema::of($targetLevels));
+
+        $roots = $this->rootsHolding(self::changedTypes($stored, $batch, $plan));
         $failures = [];
-        foreach ($this->rootsHolding(self::changedTypes($stored, $batch, $plan)) as $id) {
+        foreach ($roots as $id) {
             try {
                 $aggregate = $reader->read($id);
                 $plan->moveValues($aggregate);
                 if (isset($target[$aggregate->identifier])) {
                     self::checkWritten($aggregate, $storedForm);
-                    self::entityValuesOf($aggregate, $targetSchemas, $resolver);
+                    $values = self::entityValuesOf($aggregate, $targetSchemas, $resolver);
+                    $uniqueness->addMoved($rows->rowsOf($values, $id, Placement::standalone(), self::ownedIdsOf($aggregate, $values)));
                 }
             } catch (Exception $failure) {
                 $failures[$id] = $failure->getMessage();
             }
         }
 
-        return $failures;
+        return new ContentCheck($failures, $uniqueness->duplicates($this->entitiesOf($roots)));
+    }
+
+    /**
+     * The id of every entity in the aggregates rooted at $roots: the roots,
+     * and everything they own, at any depth.
+     * @param list<string> $roots
+     * @return list<string>
+     */
+    private function entitiesOf(array $roots): array {
+        if ($roots === []) {
+            return [];
+        }
+
+        return array_map('strval', $this->connection->fetchFirstColumn(sprintf(
+            'WITH RECURSIVE down (id) AS ('
+            . ' SELECT id FROM %1$s WHERE id IN (?)'
+            . ' UNION'
+            . ' SELECT owned.id FROM %1$s owned JOIN down ON owned.owner = down.id'
+            . ') SELECT id FROM down',
+            $this->connection->quoteSingleIdentifier(DatabaseSchema::ENTITIES),
+        ), [$roots], [ArrayParameterType::STRING]));
     }
 
     /** @param array<string, EntityBlueprint> $blueprints */
@@ -328,6 +357,11 @@ final readonly class Migrator
         // ones: checked again, its defaults laid over its new ancestors, its
         // fingerprints matching them.
         $batch = $fresh ? $nativeBatch : $this->compiler->compute([...$blueprints, ...$this->editorBlueprints($stored, $plan)]);
+
+        // What would fail once started fails now, the site as it was.
+        if (!$fresh) {
+            $this->checkContent($stored, $plan, $batch)->assertPasses();
+        }
 
         $recorded = $fresh ? $steps->ids() : $pending->ids();
         $moved = $this->run($stored, $fresh, $plan, $batch, $stateKey, $recorded);

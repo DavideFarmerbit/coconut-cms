@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Migration\Editor;
 
 use XyloIsCoding\CoconutCms\Persistence\Migration\BreakResolution;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\Difference;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Uniqueness\Duplicate;
 
 /**
  * What an editor save would do, found without changing anything: what
@@ -22,6 +23,7 @@ final readonly class EditorSaveReport
      * @param array<string, string> $failures Why each entry that can't move
      *        fails, keyed by its root's id: a converter cancelling, a value
      *        that doesn't fit.
+     * @param list<Duplicate> $duplicates Values a unique index would hold twice.
      * @param int $moved How many aggregates moved: 0 for a preview.
      */
     public function __construct(
@@ -31,12 +33,13 @@ final readonly class EditorSaveReport
         public array $breaks,
         public array $blocked,
         public array $failures = [],
+        public array $duplicates = [],
         public int $moved = 0,
     ) {
     }
 
-    /** Whether the save can't run: the policy blocks it, or an entry can't move. */
+    /** Whether the save can't run: the policy blocks it, an entry can't move, or values would be held twice. */
     public function isBlocked(): bool {
-        return $this->blocked !== [] || $this->failures !== [];
+        return $this->blocked !== [] || $this->failures !== [] || $this->duplicates !== [];
     }
 }

@@ -9,7 +9,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationState;
-use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationUnfinished;
+use XyloIsCoding\CoconutCms\Persistence\Migration\ContentRefused;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityLoader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Captured;
@@ -186,6 +186,7 @@ final class MigratorTest extends TestCase
 
         [$schemas] = $this->stores();
         self::assertNotNull($schemas->load('migtest:engine'), 'Nothing moved.');
+        self::assertNull((new MigrationState($this->connection))->read()['startedAt'], 'Refused before it started: the site stays usable.');
     }
 
     public function testAFreshDatabaseIsCreatedFromTheCodeWithEveryStepRecordedAsApplied(): void {
@@ -281,39 +282,27 @@ final class MigratorTest extends TestCase
         self::assertNotNull($schemas->load('migtest:engine'));
     }
 
-    public function testAMoveThatFailsRollsBackAndTheFixedStepFinishesTheMigration(): void {
+    public function testAMoveThatWouldFailIsRefusedBeforeAnythingChangesAndTheFixedStepRuns(): void {
         $this->migrate(MigratorV1::CLASSES, MigrationSteps::none());
         $ids = $this->saveV1Cars();
         $this->connection->executeStatement("UPDATE migtest_car SET price = 999 WHERE _id = ?", [$ids['racer']]);
         $this->connection->executeStatement("UPDATE _state__migtest_car SET price = 1 WHERE _id = ?", [$ids['racer']]);
+        $tables = $this->tables();
 
         try {
             $this->migrate(MigratorV2::CLASSES, self::stepsConvertingPriceWith(new MigFailingPriceToText()));
-            self::fail('The move should have failed.');
-        } catch (RuntimeException $failure) {
-            self::assertStringContainsString(sprintf('Moving entity %s failed: cannot convert 999', $ids['racer']), $failure->getMessage());
+            self::fail('The move should have been refused.');
+        } catch (ContentRefused $refused) {
+            self::assertSame([$ids['racer'] => 'cannot convert 999'], $refused->failures);
         }
 
-        // Nothing moved, nothing recorded; expand's work is still there.
-        [$schemas] = $this->stores();
-        self::assertNotNull($schemas->load('migtest:engine'));
+        // Found by the dry pass: nothing started, nothing expanded, nothing recorded.
+        self::assertSame($tables, $this->tables());
+        self::assertSame([], $this->movedAside());
         self::assertSame([], $this->connection->fetchFirstColumn('SELECT id FROM migration_steps'));
-        self::assertSame(1200, (int) $this->connection->fetchOne('SELECT _old__chassis__weight FROM migtest_car WHERE _id = ?', [$ids['family']]));
+        self::assertNull((new MigrationState($this->connection))->read()['startedAt']);
 
-        // Until a migration finishes, entities can't be read or written.
-        try {
-            $this->loadV2($ids['family']);
-            self::fail('Reading should be refused.');
-        } catch (MigrationUnfinished) {
-        }
-        [, , $registry] = $this->stores();
-        try {
-            EntityWriter::of($this->connection, $registry)->delete($ids['family']);
-            self::fail('Writing should be refused.');
-        } catch (MigrationUnfinished) {
-        }
-
-        // The fixed step runs over what expand already did, and finishes.
+        // The fixed step runs from a clean start, and finishes.
         $this->migrate(MigratorV2::CLASSES, MigratorV2::steps());
 
         self::assertSame('999 EUR', $this->loadV2($ids['racer'])->cost);

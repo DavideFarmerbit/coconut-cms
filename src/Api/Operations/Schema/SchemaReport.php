@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Api\Operations\Schema;
 use XyloIsCoding\CoconutCms\Api\Operation\OperationResult;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\Difference;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Uniqueness\Duplicate;
 
 /**
  * What a schema save does, or did: what schema.preview and schema.save give.
@@ -20,6 +21,8 @@ final readonly class SchemaReport implements OperationResult
      * @param list<string> $blocked Every break the policy blocks, described.
      * @param array<string, string> $failures Why each entry that can't move
      *        fails, by its root's id.
+     * @param list<Duplicate> $duplicates Values a unique index would hold
+     *        twice: the type, the values by column, the entities holding them.
      * @param int $moved How many entries moved: 0 for a preview.
      */
     public function __construct(
@@ -29,6 +32,7 @@ final readonly class SchemaReport implements OperationResult
         public array $breaks,
         public array $blocked,
         public array $failures,
+        public array $duplicates,
         public int $moved,
     ) {
     }
@@ -41,6 +45,7 @@ final readonly class SchemaReport implements OperationResult
             array_map(SchemaBreak::of(...), $report->breaks),
             array_map(static fn (Difference $blocked): string => $blocked->describe(), $report->blocked),
             $report->failures,
+            $report->duplicates,
             $report->moved,
         );
     }

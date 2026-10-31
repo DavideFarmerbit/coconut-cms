@@ -2,6 +2,7 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Migration\Editor;
 
+use XyloIsCoding\CoconutCms\Persistence\Migration\ContentCheck;
 use XyloIsCoding\CoconutCms\Persistence\Migration\PlanDraft;
 use XyloIsCoding\CoconutCms\Persistence\Migration\PlannedFixup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\CompiledBatch;
@@ -19,7 +20,7 @@ final readonly class PreparedEditorSave
      * @param string $stateKey The code's StateKey, which the database matches.
      * @param PlanDraft $plan Its fixups and the policy's set-asides, planned to the end.
      * @param CompiledBatch|null $batch The new schemas and defaults; null when the plan is blocked.
-     * @param array<string, string> $failures Why each entry that can't move fails, keyed by its root's id.
+     * @param ContentCheck $content What the content can't take: entries that can't move, values held twice.
      */
     public function __construct(
         public array $operations,
@@ -27,7 +28,7 @@ final readonly class PreparedEditorSave
         public string $stateKey,
         public PlanDraft $plan,
         public ?CompiledBatch $batch,
-        public array $failures,
+        public ContentCheck $content,
     ) {
     }
 
@@ -39,7 +40,8 @@ final readonly class PreparedEditorSave
             array_map(static fn (PlannedFixup $planned): string => $planned->fixup->describe(), $this->plan->plan->fixups),
             $this->plan->breaks,
             $this->plan->blocked,
-            $this->failures,
+            $this->content->failures,
+            $this->content->duplicates,
             $moved,
         );
     }

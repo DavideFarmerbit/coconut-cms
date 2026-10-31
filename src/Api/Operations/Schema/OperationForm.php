@@ -12,6 +12,8 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\ConversionRegist
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\InvalidParameters;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\DefaultValue;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\AddField;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\AddUniqueGroup;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveUniqueGroup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CopyValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CreateType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
@@ -73,10 +75,11 @@ final readonly class OperationForm
             'removeField', 'makeRequired' => ['type', 'field'],
             'moveField' => ['type', 'field', 'to', 'default', 'initializer'],
             'copyValues' => ['type', 'from', 'to'],
+            'addUniqueGroup', 'removeUniqueGroup' => ['type', 'fields'],
             'retypeField' => ['type', 'field', 'converter', 'default'],
             'setDefault' => ['type', 'path', 'value'],
             'inheritDefault' => ['type', 'path'],
-            default => throw InvalidInput::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, deleteType, reparent, addField, removeField, renameField, moveField, copyValues, makeRequired, retypeField, setDefault, inheritDefault.', $op)),
+            default => throw InvalidInput::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, deleteType, reparent, addField, removeField, renameField, moveField, copyValues, makeRequired, retypeField, setDefault, inheritDefault, addUniqueGroup, removeUniqueGroup.', $op)),
         };
         Json::onlyKeys($data, ['op', ...$keys], $path);
         $string = static fn (string $key): string => Json::string($data, $key, $path);
@@ -111,6 +114,8 @@ final readonly class OperationForm
             ),
             'removeField' => new RemoveField($string('type'), $string('field')),
             'copyValues' => new CopyValues($string('type'), $string('from'), $string('to')),
+            'addUniqueGroup' => new AddUniqueGroup($string('type'), ...self::names($data['fields'] ?? null, "$path.fields")),
+            'removeUniqueGroup' => new RemoveUniqueGroup($string('type'), ...self::names($data['fields'] ?? null, "$path.fields")),
             'renameField' => new RenameField($string('type'), $string('old'), $string('new')),
             'moveField' => new MoveField(
                 $string('type'),
@@ -130,6 +135,18 @@ final readonly class OperationForm
             'inheritDefault' => new InheritDefault($string('type'), $string('path')),
             default => throw new LogicException(sprintf('"%s" was checked as known.', $op)),
         };
+    }
+
+    /**
+     * $data as a list of field names, at $path.
+     * @return list<string>
+     */
+    private static function names(mixed $data, string $path): array {
+        if (!is_array($data) || !array_is_list($data) || $data === [] || array_filter($data, 'is_string') !== $data) {
+            throw InvalidInput::at($path, 'A list of field names is needed here.');
+        }
+
+        return $data;
     }
 
     /**
@@ -192,6 +209,8 @@ final readonly class OperationForm
                 + ($operation->initializer === null ? [] : ['initializer' => $this->conversionForm($operation->initializer)]),
             $operation instanceof RemoveField => ['op' => 'removeField', 'type' => $operation->type, 'field' => (string) $operation->field],
             $operation instanceof CopyValues => ['op' => 'copyValues', 'type' => $operation->type, 'from' => (string) $operation->from, 'to' => (string) $operation->to],
+            $operation instanceof AddUniqueGroup => ['op' => 'addUniqueGroup', 'type' => $operation->type, 'fields' => $operation->fields],
+            $operation instanceof RemoveUniqueGroup => ['op' => 'removeUniqueGroup', 'type' => $operation->type, 'fields' => $operation->fields],
             $operation instanceof RenameField => ['op' => 'renameField', 'type' => $operation->type, 'old' => (string) $operation->old, 'new' => (string) $operation->new],
             $operation instanceof MoveField => ['op' => 'moveField', 'type' => $operation->type, 'field' => (string) $operation->field, 'to' => $operation->to]
                 + self::defaultForm('default', $operation->default)

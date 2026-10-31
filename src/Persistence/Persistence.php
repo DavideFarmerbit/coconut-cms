@@ -10,7 +10,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationState;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationUnfinished;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\ConversionRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\BreaksNotAccepted;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EntriesFailToMove;
+use XyloIsCoding\CoconutCms\Persistence\Migration\ContentRefused;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaEditingDenied;
 use XyloIsCoding\CoconutCms\Persistence\Permission\SystemActor;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSave;
@@ -211,7 +211,7 @@ final class Persistence
      * operations say, moving their content as a migration does, under this
      * policy. Reads every class, never the cache.
      * @throws SchemaEditingDenied When $actor doesn't hold the schema-editor role.
-     * @throws StaleSchemaRevision|InvalidOperation|MigrationBlocked|BreaksNotAccepted|EntriesFailToMove As Migrator::saveEditor() says.
+     * @throws StaleSchemaRevision|InvalidOperation|MigrationBlocked|BreaksNotAccepted|ContentRefused As Migrator::saveEditor() says.
      */
     public function saveSchemas(EditorSave $save, Actor $actor): EditorSaveReport {
         $this->assertSchemaEditor($actor);

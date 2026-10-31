@@ -8,8 +8,9 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\BreakResolution;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\Difference;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\BreaksNotAccepted;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSave;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EntriesFailToMove;
+use XyloIsCoding\CoconutCms\Persistence\Migration\ContentRefused;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationBlocked;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Uniqueness\Duplicate;
 
 /**
  * What schema.preview and schema.save share: reading the input's
@@ -45,8 +46,12 @@ final readonly class SchemaSaving
             throw new SchemaSaveRefused($blocked->getMessage(), ['reason' => 'blocked', 'blocked' => array_map(static fn (Difference $each): string => $each->describe(), $blocked->differences)]);
         } catch (BreaksNotAccepted $refused) {
             throw new SchemaSaveRefused($refused->getMessage(), ['reason' => 'breaks_not_accepted', 'breaks' => array_map(static fn (BreakResolution $each): array => (array) SchemaBreak::of($each), $refused->breaks)]);
-        } catch (EntriesFailToMove $refused) {
-            throw new SchemaSaveRefused($refused->getMessage(), ['reason' => 'entries_fail', 'failures' => $refused->failures]);
+        } catch (ContentRefused $refused) {
+            throw new SchemaSaveRefused($refused->getMessage(), [
+                'reason' => 'content_refused',
+                'failures' => $refused->failures,
+                'duplicates' => array_map(static fn (Duplicate $each): array => (array) $each, $refused->duplicates),
+            ]);
         }
     }
 }

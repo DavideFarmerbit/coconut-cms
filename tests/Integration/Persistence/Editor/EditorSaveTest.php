@@ -15,10 +15,12 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\BreaksNotAccepted;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\DefaultValue;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSave;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EntriesFailToMove;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\InvalidOperation;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\AddField;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\AddUniqueGroup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CopyValues;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveUniqueGroup;
+use XyloIsCoding\CoconutCms\Persistence\Migration\ContentRefused;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CreateType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefault;
@@ -278,6 +280,49 @@ final class EditorSaveTest extends DynamicTestCase
         }
     }
 
+    public function testAUniqueGroupOverDuplicatesIsRefusedListingThem(): void {
+        $red = $this->store('dy:buoy', ['color' => 'red']);
+        $alsoRed = $this->store('dy:buoy', ['color' => 'red']);
+        $this->store('dy:buoy', ['color' => 'green']);
+        $group = new EditorSave(1, [new AddUniqueGroup('dy:buoy', 'color')]);
+
+        $preview = $this->previewAs(new StrictPolicy(), $group);
+        self::assertCount(1, $preview->duplicates);
+        self::assertSame(['color' => 'red'], $preview->duplicates[0]->values);
+        self::assertEqualsCanonicalizing([$red, $alsoRed], $preview->duplicates[0]->entities);
+
+        try {
+            $this->saveAs(new StrictPolicy(), $group);
+            self::fail('Two buoys are red.');
+        } catch (ContentRefused) {
+        }
+
+        self::assertSame(1, $this->revision(), 'Nothing changed.');
+        $this->connection->executeStatement('UPDATE dy_buoy SET color = ? WHERE _id = ?', ['blue', $alsoRed]);
+        $this->saveAs(new StrictPolicy(), $group);
+        self::assertSame(2, $this->revision());
+
+        $this->saveAs(new StrictPolicy(), new EditorSave(2, [new RemoveUniqueGroup('dy:buoy', 'color')]));
+        self::assertSame(3, $this->revision());
+    }
+
+    public function testAConverterGivingTwoEntriesOneValueBreaksTheirGroup(): void {
+        $this->save(new SetDefault('dy:buoy', 'color', new DefaultValue('0')), new AddUniqueGroup('dy:buoy', 'color'));
+        $this->store('dy:buoy', ['color' => '7']);
+        $this->store('dy:buoy', ['color' => '07']);
+
+        $this->expectException(ContentRefused::class);
+
+        $this->saveAs(new StrictPolicy(), new EditorSave(2, [new RetypeField('dy:buoy', FieldDescriptor::scalar('color', ScalarType::Int, Nullability::NotNullable), new TextToNumber(OnFailure::Cancel))]));
+    }
+
+    public function testAUniqueGroupNeedsAColumnToIndex(): void {
+        $this->expectException(InvalidOperation::class);
+        $this->expectExceptionMessage('has no column to index');
+
+        $this->save(new AddUniqueGroup('dy:yacht', 'dinghy'));
+    }
+
     public function testARenamedTypeKeepsItsEntities(): void {
         $buoy = $this->store('dy:buoy', ['color' => 'green']);
 
@@ -328,9 +373,9 @@ final class EditorSaveTest extends DynamicTestCase
         self::assertTrue($preview->isBlocked());
 
         try {
-            $this->saveAs(new StrictPolicy(),new EditorSave(2, $retype));
+            $this->saveAs(new StrictPolicy(), new EditorSave(2, $retype));
             self::fail('"red" is no number.');
-        } catch (EntriesFailToMove $refused) {
+        } catch (ContentRefused $refused) {
             self::assertSame([$buoy], array_keys($refused->failures));
         }
 

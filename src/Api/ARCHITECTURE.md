@@ -379,7 +379,9 @@ input:
   `initializer`), `copyValues` (`type`, `from`, `to`), `makeRequired`
   (`type`, `field`), `retypeField` (`type`,
   `field`, `converter`, `default`), `setDefault` (`type`, `path`, `value`),
-  `inheritDefault` (`type`, `path`). An unknown key is refused.
+  `inheritDefault` (`type`, `path`), `addUniqueGroup` and
+  `removeUniqueGroup` (`type`, `fields`: a list of names). An unknown key
+  is refused.
 - A field is described as `types.get` describes what a field holds, with
   its `name`. An enum Scalar names its enum by identifier, `"enum":
   "shop:color"`; a value object, its `target`, the same way. A
@@ -402,10 +404,11 @@ Both answer the same report: `revision` (the new one, once saved),
 `operations` (as given, in the same form: what runs), `fixups`
 (described), `breaks` (`type`, `description`, `setAside`: the fixup, or
 null when blocked), `blocked`, `failures` (why each entry can't move, by
-its id), and `moved`. A save the policy blocks, with breaks not accepted,
-or with entries that can't move is refused with `schema_save_refused`:
-`reason` is `blocked`, `breaks_not_accepted` or `entries_fail`, beside the
-same lists.
+its id), `duplicates` (values a unique index would hold twice: `type`,
+`values` by column, `entities` holding them), and `moved`. A save the
+policy blocks, with breaks not accepted, or whose content can't take it is
+refused with `schema_save_refused`: `reason` is `blocked`,
+`breaks_not_accepted` or `content_refused`, beside the same lists.
 
 `coconut-cms:schema.conversions` lists the converters and initializers the
 modules register, for the editor to offer, in three groups: `converters`

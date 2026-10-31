@@ -1197,8 +1197,38 @@ same policy applies to an editor save.
 The same change always follows the same rule, whatever the stored content
 holds: a removed field nobody ever touched still needs its declaration.
 Content can still make a declared change fail. An added unique group over
-duplicate touched values, or a converter whose output doesn't fit the new
-field, fails the migration before anything is written.
+duplicate values, a converter giving two entries one value under a group,
+a converter cancelling, or a value that doesn't fit its new field refuses
+the migration before anything changes: see "The content check".
+
+### The content check
+
+A migration checks the content before it marks itself started, native or
+editor alike, so a failure leaves the site as it was. Once started, a
+failure would leave it blocked until a migration finishes, and nobody can
+fix the content while it's blocked.
+
+It reads every aggregate the migration moves, runs the plan over its
+values, and checks what it would write, writing nothing. Two things fail
+there, and refuse the migration with `ContentRefused`, listing each:
+
+- **An entry whose values can't move:** a converter cancelling, or a value
+  that doesn't fit its new field. Named by its root's id.
+- **Values a unique index would hold twice.** Every unique index new to
+  the tables, or on a table the migration writes, is checked against the
+  rows it would hold: each moved entry's rows, built as the writer would
+  write them, and every other row as it is. A group added over duplicates
+  is caught, and so is a converter turning "7" and "07" into one 7. Named
+  by the type, the values, and the entities holding them.
+
+The database compares the values, never PHP: what's equal is its
+collation's call, and MySQL's ignores case and accents, so "a-1" and "A-1"
+collide there and not on SQLite. Each index is checked in a temporary
+table typed and collated as its own, filled with the keys, then grouped.
+
+The check costs one more read of every entry the migration moves, and a
+temporary table per index it checks. Only a database error during the run
+can still leave a migration started.
 
 ### What isn't a difference
 
@@ -1438,15 +1468,20 @@ save is refused, before it changes anything, when:
 - an operation can't apply (`InvalidOperation`),
 - the policy blocks a break (`MigrationBlocked`),
 - it causes breaks without `acceptBreaks` (`BreaksNotAccepted`),
-- an entry's values can't move (`EntriesFailToMove`).
+- the content can't take it (`ContentRefused`): an entry's values can't
+  move, or values a unique index would hold twice.
 
-The last one comes from a dry pass. Before the save marks a migration
-started, it reads every aggregate the save affects, runs the plan over its
-values, and checks what it would write, writing nothing. A converter that
-cancels, or a value that doesn't fit its new field, fails there, naming the
-entry. So an admin's save never leaves the site blocked: only a database
-error during the run can, the same as for a native migration. A preview
-runs the same pass, so it lists the failing entries.
+The last one comes from the content check every migration runs before it
+starts (see "The content check"). So an admin's save never leaves the site
+blocked. A preview runs the same check, so it lists the failing entries
+and the duplicates.
+
+`AddUniqueGroup(type, fields)` adds a unique group over an editor-created
+type's own fields; `RemoveUniqueGroup(type, fields)` removes one. Each
+field is stored in one indexable column: a Scalar but Text, an indexable
+value object, or a Reference. An Embed isn't offered yet (not built yet);
+an owned object or a Collection has no column. Content breaking the group
+refuses the save, listing the duplicates.
 
 A save stores exactly the defaults the admin set, pinned, and never works
 out what's set by comparing values: a field the admin set to what its
