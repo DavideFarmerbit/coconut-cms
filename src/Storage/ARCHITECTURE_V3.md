@@ -1230,6 +1230,12 @@ The check costs one more read of every entry the migration moves, and a
 temporary table per index it checks. Only a database error during the run
 can still leave a migration started.
 
+It checks more indexes than it needs to (an optimization, not built yet).
+Two rows whose indexed values the migration leaves as they are can't
+newly collide, so only an index that's new, or that covers a column the
+plan converts, copies, moves into or fills, needs checking. Today every
+index on a table the migration writes is checked, which is most of them.
+
 ### What isn't a difference
 
 Nothing stored depends on these, so none of them is a difference under any
