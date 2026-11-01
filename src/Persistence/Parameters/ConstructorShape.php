@@ -1,6 +1,6 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry;
+namespace XyloIsCoding\CoconutCms\Persistence\Parameters;
 
 use BackedEnum;
 use InvalidArgumentException;
@@ -10,33 +10,41 @@ use ReflectionNamedType;
 use ReflectionParameter;
 use RuntimeException;
 use XyloIsCoding\CoconutCms\Core\Identifier;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 
 /**
- * A registered converter's or initializer's constructor, read once by
- * reflection: how a save's parameters build one, and how one is written
- * back. Each parameter is a public property of the same name, so what was
- * built can be written back the same way.
+ * A registered class's constructor, read once by reflection: how plain
+ * parameters build one, and how one is written back as them. What a
+ * converter, initializer or validator rule is configured by, in a save and
+ * in a stored schema alike. Each parameter is a public property of the same
+ * name, so what was built can be written back the same way.
  */
-final readonly class ConstructorShape
+final class ConstructorShape
 {
+    /** @var array<class-string, self> Each class's, read once per request. */
+    private static array $read = [];
+
     /**
      * @param class-string $class
      * @param list<ConstructorParameter> $parameters
      */
     private function __construct(
-        public string $class,
-        public array $parameters,
+        public readonly string $class,
+        public readonly array $parameters,
     ) {
     }
 
     /**
-     * $class's constructor. Throws LogicException at boot for a parameter of
-     * a type a save can't give, or one with no public property to write it
-     * back from.
+     * $class's constructor. Throws LogicException for a parameter of a type
+     * plain data can't give, or one with no public property to write it back
+     * from.
      * @param class-string $class
      */
     public static function of(string $class): self {
+        if (isset(self::$read[$class])) {
+            return self::$read[$class];
+        }
+
         $reflection = new ReflectionClass($class);
         $parameters = [];
         foreach ($reflection->getConstructor()?->getParameters() ?? [] as $parameter) {
@@ -47,7 +55,7 @@ final readonly class ConstructorShape
             $parameters[] = self::parameterOf($class, $parameter);
         }
 
-        return new self($class, $parameters);
+        return self::$read[$class] = new self($class, $parameters);
     }
 
     private static function parameterOf(string $class, ReflectionParameter $parameter): ConstructorParameter {
@@ -67,6 +75,14 @@ final readonly class ConstructorShape
             return new ConstructorParameter($parameter->getName(), ParameterType::RegisteredEnum, $type->allowsNull(), $optional, $default);
         }
 
+        if ($named === FieldValidatorRule::class) {
+            if (!$parameter->isVariadic()) {
+                throw new LogicException(sprintf('%s: parameter $%s holds field rules: declare it variadic, FieldValidatorRule ...$%s.', $class, $parameter->getName(), $parameter->getName()));
+            }
+
+            return new ConstructorParameter($parameter->getName(), ParameterType::FieldRules, false, true, []);
+        }
+
         $parameterType = match (true) {
             $named === 'string' => ParameterType::String,
             $named === 'int' => ParameterType::Int,
@@ -74,7 +90,7 @@ final readonly class ConstructorShape
             $named === 'bool' => ParameterType::Bool,
             $named === 'mixed' => ParameterType::Mixed,
             is_subclass_of($named, BackedEnum::class) => ParameterType::Enum,
-            default => throw new LogicException(sprintf('%s: parameter $%s takes %s, which a save can\'t give: a string, int, float, bool, mixed or backed enum only.', $class, $parameter->getName(), $named)),
+            default => throw new LogicException(sprintf('%s: parameter $%s takes %s, which plain parameters can\'t give: a string, int, float, bool, mixed, backed enum or field rules only.', $class, $parameter->getName(), $named)),
         };
 
         return new ConstructorParameter($parameter->getName(), $parameterType, $type->allowsNull(), $optional, $default, $parameterType === ParameterType::Enum ? $named : null);
@@ -85,7 +101,7 @@ final readonly class ConstructorShape
      * @param array<string, mixed> $data
      * @throws InvalidParameters For a key missing, unknown, or of the wrong type.
      */
-    public function build(array $data, EnumRegistry $enums): object {
+    public function build(array $data, ParameterRegistries $registries): object {
         $known = array_fill_keys(array_map(static fn (ConstructorParameter $parameter): string => $parameter->name, $this->parameters), true);
         foreach (array_keys($data) as $key) {
             if (!isset($known[$key])) {
@@ -93,6 +109,7 @@ final readonly class ConstructorShape
             }
         }
 
+        // In order, so a variadic last parameter spreads into its place.
         $arguments = [];
         foreach ($this->parameters as $parameter) {
             if (!array_key_exists($parameter->name, $data)) {
@@ -100,18 +117,23 @@ final readonly class ConstructorShape
                     throw new InvalidParameters($parameter->name, sprintf('"%s" is missing.', $parameter->name));
                 }
 
-                $arguments[$parameter->name] = $parameter->default;
-                continue;
+                $value = $parameter->default;
+            } else {
+                $value = self::valueOf($parameter, $data[$parameter->name], $registries);
             }
 
-            $arguments[$parameter->name] = self::valueOf($parameter, $data[$parameter->name], $enums);
+            if ($parameter->type === ParameterType::FieldRules) {
+                array_push($arguments, ...$value);
+            } else {
+                $arguments[] = $value;
+            }
         }
 
         return new $this->class(...$arguments);
     }
 
     /** $value read for $parameter. */
-    private static function valueOf(ConstructorParameter $parameter, mixed $value, EnumRegistry $enums): mixed {
+    private static function valueOf(ConstructorParameter $parameter, mixed $value, ParameterRegistries $registries): mixed {
         if ($value === null && $parameter->nullable) {
             return null;
         }
@@ -123,7 +145,8 @@ final readonly class ConstructorShape
             ParameterType::Bool => is_bool($value) ? $value : null,
             ParameterType::Mixed => $value,
             ParameterType::Enum => is_string($value) || is_int($value) ? $parameter->enum::tryFrom($value) : null,
-            ParameterType::RegisteredEnum => is_string($value) ? self::enumNamed($value, $enums) : null,
+            ParameterType::RegisteredEnum => is_string($value) ? self::enumNamed($value, $registries) : null,
+            ParameterType::FieldRules => is_array($value) && array_is_list($value) ? self::rulesFrom($parameter->name, $value, $registries) : null,
         };
         if ($read === null && $parameter->type !== ParameterType::Mixed) {
             throw new InvalidParameters($parameter->name, sprintf('"%s" can\'t take %s.', $parameter->name, json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)));
@@ -133,27 +156,48 @@ final readonly class ConstructorShape
     }
 
     /** The enum class registered as $identifier; null when none is. */
-    private static function enumNamed(string $identifier, EnumRegistry $enums): ?string {
+    private static function enumNamed(string $identifier, ParameterRegistries $registries): ?string {
         try {
-            return $enums->resolve(Identifier::fromString($identifier));
+            return $registries->enums->resolve(Identifier::fromString($identifier));
         } catch (InvalidArgumentException|RuntimeException) {
             return null;
         }
     }
 
     /**
+     * Each rule in $entries built, a fault inside one named by where it is:
+     * "rules.1.config.max".
+     * @param list<mixed> $entries
+     * @return list<FieldValidatorRule>
+     */
+    private static function rulesFrom(string $name, array $entries, ParameterRegistries $registries): array {
+        $rules = [];
+        foreach ($entries as $index => $entry) {
+            try {
+                $rules[] = $registries->fieldRules()->build($entry, $registries);
+            } catch (InvalidParameters $refused) {
+                throw new InvalidParameters($name . '.' . $index . ($refused->parameter === null ? '' : '.' . $refused->parameter), $refused->getMessage());
+            }
+        }
+
+        return $rules;
+    }
+
+    /**
      * $built's parameters, the way build() takes them: an enum by its value,
-     * a registered enum by its identifier.
+     * a registered enum by its identifier, field rules each as
+     * `{"rule": identifier, "config": parameters}`.
      * @return array<string, mixed>
      */
-    public function parametersOf(object $built, EnumRegistry $enums): array {
+    public function parametersOf(object $built, ParameterRegistries $registries): array {
         $data = [];
         foreach ($this->parameters as $parameter) {
             $value = $built->{$parameter->name};
             $data[$parameter->name] = match (true) {
                 $value === null => null,
                 $parameter->type === ParameterType::Enum => $value->value,
-                $parameter->type === ParameterType::RegisteredEnum => (string) $enums->identifierOf($value),
+                $parameter->type === ParameterType::RegisteredEnum => (string) $registries->enums->identifierOf($value),
+                $parameter->type === ParameterType::FieldRules => array_map(static fn (FieldValidatorRule $rule): array => $registries->fieldRules()->entryOf($rule, $registries), $value),
                 default => $value,
             };
         }

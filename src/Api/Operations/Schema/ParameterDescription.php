@@ -3,20 +3,21 @@
 namespace XyloIsCoding\CoconutCms\Api\Operations\Schema;
 
 use BackedEnum;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\ConstructorParameter;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\ParameterType;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\ConstructorParameter;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\ParameterType;
 
 /**
- * One parameter a converter or initializer takes, as the editor shows it in
- * a form: what it takes, whether it may be left out, and the choices for an
- * enum.
+ * One parameter a converter, initializer or validator rule takes, as the
+ * editor shows it in a form: what it takes, whether it may be left out, and
+ * the choices for an enum.
  */
 final readonly class ParameterDescription
 {
     /**
      * @param string $type "string", "int", "float", "bool", "mixed" (a value
-     *        in stored form), "enum" (one of $choices), or "registered_enum"
-     *        (an enum's registered identifier).
+     *        in stored form), "enum" (one of $choices), "registered_enum"
+     *        (an enum's registered identifier), or "field_rules" (a list of
+     *        `{"rule": identifier, "config": {...}}`).
      * @param mixed $default What it takes when left out; null when it can't be.
      * @param list<string|int>|null $choices An enum's values, in order.
      */
@@ -43,6 +44,7 @@ final readonly class ParameterDescription
                 ParameterType::Mixed => 'mixed',
                 ParameterType::Enum => 'enum',
                 ParameterType::RegisteredEnum => 'registered_enum',
+                ParameterType::FieldRules => 'field_rules',
             },
             $parameter->nullable,
             $parameter->optional,

@@ -16,14 +16,6 @@ final class PrototypeValidatorRegistryTestRule implements PrototypeValidatorRule
     public function checkUsage(FieldDescriptorCollection $fields): void {
     }
 
-    public function toStorage(): array {
-        return [];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static();
-    }
-
     public function validate(EntityView $entity): ValidationResult {
         return ValidationResult::valid();
     }

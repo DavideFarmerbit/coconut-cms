@@ -26,21 +26,13 @@ final class EntityAttributesMaxLength implements FieldValidatorRule
 {
     use ChecksAnyField;
 
-    public function __construct(private readonly int $max) {
+    public function __construct(public readonly int $max) {
     }
 
     public function checkUsage(FieldDescriptor $field): void {
         if ($field->scalarType() !== ScalarType::String && $field->scalarType() !== ScalarType::Text) {
             throw new InvalidArgumentException('MaxLength only applies to a String or Text scalar field.');
         }
-    }
-
-    public function toStorage(): array {
-        return ['max' => $this->max];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static($stored['max']);
     }
 
     public function validate(mixed $value): ValidationResult {
@@ -53,8 +45,8 @@ final class EntityAttributesMaxLength implements FieldValidatorRule
 final class EntityAttributesGreaterThan implements PrototypeValidatorRule
 {
     public function __construct(
-        private readonly string $greaterField,
-        private readonly string $lesserField,
+        public readonly string $greaterField,
+        public readonly string $lesserField,
     ) {
     }
 
@@ -64,14 +56,6 @@ final class EntityAttributesGreaterThan implements PrototypeValidatorRule
                 throw new InvalidArgumentException(sprintf('Unknown field "%s".', $name));
             }
         }
-    }
-
-    public function toStorage(): array {
-        return ['greaterField' => $this->greaterField, 'lesserField' => $this->lesserField];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static($stored['greaterField'], $stored['lesserField']);
     }
 
     public function validate(EntityView $entity): ValidationResult {

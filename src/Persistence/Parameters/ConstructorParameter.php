@@ -1,10 +1,10 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry;
+namespace XyloIsCoding\CoconutCms\Persistence\Parameters;
 
 use BackedEnum;
 
-/** One constructor parameter of a registered converter or initializer, read by ConstructorShape. */
+/** One constructor parameter of a registered converter, initializer or validator rule, read by ConstructorShape. */
 final readonly class ConstructorParameter
 {
     /**

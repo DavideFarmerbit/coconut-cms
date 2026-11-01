@@ -45,14 +45,6 @@ final readonly class PermSecretNeedsInternal implements PrototypeValidatorRule
     public function validate(EntityView $entity): ValidationResult {
         return $entity->get('name') === 'Secret' && $entity->get('internal') === '' ? ValidationResult::invalid('a secret car needs an internal note') : ValidationResult::valid();
     }
-
-    public function toStorage(): array {
-        return [];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static();
-    }
 }
 
 /** Guarded on its own; owned by a car or a document, it follows them. */

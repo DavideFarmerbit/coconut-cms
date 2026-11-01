@@ -1,8 +1,8 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry;
+namespace XyloIsCoding\CoconutCms\Persistence\Parameters;
 
-/** What a registered converter's or initializer's constructor parameter takes. */
+/** What a registered converter's, initializer's or validator rule's constructor parameter takes. */
 enum ParameterType
 {
     case String;
@@ -16,4 +16,9 @@ enum ParameterType
     case Enum;
     /** A string holding an enum class, given as the enum's registered identifier. */
     case RegisteredEnum;
+    /**
+     * Field rules, as a variadic `FieldValidatorRule ...$rules`: each given as
+     * `{"rule": identifier, "config": its own parameters}`.
+     */
+    case FieldRules;
 }

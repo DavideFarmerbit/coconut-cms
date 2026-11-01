@@ -12,8 +12,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
 
 /**
  * A number within bounds, both included: `new Range(min: 0, max: 100)`. Either
- * bound may be left out, not both. Fits an Int, Float or Decimal field, or a
- * Collection of them. A Decimal is compared exactly, against each bound
+ * bound may be left out, not both. Fits an Int, Float or Decimal field;
+ * OnItems puts it on a Collection's items. A Decimal is compared exactly, against each bound
  * rounded to a Decimal's own places. Null passes: whether a field may be empty
  * is its nullability's say.
  */
@@ -63,16 +63,6 @@ final readonly class Range implements FieldValidatorRule
             $this->max === null => sprintf('must be at least %s', $this->min),
             default => sprintf('must be between %s and %s', $this->min, $this->max),
         });
-    }
-
-    /** {"min": float|null, "max": float|null} */
-    public function toStorage(): array {
-        return ['min' => $this->min, 'max' => $this->max];
-    }
-
-    /** @param array{min: int|float|null, max: int|float|null} $stored */
-    public static function fromStorage(array $stored): static {
-        return new static($stored['min'], $stored['max']);
     }
 
     /** -1, 0 or 1 as $value is below, at or above $bound. A Decimal comes as its canonical string. */

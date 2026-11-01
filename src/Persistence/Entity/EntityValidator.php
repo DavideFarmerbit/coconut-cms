@@ -2,17 +2,21 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Entity;
 
+use LogicException;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntitySnapshot;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 
 /**
  * Runs every rule an aggregate's types declare, before it's saved: each
- * type's prototype rules on its entity, each field's rules on its value, then
- * the same inside every Embed, owned object and Collection item, with their
- * own types' rules. Every value counts, touched or not: it's what's stored.
+ * type's prototype rules on its entity, each field's rules on its whole
+ * value, then the same inside every Embed, owned object and Collection item,
+ * with their own types' rules. Every value counts, touched or not: it's what's
+ * stored.
  */
 final readonly class EntityValidator
 {
@@ -48,38 +52,73 @@ final readonly class EntityValidator
             $schema = $this->schemas->get($type);
 
             foreach ($schema->prototypeValidators as $rule) {
-                $result = $rule->validate($view);
-                if (!$result->isValid()) {
-                    $errors[$root === null ? '' : (string) $root][] = $result->error();
-                }
+                $this->place($rule->validate($view), $root, $join, $view, $errors);
             }
 
             foreach ($schema->fields as $name => $field) {
                 $at = $root === null ? FieldPath::of($name) : $root->append($join, FieldPath::of($name));
                 $value = $view->get((string) $name);
                 $isCollection = $field->kind() === FieldKind::Collection;
-                // A Collection's rules, and what's inside it, apply to each item.
-                $places = $isCollection
-                    ? array_map(static fn (int $index): FieldPath => $at->traverse($index), array_keys($value))
-                    : [$at];
-                $placed = $isCollection ? $value : [$value];
+                $fieldJoin = $field->kind() === FieldKind::Embed ? FieldPath::EMBED : FieldPath::TRAVERSE;
 
+                // A field's rules check its whole value: a Collection's, the list.
                 $rules = $schema->fieldValidators->has($name) ? $schema->fieldValidators->get($name) : [];
-                foreach ($placed as $index => $each) {
-                    foreach ($rules as $rule) {
-                        $result = $rule->validate($each);
-                        if (!$result->isValid()) {
-                            $errors[(string) $places[$index]][] = $result->error();
-                        }
-                    }
+                foreach ($rules as $rule) {
+                    $this->place($rule->validate($value), $at, $fieldJoin, $value, $errors);
+                }
 
+                // What's inside it is checked with its own types' rules.
+                foreach ($isCollection ? $value : [$value] as $index => $each) {
                     if ($each instanceof EntityView) {
-                        $isEmbed = ($isCollection ? $field->itemDescriptor() : $field)->kind() === FieldKind::Embed;
-                        $this->check($each, $places[$index], $isEmbed && !$isCollection ? FieldPath::EMBED : FieldPath::TRAVERSE, $errors);
+                        $this->check($each, $isCollection ? $at->traverse($index) : $at, $isCollection ? FieldPath::TRAVERSE : $fieldJoin, $errors);
                     }
                 }
             }
         }
+    }
+
+    /**
+     * Files $result's errors under $at, and those inside it under their own
+     * paths: an item by its index, a field joined as its kind says.
+     * @param ?FieldPath $at Where what was checked lies; null for the root entity.
+     * @param string $join How $at joins to its fields.
+     * @param mixed $value What was checked: an item or field inside it is looked up in it.
+     * @param array<string, list<string>> $errors Filled in.
+     */
+    private function place(ValidationResult $result, ?FieldPath $at, string $join, mixed $value, array &$errors): void {
+        foreach ($result->errors() as $error) {
+            $errors[$at === null ? '' : (string) $at][] = $error;
+        }
+
+        foreach ($result->inside() as [$segment, $inner]) {
+            if (is_int($segment)) {
+                if ($at === null) {
+                    throw new LogicException('An entity has no items: a rule placed an error at an index on it.');
+                }
+
+                // A Collection item's own fields always join with TRAVERSE.
+                $this->place($inner, $at->traverse($segment), FieldPath::TRAVERSE, is_array($value) ? $value[$segment] ?? null : null, $errors);
+                continue;
+            }
+
+            $next = $at === null ? FieldPath::of($segment) : $at->append($join, FieldPath::of($segment));
+            $inside = $value instanceof EntityView && $value->has((string) $segment) ? $value->get((string) $segment) : null;
+            $this->place($inner, $next, $this->joinOf($value, $segment), $inside, $errors);
+        }
+    }
+
+    /** How the field $name of $value joins to its own fields: EMBED for an Embed, TRAVERSE otherwise. */
+    private function joinOf(mixed $value, FieldName $name): string {
+        if ($value instanceof EntityView) {
+            foreach ($this->chainOf($value->type()) as $type) {
+                $fields = $this->schemas->get($type)->fields;
+                if ($fields->has($name)) {
+                    return $fields->get($name)->kind() === FieldKind::Embed ? FieldPath::EMBED : FieldPath::TRAVERSE;
+                }
+            }
+        }
+
+        return FieldPath::TRAVERSE;
     }
 
     /** @return list<string> $type and its ancestors, root first. */

@@ -22,13 +22,16 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\UniqueGroup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\ParameterRegistries;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 
 /**
  * Turns an EntitySchema into plain data and back, for SchemaStore. A validator
- * rule is stored as the identifier its class was registered under plus its own
- * toStorage() configuration, and a value object or an enum as its registered
+ * rule is stored as the identifier its class was registered under plus its
+ * constructor's parameters, and a value object or an enum as its registered
  * identifier, never as a class name: renaming or moving any of them doesn't
  * break what's stored.
  */
@@ -40,6 +43,11 @@ final readonly class EntitySchemaCodec
         private ValueObjectRegistry $valueObjects,
         private EnumRegistry $enums,
     ) {
+    }
+
+    /** What a rule's parameters name registered classes through. */
+    private function registries(): ParameterRegistries {
+        return new ParameterRegistries($this->enums, $this->fieldValidators);
     }
 
     /** @return array<string, mixed> Plain data only: JSON-safe. */
@@ -56,10 +64,7 @@ final readonly class EntitySchemaCodec
 
         $validators = [];
         foreach ($schema->fieldValidators as $name => $rules) {
-            $validators[(string) $name] = array_map(
-                fn (object $rule): array => ['rule' => (string) $this->fieldValidators->identifierOf($rule::class), 'config' => $rule->toStorage()],
-                $rules,
-            );
+            $validators[(string) $name] = array_map(fn (FieldValidatorRule $rule): array => $this->fieldValidators->entryOf($rule, $this->registries()), $rules);
         }
 
         return [
@@ -80,10 +85,7 @@ final readonly class EntitySchemaCodec
                 static fn (UniqueGroup $group): array => array_map('strval', $group->fields()),
                 $schema->uniqueGroups,
             ),
-            'prototypeValidators' => array_map(
-                fn (object $rule): array => ['rule' => (string) $this->prototypeValidators->identifierOf($rule::class), 'config' => $rule->toStorage()],
-                $schema->prototypeValidators,
-            ),
+            'prototypeValidators' => array_map(fn (PrototypeValidatorRule $rule): array => $this->prototypeValidators->entryOf($rule, $this->registries()), $schema->prototypeValidators),
             'noTypeRecords' => array_map($this->encodeRecord(...), $schema->noTypeRecords),
         ];
     }
@@ -131,10 +133,7 @@ final readonly class EntitySchemaCodec
 
         $validators = FieldValidatorCollection::empty();
         foreach ($encoded['fieldValidators'] as $name => $rules) {
-            $validators = $validators->with(FieldName::of($name), array_map(
-                fn (array $rule): object => $this->fieldValidators->resolve(Identifier::fromString($rule['rule']))::fromStorage($rule['config']),
-                $rules,
-            ));
+            $validators = $validators->with(FieldName::of($name), array_map(fn (array $rule): FieldValidatorRule => $this->fieldValidators->build($rule, $this->registries()), $rules));
         }
 
         return new EntitySchema(
@@ -149,10 +148,7 @@ final readonly class EntitySchemaCodec
                 static fn (array $names): UniqueGroup => UniqueGroup::of(...array_map(FieldName::of(...), $names)),
                 $encoded['uniqueGroups'],
             ),
-            prototypeValidators: array_map(
-                fn (array $rule): object => $this->prototypeValidators->resolve(Identifier::fromString($rule['rule']))::fromStorage($rule['config']),
-                $encoded['prototypeValidators'],
-            ),
+            prototypeValidators: array_map(fn (array $rule): PrototypeValidatorRule => $this->prototypeValidators->build($rule, $this->registries()), $encoded['prototypeValidators']),
             typePermission: $encoded['typePermission'] === null ? null : new TypePermission(
                 $encoded['typePermission']['read'],
                 $encoded['typePermission']['create'],

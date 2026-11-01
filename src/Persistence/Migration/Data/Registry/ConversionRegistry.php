@@ -7,6 +7,9 @@ use ReflectionClass;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldInitializer;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\LevelInitializer;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\ConstructorShape;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\InvalidParameters;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\ParameterRegistries;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 
 /**
@@ -87,7 +90,7 @@ final class ConversionRegistry
             throw new InvalidParameters(null, sprintf('No %s is registered as "%s".', $what, $identifier));
         }
 
-        return $shape->build($parameters, $this->enums);
+        return $shape->build($parameters, new ParameterRegistries($this->enums));
     }
 
     /**
@@ -124,6 +127,6 @@ final class ConversionRegistry
             return null;
         }
 
-        return [$identifier, $this->registered[$identifier][1]->parametersOf($built, $this->enums)];
+        return [$identifier, $this->registered[$identifier][1]->parametersOf($built, new ParameterRegistries($this->enums))];
     }
 }

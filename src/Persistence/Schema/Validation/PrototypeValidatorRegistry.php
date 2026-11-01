@@ -2,8 +2,12 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Validation;
 
+use InvalidArgumentException;
 use RuntimeException;
 use XyloIsCoding\CoconutCms\Core\Identifier;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\ConstructorShape;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\InvalidParameters;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\ParameterRegistries;
 
 /**
  * A name-to-class registry of PrototypeValidatorRule classes, so an editor-created
@@ -54,5 +58,39 @@ final class PrototypeValidatorRegistry
         }
 
         return $this->rules[$key];
+    }
+
+    /**
+     * The rule $entry names, `{"rule": identifier, "config": parameters}`,
+     * built from its parameters: how a stored schema and an editor save give
+     * one.
+     * @throws InvalidParameters When $entry isn't one, names no registered rule, or its parameters don't fit.
+     */
+    public function build(mixed $entry, ParameterRegistries $registries): PrototypeValidatorRule {
+        if (!is_array($entry) || !is_string($entry['rule'] ?? null) || !is_array($entry['config'] ?? [])) {
+            throw new InvalidParameters(null, 'A rule is given as {"rule": identifier, "config": {...}}.');
+        }
+
+        try {
+            $class = $this->resolve(Identifier::fromString($entry['rule']));
+        } catch (InvalidArgumentException|RuntimeException) {
+            throw new InvalidParameters(null, sprintf('No prototype rule is registered as "%s".', $entry['rule']));
+        }
+
+        try {
+            return ConstructorShape::of($class)->build($entry['config'] ?? [], $registries);
+        } catch (InvalidParameters $refused) {
+            throw new InvalidParameters($refused->parameter === null ? 'config' : 'config.' . $refused->parameter, $refused->getMessage());
+        } catch (InvalidArgumentException $refused) {
+            throw new InvalidParameters('config', $refused->getMessage());
+        }
+    }
+
+    /**
+     * $rule as build() takes it.
+     * @return array{rule: string, config: array<string, mixed>}
+     */
+    public function entryOf(PrototypeValidatorRule $rule, ParameterRegistries $registries): array {
+        return ['rule' => (string) $this->identifierOf($rule::class), 'config' => ConstructorShape::of($rule::class)->parametersOf($rule, $registries)];
     }
 }

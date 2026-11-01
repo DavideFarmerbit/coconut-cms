@@ -15,10 +15,10 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\ConversionRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\Converter;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\InvalidParameters;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\InvalidParameters;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\RegisteredEnum;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\RegisteredEnum;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\ConvertsAnyField;
 
 /** A string-backed enum registered as "test:hue". */

@@ -32,19 +32,11 @@ final class SchemaStoreMaxLength implements FieldValidatorRule
     use ChecksAnyField;
 
     public function __construct(
-        private readonly int $max,
+        public readonly int $max,
     ) {
     }
 
     public function checkUsage(FieldDescriptor $field): void {
-    }
-
-    public function toStorage(): array {
-        return ['max' => $this->max];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static($stored['max']);
     }
 
     public function validate(mixed $value): ValidationResult {

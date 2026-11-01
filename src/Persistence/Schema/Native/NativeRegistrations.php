@@ -3,6 +3,8 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Native;
 
 use InvalidArgumentException;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\ConstructorShape;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\ParameterType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
@@ -45,7 +47,7 @@ final class NativeRegistrations
 
             foreach ($blueprint->fieldValidators as $rules) {
                 foreach ($rules as $rule) {
-                    $classes['fieldValidators'][] = $rule::class;
+                    self::collectRule($rule, $classes);
                 }
             }
 
@@ -97,6 +99,22 @@ final class NativeRegistrations
             is_subclass_of($class, PrototypeValidatorRule::class) => 'prototypeValidators',
             default => throw new InvalidArgumentException(sprintf('%s is listed as a validator, but implements neither %s nor %s.', $class, FieldValidatorRule::class, PrototypeValidatorRule::class)),
         };
+    }
+
+    /**
+     * $rule's class, and every rule it holds in its parameters, at any depth:
+     * each is stored under its own identifier.
+     * @param array{valueObjects: list<class-string>, enums: list<class-string>, fieldValidators: list<class-string>, prototypeValidators: list<class-string>} $classes
+     */
+    private static function collectRule(FieldValidatorRule $rule, array &$classes): void {
+        $classes['fieldValidators'][] = $rule::class;
+        foreach (ConstructorShape::of($rule::class)->parameters as $parameter) {
+            if ($parameter->type === ParameterType::FieldRules) {
+                foreach ($rule->{$parameter->name} as $held) {
+                    self::collectRule($held, $classes);
+                }
+            }
+        }
     }
 
     /** @param array{valueObjects: list<class-string>, enums: list<class-string>, fieldValidators: list<class-string>, prototypeValidators: list<class-string>} $classes */

@@ -69,19 +69,11 @@ final class CodecMaxLength implements FieldValidatorRule
     use ChecksAnyField;
 
     public function __construct(
-        private readonly int $max,
+        public readonly int $max,
     ) {
     }
 
     public function checkUsage(FieldDescriptor $field): void {
-    }
-
-    public function toStorage(): array {
-        return ['max' => $this->max];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static($stored['max']);
     }
 
     public function validate(mixed $value): ValidationResult {
@@ -92,20 +84,12 @@ final class CodecMaxLength implements FieldValidatorRule
 final class CodecNotEqual implements PrototypeValidatorRule
 {
     public function __construct(
-        private readonly string $left,
-        private readonly string $right,
+        public readonly string $left,
+        public readonly string $right,
     ) {
     }
 
     public function checkUsage(FieldDescriptorCollection $fields): void {
-    }
-
-    public function toStorage(): array {
-        return ['left' => $this->left, 'right' => $this->right];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static($stored['left'], $stored['right']);
     }
 
     public function validate(EntityView $entity): ValidationResult {

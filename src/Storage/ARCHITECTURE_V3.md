@@ -106,7 +106,8 @@ request is served from memory.
 `EntitySchemaCodec`), its own fingerprint, and the fingerprints of everything it
 was compiled against. A schema is always read whole, so it's never split into
 columns. A validator rule is stored as the identifier its class was registered
-under, plus its own `toStorage()` configuration. A value object field's class
+under, plus its constructor's parameters, read through `ConstructorShape`
+the same as a converter's (see "Validating a save"). A value object field's class
 is stored as the identifier `ValueObjectRegistry` holds it under, and an Enum
 field's enum as the one `EnumRegistry` holds it under, along with what it's
 backed by. Renaming or moving any of these classes doesn't break what's
@@ -826,19 +827,35 @@ without a name.
   value. An Embed, an owned object and every Collection item are checked the
   same way, with their own types' rules: a rule on `Chassis.weight` applies to
   every car's chassis.
-- A field rule declares, statically, the values it checks: `fits()`, a
-  `FieldSignature` (see "The data API"). On a Collection it's
-  the items that must match. A field whose values don't is refused, naming
-  the mismatch, and the editor offers the rule only where it matches. Its
-  `checkUsage()` then checks what depends on its parameters. It receives the value as a property holds it: a scalar, an
-  enum case, a `DateTimeImmutable`, a value object. An Embed or an owned
-  object comes as an `EntityView`, an empty slot as null. On a Collection it
-  runs once per item. So a rule on an owned slot can narrow the classes it
-  takes, `$view->isA(...)`, and one on an Embed can check its fields
-  together, at that site only.
+- A field rule declares, statically, the fields it checks: `fits()`, a
+  `FieldSignature` (see "The data API"). A field that doesn't match is
+  refused, naming the mismatch, and the editor offers the rule only where it
+  matches. Its `checkUsage()` then checks what depends on its parameters.
+- A field rule checks the field's whole value, once. It receives it as a
+  property holds it: a scalar, an enum case, a `DateTimeImmutable`, a value
+  object. An Embed or an owned object comes as an `EntityView`, an empty slot
+  as null, a Collection as the list of its items. So a rule on an owned slot
+  can narrow the classes it takes, `$view->isA(...)`, one on an Embed can
+  check its fields together, at that site only, and one on a Collection can
+  count its items.
+- To check each item of a Collection, `OnItems` holds the item rules:
+  `#[FieldValidator(new MaxItems(5), new OnItems(new MaxLength(20)))]`. Each
+  rule it holds must fit the items, as it would a field holding one.
 - A prototype rule receives an `EntityView` of its entity.
 - A Reference field reads as its target's id: checking the target's fields
   would mean loading it during the save.
+- A rule's `ValidationResult` holds its errors, and errors inside what it
+  checked: `atItem(1)` lands on `tags.1`, `atField('weight')` on the Embed
+  `chassis` lands on `chassis:weight`. The validator joins each to the
+  field's path, with `:` into an Embed and `.` otherwise.
+
+A rule's configuration is its constructor's parameters, read through
+`ConstructorShape`, the same as a converter's: each is a public property of
+the same name. A stored schema keeps a rule as `{"rule": identifier,
+"config": parameters}`, and an editor save gives it the same way. A
+variadic `FieldValidatorRule ...$rules` parameter holds rules, each stored the
+same way, at any depth. That's how `OnItems` holds its rules. A rule held
+inside another is found and registered with it.
 
 `EntityView` is the read-only view of an entity's values, whatever its type's
 source: `type()`, `isA()`, `has()`, `get(path)`. `get()` gives values as a
@@ -848,10 +865,14 @@ reaches through them: `get('engine.horsepower')`. During a save it's an
 implement it too (see `PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`), so a rule written
 once works on both.
 
-The core ships three field rules, for code and editor-created types alike.
-Each lets null pass: whether a field may be empty is its nullability's say.
-Each fits a Collection of what it checks, and runs per item.
+The core ships these field rules, for code and editor-created types alike.
+Each value rule lets null pass: whether a field may be empty is its
+nullability's say.
 
+- `OnItems(...rules)`, `coconut-cms:on-items`: its rules on each item of a
+  Collection.
+- `MaxItems(max)`, `coconut-cms:max-items`, and `MinItems(min)`,
+  `coconut-cms:min-items`: a Collection's item count.
 - `MaxLength(max)`, `coconut-cms:max-length`: text of at most `max`
   characters, not bytes. Fits a String or Text field.
 - `Range(min, max)`, `coconut-cms:range`: a number within bounds, both

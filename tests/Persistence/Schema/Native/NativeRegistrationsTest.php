@@ -73,14 +73,6 @@ final class RegistrationsMaxLength implements FieldValidatorRule
     public function validate(mixed $value): ValidationResult {
         return ValidationResult::valid();
     }
-
-    public function toStorage(): array {
-        return [];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static();
-    }
 }
 
 #[PrototypeRule('shop:dates-in-order')]
@@ -91,14 +83,6 @@ final class RegistrationsDatesInOrder implements PrototypeValidatorRule
 
     public function validate(EntityView $entity): ValidationResult {
         return ValidationResult::valid();
-    }
-
-    public function toStorage(): array {
-        return [];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static();
     }
 }
 

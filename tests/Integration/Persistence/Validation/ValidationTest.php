@@ -129,12 +129,13 @@ final class ValidationTest extends TestCase
         $vehicle->name = 'Much too long a name';
         $vehicle->sold = true;
         $vehicle->chassis->weight = 3000;
-        $vehicle->tags = ['ok', 'far too long'];
+        $vehicle->tags = ['ok', 'far too long', 'a', 'b'];
 
         self::assertSame([
             '' => ['a sold vehicle needs a price'],
             'name' => ['must be at most 10 characters'],
-            'chassis' => ['weight must be between 500 and 2000'],
+            'chassis:weight' => ['must be between 500 and 2000'],
+            'tags' => ['must hold at most 3 items'],
             'tags.1' => ['must be at most 5 characters'],
         ], $this->errorsSaving($vehicle));
         self::assertSame(0, (int) $this->connection->fetchOne("SELECT COUNT(*) FROM entities WHERE concrete_identifier = 'val:vehicle'"));

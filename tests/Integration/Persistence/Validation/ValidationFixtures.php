@@ -20,7 +20,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldSignature;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\MaxItems;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\MaxLength;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\OnItems;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\Pattern;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\Range;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
@@ -39,22 +42,16 @@ final readonly class ValRequired implements FieldValidatorRule
     public function validate(mixed $value): ValidationResult {
         return $value === '' || $value === null ? ValidationResult::invalid('is required') : ValidationResult::valid();
     }
-
-    public function toStorage(): array {
-        return [];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static();
-    }
 }
 
 /** A string of at most $max characters. */
 final readonly class ValMaxLength implements FieldValidatorRule
 {
-    use ChecksAnyField;
+    public function __construct(public int $max) {
+    }
 
-    public function __construct(private int $max) {
+    public static function fits(): FieldSignature {
+        return FieldSignature::text();
     }
 
     public function checkUsage(FieldDescriptor $field): void {
@@ -63,22 +60,14 @@ final readonly class ValMaxLength implements FieldValidatorRule
     public function validate(mixed $value): ValidationResult {
         return mb_strlen($value) <= $this->max ? ValidationResult::valid() : ValidationResult::invalid(sprintf('must be at most %d characters', $this->max));
     }
-
-    public function toStorage(): array {
-        return ['max' => $this->max];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static($stored['max']);
-    }
 }
 
-/** On an Embed: its "weight" between two bounds, read through its view. */
+/** On an Embed: its "weight" between two bounds, read through its view, the error on the weight itself. */
 final readonly class ValWeightBetween implements FieldValidatorRule
 {
     use ChecksAnyField;
 
-    public function __construct(private int $min, private int $max) {
+    public function __construct(public int $min, public int $max) {
     }
 
     public function checkUsage(FieldDescriptor $field): void {
@@ -87,15 +76,9 @@ final readonly class ValWeightBetween implements FieldValidatorRule
     public function validate(mixed $value): ValidationResult {
         $weight = $value->get('weight');
 
-        return $weight >= $this->min && $weight <= $this->max ? ValidationResult::valid() : ValidationResult::invalid(sprintf('weight must be between %d and %d', $this->min, $this->max));
-    }
-
-    public function toStorage(): array {
-        return ['min' => $this->min, 'max' => $this->max];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static($stored['min'], $stored['max']);
+        return $weight >= $this->min && $weight <= $this->max
+            ? ValidationResult::valid()
+            : ValidationResult::invalid(sprintf('must be between %d and %d', $this->min, $this->max))->atField('weight');
     }
 }
 
@@ -105,7 +88,7 @@ final readonly class ValOnlyType implements FieldValidatorRule
     use ChecksAnyField;
 
     /** @param class-string $class */
-    public function __construct(private string $class) {
+    public function __construct(public string $class) {
     }
 
     public function checkUsage(FieldDescriptor $field): void {
@@ -113,14 +96,6 @@ final readonly class ValOnlyType implements FieldValidatorRule
 
     public function validate(mixed $value): ValidationResult {
         return $value === null || $value->isA(NativeIdentifiers::of($this->class)) ? ValidationResult::valid() : ValidationResult::invalid(sprintf('must be a %s', $this->class));
-    }
-
-    public function toStorage(): array {
-        return ['class' => $this->class];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static($stored['class']);
     }
 }
 
@@ -135,14 +110,6 @@ final readonly class ValPositive implements FieldValidatorRule
     public function validate(mixed $value): ValidationResult {
         return $value > 0 ? ValidationResult::valid() : ValidationResult::invalid('must be above zero');
     }
-
-    public function toStorage(): array {
-        return [];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static();
-    }
 }
 
 /** Across fields: a sold vehicle has a price. */
@@ -153,14 +120,6 @@ final readonly class ValSoldHasPrice implements PrototypeValidatorRule
 
     public function validate(EntityView $entity): ValidationResult {
         return !$entity->get('sold') || $entity->get('price') > 0 ? ValidationResult::valid() : ValidationResult::invalid('a sold vehicle needs a price');
-    }
-
-    public function toStorage(): array {
-        return [];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static();
     }
 }
 
@@ -204,7 +163,7 @@ final class ValVehicle
     #[Collection(itemKind: FieldKind::OwningReference, itemTarget: ValEngine::class, itemNullability: Nullability::Nullable)]
     public array $spares = [];
 
-    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String, itemNullability: Nullability::NotNullable), FieldValidator(new ValMaxLength(5))]
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::String, itemNullability: Nullability::NotNullable), FieldValidator(new MaxItems(3), new OnItems(new ValMaxLength(5)))]
     public array $tags = [];
 
     public function __construct() {
@@ -255,7 +214,7 @@ final class ValOffer
     #[Scalar(ScalarType::Decimal), FieldValidator(new Range(min: 0, max: 99.99))]
     public string $price = '10.00';
 
-    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Float, itemNullability: Nullability::NotNullable), FieldValidator(new Range(max: 5))]
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Float, itemNullability: Nullability::NotNullable), FieldValidator(new OnItems(new Range(max: 5)))]
     public array $ratings = [];
 
     #[Scalar(ScalarType::Text), FieldValidator(new MaxLength(8))]

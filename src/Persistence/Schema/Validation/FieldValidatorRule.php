@@ -9,16 +9,21 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldSignature;
  * One validation rule attachable to a single field through a #[FieldValidator]
  * attribute.
  *
- * It declares, statically, the values it checks: fits(). A field whose values
- * don't match is refused, naming the mismatch; the editor offers it only where
- * it matches.
+ * It declares, statically, the fields it checks: fits(). A field that doesn't
+ * match is refused, naming the mismatch; the editor offers it only where it
+ * matches.
+ *
+ * Its constructor's parameters are its configuration: what a stored schema
+ * keeps and an editor save gives, read through ConstructorShape. Each is a
+ * public property of the same name. A variadic `FieldValidatorRule ...$rules`
+ * holds other rules, such as OnItems does.
  */
 interface FieldValidatorRule
 {
     /**
-     * What each value it checks is. On a Collection it runs once per item, so
-     * it's the items that must match: `FieldSignature::text()` fits a String, a
-     * Text, or a Collection of either.
+     * The fields it checks, as a whole: a Collection rule declares
+     * `FieldSignature::collection()` and gets the list. To check each item,
+     * wrap item rules in OnItems.
      */
     public static function fits(): FieldSignature;
 
@@ -33,19 +38,8 @@ interface FieldValidatorRule
     /**
      * Validates one field's value, before it's saved, as a property holds
      * it: a scalar, an enum case, a DateTimeImmutable, a value object; an
-     * Embed or an owned object as an EntityView, or null for an empty slot.
-     * On a Collection, it runs once per item, each in that same form.
+     * Embed or an owned object as an EntityView, or null for an empty slot; a
+     * Collection as the list of its items, each in that same form.
      */
     public function validate(mixed $value): ValidationResult;
-
-    /**
-     * This rule's own configuration as plain data, whatever its constructor
-     * needs: what a stored schema keeps, and what fromStorage() rebuilds the
-     * rule from.
-     * @return array<string, mixed>
-     */
-    public function toStorage(): array;
-
-    /** @param array<string, mixed> $stored What toStorage() produced. */
-    public static function fromStorage(array $stored): static;
 }

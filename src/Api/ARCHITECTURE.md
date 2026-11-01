@@ -420,7 +420,8 @@ to send), `from` (the fields a converter takes; null otherwise), `to` (the
 fields it gives or fills; null for a level initializer), and `parameters`:
 each
 one's `name`, `type` (`string`, `int`, `float`, `bool`, `mixed`, `enum`
-with its `choices`, or `registered_enum`), `nullable`, `optional` and
+with its `choices`, `registered_enum`, or `field_rules`: a list of
+`{"rule", "config"}`, only a validator rule takes), `nullable`, `optional` and
 `default`. A signature has the keys `types.get` describes a field with,
 `{"kind", "scalarType", "target", "item"}`, where null matches any; or it's
 a union, `{"oneOf": [...]}`, matching any of its signatures. The editor can

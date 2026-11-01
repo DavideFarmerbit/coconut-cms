@@ -4,9 +4,9 @@ namespace XyloIsCoding\CoconutCms\Api\Operations\Schema;
 
 use XyloIsCoding\CoconutCms\Api\Operation\Operation;
 use XyloIsCoding\CoconutCms\Api\Operation\OperationContext;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\ConstructorParameter;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\ConversionKind;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\RegisteredConversion;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\ConstructorParameter;
 
 /**
  * Every converter and initializer the modules register, with what each fits

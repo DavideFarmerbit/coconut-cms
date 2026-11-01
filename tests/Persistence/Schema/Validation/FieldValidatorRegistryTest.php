@@ -17,14 +17,6 @@ final class FieldValidatorRegistryTestRule implements FieldValidatorRule
     public function checkUsage(FieldDescriptor $field): void {
     }
 
-    public function toStorage(): array {
-        return [];
-    }
-
-    public static function fromStorage(array $stored): static {
-        return new static();
-    }
-
     public function validate(mixed $value): ValidationResult {
         return ValidationResult::valid();
     }

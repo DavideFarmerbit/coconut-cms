@@ -11,8 +11,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
 
 /**
  * Text of at most $max characters: `new MaxLength(80)`. Fits a String or Text
- * field, or a Collection of them. Null passes: whether a field may be empty is
- * its nullability's say.
+ * field; OnItems puts it on a Collection's items. Null passes: whether a field
+ * may be empty is its nullability's say.
  */
 #[FieldRule('coconut-cms:max-length')]
 final readonly class MaxLength implements FieldValidatorRule
@@ -40,15 +40,5 @@ final readonly class MaxLength implements FieldValidatorRule
         return $value === null || mb_strlen($value) <= $this->max
             ? ValidationResult::valid()
             : ValidationResult::invalid(sprintf('must be at most %d characters', $this->max));
-    }
-
-    /** {"max": int} */
-    public function toStorage(): array {
-        return ['max' => $this->max];
-    }
-
-    /** @param array{max: int} $stored */
-    public static function fromStorage(array $stored): static {
-        return new static($stored['max']);
     }
 }

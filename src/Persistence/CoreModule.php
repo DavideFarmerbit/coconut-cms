@@ -25,7 +25,10 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\NumberToText;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\TextToEnum;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\TextToNumber;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationSteps;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\MaxItems;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\MaxLength;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\MinItems;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\OnItems;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\Pattern;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\Range;
 
@@ -63,7 +66,7 @@ final readonly class CoreModule implements Module
 
     /** The built-in field rules. */
     public function validators(): array {
-        return [MaxLength::class, Range::class, Pattern::class];
+        return [MaxLength::class, Range::class, Pattern::class, MaxItems::class, MinItems::class, OnItems::class];
     }
 
     /** None: the admin's own tools are part of the admin. */

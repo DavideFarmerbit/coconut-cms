@@ -12,9 +12,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
 /**
  * Text matching a regular expression: `new Pattern('^[A-Z]{2}\d{4}$')`. The
  * expression has no delimiters and no flags; it reads Unicode text. It isn't
- * anchored: use ^ and $ to match the whole text. Fits a String or Text field,
- * or a Collection of them. Null passes: whether a field may be empty is its
- * nullability's say.
+ * anchored: use ^ and $ to match the whole text. Fits a String or Text field;
+ * OnItems puts it on a Collection's items. Null passes: whether a field may be
+ * empty is its nullability's say.
  */
 #[FieldRule('coconut-cms:pattern')]
 final readonly class Pattern implements FieldValidatorRule
@@ -42,16 +42,6 @@ final readonly class Pattern implements FieldValidatorRule
         return $value === null || preg_match($this->compiled(), $value) === 1
             ? ValidationResult::valid()
             : ValidationResult::invalid(sprintf('must match %s', $this->regex));
-    }
-
-    /** {"regex": string} */
-    public function toStorage(): array {
-        return ['regex' => $this->regex];
-    }
-
-    /** @param array{regex: string} $stored */
-    public static function fromStorage(array $stored): static {
-        return new static($stored['regex']);
     }
 
     /** $regex as preg_match() takes it: delimited, in Unicode mode. A "~" in it is escaped, as the delimiter. */
