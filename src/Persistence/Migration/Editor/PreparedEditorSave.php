@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Migration\Editor;
 
 use XyloIsCoding\CoconutCms\Persistence\Migration\ContentCheck;
+use XyloIsCoding\CoconutCms\Persistence\Migration\DefaultBreak;
 use XyloIsCoding\CoconutCms\Persistence\Migration\PlanDraft;
 use XyloIsCoding\CoconutCms\Persistence\Migration\PlannedFixup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\CompiledBatch;
@@ -21,6 +22,7 @@ final readonly class PreparedEditorSave
      * @param PlanDraft $plan Its fixups and the policy's set-asides, planned to the end.
      * @param CompiledBatch|null $batch The new schemas and defaults; null when the plan is blocked.
      * @param ContentCheck $content What the content can't take: entries that can't move, values held twice.
+     * @param list<DefaultBreak> $defaultBreaks The rules the changed types' defaults break: warnings only.
      */
     public function __construct(
         public array $operations,
@@ -29,6 +31,7 @@ final readonly class PreparedEditorSave
         public PlanDraft $plan,
         public ?CompiledBatch $batch,
         public ContentCheck $content,
+        public array $defaultBreaks = [],
     ) {
     }
 
@@ -43,6 +46,7 @@ final readonly class PreparedEditorSave
             $this->content->failures,
             $this->content->duplicates,
             $moved,
+            $this->defaultBreaks,
         );
     }
 }

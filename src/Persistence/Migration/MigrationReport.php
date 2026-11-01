@@ -22,6 +22,9 @@ final readonly class MigrationReport
      * @param list<BreakResolution> $breaks Every break it would cause on an
      *        editor-created type, and what the policy does with each.
      * @param list<Difference> $blocked Every difference blocking it.
+     * @param list<DefaultBreak> $defaultBreaks The rules the default of a
+     *        type changed in code breaks: warnings, never blocking, since a
+     *        default may be a placeholder on purpose.
      */
     public function __construct(
         public bool $fresh,
@@ -30,6 +33,7 @@ final readonly class MigrationReport
         public array $fixups,
         public array $breaks,
         public array $blocked,
+        public array $defaultBreaks = [],
     ) {
     }
 
@@ -60,6 +64,10 @@ final readonly class MigrationReport
 
         foreach ($this->blocked as $difference) {
             $lines[] = 'Blocking: ' . $difference->describe();
+        }
+
+        foreach ($this->defaultBreaks as $break) {
+            $lines[] = 'Warning: ' . $break->describe();
         }
 
         return implode("\n", $lines);

@@ -138,6 +138,20 @@ final readonly class Migrator
         $draft = (new MigrationPlanner($this->policy))->draft($stored, $nativeBatch->schemas, $pending);
         $state = $this->state->read();
 
+        // A type whose compiled form isn't what's stored changed in code:
+        // its defaults or its rules may now disagree.
+        $fingerprints = [];
+        foreach ($stored as $each) {
+            $fingerprints[$each->schema->identifier] = $each->fingerprint;
+        }
+
+        $changed = [];
+        foreach ($nativeBatch->stored as $each) {
+            if (($fingerprints[$each->schema->identifier] ?? null) !== $each->fingerprint) {
+                $changed[] = $each->schema->identifier;
+            }
+        }
+
         return new MigrationReport(
             fresh: false,
             pending: $state['startedAt'] !== null || $state['stateKey'] !== StateKey::of($nativeBatch, $steps),
@@ -145,6 +159,7 @@ final readonly class Migrator
             fixups: array_map(static fn (PlannedFixup $planned): string => $planned->fixup->describe(), $draft->plan->fixups),
             breaks: $draft->breaks,
             blocked: $draft->blocked,
+            defaultBreaks: (new DefaultsCheck($this->registry, $this->values))->of([], $nativeBatch, $changed),
         );
     }
 
@@ -254,11 +269,36 @@ final readonly class Migrator
         );
 
         $batch = $plan->isBlocked() ? null : $this->compiler->compute([...$blueprints, ...$this->editorBlueprints($stored, $plan->plan, $draft)]);
-        if ($batch !== null) {
-            self::assertPinned($draft, $batch);
+        if ($batch === null) {
+            return new PreparedEditorSave($save->operations, $stored, $stateKey, $plan, null, new ContentCheck([], []));
         }
 
-        return new PreparedEditorSave($save->operations, $stored, $stateKey, $plan, $batch, $batch === null ? new ContentCheck([], []) : $this->checkContent($stored, $plan->plan, $batch));
+        self::assertPinned($draft, $batch);
+        $defaultBreaks = (new DefaultsCheck($this->registry, $this->values))->of($plan->plan->schemas->schemas(), $batch, self::withDescendants($draft->touched(), $batch->schemas));
+
+        return new PreparedEditorSave($save->operations, $stored, $stateKey, $plan, $batch, $this->checkContent($stored, $plan->plan, $batch), $defaultBreaks);
+    }
+
+    /**
+     * $identifiers, and every type of $schemas extending one of them: what a
+     * changed default reaches.
+     * @param list<string> $identifiers
+     * @param array<string, EntitySchema> $schemas Keyed by identifier.
+     * @return list<string>
+     */
+    private static function withDescendants(array $identifiers, array $schemas): array {
+        $reached = array_fill_keys($identifiers, true);
+        $found = [];
+        foreach ($schemas as $identifier => $schema) {
+            for ($level = $identifier; $level !== null; $level = $schemas[$level]->parent ?? null) {
+                if (isset($reached[$level])) {
+                    $found[] = (string) $identifier;
+                    break;
+                }
+            }
+        }
+
+        return $found;
     }
 
     /**

@@ -823,6 +823,19 @@ What's checked is the whole aggregate, every value, touched or not: it's
 what's stored. "`name` is required" with a default of `''` refuses a car saved
 without a name.
 
+So a default may break a rule on purpose: it's a placeholder an entity must
+change before it's saved. A default is never refused for it, but it never
+passes silently either. `DefaultsCheck` runs a type's rules on its default
+instance, against the new schemas and defaults before they're stored. Each
+rule broken is a `DefaultBreak`: the type, the path, the error. It's a
+warning only:
+
+- `check()`, the pre-deploy report, lists them for every native type whose
+  compiled form changed, and prints each as a warning.
+- An editor save's report, preview or save, lists them for every type the
+  save changes: created, renamed, its definition or one of its own defaults
+  changed, and every type extending one of those.
+
 - Each type's prototype rules run on its entity, each field's rules on its
   value. An Embed, an owned object and every Collection item are checked the
   same way, with their own types' rules: a rule on `Chassis.weight` applies to

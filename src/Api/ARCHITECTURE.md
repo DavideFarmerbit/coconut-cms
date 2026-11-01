@@ -412,7 +412,11 @@ Both answer the same report: `revision` (the new one, once saved),
 (described), `breaks` (`type`, `description`, `setAside`: the fixup, or
 null when blocked), `blocked`, `failures` (why each entry can't move, by
 its id), `duplicates` (values a unique index would hold twice: `type`,
-`values` by column, `entities` holding them), and `moved`. A save the
+`values` by column, `entities` holding them), `moved`, and
+`defaultBreaks`: warnings, never a refusal. Each is a rule the default of
+a type the save changes breaks, as `type`, `path` and `error`. A default
+may be a placeholder on purpose: an entity left at it is refused with
+`validation_failed` when it's saved. A save the
 policy blocks, with breaks not accepted, or whose content can't take it is
 refused with `schema_save_refused`: `reason` is `blocked`,
 `breaks_not_accepted` or `content_refused`, beside the same lists.

@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Migration\Editor;
 
 use XyloIsCoding\CoconutCms\Persistence\Migration\BreakResolution;
+use XyloIsCoding\CoconutCms\Persistence\Migration\DefaultBreak;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\Difference;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Uniqueness\Duplicate;
 
@@ -25,6 +26,9 @@ final readonly class EditorSaveReport
      *        that doesn't fit.
      * @param list<Duplicate> $duplicates Values a unique index would hold twice.
      * @param int $moved How many aggregates moved: 0 for a preview.
+     * @param list<DefaultBreak> $defaultBreaks The rules the default of a type
+     *        it changes breaks, or of one extending it: warnings, never a
+     *        refusal, since a default may be a placeholder on purpose.
      */
     public function __construct(
         public int $revision,
@@ -35,6 +39,7 @@ final readonly class EditorSaveReport
         public array $failures = [],
         public array $duplicates = [],
         public int $moved = 0,
+        public array $defaultBreaks = [],
     ) {
     }
 

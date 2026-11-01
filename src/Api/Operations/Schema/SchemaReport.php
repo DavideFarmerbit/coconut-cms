@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Api\Operations\Schema;
 
 use XyloIsCoding\CoconutCms\Api\Operation\OperationResult;
+use XyloIsCoding\CoconutCms\Persistence\Migration\DefaultBreak;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\Difference;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Uniqueness\Duplicate;
@@ -24,6 +25,9 @@ final readonly class SchemaReport implements OperationResult
      * @param list<Duplicate> $duplicates Values a unique index would hold
      *        twice: the type, the values by column, the entities holding them.
      * @param int $moved How many entries moved: 0 for a preview.
+     * @param list<DefaultBreak> $defaultBreaks Warnings, never refusing: each
+     *        rule a changed type's default breaks, its type, path and error.
+     *        An entity left at such a default is refused when it's saved.
      */
     public function __construct(
         public int $revision,
@@ -34,6 +38,7 @@ final readonly class SchemaReport implements OperationResult
         public array $failures,
         public array $duplicates,
         public int $moved,
+        public array $defaultBreaks,
     ) {
     }
 
@@ -47,6 +52,7 @@ final readonly class SchemaReport implements OperationResult
             $report->failures,
             $report->duplicates,
             $report->moved,
+            $report->defaultBreaks,
         );
     }
 }

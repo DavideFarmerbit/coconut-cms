@@ -40,6 +40,9 @@ final class SchemaDraft
     /** @var array<string, true> Every identifier a type had when the save started. */
     private readonly array $original;
 
+    /** @var array<string, EntitySchema> Every editor-created type as the save found it, keyed by identifier. */
+    private readonly array $found;
+
     /**
      * @param array<string, EntitySchema> $native Every native type, keyed by identifier.
      * @param array<string, EntitySchema> $editor Every editor-created type, keyed by identifier.
@@ -49,6 +52,7 @@ final class SchemaDraft
         array $editor,
     ) {
         $this->editor = $editor;
+        $this->found = $editor;
         $this->original = array_fill_keys(array_map('strval', [...array_keys($native), ...array_keys($editor)]), true);
     }
 
@@ -444,5 +448,22 @@ final class SchemaDraft
      */
     public function defaultChanges(): array {
         return $this->defaults;
+    }
+
+    /**
+     * Every editor-created type the save changes: created, renamed, its
+     * definition changed, or a default of its own changed. What its
+     * defaults are checked against its rules for.
+     * @return list<string>
+     */
+    public function touched(): array {
+        $touched = array_fill_keys(array_map(static fn (DefaultChange $change): string => $change->type, $this->defaults), true);
+        foreach ($this->editor as $identifier => $schema) {
+            if (!isset($this->found[$identifier]) || $this->found[$identifier] != $schema) {
+                $touched[$identifier] = true;
+            }
+        }
+
+        return array_map('strval', array_keys($touched));
     }
 }

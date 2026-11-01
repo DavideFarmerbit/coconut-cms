@@ -217,6 +217,22 @@ final class SchemaApiTest extends DynamicTestCase
         self::assertSame(403, $status, 'Only an architect creates buoys now.');
     }
 
+    public function testADefaultBreakingARuleIsReportedNeverRefused(): void {
+        $operations = [
+            ['op' => 'setFieldRules', 'type' => 'dy:buoy', 'field' => 'color', 'rules' => [['rule' => 'coconut-cms:max-length', 'config' => ['max' => 2]]]],
+        ];
+        [$status, $body] = $this->post('coconut-cms:schema.preview', ['revision' => 1, 'operations' => $operations]);
+        self::assertSame(200, $status, json_encode($body));
+        self::assertSame([['type' => 'dy:buoy', 'path' => 'color', 'error' => 'must be at most 2 characters']], $body['result']['defaultBreaks'], 'The default "red" is too long.');
+
+        [$status, $body] = $this->save($operations);
+        self::assertSame(200, $status, 'A placeholder default is allowed.');
+        self::assertSame('color', $body['result']['defaultBreaks'][0]['path']);
+
+        [, $body] = $this->save([['op' => 'renameField', 'type' => 'dy:yacht', 'old' => 'cabins', 'new' => 'rooms']], revision: 2);
+        self::assertSame([], $body['result']['defaultBreaks'], 'Only the types a save changes are checked.');
+    }
+
     public function testARuleThatDoesntFitNamesItsPlace(): void {
         [$status, $body] = $this->save([['op' => 'setFieldRules', 'type' => 'dy:buoy', 'field' => 'color', 'rules' => [
             ['rule' => 'coconut-cms:on-items', 'config' => ['rules' => [['rule' => 'coconut-cms:max-length', 'config' => []]]]],
