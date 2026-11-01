@@ -8,7 +8,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaOperation;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 
-/** An editor-created type's own field renamed, its values, defaults and unique groups kept. */
+/** An editor-created type's own field renamed, its values, defaults, unique groups, rules and permission kept. */
 final readonly class RenameField implements SchemaOperation
 {
     public FieldName $old;
@@ -30,7 +30,9 @@ final readonly class RenameField implements SchemaOperation
 
         $draft->replace($schema
             ->withFields($schema->fields->renamed($this->old, $this->new))
-            ->withUniqueGroups(UniqueGroups::withFieldRenamed($schema->uniqueGroups, $this->old, $this->new)));
+            ->withUniqueGroups(UniqueGroups::withFieldRenamed($schema->uniqueGroups, $this->old, $this->new))
+            ->withFieldValidators($schema->fieldValidators->renamed($this->old, $this->new))
+            ->withFieldPermissions($schema->fieldPermissions->renamed($this->old, $this->new)));
         if (!$draft->isCreated($this->type)) {
             $draft->fixup(new Fixup\RenameField($this->type, (string) $this->old, (string) $this->new));
         }

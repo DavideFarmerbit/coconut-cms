@@ -1528,6 +1528,35 @@ value object, or a Reference. An Embed isn't offered yet (not built yet);
 an owned object or a Collection has no column. Content breaking the group
 refuses the save, listing the duplicates.
 
+Rules and permissions are set whole, on an editor-created type only:
+
+- `SetFieldRules(type, field, ...rules)` gives one of the type's own fields
+  its full list of rules, in order. None clears them. Each must fit the
+  field (see "Validating a save").
+- `SetPrototypeRules(type, ...rules)` gives the type its full list of
+  cross-field rules. Each checks its configuration against the type's own
+  fields.
+- `SetFieldPermission(type, field, read, write)` and
+  `SetTypePermission(type, read, create, update, delete)` give the roles
+  `#[FieldPermission]` and `#[TypePermission]` declare on a native type. A
+  null role leaves that action open, or to the ancestors; all null clears
+  it.
+
+The editor never adds a rule or a permission to a native type: the code
+declares those. Each of these changes only definitions: no fixup, and
+content breaking a new rule is caught on its next save.
+
+A field's rules and permission belong to it. `RenameField` and `MoveField`
+take them along, `RemoveField` drops them, and a deleted or replaced type's
+go with it. `RetypeField` clears the field's rules, whether they'd fit or
+not: they were written for what it held. The save sets the ones it keeps
+again after. Its permission stays. After every operation, every
+editor-created type's rules are checked again. One that no longer fits
+refuses the operation, naming the type: a cross-field rule naming a field
+the save renamed or removed, say. A rule's configuration is its own, so
+nothing renames inside it: the save sets the rule anew, cleared before the
+operation and set after.
+
 A save stores exactly the defaults the admin set, pinned, and never works
 out what's set by comparing values: a field the admin set to what its
 parent gives stays set. "Set a field's default" and "inherit it" are

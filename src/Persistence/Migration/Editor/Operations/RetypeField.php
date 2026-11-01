@@ -17,7 +17,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
  * one, the default the type sets included; $default, when given, is pinned
  * over it. Without a converter, every value and default is dropped, so
  * $default is needed, as for AddField. A type this save creates has no
- * values, so it takes no converter.
+ * values, so it takes no converter. The field's rules are cleared: set the
+ * ones it keeps again after. Its permission stays.
  */
 final readonly class RetypeField implements SchemaOperation
 {
@@ -53,7 +54,10 @@ final readonly class RetypeField implements SchemaOperation
         }
 
         $schema = $draft->editorType($this->type);
-        $draft->replace($schema->withFields($schema->fields->with($name, $this->field)));
+        // Rules were written for what the field held: none carries over.
+        $draft->replace($schema
+            ->withFields($schema->fields->with($name, $this->field))
+            ->withFieldValidators($schema->fieldValidators->without($name)));
         if (!$created) {
             $draft->fixup($this->converter === null
                 ? Fixup\RetypeField::reset($this->type, (string) $name)

@@ -31,10 +31,15 @@ final class SchemaApiTest extends DynamicTestCase
         class_exists(ApiTest::class);
         class_exists(PermissionFixtures::class);
 
-        $persistence = Persistence::boot($this->connection, [new DynamicModule()], null, MigrateOn::Command, new StrictPolicy(), 'architect');
         $this->authenticator = new ApiTestAuthenticator();
         $this->authenticator->actor = new PermActor(['architect']);
-        $this->api = Api::boot($persistence, $this->authenticator, new Kernel(), new ApiTestCsrf());
+        $this->newRequest();
+    }
+
+    /** The API as a new request boots it: nothing kept in memory from the one before. */
+    private function newRequest(): void {
+        $persistence = Persistence::boot($this->connection, [new DynamicModule()], null, MigrateOn::Command, new StrictPolicy(), 'architect');
+        $this->api = Api::boot($persistence, $this->authenticator, new Kernel(), new ApiTestCsrf(), debug: true);
     }
 
     /**
@@ -186,6 +191,42 @@ final class SchemaApiTest extends DynamicTestCase
         [, $body] = $this->post('coconut-cms:schema.validators', []);
         self::assertSame(['coconut-cms:max-length', 'coconut-cms:range', 'coconut-cms:pattern', 'coconut-cms:max-items', 'coconut-cms:min-items', 'coconut-cms:on-items'], $core($body['result']['fieldRules']));
         self::assertIsArray($body['result']['prototypeRules']);
+    }
+
+    public function testRulesSetOnAnEditorTypeCheckItsNextSave(): void {
+        $operations = [
+            ['op' => 'setFieldRules', 'type' => 'dy:buoy', 'field' => 'color', 'rules' => [
+                ['rule' => 'coconut-cms:max-length', 'config' => ['max' => 5]],
+                ['rule' => 'coconut-cms:pattern', 'config' => ['regex' => '^[a-z]+$']],
+            ]],
+            ['op' => 'setFieldPermission', 'type' => 'dy:buoy', 'field' => 'color', 'read' => null, 'write' => 'architect'],
+            ['op' => 'setTypePermission', 'type' => 'dy:buoy', 'read' => null, 'create' => 'architect', 'update' => null, 'delete' => null],
+        ];
+        [$status, $body] = $this->save($operations);
+        self::assertSame(200, $status, json_encode($body));
+        self::assertEquals($operations, $body['result']['operations'], 'Written back as given.');
+        self::assertSame([], $body['result']['fixups'], 'Rules and permissions change only definitions.');
+
+        $this->newRequest();
+        [$status, $body] = $this->post('coconut-cms:entities.create', ['type' => 'dy:buoy', 'changes' => ['color' => 'Magenta']]);
+        self::assertSame(422, $status, json_encode($body));
+        self::assertSame(['color' => ['must be at most 5 characters', 'must match ^[a-z]+$']], $body['error']['details']['errors'], 'Read back from the stored schema.');
+
+        $this->authenticator->actor = new PermActor(['editor']);
+        [$status] = $this->post('coconut-cms:entities.create', ['type' => 'dy:buoy', 'changes' => ['color' => 'blue']]);
+        self::assertSame(403, $status, 'Only an architect creates buoys now.');
+    }
+
+    public function testARuleThatDoesntFitNamesItsPlace(): void {
+        [$status, $body] = $this->save([['op' => 'setFieldRules', 'type' => 'dy:buoy', 'field' => 'color', 'rules' => [
+            ['rule' => 'coconut-cms:on-items', 'config' => ['rules' => [['rule' => 'coconut-cms:max-length', 'config' => []]]]],
+        ]]]);
+        self::assertSame(400, $status);
+        self::assertSame(['operations.0.rules.0.config.rules.0.config.max'], array_keys($body['error']['details']['errors']), json_encode($body));
+
+        [$status, $body] = $this->save([['op' => 'setFieldRules', 'type' => 'dy:buoy', 'field' => 'color', 'rules' => [['rule' => 'coconut-cms:range', 'config' => ['max' => 3]]]]]);
+        self::assertSame(400, $status);
+        self::assertStringContainsString('Rule 0: ', $body['error']['details']['errors']['operations.0'] ?? json_encode($body));
     }
 
     public function testOnlyTheSchemaEditorRoleChangesTypes(): void {

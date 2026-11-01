@@ -10,7 +10,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 
 /**
  * An editor-created type's own field removed, with its values and a unique
- * group over it, as DropField removes them.
+ * group over it, as DropField removes them, and its rules and permission.
  */
 final readonly class RemoveField implements SchemaOperation
 {
@@ -29,7 +29,9 @@ final readonly class RemoveField implements SchemaOperation
 
         $draft->replace($schema
             ->withFields($schema->fields->without($this->field))
-            ->withUniqueGroups(UniqueGroups::withoutField($schema->uniqueGroups, $this->field)));
+            ->withUniqueGroups(UniqueGroups::withoutField($schema->uniqueGroups, $this->field))
+            ->withFieldValidators($schema->fieldValidators->without($this->field))
+            ->withFieldPermissions($schema->fieldPermissions->without($this->field)));
         if (!$draft->isCreated($this->type)) {
             $draft->fixup(new Fixup\DropField($this->type, (string) $this->field));
         }

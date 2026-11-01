@@ -10,6 +10,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldRuleUsage;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 
 /**
@@ -143,6 +144,30 @@ final class SchemaDraft
 
         if ($creating && isset($this->original[$identifier])) {
             throw new InvalidOperation(sprintf('"%s" named another type when this save started: save its rename or delete first.', $identifier));
+        }
+    }
+
+    /**
+     * Throws unless every editor-created type's rules still fit it: each field
+     * rule its field, each cross-field rule the type's own fields. Run after
+     * every operation, so one breaking a rule, say a rename of a field a
+     * cross-field rule names, is refused, and the save sets the rule anew.
+     */
+    public function assertRulesFit(): void {
+        foreach ($this->editor as $identifier => $schema) {
+            try {
+                foreach ($schema->fieldValidators as $name => $rules) {
+                    foreach ($rules as $rule) {
+                        FieldRuleUsage::check($rule, $schema->fields->get($name));
+                    }
+                }
+
+                foreach ($schema->prototypeValidators as $rule) {
+                    $rule->checkUsage($schema->fields);
+                }
+            } catch (InvalidArgumentException $broken) {
+                throw new InvalidOperation(sprintf('It breaks a rule of "%s": %s Set its rules anew in this save.', $identifier, $broken->getMessage()), 0, $broken);
+            }
         }
     }
 

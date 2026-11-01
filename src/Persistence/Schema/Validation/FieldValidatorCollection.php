@@ -39,6 +39,19 @@ final readonly class FieldValidatorCollection implements IteratorAggregate, Coun
         return new self($validators);
     }
 
+    /** This collection without field $name's rules. */
+    public function without(FieldName $name): self {
+        $validators = $this->validators;
+        unset($validators[(string) $name]);
+
+        return new self($validators);
+    }
+
+    /** This collection with field $old's rules under $new instead. */
+    public function renamed(FieldName $old, FieldName $new): self {
+        return $this->has($old) ? $this->without($old)->with($new, $this->get($old)) : $this;
+    }
+
     /** @return FieldValidatorRule[] */
     public function get(FieldName $name): array {
         return $this->validators[(string) $name] ?? [];

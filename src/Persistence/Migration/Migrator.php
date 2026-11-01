@@ -239,6 +239,7 @@ final readonly class Migrator
         foreach ($save->operations as $index => $operation) {
             try {
                 $operation->applyTo($draft);
+                $draft->assertRulesFit();
             } catch (InvalidOperation $refused) {
                 throw InvalidOperation::at($index, $refused);
             }
@@ -509,7 +510,7 @@ final readonly class Migrator
      * In an editor save, $draft adds the types it creates, setting nothing
      * yet, and its default changes apply last, on the final names. A type
      * the save renamed takes its new name; one it deleted or replaced is
-     * gone.
+     * gone. Each type takes its rules and permissions from the draft.
      * @param list<StoredSchema> $stored
      * @return array<string, EntityBlueprint> Keyed by identifier.
      */
@@ -555,9 +556,22 @@ final readonly class Migrator
             $own[$change->type] = $change->applyTo($own[$change->type]);
         }
 
+        // Rules and permissions are no difference, so no fixup carries them:
+        // an editor save's are the draft's.
+        $targets = $draft?->targets() ?? [];
         $blueprints = [];
         foreach ($own as $identifier => $values) {
-            $blueprints[$identifier] = StoredBlueprintReader::of($plan->schemas->get($identifier), SchemaSource::Editor, FieldValues::fromArray($values));
+            $schema = $plan->schemas->get($identifier);
+            $target = $targets[$identifier] ?? null;
+            if ($target !== null) {
+                $schema = $schema
+                    ->withFieldValidators($target->fieldValidators)
+                    ->withFieldPermissions($target->fieldPermissions)
+                    ->withPrototypeValidators($target->prototypeValidators)
+                    ->withTypePermission($target->typePermission);
+            }
+
+            $blueprints[$identifier] = StoredBlueprintReader::of($schema, SchemaSource::Editor, FieldValues::fromArray($values));
         }
 
         return $blueprints;

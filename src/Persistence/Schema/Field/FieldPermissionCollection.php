@@ -38,6 +38,21 @@ final readonly class FieldPermissionCollection implements IteratorAggregate, Cou
         return new self($permissions);
     }
 
+    /** This collection without field $name's permission. */
+    public function without(FieldName $name): self {
+        $permissions = $this->permissions;
+        unset($permissions[(string) $name]);
+
+        return new self($permissions);
+    }
+
+    /** This collection with field $old's permission under $new instead. */
+    public function renamed(FieldName $old, FieldName $new): self {
+        $permission = $this->get($old);
+
+        return $permission === null ? $this : $this->without($old)->with($new, $permission);
+    }
+
     public function get(FieldName $name): ?FieldPermission {
         return $this->permissions[(string) $name] ?? null;
     }

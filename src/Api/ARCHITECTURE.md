@@ -382,8 +382,13 @@ input:
   (`type`, `field`), `retypeField` (`type`,
   `field`, `converter`, `default`), `setDefault` (`type`, `path`, `value`),
   `inheritDefault` (`type`, `path`), `addUniqueGroup` and
-  `removeUniqueGroup` (`type`, `fields`: a list of names). An unknown key
-  is refused.
+  `removeUniqueGroup` (`type`, `fields`: a list of names), `setFieldRules`
+  (`type`, `field`, `rules`), `setPrototypeRules` (`type`, `rules`),
+  `setFieldPermission` (`type`, `field`, `read`, `write`) and
+  `setTypePermission` (`type`, `read`, `create`, `update`, `delete`). A
+  rule is `{"rule": identifier, "config": {...}}`, as `schema.validators`
+  lists them; `rules` is the full list, `[]` for none. A role left out or
+  null leaves that action open. An unknown key is refused.
 - A field is described as `types.get` describes what a field holds, with
   its `name`. An enum Scalar names its enum by identifier, `"enum":
   "shop:color"`; a value object, its `target`, the same way. A

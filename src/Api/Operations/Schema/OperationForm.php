@@ -27,7 +27,15 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\Reparent;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\ReplaceType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RetypeField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetDefault;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetFieldPermission;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetFieldRules;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetPrototypeRules;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetTypePermission;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaOperation;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\ParameterRegistries;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 
 /**
  * An editor save's operations as JSON, one object each, its kind named by
@@ -35,13 +43,18 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaOperation;
  * "size"}`. A default is in stored form; a missing "default" key gives none,
  * `"default": null` pins null. A converter or initializer is its registered
  * identifier and its parameters: `{"kind": "coconut-cms:text-to-number",
- * "to": "int", "onFailure": "default"}`.
+ * "to": "int", "onFailure": "default"}`. A validator rule is its registered
+ * identifier and its parameters as "config": `{"rule":
+ * "coconut-cms:max-length", "config": {"max": 80}}`.
  */
 final readonly class OperationForm
 {
+    /** @param ParameterRegistries $registries What a rule's parameters name registered classes through, field rules included. */
     public function __construct(
         private FieldForm $fields,
         private ConversionRegistry $conversions,
+        private PrototypeValidatorRegistry $prototypeRules,
+        private ParameterRegistries $registries,
     ) {
     }
 
@@ -81,7 +94,11 @@ final readonly class OperationForm
             'retypeField' => ['type', 'field', 'converter', 'default'],
             'setDefault' => ['type', 'path', 'value'],
             'inheritDefault' => ['type', 'path'],
-            default => throw InvalidInput::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, deleteType, reparent, replaceType, addField, removeField, renameField, moveField, copyValues, makeRequired, retypeField, setDefault, inheritDefault, addUniqueGroup, removeUniqueGroup.', $op)),
+            'setFieldRules' => ['type', 'field', 'rules'],
+            'setPrototypeRules' => ['type', 'rules'],
+            'setFieldPermission' => ['type', 'field', 'read', 'write'],
+            'setTypePermission' => ['type', 'read', 'create', 'update', 'delete'],
+            default => throw InvalidInput::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, deleteType, reparent, replaceType, addField, removeField, renameField, moveField, copyValues, makeRequired, retypeField, setDefault, inheritDefault, addUniqueGroup, removeUniqueGroup, setFieldRules, setPrototypeRules, setFieldPermission, setTypePermission.', $op)),
         };
         Json::onlyKeys($data, ['op', ...$keys], $path);
         $string = static fn (string $key): string => Json::string($data, $key, $path);
@@ -142,8 +159,59 @@ final readonly class OperationForm
             ),
             'setDefault' => new SetDefault($string('type'), $string('path'), self::defaultOf($data, 'value') ?? throw InvalidInput::at("$path.value", 'Missing.')),
             'inheritDefault' => new InheritDefault($string('type'), $string('path')),
+            'setFieldRules' => new SetFieldRules($string('type'), $string('field'), ...$this->rules($data['rules'] ?? null, "$path.rules", $this->fieldRule(...))),
+            'setPrototypeRules' => new SetPrototypeRules($string('type'), ...$this->rules($data['rules'] ?? null, "$path.rules", $this->prototypeRule(...))),
+            'setFieldPermission' => new SetFieldPermission(
+                $string('type'),
+                $string('field'),
+                Json::optionalString($data, 'read', $path),
+                Json::optionalString($data, 'write', $path),
+            ),
+            'setTypePermission' => new SetTypePermission(
+                $string('type'),
+                Json::optionalString($data, 'read', $path),
+                Json::optionalString($data, 'create', $path),
+                Json::optionalString($data, 'update', $path),
+                Json::optionalString($data, 'delete', $path),
+            ),
             default => throw new LogicException(sprintf('"%s" was checked as known.', $op)),
         };
+    }
+
+    /**
+     * $data as a list of rules, each `{"rule": identifier, "config": {...}}`
+     * read by $readOne at its own path.
+     * @template T
+     * @param callable(mixed, string): T $readOne
+     * @return list<T>
+     */
+    private function rules(mixed $data, string $path, callable $readOne): array {
+        if (!is_array($data) || !array_is_list($data)) {
+            throw InvalidInput::at($path, 'A list of rules is needed here: [] for none.');
+        }
+
+        $rules = [];
+        foreach ($data as $index => $entry) {
+            $rules[] = $readOne($entry, "$path.$index");
+        }
+
+        return $rules;
+    }
+
+    private function fieldRule(mixed $data, string $path): FieldValidatorRule {
+        try {
+            return $this->registries->fieldRules()->build($data, $this->registries);
+        } catch (InvalidParameters $refused) {
+            throw InvalidInput::at(Json::at($path, $refused->parameter ?? 'rule'), $refused->getMessage());
+        }
+    }
+
+    private function prototypeRule(mixed $data, string $path): PrototypeValidatorRule {
+        try {
+            return $this->prototypeRules->build($data, $this->registries);
+        } catch (InvalidParameters $refused) {
+            throw InvalidInput::at(Json::at($path, $refused->parameter ?? 'rule'), $refused->getMessage());
+        }
     }
 
     /**
@@ -252,6 +320,19 @@ final readonly class OperationForm
                 + self::defaultForm('default', $operation->default),
             $operation instanceof SetDefault => ['op' => 'setDefault', 'type' => $operation->type, 'path' => $operation->path, 'value' => $operation->value->value],
             $operation instanceof InheritDefault => ['op' => 'inheritDefault', 'type' => $operation->type, 'path' => $operation->path],
+            $operation instanceof SetFieldRules => [
+                'op' => 'setFieldRules', 'type' => $operation->type, 'field' => (string) $operation->field,
+                'rules' => array_map(fn (FieldValidatorRule $rule): array => $this->registries->fieldRules()->entryOf($rule, $this->registries), $operation->rules),
+            ],
+            $operation instanceof SetPrototypeRules => [
+                'op' => 'setPrototypeRules', 'type' => $operation->type,
+                'rules' => array_map(fn (PrototypeValidatorRule $rule): array => $this->prototypeRules->entryOf($rule, $this->registries), $operation->rules),
+            ],
+            $operation instanceof SetFieldPermission => ['op' => 'setFieldPermission', 'type' => $operation->type, 'field' => (string) $operation->field, 'read' => $operation->read, 'write' => $operation->write],
+            $operation instanceof SetTypePermission => [
+                'op' => 'setTypePermission', 'type' => $operation->type,
+                'read' => $operation->read, 'create' => $operation->create, 'update' => $operation->update, 'delete' => $operation->delete,
+            ],
             default => throw new LogicException(sprintf('%s has no JSON form.', $operation::class)),
         };
     }

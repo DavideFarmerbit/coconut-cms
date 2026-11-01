@@ -11,6 +11,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSave;
 use XyloIsCoding\CoconutCms\Persistence\Migration\ContentRefused;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationBlocked;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Uniqueness\Duplicate;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\ParameterRegistries;
 
 /**
  * What schema.preview and schema.save share: reading the input's
@@ -24,7 +25,12 @@ final readonly class SchemaSaving
         private OperationContext $context,
     ) {
         $persistence = $context->persistence;
-        $this->form = new OperationForm(new FieldForm($persistence->enums(), $persistence->valueObjects()), $persistence->conversions());
+        $this->form = new OperationForm(
+            new FieldForm($persistence->enums(), $persistence->valueObjects()),
+            $persistence->conversions(),
+            $persistence->prototypeRules(),
+            new ParameterRegistries($persistence->enums(), $persistence->fieldRules()),
+        );
     }
 
     /** $input's save, its operations read. Throws InvalidInput naming the path at fault. */

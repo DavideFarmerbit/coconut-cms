@@ -2,8 +2,19 @@
 
 namespace XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Editor;
 
+use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
+use XyloIsCoding\CoconutCms\Persistence\Entity\EntityView;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\NumberToText;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetFieldPermission;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetFieldRules;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetPrototypeRules;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetTypePermission;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\MaxLength;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\Pattern;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\Range;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Captured;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
@@ -69,6 +80,25 @@ final readonly class SameConverter implements FieldConverter
     }
 }
 
+/** Across fields: names two of its type's own fields, so renaming or removing one breaks it. */
+final readonly class NamesBothFields implements PrototypeValidatorRule
+{
+    public function __construct(public string $first, public string $second) {
+    }
+
+    public function checkUsage(FieldDescriptorCollection $fields): void {
+        foreach ([$this->first, $this->second] as $name) {
+            if (!$fields->has(FieldName::of($name))) {
+                throw new InvalidArgumentException(sprintf('Unknown field "%s".', $name));
+            }
+        }
+    }
+
+    public function validate(EntityView $entity): ValidationResult {
+        return ValidationResult::valid();
+    }
+}
+
 /**
  * Editor operations on a draft: the definitions they leave, the fixups they
  * give, and what they refuse. A native vehicle allows editor subtypes, a
@@ -93,11 +123,12 @@ final class SchemaOperationsTest extends TestCase
         );
     }
 
-    /** $operations applied in order to a fresh draft, which it gives. */
+    /** $operations applied in order to a fresh draft, which it gives: each checked as a save checks it. */
     private function apply(SchemaOperation ...$operations): SchemaDraft {
         $draft = $this->draft();
         foreach ($operations as $operation) {
             $operation->applyTo($draft);
+            $draft->assertRulesFit();
         }
 
         return $draft;
@@ -136,6 +167,7 @@ final class SchemaOperationsTest extends TestCase
         $draft = $this->apply(...$before);
         try {
             $operation->applyTo($draft);
+            $draft->assertRulesFit();
             self::fail(sprintf('%s should be refused.', $operation->describe()));
         } catch (InvalidOperation $refused) {
             self::assertStringContainsString($message, $refused->getMessage());
@@ -285,6 +317,7 @@ final class SchemaOperationsTest extends TestCase
         );
         foreach ($operations as $operation) {
             $operation->applyTo($draft);
+            $draft->assertRulesFit();
         }
 
         return $draft;
@@ -468,5 +501,71 @@ final class SchemaOperationsTest extends TestCase
         self::assertSame([true, false], array_map(static fn (DefaultChange $change): bool => $change->pins(), $draft->defaultChanges()));
         $this->assertRefused('has no field "beam"', new SetDefault('shop:boat', 'beam', new DefaultValue(3)));
         $this->assertRefused('starts with an index', new InheritDefault('shop:boat', '0'));
+    }
+
+    public function testRulesAndPermissionsAreSetWholeAndCleared(): void {
+        $set = [
+            new SetFieldRules('shop:maker', 'title', new MaxLength(10), new Pattern('^A')),
+            new SetFieldPermission('shop:maker', 'title', write: 'editor'),
+            new SetTypePermission('shop:maker', read: 'staff'),
+            new SetPrototypeRules('shop:boat', new NamesBothFields('length', 'maker')),
+        ];
+        $maker = $this->apply(...$set)->targets()['shop:maker'];
+        self::assertEquals([new MaxLength(10), new Pattern('^A')], $maker->fieldValidators->get(FieldName::of('title')));
+        self::assertSame([null, 'editor'], [$maker->fieldPermissions->get(FieldName::of('title'))->read, $maker->fieldPermissions->get(FieldName::of('title'))->write]);
+        self::assertSame('staff', $maker->typePermission->read);
+        self::assertSame([], self::fixups($this->apply(...$set)), 'Only definitions change.');
+
+        $cleared = $this->apply(...$set, ...[
+            new SetFieldRules('shop:maker', 'title'),
+            new SetFieldPermission('shop:maker', 'title'),
+            new SetTypePermission('shop:maker'),
+            new SetPrototypeRules('shop:boat'),
+        ])->targets();
+        self::assertFalse($cleared['shop:maker']->fieldValidators->has(FieldName::of('title')));
+        self::assertFalse($cleared['shop:maker']->fieldPermissions->has(FieldName::of('title')));
+        self::assertNull($cleared['shop:maker']->typePermission);
+        self::assertSame([], $cleared['shop:boat']->prototypeValidators);
+
+        $this->assertRefused('Rule 0: ' . MaxLength::class . ' checks a Scalar of string or text, and field "length" is not one.', new SetFieldRules('shop:boat', 'length', new MaxLength(3)));
+        $this->assertRefused('Rule 1: Unknown field "beam"', new SetPrototypeRules('shop:boat', new NamesBothFields('length', 'maker'), new NamesBothFields('beam', 'length')));
+        $this->assertRefused('native type', new SetFieldRules('shop:vehicle', 'name'));
+        $this->assertRefused('native type', new SetTypePermission('shop:engine', read: 'staff'));
+        $this->assertRefused('has no field "name" of its own', new SetFieldPermission('shop:boat', 'name', read: 'staff'));
+    }
+
+    public function testAFieldsRulesAndPermissionFollowIt(): void {
+        $set = [new SetFieldRules('shop:maker', 'title', new MaxLength(10)), new SetFieldPermission('shop:maker', 'title', read: 'staff')];
+
+        $renamed = $this->apply(...$set, ...[new RenameField('shop:maker', 'title', 'label')])->targets()['shop:maker'];
+        self::assertEquals([new MaxLength(10)], $renamed->fieldValidators->get(FieldName::of('label')));
+        self::assertSame('staff', $renamed->fieldPermissions->get(FieldName::of('label'))->read);
+        self::assertFalse($renamed->fieldValidators->has(FieldName::of('title')));
+
+        $removed = $this->apply(...$set, ...[new RemoveField('shop:maker', 'title')])->targets()['shop:maker'];
+        self::assertSame(0, count($removed->fieldValidators) + count($removed->fieldPermissions));
+
+        $retyped = $this->apply(...$set, ...[new RetypeField('shop:maker', self::int('title'), default: new DefaultValue(0)), new SetFieldRules('shop:maker', 'title', new Range(max: 5))])->targets()['shop:maker'];
+        self::assertEquals([new Range(max: 5)], $retyped->fieldValidators->get(FieldName::of('title')), 'A retype clears the rules; new ones fit the new field.');
+        self::assertSame('staff', $retyped->fieldPermissions->get(FieldName::of('title'))->read, 'A permission doesn\'t depend on what the field holds.');
+
+        $moved = $this->draftWithYacht(
+            new SetFieldRules('shop:yacht', 'cabins', new Range(min: 0)),
+            new SetFieldPermission('shop:yacht', 'cabins', write: 'captain'),
+            new MoveField('shop:yacht', 'cabins', 'shop:boat', new DefaultValue(0)),
+        )->targets();
+        self::assertEquals([new Range(min: 0)], $moved['shop:boat']->fieldValidators->get(FieldName::of('cabins')));
+        self::assertSame('captain', $moved['shop:boat']->fieldPermissions->get(FieldName::of('cabins'))->write);
+        self::assertSame(0, count($moved['shop:yacht']->fieldValidators) + count($moved['shop:yacht']->fieldPermissions));
+    }
+
+    public function testAnOperationBreakingACrossFieldRuleIsRefusedUntilTheRuleIsSetAnew(): void {
+        $rule = new SetPrototypeRules('shop:boat', new NamesBothFields('length', 'maker'));
+
+        $this->assertRefused('It breaks a rule of "shop:boat": Unknown field "length". Set its rules anew in this save.', new RenameField('shop:boat', 'length', 'size'), $rule);
+        $this->assertRefused('It breaks a rule of "shop:boat"', new RemoveField('shop:boat', 'maker'), $rule);
+
+        $fixed = $this->apply($rule, new SetPrototypeRules('shop:boat'), new RenameField('shop:boat', 'length', 'size'), new SetPrototypeRules('shop:boat', new NamesBothFields('size', 'maker')));
+        self::assertEquals([new NamesBothFields('size', 'maker')], $fixed->targets()['shop:boat']->prototypeValidators);
     }
 }

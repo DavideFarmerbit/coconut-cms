@@ -71,6 +71,26 @@ final readonly class EntitySchema
         return $this->copy($this->identifier, $this->parent, $this->table, $this->fields, $uniqueGroups);
     }
 
+    /** This schema with $fieldValidators as its fields' rules. */
+    public function withFieldValidators(FieldValidatorCollection $fieldValidators): self {
+        return new self($this->identifier, $this->parent, $this->table, $this->editorExtensible, $this->fields, $this->fieldPermissions, $fieldValidators, $this->uniqueGroups, $this->prototypeValidators, $this->typePermission, $this->noTypeRecords);
+    }
+
+    /** This schema with $fieldPermissions as its fields' permissions. */
+    public function withFieldPermissions(FieldPermissionCollection $fieldPermissions): self {
+        return new self($this->identifier, $this->parent, $this->table, $this->editorExtensible, $this->fields, $fieldPermissions, $this->fieldValidators, $this->uniqueGroups, $this->prototypeValidators, $this->typePermission, $this->noTypeRecords);
+    }
+
+    /** @param PrototypeValidatorRule[] $prototypeValidators This schema with these as its cross-field rules. */
+    public function withPrototypeValidators(array $prototypeValidators): self {
+        return new self($this->identifier, $this->parent, $this->table, $this->editorExtensible, $this->fields, $this->fieldPermissions, $this->fieldValidators, $this->uniqueGroups, $prototypeValidators, $this->typePermission, $this->noTypeRecords);
+    }
+
+    /** This schema with $typePermission as its own; null for none. */
+    public function withTypePermission(?TypePermission $typePermission): self {
+        return new self($this->identifier, $this->parent, $this->table, $this->editorExtensible, $this->fields, $this->fieldPermissions, $this->fieldValidators, $this->uniqueGroups, $this->prototypeValidators, $typePermission, $this->noTypeRecords);
+    }
+
     /** This schema holding $record too: what broke on it. */
     public function withNoTypeRecord(NoTypeRecord $record): self {
         return $this->copy($this->identifier, $this->parent, $this->table, $this->fields, $this->uniqueGroups, [...$this->noTypeRecords, $record]);

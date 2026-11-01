@@ -17,7 +17,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
  * it: the type's own keep their values, the others get the default, or what
  * $initializer decides. Moved down, entries no longer of a type declaring it
  * lose their values; nobody gains it, so it takes no initializer. Either
- * way $to declares it now, so it takes $default, as AddField does.
+ * way $to declares it now, so it takes $default, as AddField does. Its rules
+ * and permission move with it.
  */
 final readonly class MoveField implements SchemaOperation
 {
@@ -56,10 +57,20 @@ final readonly class MoveField implements SchemaOperation
         $from = $draft->editorType($this->type);
         $draft->replace($from
             ->withFields($from->fields->without($this->field))
-            ->withUniqueGroups(UniqueGroups::withoutField($from->uniqueGroups, $this->field)));
+            ->withUniqueGroups(UniqueGroups::withoutField($from->uniqueGroups, $this->field))
+            ->withFieldValidators($from->fieldValidators->without($this->field))
+            ->withFieldPermissions($from->fieldPermissions->without($this->field)));
         $draft->assertNoField($this->to, $this->field);
+
+        // Its rules and permission are the field's: they move with it.
         $to = $draft->editorType($this->to);
-        $draft->replace($to->withFields($to->fields->with($this->field, $descriptor)));
+        $to = $to->withFields($to->fields->with($this->field, $descriptor));
+        if ($from->fieldValidators->has($this->field)) {
+            $to = $to->withFieldValidators($to->fieldValidators->with($this->field, $from->fieldValidators->get($this->field)));
+        }
+
+        $permission = $from->fieldPermissions->get($this->field);
+        $draft->replace($permission === null ? $to : $to->withFieldPermissions($to->fieldPermissions->with($this->field, $permission)));
 
         // A type the save creates has no entries: what moves is only what
         // the existing one holds.
