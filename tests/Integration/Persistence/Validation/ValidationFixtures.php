@@ -26,10 +26,13 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\Range;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Validation\ChecksAnyField;
 
 /** A string that isn't empty. */
 final readonly class ValRequired implements FieldValidatorRule
 {
+    use ChecksAnyField;
+
     public function checkUsage(FieldDescriptor $field): void {
     }
 
@@ -49,6 +52,8 @@ final readonly class ValRequired implements FieldValidatorRule
 /** A string of at most $max characters. */
 final readonly class ValMaxLength implements FieldValidatorRule
 {
+    use ChecksAnyField;
+
     public function __construct(private int $max) {
     }
 
@@ -71,6 +76,8 @@ final readonly class ValMaxLength implements FieldValidatorRule
 /** On an Embed: its "weight" between two bounds, read through its view. */
 final readonly class ValWeightBetween implements FieldValidatorRule
 {
+    use ChecksAnyField;
+
     public function __construct(private int $min, private int $max) {
     }
 
@@ -95,6 +102,8 @@ final readonly class ValWeightBetween implements FieldValidatorRule
 /** On an owned slot: only objects of $class, or a class extending it; an empty slot passes. */
 final readonly class ValOnlyType implements FieldValidatorRule
 {
+    use ChecksAnyField;
+
     /** @param class-string $class */
     public function __construct(private string $class) {
     }
@@ -118,6 +127,8 @@ final readonly class ValOnlyType implements FieldValidatorRule
 /** An int above zero. */
 final readonly class ValPositive implements FieldValidatorRule
 {
+    use ChecksAnyField;
+
     public function checkUsage(FieldDescriptor $field): void {
     }
 

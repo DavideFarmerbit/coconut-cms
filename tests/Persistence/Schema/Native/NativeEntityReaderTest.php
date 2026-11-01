@@ -33,10 +33,12 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\UniqueGroup;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\MaxLength;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityView;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Validation\ChecksAnyField;
 
 enum EntityRegistrarStatus: string
 {
@@ -60,6 +62,8 @@ final class EntityRegistrarWithUninferableEnum
 
 final class EntityRegistrarMaxLength implements FieldValidatorRule
 {
+    use ChecksAnyField;
+
     public function __construct(private readonly int $max) {
     }
 
@@ -707,8 +711,22 @@ final class EntityRegistrarReferenceCollectionWithItemNullability
     private array $categories = [];
 }
 
+#[Entity]
+final class EntityRegistrarRuleOnTheWrongField
+{
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Int, itemNullability: Nullability::NotNullable), FieldValidator(new MaxLength(5))]
+    private array $sizes = [];
+}
+
 final class NativeEntityReaderTest extends TestCase
 {
+    public function testARuleOnAFieldItDoesntFitIsRefused(): void {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage(MaxLength::class . ' checks a Scalar of string or text, and field "sizes" holds none.');
+
+        NativeEntityReader::read(EntityRegistrarRuleOnTheWrongField::class);
+    }
+
     public function testReadTakesNullabilityFromThePropertyType(): void {
         $fields = NativeEntityReader::read(EntityRegistrarNullabilities::class)->fields;
 

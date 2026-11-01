@@ -1,11 +1,11 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data;
+namespace XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Field;
 
 use PHPUnit\Framework\TestCase;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldSignature;
 use XyloIsCoding\CoconutCms\Persistence\Migration\InvalidFixup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldSignature;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 
@@ -36,7 +36,7 @@ final class FieldSignatureTest extends TestCase
         $this->expectException(InvalidFixup::class);
         $this->expectExceptionMessage('Shop\\Converter takes a Scalar of string or text, and field "power" of "shop:car" is not one.');
 
-        FieldSignature::text()->assertMatches(FieldDescriptor::scalar('power', ScalarType::Int, Nullability::NotNullable), 'Shop\\Converter', 'takes', 'shop:car', 'power');
+        InvalidFixup::unlessMatches(FieldSignature::text(), FieldDescriptor::scalar('power', ScalarType::Int, Nullability::NotNullable), 'Shop\\Converter', 'takes', 'shop:car', 'power');
     }
 
     public function testItDescribesItself(): void {

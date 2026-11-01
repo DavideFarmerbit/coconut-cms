@@ -4,9 +4,9 @@ namespace XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry;
 
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldInitializer;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldSignature;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\LevelInitializer;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldSignature;
 
 /**
  * One converter or initializer a module registered: its identifier, what it

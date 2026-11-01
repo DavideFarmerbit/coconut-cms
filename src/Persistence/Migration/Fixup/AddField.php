@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Migration\Fixup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldInitializer;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Occurrences;
+use XyloIsCoding\CoconutCms\Persistence\Migration\InvalidFixup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 
@@ -29,7 +30,9 @@ final readonly class AddField implements Fixup, MovesValues
     public function applyTo(SchemaState $schemas): SchemaState {
         $schemas->assertNoField($this->type, $this->field);
         $field = $schemas->targetField($this->type, $this->field);
-        $this->initializer?->to()->assertMatches($field, $this->initializer::class, 'fills', $this->type, (string) $this->field);
+        if ($this->initializer !== null) {
+            InvalidFixup::unlessMatches($this->initializer::to(), $field, $this->initializer::class, 'fills', $this->type, (string) $this->field);
+        }
         $schema = $schemas->get($this->type);
 
         return $schemas->with($schema->withFields($schema->fields->with($this->field, $field)));

@@ -2,8 +2,8 @@
 
 namespace XyloIsCoding\CoconutCms\Api\Operations\Schema;
 
-use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldSignature;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldSignature;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
 
 /**

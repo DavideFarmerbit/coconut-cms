@@ -5,7 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin;
 use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\FieldRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldSignature;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
@@ -37,11 +37,13 @@ final readonly class Range implements FieldValidatorRule
         }
     }
 
-    /** Refuses a field that holds no number. */
+    /** An Int, a Float or a Decimal. */
+    public static function fits(): FieldSignature {
+        return FieldSignature::number();
+    }
+
+    /** Nothing to check: any bounds fit any number. */
     public function checkUsage(FieldDescriptor $field): void {
-        if (!$field->holdsScalar(ScalarType::Int, ScalarType::Float, ScalarType::Decimal)) {
-            throw new InvalidArgumentException(sprintf('range checks a number: "%s" holds none.', $field->name()));
-        }
     }
 
     /** Valid when $value is within both bounds. */

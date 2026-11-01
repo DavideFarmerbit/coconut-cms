@@ -1,15 +1,10 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Persistence\Migration\Data;
-
-use XyloIsCoding\CoconutCms\Persistence\Migration\InvalidFixup;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+namespace XyloIsCoding\CoconutCms\Persistence\Schema\Field;
 
 /**
- * The shape of the fields a converter takes or gives, or an initializer
- * fills: a field descriptor's shape, each part a value or any, or one of
+ * The shape of the fields a converter takes or gives, an initializer fills,
+ * or a field rule checks: a field descriptor's shape, each part a value or any, or one of
  * several such shapes. What leaves something out matches any: `scalar()` any
  * Scalar, `scalar(ScalarType::Int)` an Int, `reference()` a Reference to any
  * type, `collection(scalar())` a Collection of any Scalars. `oneOf()` matches
@@ -113,17 +108,6 @@ final readonly class FieldSignature
             FieldKind::Collection => $this->item === null || $this->item->matches($field->itemDescriptor()),
             default => $this->target === null || $field->target() === $this->target,
         };
-    }
-
-    /**
-     * Throws InvalidFixup unless $field matches: $what, a converter or
-     * initializer, $role the field ("takes", "gives", "fills"), named as
-     * field $name of type $type.
-     */
-    public function assertMatches(FieldDescriptor $field, string $what, string $role, string $type, string $name): void {
-        if (!$this->matches($field)) {
-            throw new InvalidFixup(sprintf('%s %s %s, and field "%s" of "%s" is not one.', $what, $role, $this->describe(), $name, $type));
-        }
     }
 
     /** How a refusal names it: "a Scalar of int", "a Scalar of int, float or decimal", "a Collection of any items". */

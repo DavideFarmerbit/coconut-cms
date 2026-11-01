@@ -37,6 +37,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegi
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityView;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Validation\ChecksAnyField;
 
 enum CodecStatus: string
 {
@@ -65,6 +66,8 @@ final class CodecMoney implements StorableValue
 
 final class CodecMaxLength implements FieldValidatorRule
 {
+    use ChecksAnyField;
+
     public function __construct(
         private readonly int $max,
     ) {

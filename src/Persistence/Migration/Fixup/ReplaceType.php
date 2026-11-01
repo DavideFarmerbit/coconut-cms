@@ -126,12 +126,12 @@ final readonly class ReplaceType implements Fixup, MovesValues
         // Each converter takes the field as the old type has it and gives
         // it as the replacing type has it; each initializer fills its field.
         foreach ($this->converters as $name => $converter) {
-            $converter::from()->assertMatches($old->get(FieldName::of($name)), $converter::class, 'takes', $this->type, $name);
-            $converter::to()->assertMatches($new->get(FieldName::of($name)), $converter::class, 'gives', $this->with, $name);
+            InvalidFixup::unlessMatches($converter::from(), $old->get(FieldName::of($name)), $converter::class, 'takes', $this->type, $name);
+            InvalidFixup::unlessMatches($converter::to(), $new->get(FieldName::of($name)), $converter::class, 'gives', $this->with, $name);
         }
 
         foreach ($this->initializers as $name => $initializer) {
-            $initializer::to()->assertMatches($new->get(FieldName::of($name)), $initializer::class, 'fills', $this->with, $name);
+            InvalidFixup::unlessMatches($initializer::to(), $new->get(FieldName::of($name)), $initializer::class, 'fills', $this->with, $name);
         }
     }
 

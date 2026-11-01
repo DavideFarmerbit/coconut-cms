@@ -20,9 +20,12 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityView;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Validation\ChecksAnyField;
 
 final class EntityAttributesMaxLength implements FieldValidatorRule
 {
+    use ChecksAnyField;
+
     public function __construct(private readonly int $max) {
     }
 

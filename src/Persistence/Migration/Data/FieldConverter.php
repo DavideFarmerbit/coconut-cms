@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Migration\Data;
 
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldSignature;
 
 /**
  * Turns a field's old value into its new one, for RetypeField::converting().

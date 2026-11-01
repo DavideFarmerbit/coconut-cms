@@ -11,6 +11,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\MaxLength;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\Pattern;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\Range;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldRuleUsage;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 
 final class BuiltinRulesTest extends TestCase
@@ -76,14 +77,14 @@ final class BuiltinRulesTest extends TestCase
         $date = FieldDescriptor::scalar('built', ScalarType::Date, Nullability::NotNullable);
 
         foreach ([new MaxLength(5), new Pattern('x')] as $rule) {
-            $rule->checkUsage($text);
-            $rule->checkUsage($tags);
-            $this->assertUsageRefused($rule, $number, 'checks text');
+            FieldRuleUsage::check($rule, $text);
+            FieldRuleUsage::check($rule, $tags);
+            $this->assertUsageRefused($rule, $number, 'checks a Scalar of string or text, and field "price" holds none');
         }
 
-        (new Range(min: 0))->checkUsage($number);
-        $this->assertUsageRefused(new Range(min: 0), $text, 'checks a number');
-        $this->assertUsageRefused(new Range(min: 0), $date, 'checks a number');
+        FieldRuleUsage::check(new Range(min: 0), $number);
+        $this->assertUsageRefused(new Range(min: 0), $text, 'checks a Scalar of int, float or decimal, and field "name" holds none');
+        $this->assertUsageRefused(new Range(min: 0), $date, 'checks a Scalar of int, float or decimal');
     }
 
     public function testEachRoundTripsThroughStorage(): void {
@@ -93,7 +94,7 @@ final class BuiltinRulesTest extends TestCase
     }
 
     private function assertUsageRefused(FieldValidatorRule $rule, FieldDescriptor $field, string $message): void {
-        $this->assertRefused(static fn () => $rule->checkUsage($field), $message);
+        $this->assertRefused(static fn () => FieldRuleUsage::check($rule, $field), $message);
     }
 
     private function assertRefused(callable $attempt, string $message): void {

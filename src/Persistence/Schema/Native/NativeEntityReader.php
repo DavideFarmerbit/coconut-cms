@@ -34,6 +34,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
 use XyloIsCoding\CoconutCms\Persistence\Schema\UniqueGroup;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldRuleUsage;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 
 /**
@@ -503,7 +504,7 @@ final class NativeEntityReader
 
             $rules = $attributes[0]->newInstance()->rules;
             foreach ($rules as $rule) {
-                $rule->checkUsage($fields->get($name));
+                FieldRuleUsage::check($rule, $fields->get($name));
             }
 
             $validators[$property->getName()] = $rules;

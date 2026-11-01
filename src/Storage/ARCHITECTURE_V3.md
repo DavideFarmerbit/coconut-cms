@@ -826,8 +826,11 @@ without a name.
   value. An Embed, an owned object and every Collection item are checked the
   same way, with their own types' rules: a rule on `Chassis.weight` applies to
   every car's chassis.
-- A field rule may sit on any field kind; its `checkUsage()` refuses a field
-  it doesn't fit. It receives the value as a property holds it: a scalar, an
+- A field rule declares, statically, the values it checks: `fits()`, a
+  `FieldSignature` (see "The data API"). On a Collection it's
+  the items that must match. A field whose values don't is refused, naming
+  the mismatch, and the editor offers the rule only where it matches. Its
+  `checkUsage()` then checks what depends on its parameters. It receives the value as a property holds it: a scalar, an
   enum case, a `DateTimeImmutable`, a value object. An Embed or an owned
   object comes as an `EntityView`, an empty slot as null. On a Collection it
   runs once per item. So a rule on an owned slot can narrow the classes it
@@ -2030,6 +2033,9 @@ gives with the same rules. Two uses, from the one declaration:
   refuses it first, as an `InvalidOperation`.
 - The editor offers only those that fit a field change (see the API
   document, `schema.conversions`).
+
+A field rule declares its own signature the same way, `fits()` (see
+"Validating a save").
 
 A signature says what a converter can give; which of those this retype
 gives is the new field's. So `convert()` gets the new field, `$to`: a

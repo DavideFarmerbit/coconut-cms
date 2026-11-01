@@ -5,7 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin;
 use InvalidArgumentException;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\FieldRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldSignature;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
 
@@ -26,11 +26,13 @@ final readonly class MaxLength implements FieldValidatorRule
         }
     }
 
-    /** Refuses a field that holds no text. */
+    /** A String or a Text. */
+    public static function fits(): FieldSignature {
+        return FieldSignature::text();
+    }
+
+    /** Nothing to check: any max fits any text. */
     public function checkUsage(FieldDescriptor $field): void {
-        if (!$field->holdsScalar(ScalarType::String, ScalarType::Text)) {
-            throw new InvalidArgumentException(sprintf('max-length checks text: "%s" holds none.', $field->name()));
-        }
     }
 
     /** Valid when $value has at most $max characters. */

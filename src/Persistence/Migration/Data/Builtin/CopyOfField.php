@@ -4,9 +4,9 @@ namespace XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin;
 
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldInitializer;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldSignature;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\Initializer;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Values;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldSignature;
 
 /**
  * Gives a field added to existing entries the value another field holds

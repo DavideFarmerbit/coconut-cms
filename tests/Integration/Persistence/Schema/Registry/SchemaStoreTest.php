@@ -25,9 +25,12 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Validation\ChecksAnyField;
 
 final class SchemaStoreMaxLength implements FieldValidatorRule
 {
+    use ChecksAnyField;
+
     public function __construct(
         private readonly int $max,
     ) {

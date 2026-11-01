@@ -11,6 +11,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
 
 final class FieldValidatorCollectionTestRule implements FieldValidatorRule
 {
+    use ChecksAnyField;
+
     public function checkUsage(FieldDescriptor $field): void {
     }
 

@@ -189,13 +189,6 @@ final readonly class FieldDescriptor
         return $this->kind === FieldKind::Collection ? $this->itemDescriptor : $this;
     }
 
-    /** Whether each value this field holds is a Scalar of one of $types. */
-    public function holdsScalar(ScalarType ...$types): bool {
-        $held = $this->perValue();
-
-        return $held->kind === FieldKind::Scalar && in_array($held->scalarType, $types, true);
-    }
-
     /** Valid for Scalar, ValueObject, Reference and OwningReference: an Embed and a Collection are never null. */
     public function nullability(): Nullability {
         if ($this->nullability === null) {

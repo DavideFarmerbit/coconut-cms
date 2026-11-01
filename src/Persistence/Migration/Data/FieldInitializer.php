@@ -2,6 +2,8 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Migration\Data;
 
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldSignature;
+
 /**
  * Gives a field added to existing entities a value other than its default,
  * for AddField. Called once for every place the field's type lives.

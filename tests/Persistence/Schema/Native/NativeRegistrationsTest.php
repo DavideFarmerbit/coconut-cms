@@ -15,6 +15,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Schema\Validation\ChecksAnyField;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\ValueObjectType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
@@ -64,6 +65,8 @@ enum RegistrationsColor: string
 #[FieldRule('shop:max-length')]
 final class RegistrationsMaxLength implements FieldValidatorRule
 {
+    use ChecksAnyField;
+
     public function checkUsage(FieldDescriptor $field): void {
     }
 

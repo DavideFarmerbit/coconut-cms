@@ -7,6 +7,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Captured;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Occurrences;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Values;
+use XyloIsCoding\CoconutCms\Persistence\Migration\InvalidFixup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
@@ -44,8 +45,8 @@ final readonly class RetypeField implements Fixup, MovesValues
         $old = $schemas->field($this->type, $this->field);
         $new = $schemas->targetField($this->type, $this->field);
         if ($this->converter !== null) {
-            $this->converter::from()->assertMatches($old, $this->converter::class, 'takes', $this->type, (string) $this->field);
-            $this->converter::to()->assertMatches($new, $this->converter::class, 'gives', $this->type, (string) $this->field);
+            InvalidFixup::unlessMatches($this->converter::from(), $old, $this->converter::class, 'takes', $this->type, (string) $this->field);
+            InvalidFixup::unlessMatches($this->converter::to(), $new, $this->converter::class, 'gives', $this->type, (string) $this->field);
         }
 
         $schema = $schemas->get($this->type);

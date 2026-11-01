@@ -3,17 +3,30 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Validation;
 
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldSignature;
 
 /**
  * One validation rule attachable to a single field through a #[FieldValidator]
  * attribute.
+ *
+ * It declares, statically, the values it checks: fits(). A field whose values
+ * don't match is refused, naming the mismatch; the editor offers it only where
+ * it matches.
  */
 interface FieldValidatorRule
 {
     /**
-     * Checks this rule's own configuration against the field it's declared on.
-     * Called at registration time, before any row is read or written. Throws when
-     * the configuration is invalid.
+     * What each value it checks is. On a Collection it runs once per item, so
+     * it's the items that must match: `FieldSignature::text()` fits a String, a
+     * Text, or a Collection of either.
+     */
+    public static function fits(): FieldSignature;
+
+    /**
+     * Checks this rule's own configuration against the field it's declared on,
+     * once fits() matched: what depends on its parameters. Called at
+     * registration time, before any row is read or written. Throws when the
+     * configuration is invalid.
      */
     public function checkUsage(FieldDescriptor $field): void;
 
