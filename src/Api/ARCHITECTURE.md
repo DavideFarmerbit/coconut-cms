@@ -394,7 +394,10 @@ input:
   "shop:color"`; a value object, its `target`, the same way. A
   Collection's `item` has no name.
 - A default is in stored form, as `entities.update` writes values. No
-  `default` key gives none; `"default": null` pins null.
+  `default` key gives none; `"default": null` pins null. A Collection's
+  default is the list of its items, `[]` for none; pinned again, the list
+  replaces every item. A Collection of Embeds or owned objects takes only
+  `[]` for now: a default with such items (not built yet).
 - A converter or initializer is `{"kind": <identifier>, ...its
   parameters}`. Modules register them (see the storage document); the
   built-ins are `coconut-cms:constant` (`value`), `coconut-cms:copy`

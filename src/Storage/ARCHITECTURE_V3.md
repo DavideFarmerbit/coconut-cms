@@ -1572,7 +1572,11 @@ operation and set after.
 
 A save stores exactly the defaults the admin set, pinned, and never works
 out what's set by comparing values: a field the admin set to what its
-parent gives stays set. "Set a field's default" and "inherit it" are
+parent gives stays set. A Collection's default is pinned as a list and
+stored as a Collection is: its count at the field, each item at its index.
+Pinned again, it replaces every item, so a shorter list leaves none behind.
+A Collection of Embeds or owned objects takes only an empty list for now:
+its items have fields of their own (not built yet). "Set a field's default" and "inherit it" are
 operations of their own. Every type the save doesn't change is rebuilt from
 what's stored (see "Editor-created types").
 

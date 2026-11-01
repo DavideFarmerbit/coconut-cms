@@ -217,6 +217,22 @@ final class SchemaApiTest extends DynamicTestCase
         self::assertSame(403, $status, 'Only an architect creates buoys now.');
     }
 
+    public function testNestedRulesOnAnAddedCollectionCheckEachItem(): void {
+        [$status, $body] = $this->save([
+            ['op' => 'addField', 'type' => 'dy:buoy', 'field' => ['name' => 'tags', 'kind' => 'collection', 'item' => ['kind' => 'scalar', 'scalarType' => 'string', 'nullable' => false]], 'default' => []],
+            ['op' => 'setFieldRules', 'type' => 'dy:buoy', 'field' => 'tags', 'rules' => [
+                ['rule' => 'coconut-cms:max-items', 'config' => ['max' => 2]],
+                ['rule' => 'coconut-cms:on-items', 'config' => ['rules' => [['rule' => 'coconut-cms:pattern', 'config' => ['regex' => '^[a-z]+$']]]]],
+            ]],
+        ]);
+        self::assertSame(200, $status, json_encode($body));
+
+        $this->newRequest();
+        [$status, $body] = $this->post('coconut-cms:entities.create', ['type' => 'dy:buoy', 'changes' => ['tags' => ['ok', 'BAD', 'x']]]);
+        self::assertSame(422, $status, json_encode($body));
+        self::assertSame(['tags' => ['must hold at most 2 items'], 'tags.1' => ['must match ^[a-z]+$']], $body['error']['details']['errors']);
+    }
+
     public function testADefaultBreakingARuleIsReportedNeverRefused(): void {
         $operations = [
             ['op' => 'setFieldRules', 'type' => 'dy:buoy', 'field' => 'color', 'rules' => [['rule' => 'coconut-cms:max-length', 'config' => ['max' => 2]]]],

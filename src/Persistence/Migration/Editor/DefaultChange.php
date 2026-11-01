@@ -51,13 +51,16 @@ final readonly class DefaultChange
     /**
      * $own, what the type sets itself keyed by path in stored form, with this
      * change applied: the value pinned at the path, or the path and
-     * everything under it no longer set.
+     * everything under it no longer set. A Collection's items, a list, are
+     * stored as they're read: the count at the path, each item at its index,
+     * replacing every item it held.
      * @param array<string, mixed> $own
      * @return array<string, mixed>
      */
     public function applyTo(array $own): array {
-        if ($this->value !== null) {
-            $own[(string) $this->path] = $this->value->value;
+        $value = $this->value?->value;
+        if ($this->value !== null && !is_array($value)) {
+            $own[(string) $this->path] = $value;
 
             return $own;
         }
@@ -65,6 +68,13 @@ final readonly class DefaultChange
         foreach (array_keys($own) as $path) {
             if (FieldPath::fromString((string) $path)->startsWith($this->path)) {
                 unset($own[$path]);
+            }
+        }
+
+        if (is_array($value)) {
+            $own[(string) $this->path] = count($value);
+            foreach (array_values($value) as $index => $item) {
+                $own[(string) $this->path->traverse($index)] = $item;
             }
         }
 

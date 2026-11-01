@@ -355,6 +355,16 @@ final class SchemaDraft
      * @param (callable(string, FieldName): FieldName)|null $named
      * @return list<array{FieldName|int, ?string, ?string, ?FieldDescriptor}>
      */
+    /**
+     * What $path on type $type holds now: its field, or a Collection's item
+     * for a path ending on an index. Null when it reaches nothing.
+     */
+    public function fieldAt(string $type, FieldPath $path): ?FieldDescriptor {
+        $segments = $this->walk($type, $path);
+
+        return $segments === [] ? null : $segments[array_key_last($segments)][3];
+    }
+
     private function walk(string $type, FieldPath $path, ?callable $named = null): array {
         $segments = [];
         $owner = $type;

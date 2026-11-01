@@ -32,6 +32,7 @@ final class NewDefaults
             throw new InvalidOperation(sprintf('Field "%s" of "%s" needs a default: what new entries hold.', $field->name(), $type));
         }
 
+        $default->assertFits($field, $type);
         $draft->changeDefault(DefaultChange::pin($type, FieldPath::fromString($field->name()), $default));
     }
 }

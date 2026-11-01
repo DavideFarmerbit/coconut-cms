@@ -422,7 +422,7 @@ final class SchemaOperationsTest extends TestCase
             new CreateType('shop:sail'),
             new AddField('shop:sail', self::int('area'), new DefaultValue(1)),
             new AddField('shop:boat', FieldDescriptor::embed('sail', 'shop:sail'), null),
-            new AddField('shop:boat', FieldDescriptor::collection('spares', FieldDescriptor::embed('spares', 'shop:sail')), new DefaultValue(0)),
+            new AddField('shop:boat', FieldDescriptor::collection('spares', FieldDescriptor::embed('spares', 'shop:sail')), new DefaultValue([])),
             new AddField('shop:boat', FieldDescriptor::owningReference('builder', 'shop:maker', Nullability::Nullable), new DefaultValue(null)),
         ];
 

@@ -23,7 +23,13 @@ final readonly class SetDefault implements SchemaOperation
     }
 
     public function applyTo(SchemaDraft $draft): void {
-        $draft->changeDefault(DefaultChange::pin($this->type, DefaultPaths::checked($draft, $this->type, $this->path), $this->value));
+        $path = DefaultPaths::checked($draft, $this->type, $this->path);
+        $field = $draft->fieldAt($this->type, $path);
+        if ($field !== null) {
+            $this->value->assertFits($field, $this->type);
+        }
+
+        $draft->changeDefault(DefaultChange::pin($this->type, $path, $this->value));
     }
 
     public function describe(): string {

@@ -153,6 +153,37 @@ final class EditorSaveTest extends DynamicTestCase
         self::assertSame(1, $this->defaultsOf('dy:yacht')['masts']);
     }
 
+    public function testAnAddedCollectionStartsEmptyOrWithTheItemsItsDefaultGives(): void {
+        $buoy = $this->store('dy:buoy', ['color' => 'red']);
+        $tags = FieldDescriptor::collection('tags', FieldDescriptor::scalar('tags', ScalarType::String, Nullability::NotNullable));
+
+        $this->save(new AddField('dy:buoy', $tags, new DefaultValue([])));
+        self::assertSame([], $this->session()->loadDynamic($buoy)->get('tags'));
+
+        $this->saveAs(new StrictPolicy(), new EditorSave(2, [new SetDefault('dy:buoy', 'tags', new DefaultValue(['sea', 'night', 'north']))]));
+        $this->saveAs(new StrictPolicy(), new EditorSave(3, [new SetDefault('dy:buoy', 'tags', new DefaultValue(['sea']))]));
+        $stored = $this->stores()[1]->load('dy:buoy')->toArray();
+        self::assertSame(['tags' => 1, 'tags.0' => 'sea'], array_intersect_key($stored, array_flip(['tags', 'tags.0', 'tags.1', 'tags.2'])), 'A shorter list leaves no item behind.');
+        self::assertSame(['sea'], $this->session()->newDynamic('dy:buoy')->get('tags'));
+    }
+
+    public function testACollectionsDefaultIsAList(): void {
+        $tags = FieldDescriptor::collection('tags', FieldDescriptor::scalar('tags', ScalarType::String, Nullability::NotNullable));
+        $motors = FieldDescriptor::collection('motors', FieldDescriptor::owningReference('motors', 'dy:motor', Nullability::Nullable));
+
+        foreach ([
+            [new AddField('dy:buoy', $tags, new DefaultValue('sea')), 'its default is a list of its items'],
+            [new AddField('dy:buoy', $motors, new DefaultValue(['dy:motor'])), 'a default with items isn\'t offered yet'],
+        ] as [$operation, $message]) {
+            try {
+                $this->save($operation);
+                self::fail($message);
+            } catch (InvalidOperation $refused) {
+                self::assertStringContainsString($message, $refused->getMessage());
+            }
+        }
+    }
+
     public function testARetypedFieldConvertsItsValuesAndTheDefaultTheTypeSets(): void {
         $yacht = $this->store('dy:yacht', ['cabins' => 5]);
 
