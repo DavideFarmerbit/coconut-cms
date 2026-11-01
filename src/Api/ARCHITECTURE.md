@@ -9,7 +9,7 @@ HTTP and command-line transports), the read operations (`types.list`,
 `types.get`, `entities.get`, `entities.query`), and the write operations
 for native types (`entities.create`, `entities.update`, `entities.delete`),
 changing editor-created types (`schema.preview`, `schema.save`,
-`schema.conversions`), and authentication (sign-in operations, CSRF,
+`schema.conversions`, `schema.validators`), and authentication (sign-in operations, CSRF,
 `--as`). Not built yet: API tokens. Each is noted inline.
 
 Scope:
@@ -432,6 +432,17 @@ without a name. Then only what fits is listed: with `from`, converters
 taking it and giving `to`; with `to` alone, converters giving it and
 initializers filling it. Level initializers are listed only when neither
 is given.
+
+`coconut-cms:schema.validators` lists the validator rules registered: those
+the modules' classes use and those the modules list. It gives two lists, in
+the order registered: `fieldRules` and `prototypeRules`. Each entry gives
+its `rule` (the identifier to send), `fits` (the fields a field rule
+checks, as a signature; null for a prototype rule), and `parameters`, in
+the same form `schema.conversions` gives them. A `field_rules` parameter
+takes other field rules, such as `coconut-cms:on-items` does. The input may
+give `field`, as `types.get` describes it, without a name. Then only the
+field rules fitting it are listed. For the rules `on-items` takes, give the
+Collection's item.
 
 ## Authentication
 

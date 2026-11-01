@@ -165,6 +165,29 @@ final class SchemaApiTest extends DynamicTestCase
         self::assertSame([], $body['result']['levelInitializers'], 'No module registers one here.');
     }
 
+    public function testTheFieldRulesListedAreThoseFittingTheField(): void {
+        $core = static fn (array $rules): array => array_values(array_filter(array_column($rules, 'rule'), static fn (string $rule): bool => str_starts_with($rule, 'coconut-cms:')));
+
+        [$status, $body] = $this->post('coconut-cms:schema.validators', ['field' => ['kind' => 'scalar', 'scalarType' => 'decimal', 'nullable' => false]]);
+        self::assertSame(200, $status, json_encode($body));
+        self::assertSame(['coconut-cms:range'], $core($body['result']['fieldRules']));
+        $range = $body['result']['fieldRules'][array_search('coconut-cms:range', array_column($body['result']['fieldRules'], 'rule'), true)];
+        self::assertSame([
+            ['name' => 'min', 'type' => 'float', 'nullable' => true, 'optional' => true, 'default' => null, 'choices' => null],
+            ['name' => 'max', 'type' => 'float', 'nullable' => true, 'optional' => true, 'default' => null, 'choices' => null],
+        ], $range['parameters']);
+
+        [, $body] = $this->post('coconut-cms:schema.validators', ['field' => ['kind' => 'collection', 'item' => ['kind' => 'scalar', 'scalarType' => 'string', 'nullable' => false]]]);
+        self::assertSame(['coconut-cms:max-items', 'coconut-cms:min-items', 'coconut-cms:on-items'], $core($body['result']['fieldRules']));
+        $onItems = $body['result']['fieldRules'][array_search('coconut-cms:on-items', array_column($body['result']['fieldRules'], 'rule'), true)];
+        self::assertSame(['kind' => 'collection', 'scalarType' => null, 'target' => null, 'item' => null], $onItems['fits']);
+        self::assertSame([['name' => 'rules', 'type' => 'field_rules', 'nullable' => false, 'optional' => true, 'default' => [], 'choices' => null]], $onItems['parameters']);
+
+        [, $body] = $this->post('coconut-cms:schema.validators', []);
+        self::assertSame(['coconut-cms:max-length', 'coconut-cms:range', 'coconut-cms:pattern', 'coconut-cms:max-items', 'coconut-cms:min-items', 'coconut-cms:on-items'], $core($body['result']['fieldRules']));
+        self::assertIsArray($body['result']['prototypeRules']);
+    }
+
     public function testOnlyTheSchemaEditorRoleChangesTypes(): void {
         $this->authenticator->actor = new PermActor(['editor']);
 

@@ -267,6 +267,20 @@ final class Persistence
         return $this->enums;
     }
 
+    /** Every field rule the modules' classes use or the modules list, by identifier: what the editor offers. */
+    public function fieldRules(): FieldValidatorRegistry {
+        $this->conversions();
+
+        return $this->fieldValidators;
+    }
+
+    /** Every prototype rule the modules' classes use or the modules list, by identifier: what the editor offers. */
+    public function prototypeRules(): PrototypeValidatorRegistry {
+        $this->conversions();
+
+        return $this->prototypeValidators;
+    }
+
     /** The value objects the modules' classes use, by identifier: what a field the editor adds names one by. */
     public function valueObjects(): ValueObjectRegistry {
         $this->conversions();

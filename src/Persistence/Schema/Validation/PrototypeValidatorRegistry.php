@@ -49,6 +49,15 @@ final class PrototypeValidatorRegistry
         return Identifier::fromString($key);
     }
 
+    /**
+     * Every rule registered, by identifier, in the order registered: what the
+     * editor offers.
+     * @return array<string, class-string<PrototypeValidatorRule>>
+     */
+    public function all(): array {
+        return $this->rules;
+    }
+
     /** @return class-string<PrototypeValidatorRule> */
     public function resolve(Identifier $id): string {
         $key = (string) $id;
