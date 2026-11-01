@@ -140,6 +140,23 @@ final class ValidationTest extends TestCase
         self::assertSame(0, (int) $this->connection->fetchOne("SELECT COUNT(*) FROM entities WHERE concrete_identifier = 'val:vehicle'"));
     }
 
+    public function testTheCoresBuiltInRulesCheckASave(): void {
+        $this->session->save(new ValOffer());
+
+        $offer = new ValOffer();
+        $offer->code = 'ab12';
+        $offer->price = '99.991';
+        $offer->ratings = [4.5, 5.5];
+        $offer->note = 'longer than eight';
+
+        self::assertSame([
+            'code' => ['must match ^[A-Z]{2}\d{2}$'],
+            'price' => ['must be between 0 and 99.99'],
+            'ratings.1' => ['must be at most 5'],
+            'note' => ['must be at most 8 characters'],
+        ], $this->errorsSaving($offer));
+    }
+
     public function testARuleOnAnOwnedSlotCanRestrictItsClass(): void {
         $vehicle = self::valid();
         $vehicle->engine = new ValEngine();

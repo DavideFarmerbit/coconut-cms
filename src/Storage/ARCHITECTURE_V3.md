@@ -845,6 +845,21 @@ reaches through them: `get('engine.horsepower')`. During a save it's an
 implement it too (see `PROPOSAL_FOR_V3_DYNAMIC_ENTITIES.md`), so a rule written
 once works on both.
 
+The core ships three field rules, for code and editor-created types alike.
+Each lets null pass: whether a field may be empty is its nullability's say.
+Each fits a Collection of what it checks, and runs per item.
+
+- `MaxLength(max)`, `coconut-cms:max-length`: text of at most `max`
+  characters, not bytes. Fits a String or Text field.
+- `Range(min, max)`, `coconut-cms:range`: a number within bounds, both
+  included. Either bound may be left out, not both. Fits an Int, Float or
+  Decimal field. A Decimal is compared exactly, against each bound rounded
+  to a Decimal's places.
+- `Pattern(regex)`, `coconut-cms:pattern`: text matching a regular
+  expression, in Unicode mode. It's given without delimiters or flags, and
+  isn't anchored: `^` and `$` match the whole text. One that doesn't compile
+  is refused when the rule is made. Fits a String or Text field.
+
 A unique group is still the database's to enforce: nothing can race it. When
 the database refuses a save, the writer works out which group was broken, so
 the error names fields, not an index. A group is broken when another entity

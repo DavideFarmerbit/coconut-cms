@@ -20,6 +20,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeIdentifiers;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\MaxLength;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\Pattern;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\Range;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\ValidationResult;
@@ -231,10 +234,27 @@ final class ValProduct
     public array $labels = [];
 }
 
+/** Checked by the core's built-in rules. */
+#[Entity(identifier: 'val:offer')]
+final class ValOffer
+{
+    #[Scalar(ScalarType::String), FieldValidator(new Pattern('^[A-Z]{2}\d{2}$'))]
+    public string $code = 'AB12';
+
+    #[Scalar(ScalarType::Decimal), FieldValidator(new Range(min: 0, max: 99.99))]
+    public string $price = '10.00';
+
+    #[Collection(itemKind: FieldKind::Scalar, itemScalarType: ScalarType::Float, itemNullability: Nullability::NotNullable), FieldValidator(new Range(max: 5))]
+    public array $ratings = [];
+
+    #[Scalar(ScalarType::Text), FieldValidator(new MaxLength(8))]
+    public ?string $note = null;
+}
+
 /** The validation tests' types. */
 final class ValidationFixtures
 {
-    public const CLASSES = [ValChassis::class, ValEngine::class, ValTurboEngine::class, ValVehicle::class, ValPart::class, ValLabel::class, ValProduct::class];
+    public const CLASSES = [ValChassis::class, ValEngine::class, ValTurboEngine::class, ValVehicle::class, ValPart::class, ValLabel::class, ValProduct::class, ValOffer::class];
 }
 
 final class ValidationModule implements Module
