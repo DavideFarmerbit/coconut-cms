@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
-import type {ValueDescription} from '../types/TypeDescription.ts';
-import type {PropertyEditor, PropertyEditorClass} from './PropertyEditor.ts';
-import {PropertyEditors} from './PropertyEditors.ts';
+import type {ValueDescription} from '../../../src/public/types/TypeDescription.ts';
+import type {PropertyEditor, PropertyEditorClass} from '../../../src/public/properties/PropertyEditor.ts';
+import {PropertyEditors} from '../../../src/public/properties/PropertyEditors.ts';
 
 /** A distinct editor class, for telling which one resolved. */
 function editor(): PropertyEditorClass {

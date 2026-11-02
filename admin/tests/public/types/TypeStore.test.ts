@@ -1,10 +1,10 @@
 import {describe, expect, it} from 'vitest';
-import {bikeType, carType, FakeBackend, field, value, wheelType} from '../../testing/FakeBackend.ts';
-import {TypeChanges} from '../../types/TypeChanges.ts';
-import {TypeCatalog} from './TypeCatalog.ts';
-import type {TypeChange} from './TypeChange.ts';
-import type {TypeDescription} from './TypeDescription.ts';
-import {TypeStore} from './TypeStore.ts';
+import {bikeType, carType, FakeBackend, field, value, wheelType} from '../../FakeBackend.ts';
+import {TypeChanges} from '../../../src/types/TypeChanges.ts';
+import {TypeCatalog} from '../../../src/public/types/TypeCatalog.ts';
+import type {TypeChange} from '../../../src/public/types/TypeChange.ts';
+import type {TypeDescription} from '../../../src/public/types/TypeDescription.ts';
+import {TypeStore} from '../../../src/public/types/TypeStore.ts';
 
 /** `type` with its field `name` holding what `held` describes. */
 function withField(type: TypeDescription, name: string, held = value({})): TypeDescription {

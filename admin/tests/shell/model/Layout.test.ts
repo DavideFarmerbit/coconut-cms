@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
-import {tabId, tabTypeId, toolId} from '../../public/workspace/Ids.ts';
-import {Layout, type PlacedTool} from './Layout.ts';
+import {tabId, tabTypeId, toolId} from '../../../src/public/workspace/Ids.ts';
+import {Layout, type PlacedTool} from '../../../src/shell/model/Layout.ts';
 
 const types = toolId('coconut-cms:types');
 const entities = toolId('coconut-cms:entities');

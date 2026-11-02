@@ -1,10 +1,10 @@
 import {describe, expect, it} from 'vitest';
-import {EntityLabels} from '../public/properties/EntityLabels.ts';
-import {TypeCatalog} from '../public/types/TypeCatalog.ts';
-import type {FieldDescription, TypeDescription, ValueDescription} from '../public/types/TypeDescription.ts';
-import {DraftCollectionItems} from './DraftCollectionItems.ts';
-import {EntityDraft} from './EntityDraft.ts';
-import {ReadTree} from './ReadTree.ts';
+import {EntityLabels} from '../../src/public/properties/EntityLabels.ts';
+import {TypeCatalog} from '../../src/public/types/TypeCatalog.ts';
+import type {FieldDescription, TypeDescription, ValueDescription} from '../../src/public/types/TypeDescription.ts';
+import {DraftCollectionItems} from '../../src/properties/DraftCollectionItems.ts';
+import {EntityDraft} from '../../src/properties/EntityDraft.ts';
+import {ReadTree} from '../../src/properties/ReadTree.ts';
 
 /** A value description with `changes` over a non-null string scalar. */
 function value(changes: Partial<ValueDescription>): ValueDescription {

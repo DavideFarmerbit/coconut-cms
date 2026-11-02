@@ -106,7 +106,11 @@ The build (`admin/build.mjs`):
 The build's URLs are relative, so the output can be served from any
 folder. Without `--project`, it builds the admin alone, into the package's
 `dist/admin`. In the package, `npm run check:admin` type-checks, and
-`npm test` runs the admin's tests. A project type-checks its own admin code
+`npm test` runs the admin's tests. The tests live in `admin/tests`, apart
+from the sources in `admin/src`, in the same folders: the test of
+`admin/src/shell/model/Layout.ts` is `admin/tests/shell/model/Layout.test.ts`.
+Helpers they share, such as `FakeBackend`, sit at the root of `admin/tests`.
+A project type-checks its own admin code
 with a `tsconfig.json` mapping `@coconut-cms/admin` to the package's
 `admin/src/public/index.ts`.
 

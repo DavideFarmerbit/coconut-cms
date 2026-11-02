@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
-import {FakeBackend, storeOf} from '../../testing/FakeBackend.ts';
-import {EntityList} from './EntityList.ts';
+import {FakeBackend, storeOf} from '../../FakeBackend.ts';
+import {EntityList} from '../../../src/public/entities/EntityList.ts';
 
 /** Settles once `list` stops reading. */
 async function settled(list: EntityList): Promise<void> {

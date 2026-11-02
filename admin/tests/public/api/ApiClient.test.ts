@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
-import {ApiClient, type Fetcher} from './ApiClient.ts';
-import {ApiFailure} from './ApiFailure.ts';
-import {ErrorCode} from './ErrorCode.ts';
+import {ApiClient, type Fetcher} from '../../../src/public/api/ApiClient.ts';
+import {ApiFailure} from '../../../src/public/api/ApiFailure.ts';
+import {ErrorCode} from '../../../src/public/api/ErrorCode.ts';
 
 /** A fetcher answering `body` with `status`, noting what it was asked. */
 function answering(status: number, body: unknown, asked: {url?: string; init?: RequestInit} = {}): Fetcher {

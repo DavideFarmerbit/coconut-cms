@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
-import {TypeCatalog} from './TypeCatalog.ts';
-import type {TypeDescription} from './TypeDescription.ts';
+import {TypeCatalog} from '../../../src/public/types/TypeCatalog.ts';
+import type {TypeDescription} from '../../../src/public/types/TypeDescription.ts';
 
 /** A type named `identifier`, extending `parent`, with no fields. */
 function type(identifier: string, parent: string | null = null): TypeDescription {

@@ -1,8 +1,8 @@
 import {describe, expect, it} from 'vitest';
-import {bikeType, carType, FakeBackend, FixedAnswer, field, storeOf, value, wheelType} from '../../testing/FakeBackend.ts';
-import type {TypeDescription} from '../types/TypeDescription.ts';
-import {EntityList} from './EntityList.ts';
-import type {SessionChange} from './SessionChange.ts';
+import {bikeType, carType, FakeBackend, FixedAnswer, field, storeOf, value, wheelType} from '../../FakeBackend.ts';
+import type {TypeDescription} from '../../../src/public/types/TypeDescription.ts';
+import {EntityList} from '../../../src/public/entities/EntityList.ts';
+import type {SessionChange} from '../../../src/public/entities/SessionChange.ts';
 
 /** The car, with a new String field `colour`, "red" by default: a migration. */
 const carWithColour: TypeDescription = {...carType, fields: {...carType.fields, colour: field(value({}))}, defaults: {...carType.defaults, colour: 'red'}};

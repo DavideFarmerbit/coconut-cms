@@ -1,10 +1,10 @@
 import {describe, expect, it} from 'vitest';
-import {FakeBackend, FixedAnswer, storeOf} from '../../testing/FakeBackend.ts';
-import {ApiFailure} from '../api/ApiFailure.ts';
-import {ErrorCode} from '../api/ErrorCode.ts';
-import {Auth} from './Auth.ts';
-import type {SignOutGuard} from './SignOutGuard.ts';
-import type {User} from './User.ts';
+import {FakeBackend, FixedAnswer, storeOf} from '../../FakeBackend.ts';
+import {ApiFailure} from '../../../src/public/api/ApiFailure.ts';
+import {ErrorCode} from '../../../src/public/api/ErrorCode.ts';
+import {Auth} from '../../../src/public/auth/Auth.ts';
+import type {SignOutGuard} from '../../../src/public/auth/SignOutGuard.ts';
+import type {User} from '../../../src/public/auth/User.ts';
 
 /** A guard answering `allows`, counting how often it was asked. */
 class FixedGuard implements SignOutGuard {

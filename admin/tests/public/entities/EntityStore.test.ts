@@ -1,8 +1,8 @@
 import {describe, expect, it} from 'vitest';
-import {FakeBackend, FixedAnswer, storeOf, value} from '../../testing/FakeBackend.ts';
-import type {EntityChange} from './EntityChange.ts';
-import type {EntityStore} from './EntityStore.ts';
-import type {SessionChange} from './SessionChange.ts';
+import {FakeBackend, FixedAnswer, storeOf, value} from '../../FakeBackend.ts';
+import type {EntityChange} from '../../../src/public/entities/EntityChange.ts';
+import type {EntityStore} from '../../../src/public/entities/EntityStore.ts';
+import type {SessionChange} from '../../../src/public/entities/SessionChange.ts';
 
 describe('EntityStore', () => {
     it('shares one session per entity among its holds, reading it once', async () => {

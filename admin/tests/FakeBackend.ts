@@ -1,10 +1,10 @@
-import {ApiClient} from '../public/api/ApiClient.ts';
-import type {User} from '../public/auth/User.ts';
-import type {EntityData} from '../public/entities/EntityData.ts';
-import {EntityStore} from '../public/entities/EntityStore.ts';
-import type {UnsavedAnswer, UnsavedQuestion} from '../public/entities/UnsavedQuestion.ts';
-import {TypeStore} from '../public/types/TypeStore.ts';
-import type {FieldDescription, TypeDescription, ValueDescription} from '../public/types/TypeDescription.ts';
+import {ApiClient} from '../src/public/api/ApiClient.ts';
+import type {User} from '../src/public/auth/User.ts';
+import type {EntityData} from '../src/public/entities/EntityData.ts';
+import {EntityStore} from '../src/public/entities/EntityStore.ts';
+import type {UnsavedAnswer, UnsavedQuestion} from '../src/public/entities/UnsavedQuestion.ts';
+import {TypeStore} from '../src/public/types/TypeStore.ts';
+import type {FieldDescription, TypeDescription, ValueDescription} from '../src/public/types/TypeDescription.ts';
 
 /** A value description with `changes` over a non-null string scalar. */
 export function value(changes: Partial<ValueDescription>): ValueDescription {

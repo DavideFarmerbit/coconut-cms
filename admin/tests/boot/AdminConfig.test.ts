@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {AdminConfig} from './AdminConfig.ts';
+import {AdminConfig} from '../../src/boot/AdminConfig.ts';
 
 describe('AdminConfig', () => {
     it('reads the API URL, the CSRF token and the plugins', () => {

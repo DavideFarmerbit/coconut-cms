@@ -1,12 +1,12 @@
 import {describe, expect, it} from 'vitest';
-import type {EntityData} from '../public/entities/EntityData.ts';
-import {EntitySession, type SessionSaver} from '../public/entities/EntitySession.ts';
-import type {PropertyFilter} from '../public/properties/PropertyFilter.ts';
-import {PropertyFilters} from '../public/properties/PropertyFilters.ts';
-import type {PropertyInfo} from '../public/properties/PropertyInfo.ts';
-import {TypeCatalog} from '../public/types/TypeCatalog.ts';
-import type {FieldDescription, TypeDescription, ValueDescription} from '../public/types/TypeDescription.ts';
-import {PropertyVisibility} from './PropertyVisibility.ts';
+import type {EntityData} from '../../src/public/entities/EntityData.ts';
+import {EntitySession, type SessionSaver} from '../../src/public/entities/EntitySession.ts';
+import type {PropertyFilter} from '../../src/public/properties/PropertyFilter.ts';
+import {PropertyFilters} from '../../src/public/properties/PropertyFilters.ts';
+import type {PropertyInfo} from '../../src/public/properties/PropertyInfo.ts';
+import {TypeCatalog} from '../../src/public/types/TypeCatalog.ts';
+import type {FieldDescription, TypeDescription, ValueDescription} from '../../src/public/types/TypeDescription.ts';
+import {PropertyVisibility} from '../../src/properties/PropertyVisibility.ts';
 
 /** A value description with `changes` over a non-null string scalar. */
 function value(changes: Partial<ValueDescription>): ValueDescription {

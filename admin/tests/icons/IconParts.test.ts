@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
-import type {ValueDescription} from '../public/types/TypeDescription.ts';
-import {IconParts} from './IconParts.ts';
-import {ValueWords} from './ValueWords.ts';
+import type {ValueDescription} from '../../src/public/types/TypeDescription.ts';
+import {IconParts} from '../../src/icons/IconParts.ts';
+import {ValueWords} from '../../src/icons/ValueWords.ts';
 
 /** A value description, with `changes` over a non-null int scalar. */
 function value(changes: Partial<ValueDescription>): ValueDescription {

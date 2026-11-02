@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
-import {toolId} from '../../public/workspace/Ids.ts';
-import {Layout} from './Layout.ts';
-import {SizeResolver} from './SizeResolver.ts';
+import {toolId} from '../../../src/public/workspace/Ids.ts';
+import {Layout} from '../../../src/shell/model/Layout.ts';
+import {SizeResolver} from '../../../src/shell/model/SizeResolver.ts';
 
 const left = toolId('test:left');
 const right = toolId('test:right');
