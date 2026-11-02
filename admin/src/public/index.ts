@@ -17,6 +17,8 @@ export {Auth, type UserListener} from './auth/Auth.ts';
 export type {Me} from './auth/Me.ts';
 export type {SignOutGuard} from './auth/SignOutGuard.ts';
 export type {User} from './auth/User.ts';
+export type {Edit} from './edits/Edit.ts';
+export {EditHistory, type HistoryListener} from './edits/EditHistory.ts';
 export type {EntityChange, EntityListener} from './entities/EntityChange.ts';
 export type {EntityData} from './entities/EntityData.ts';
 export {EntityHold} from './entities/EntityHold.ts';

@@ -360,6 +360,36 @@ Not built yet: dragging icons between sections and reordering tabs, menus
 and commands from manifests, splitting the canvas into several tab groups,
 going back and forward within a tab.
 
+### Undo
+
+Undo and redo work the same way in every editor, the admin's own and a
+plugin's. Both are in the public module:
+
+- An `Edit` is one change a user made: a value set, items removed, a field
+  renamed. It's a class holding what it changes and what it needs to put
+  it back, with a `label` a menu names it by, `apply()` and `revert()`. So
+  it reverts on its own, whatever came after it.
+- An `EditHistory` holds the edits of one edit context: `do(edit)` applies
+  and records it, `undo()` and `redo()` step through, in turn. A new edit
+  forgets what could be redone; `clear()` forgets everything, after a save
+  or a reload. `canUndo()`, `canRedo()` and their labels tell a menu what
+  it would do; `onChange` tells it when that changes.
+- Each edit context holds its own history: an entity editor's tab, the
+  schema editor, a plugin's editor. The view showing it gives it as its
+  `PanelView`'s `history`.
+- The shell sends Cmd or Ctrl and Z to the history of the view the key was
+  pressed in, and Shift with them, or Ctrl and Y, as redo. A view without a
+  history has nothing to undo. A text field being typed in keeps the
+  browser's own undo: what's typed becomes one edit once it's committed,
+  on Enter or leaving the field.
+
+An editor's history is separate from what it saves. The entity editor
+saves the values a session holds, the schema editor what its draft became
+since it loaded: undoing every edit leaves nothing to save.
+
+Not built yet: the entity editor's and the schema editor's edits, and an
+Edit menu.
+
 ## Types
 
 `TypeStore` holds the entity types the user may read. There is one per

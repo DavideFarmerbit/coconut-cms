@@ -1,3 +1,4 @@
+import type {EditHistory} from '../edits/EditHistory.ts';
 import type {ViewContext} from './ViewContext.ts';
 
 /**
@@ -23,6 +24,13 @@ export interface PanelView {
      * changes asks whether to save them. Without it, a tab always closes.
      */
     canClose?(): Promise<boolean>;
+
+    /**
+     * The edits made in it, when it's an edit context: the shell sends it
+     * Cmd or Ctrl and Z, and Shift with them, while the focus is inside it.
+     * Without it, there's nothing to undo here.
+     */
+    readonly history?: EditHistory;
 }
 
 /** A PanelView class: what a tool or a tab type registers, built with its context. */

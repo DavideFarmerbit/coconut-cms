@@ -86,6 +86,17 @@ export class ViewHost {
         return view?.canClose === undefined ? true : view.canClose();
     }
 
+    /** The shown view whose element holds `node`: where the focus is, or a key was pressed. Undefined when none. */
+    public viewHolding(node: Node): PanelView | undefined {
+        for (const hosted of this.views.values()) {
+            if (hosted.shown && hosted.view.element.contains(node)) {
+                return hosted.view;
+            }
+        }
+
+        return undefined;
+    }
+
     /** The keys of every view built. */
     public keys(): readonly string[] {
         return [...this.views.keys()];

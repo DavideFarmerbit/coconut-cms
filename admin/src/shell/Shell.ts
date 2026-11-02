@@ -14,6 +14,7 @@ import {TabIds} from './model/TabIds.ts';
 import {DirtyViews} from './ui/DirtyViews.ts';
 import {MenuBar, type SignOutRequested} from './ui/MenuBar.ts';
 import {Stripe} from './ui/Stripe.ts';
+import {UndoKeys} from './ui/UndoKeys.ts';
 import {ViewContexts} from './ui/ViewContexts.ts';
 import {ViewHost} from './ui/ViewHost.ts';
 import {WorkspaceArea} from './ui/WorkspaceArea.ts';
@@ -63,9 +64,34 @@ export class Shell implements View, LayoutListener, Workspace {
             Elements.create('div', {classes: ['shell__body']}, [this.stripes[0].element, this.workspace.element, this.stripes[1].element]),
             parking,
         ]);
+        this.element.addEventListener('keydown', (event) => this.undoKey(event));
 
         this.store.subscribe(this);
         this.render(this.store.current);
+    }
+
+    /**
+     * Sends Cmd or Ctrl and Z, and Shift with them, to the edit history of
+     * the view the key was pressed in. A text field being typed in keeps its
+     * own undo; a view with no history has nothing to undo.
+     */
+    private undoKey(event: KeyboardEvent): void {
+        const action = UndoKeys.actionOf(event);
+        if (action === null || UndoKeys.isTyping(event.target) || !(event.target instanceof Node)) {
+            return;
+        }
+
+        const history = this.host.viewHolding(event.target)?.history;
+        if (history === undefined) {
+            return;
+        }
+
+        event.preventDefault();
+        if (action === 'undo') {
+            history.undo();
+        } else {
+            history.redo();
+        }
     }
 
     public shown(): void {
