@@ -107,7 +107,7 @@ export class AdminRuntime {
         this.typeStore = user === null ? undefined : new TypeStore(this.api);
         this.store = this.typeStore === undefined ? undefined : new EntityStore(this.api, this.typeStore, new DialogUnsavedQuestion());
         if (this.store !== undefined) {
-            auth.guard(this.store);
+            auth.guard(this.store, {name: 'coconut-cms:entities'});
         }
     }
 }

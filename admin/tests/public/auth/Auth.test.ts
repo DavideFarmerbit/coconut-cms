@@ -52,8 +52,8 @@ describe('Auth', () => {
         await auth.signIn('ada', 'lovelace', false);
         const allowing = new FixedGuard(true);
         const refusing = new FixedGuard(false);
-        auth.guard(allowing);
-        auth.guard(refusing);
+        auth.guard(allowing, {name: 'test:allowing'});
+        auth.guard(refusing, {name: 'test:refusing'});
 
         expect(await auth.signOut()).toBe(false);
         expect(auth.user).not.toBeNull();
@@ -63,6 +63,43 @@ describe('Auth', () => {
         expect(await auth.signOut()).toBe(true);
         expect(allowing.asked).toBe(2);
         expect(refusing.asked).toBe(1);
+    });
+});
+
+describe('The order of sign-out guards', () => {
+    /** A guard writing its name into `asked` when asked, then allowing. */
+    function naming(name: string, asked: string[]): SignOutGuard {
+        return {allowsSignOut: () => {
+            asked.push(name);
+
+            return Promise.resolve(true);
+        }};
+    }
+
+    it('asks each after the ones it runs after, and the ones naming it before', async () => {
+        const auth = new Auth(new FakeBackend().client());
+        await auth.signIn('ada', 'lovelace', false);
+        const asked: string[] = [];
+        auth.guard(naming('entities', asked), {name: 'coconut-cms:entities'});
+        auth.guard(naming('orders', asked), {name: 'shop:orders', after: ['coconut-cms:schema']});
+        auth.guard(naming('notes', asked), {name: 'shop:notes'});
+        auth.guard(naming('schema', asked), {name: 'coconut-cms:schema', before: ['coconut-cms:entities', 'shop:missing']});
+
+        await auth.signOut();
+        expect(asked, 'Unrelated ones keep the order they came in; a missing name is left out.').toEqual(['notes', 'schema', 'entities', 'orders']);
+    });
+
+    it('refuses a name taken, or places making a loop, keeping what was there', async () => {
+        const auth = new Auth(new FakeBackend().client());
+        await auth.signIn('ada', 'lovelace', false);
+        const asked: string[] = [];
+        auth.guard(naming('a', asked), {name: 'test:a', before: ['test:b']});
+        auth.guard(naming('b', asked), {name: 'test:b', before: ['test:c']});
+
+        expect(() => auth.guard(naming('again', asked), {name: 'test:a'})).toThrow('registered already');
+        expect(() => auth.guard(naming('c', asked), {name: 'test:c', before: ['test:a']})).toThrow('make a loop');
+        await auth.signOut();
+        expect(asked).toEqual(['a', 'b']);
     });
 });
 

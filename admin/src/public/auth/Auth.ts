@@ -1,4 +1,6 @@
 import type {ApiClient} from '../api/ApiClient.ts';
+import {GuardOrder} from './GuardOrder.ts';
+import type {GuardPlace} from './GuardPlace.ts';
 import type {Me} from './Me.ts';
 import type {SignOutGuard} from './SignOutGuard.ts';
 import type {User} from './User.ts';
@@ -17,7 +19,7 @@ export type UserListener = (user: User | null) => void;
  */
 export class Auth {
     private current: User | null = null;
-    private readonly guards: SignOutGuard[] = [];
+    private readonly guards = new GuardOrder();
     private readonly listeners: UserListener[] = [];
 
     public constructor(private readonly api: ApiClient) {
@@ -41,17 +43,17 @@ export class Auth {
         }
     }
 
-    /** Asks `guard` before every sign-out. */
-    public guard(guard: SignOutGuard): void {
-        this.guards.push(guard);
+    /**
+     * Asks `guard` before every sign-out, at `place` among the others.
+     * Throws when another guard has its name, or the places make a loop.
+     */
+    public guard(guard: SignOutGuard, place: GuardPlace): void {
+        this.guards.add(guard, place);
     }
 
     /** Stops asking `guard`. */
     public unguard(guard: SignOutGuard): void {
-        const index = this.guards.indexOf(guard);
-        if (index >= 0) {
-            this.guards.splice(index, 1);
-        }
+        this.guards.remove(guard);
     }
 
     /** Asks the server who's signed in: when the page loads. */
@@ -76,10 +78,11 @@ export class Auth {
 
     /**
      * Signs out, once every guard allows it: the work they hold settled.
+     * Each is asked in its turn, so it finds what the ones before settled.
      * @return Whether it signed out: false when a guard kept the user signed in.
      */
     public async signOut(): Promise<boolean> {
-        for (const guard of [...this.guards]) {
+        for (const guard of this.guards.ordered()) {
             if (!await guard.allowsSignOut()) {
                 return false;
             }

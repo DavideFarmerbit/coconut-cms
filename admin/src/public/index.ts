@@ -15,6 +15,7 @@ export {ErrorCode, isErrorCode} from './api/ErrorCode.ts';
 export type {OperationName} from './api/OperationName.ts';
 export {Auth, type UserListener} from './auth/Auth.ts';
 export type {Me} from './auth/Me.ts';
+export type {GuardPlace} from './auth/GuardPlace.ts';
 export type {SignOutGuard} from './auth/SignOutGuard.ts';
 export type {User} from './auth/User.ts';
 export type {Edit} from './edits/Edit.ts';

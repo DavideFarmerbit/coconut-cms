@@ -6,6 +6,9 @@ import type {UnsavedAnswer, UnsavedQuestion} from '../src/public/entities/Unsave
 import {TypeStore} from '../src/public/types/TypeStore.ts';
 import type {FieldDescription, TypeDescription, ValueDescription} from '../src/public/types/TypeDescription.ts';
 import type {ConversionList} from '../src/schema/ConversionList.ts';
+import type {SchemaOperationData} from '../src/schema/draft/SchemaOperationData.ts';
+import type {SchemaDefinitionList} from '../src/schema/SchemaDefinitions.ts';
+import type {SchemaReport} from '../src/schema/SchemaReport.ts';
 import type {ValidatorList} from '../src/schema/ValidatorList.ts';
 
 /** A value description with `changes` over a non-null string scalar. */
@@ -36,7 +39,8 @@ export const bikeType: TypeDescription = {...carType, identifier: 'shop:bike', f
 
 /**
  * The backend, in memory, behind a real ApiClient: auth.me, signIn and
- * signOut, types.list, schema.conversions and schema.validators, and
+ * signOut, types.list, schema.conversions and schema.validators,
+ * schema.get, preview and save over one schema with a revision, and
  * entities.get, query, create, update and delete over entities by id, root
  * paths only. A query
  * lists a type's entities by id, a page at a time. Counts the calls, and
@@ -54,6 +58,12 @@ export class FakeBackend {
     public conversions: ConversionList = {converters: [], initializers: [], levelInitializers: []};
     /** What schema.validators gives: none, unless a test sets them. */
     public validators: ValidatorList = {fieldRules: [], prototypeRules: []};
+    /** What schema.get gives. A save at another revision is stale; one that runs makes it the next revision. */
+    public schema: SchemaDefinitionList = {revision: 1, types: []};
+    /** What schema.preview and schema.save find, beside the operations sent: nothing, unless a test sets it. */
+    public findings: Partial<SchemaReport> = {};
+    /** Whether the next schema.save is refused, content having changed since its preview. */
+    public refuseNextSave = false;
     private nextId = 1;
 
     /** Puts a car named `name` in, and gives its id. */
@@ -109,6 +119,21 @@ export class FakeBackend {
                 return this.conversions;
             case 'coconut-cms:schema.validators':
                 return this.validators;
+            case 'coconut-cms:schema.get':
+                return this.schema;
+            case 'coconut-cms:schema.preview':
+                this.assertRevision(input);
+
+                return this.report(input, this.schema.revision);
+            case 'coconut-cms:schema.save':
+                this.assertRevision(input);
+                if (this.refuseNextSave) {
+                    this.refuseNextSave = false;
+                    throw {code: 'schema_save_refused', message: 'Content changed.', details: {reason: 'content_refused'}};
+                }
+                this.schema = {...this.schema, revision: this.schema.revision + 1};
+
+                return this.report(input, this.schema.revision);
             case 'coconut-cms:entities.get':
                 return this.entities.get(String(input['id'])) ?? FakeBackend.fail('not_found', 'No such entity.');
             case 'coconut-cms:entities.query':
@@ -147,6 +172,18 @@ export class FakeBackend {
         const items = all.slice(0, limit);
 
         return {items, nextCursor: all.length > limit ? items[items.length - 1]!.id : null};
+    }
+
+    /** Fails as stale unless `input` is at the schema's revision. */
+    private assertRevision(input: Record<string, unknown>): void {
+        if (input['revision'] !== this.schema.revision) {
+            throw {code: 'stale_revision', message: 'The schema changed.', details: {sent: input['revision'], current: this.schema.revision}};
+        }
+    }
+
+    /** A report on the operations `input` sends, at `revision`, finding what the test set. */
+    private report(input: Record<string, unknown>, revision: number): SchemaReport {
+        return {revision, operations: input['operations'] as SchemaOperationData[], fixups: [], breaks: [], blocked: [], failures: {}, duplicates: [], moved: 0, defaultBreaks: [], samples: [], ...this.findings};
     }
 
     private static fail(code: string, message: string): never {

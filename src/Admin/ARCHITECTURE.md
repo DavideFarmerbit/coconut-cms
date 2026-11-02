@@ -53,6 +53,23 @@ user changes. Before signing out it asks its sign-out guards, registered
 with `auth.guard()`, whether it may: whatever holds work signing out
 would lose registers one. The entity store does; a plugin may too.
 
+Guards are asked one at a time, in order. A guard's save can settle
+another guard's work: saving the schema settles the entity editors on the
+types it changes. So each guard has a place: a name, "namespace:key" as an
+operation's, and the guards it runs `before` or `after`.
+
+- A guard runs before the guards whose work its save may settle, and after
+  the ones whose work its own depends on.
+- Each looks at what it holds only when asked. It finds what the guards
+  before it settled, and asks nothing when nothing is left.
+- A name no guard has is left out: its plugin may not be there. Guards with
+  nothing between them keep the order they were registered in.
+- A name taken twice, or places making a loop, throws when the guard is
+  registered: no order could keep them.
+
+The entity store's guard is `coconut-cms:entities`. The schema editor's,
+`coconut-cms:schema`, runs before it (see "Editing types").
+
 - `check()` asks `coconut-cms:auth.me`, when the page loads.
 - `signIn(login, password, remember)` calls `coconut-cms:auth.signIn`. It
   fails with the server's error, which the form shows.
@@ -809,12 +826,12 @@ admin's job:
   scope in one mapping, so a swap needs no other name. A thing created
   then deleted sends nothing. Defaults set earlier follow later renames, at
   any depth of their path.
-- **"Save all" is one save.** Saving every open type at sign-out sends all
-  their operations in one save: saves sent in a row go stale after the
-  first.
+- **One draft, one save.** Every open type edits the same draft, so saving
+  sends all their operations in one save: saves sent in a row would go
+  stale after the first.
 - **The preview shows what will run:** the fixups, the breaks, the entries
   that can't move and the values a unique group would hold twice, before
-  the admin saves.
+  the admin saves. Every save goes through it.
 
 The schema editor edits one `SchemaDraft` (`admin/src/schema/draft/`),
 loaded from `schema.get`, shared by every type tab, with one history:
@@ -887,6 +904,38 @@ renames run before the reparents. The preview shows the refusal.
 
 Not built yet: replacing a type, copying a field's values into another,
 and checking that a chosen converter or initializer still fits.
+
+`SchemaSession` (`admin/src/schema/save/`) holds the draft from loading to
+saving. A save always goes through a preview:
+
+1. `preview()` writes the draft. With problems, it sends nothing and
+   gives them. Unchanged, it sends nothing. Otherwise it sends
+   `schema.preview` and gives a `SchemaPreview`: the written save and the
+   report. A preview with a break the policy blocks, an entry that can't
+   move or values held twice is refused: the admin fixes the draft first.
+2. `save(preview)` confirms it. The entity editors with unsaved changes
+   on the types it changes are settled first (see "The store"); one
+   cancelled sends nothing. Then `schema.save` gets the same operations at
+   the same revision, accepting the breaks the preview listed.
+3. Once saved, the type store reloads, and the draft loads again from
+   `schema.get`, its history cleared. What each object "was" is no longer
+   stored, so undo would build a draft the server doesn't match. Undoing a
+   saved change is a new edit and a new save. Views follow
+   `onReplaced()`.
+
+If content changed since the preview and the server refuses the save, it
+previews again and gives that, showing why. If someone else saved the
+schema since the draft loaded, the preview or the save is stale.
+`reload()` drops the edits and loads the draft again. Replaying the edits
+on the new schema is not offered.
+
+As a sign-out guard, `coconut-cms:schema`, it runs before the entity
+store's. With unsaved edits it asks Review and save, Discard or Cancel.
+Review and save shows the preview; signing out goes ahead only once it
+saves. Discard reloads the draft. The schema editor registers it when it
+opens, with its dialogs as the `UnsavedSchemaQuestion` (not built yet).
+Leaving the page with unsaved edits warns, as with unsaved entities (not
+built yet).
 
 What fits a field is the admin's to work out. `SchemaListings`
 (`admin/src/schema/`) loads `schema.conversions` and `schema.validators`
