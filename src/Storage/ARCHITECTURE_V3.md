@@ -1532,7 +1532,11 @@ save is refused, before it changes anything, when:
 The last one comes from the content check every migration runs before it
 starts (see "The content check"). So an admin's save never leaves the site
 blocked. A preview runs the same check, so it lists the failing entries
-and the duplicates.
+and the duplicates. Since the check moves every entry in memory, a
+preview can also show a few of them: `EntrySample`s, the first entries
+that change, in id order, each with what changes in it, flat by path,
+old names before and new ones after. A value following a default, before
+and after, isn't the entry's own, so it isn't shown.
 
 `AddUniqueGroup(type, fields)` adds a unique group over an editor-created
 type's own fields; `RemoveUniqueGroup(type, fields)` removes one. Each

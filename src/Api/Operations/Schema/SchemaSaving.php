@@ -39,8 +39,8 @@ final readonly class SchemaSaving
     }
 
     /** A preview of $input, as the caller. */
-    public function preview(SchemaSaveInput $input): SchemaReport {
-        return SchemaReport::of($this->context->persistence->previewSchemas($this->saveOf($input), $this->context->actor), $this->form);
+    public function preview(SchemaPreviewInput $input): SchemaReport {
+        return SchemaReport::of($this->context->persistence->previewSchemas($this->saveOf($input->save()), $this->context->actor, $input->samples), $this->form);
     }
 
     /** $input saved, as the caller. Throws SchemaSaveRefused when the save is refused before it changes anything. */

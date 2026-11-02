@@ -224,6 +224,30 @@ final class SchemaApiTest extends DynamicTestCase
         self::assertSame(403, $status, 'Only an architect creates buoys now.');
     }
 
+    public function testAPreviewSamplesTheFirstEntriesThatChange(): void {
+        $first = $this->store('dy:yacht', ['name' => 'Sea', 'cabins' => 4]);
+        $second = $this->store('dy:yacht', ['name' => 'Wind', 'cabins' => 2]);
+        $this->store('dy:yacht', ['name' => 'Calm', 'cabins' => 6]);
+        $operations = [['op' => 'renameField', 'type' => 'dy:yacht', 'old' => 'cabins', 'new' => 'rooms']];
+
+        [$status, $body] = $this->post('coconut-cms:schema.preview', ['revision' => 1, 'operations' => $operations, 'samples' => 2]);
+        self::assertSame(200, $status, json_encode($body));
+        self::assertSame([
+            ['id' => $first, 'type' => 'dy:yacht', 'before' => ['cabins' => 4], 'after' => ['rooms' => 4]],
+            ['id' => $second, 'type' => 'dy:yacht', 'before' => ['cabins' => 2], 'after' => ['rooms' => 2]],
+        ], $body['result']['samples'], 'The first two, in id order.');
+
+        [, $body] = $this->post('coconut-cms:schema.preview', ['revision' => 1, 'operations' => $operations]);
+        self::assertCount(3, $body['result']['samples'], 'Three by default.');
+
+        [, $body] = $this->save($operations);
+        self::assertSame([], $body['result']['samples'], 'A save samples nothing.');
+
+        [$status, $body] = $this->post('coconut-cms:schema.preview', ['revision' => 2, 'operations' => [], 'samples' => 21]);
+        self::assertSame(400, $status);
+        self::assertSame(['samples'], array_keys($body['error']['details']['errors']), json_encode($body));
+    }
+
     public function testNestedRulesOnAnAddedCollectionCheckEachItem(): void {
         [$status, $body] = $this->save([
             ['op' => 'addField', 'type' => 'dy:buoy', 'field' => ['name' => 'tags', 'kind' => 'collection', 'item' => ['kind' => 'scalar', 'scalarType' => 'string', 'nullable' => false]], 'default' => []],

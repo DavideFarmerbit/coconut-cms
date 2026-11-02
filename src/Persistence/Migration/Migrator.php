@@ -212,11 +212,12 @@ final readonly class Migrator
      * anything: the fixups, the breaks and what blocks it. Takes no lock.
      * Throws as saveEditor() does, but reports breaks and blocks instead.
      * @param array<string, EntityBlueprint> $blueprints The same as migrate()'s.
+     * @param int $samples How many entries that change to show, with what changes in each.
      */
-    public function previewEditor(array $blueprints, MigrationSteps $steps, EditorSave $save): EditorSaveReport {
+    public function previewEditor(array $blueprints, MigrationSteps $steps, EditorSave $save, int $samples = 0): EditorSaveReport {
         $this->platform->prepare($this->connection);
 
-        return $this->prepareEditor($blueprints, $steps, $save)->report($save->revision, 0);
+        return $this->prepareEditor($blueprints, $steps, $save, $samples)->report($save->revision, 0);
     }
 
     /**
@@ -224,8 +225,9 @@ final readonly class Migrator
      * editor-created types, and plans its fixups: the created types join the starting state
      * as they end up. Compiles the new schemas unless the plan is blocked.
      * @param array<string, EntityBlueprint> $blueprints
+     * @param int $samples How many entries that change to show: a preview's.
      */
-    private function prepareEditor(array $blueprints, MigrationSteps $steps, EditorSave $save): PreparedEditorSave {
+    private function prepareEditor(array $blueprints, MigrationSteps $steps, EditorSave $save, int $samples = 0): PreparedEditorSave {
         $stored = $this->schemas->tableExists() ? $this->schemas->all() : [];
         $nativeBatch = $this->compiler->compute($blueprints);
         $stateKey = StateKey::of($nativeBatch, $steps);
@@ -276,7 +278,7 @@ final readonly class Migrator
         self::assertPinned($draft, $batch);
         $defaultBreaks = (new DefaultsCheck($this->registry, $this->values))->of($plan->plan->schemas->schemas(), $batch, self::withDescendants($draft->touched(), $batch->schemas));
 
-        return new PreparedEditorSave($save->operations, $stored, $stateKey, $plan, $batch, $this->checkContent($stored, $plan->plan, $batch), $defaultBreaks);
+        return new PreparedEditorSave($save->operations, $stored, $stateKey, $plan, $batch, $this->checkContent($stored, $plan->plan, $batch, $samples), $defaultBreaks);
     }
 
     /**
@@ -328,8 +330,9 @@ final readonly class Migrator
      * its new field), and values a unique index would hold twice. Run before
      * anything changes, so a failure leaves the site as it was.
      * @param list<StoredSchema> $stored
+     * @param int $samples How many entries that change to show, the first in id order: a preview's.
      */
-    private function checkContent(array $stored, MigrationPlan $plan, CompiledBatch $batch): ContentCheck {
+    private function checkContent(array $stored, MigrationPlan $plan, CompiledBatch $batch, int $samples = 0): ContentCheck {
         $target = [...$plan->schemas->schemas(), ...$batch->schemas];
         $targetSchemas = new SchemaLookup($this->registry, $target);
         $reader = new AggregateReader($this->connection, $this->registry, []);
@@ -341,23 +344,34 @@ final readonly class Migrator
         $storedLevels = self::levelsOf(new SchemaLookup($this->registry), array_map(static fn (StoredSchema $each): string => $each->schema->identifier, $stored));
         $uniqueness = new UniquenessCheck($this->connection, UniqueIndex::allOf($targetLevels, $storedLevels), DatabaseSchema::of($targetLevels));
 
+        // In id order, so the same save always samples the same entries.
         $roots = $this->rootsHolding(self::changedTypes($stored, $batch, $plan));
+        sort($roots);
         $failures = [];
+        $sampled = [];
         foreach ($roots as $id) {
             try {
                 $aggregate = $reader->read($id);
+                [$beforeValues, $beforeMarks] = [$aggregate->values(), $aggregate->marks()];
                 $plan->moveValues($aggregate);
                 if (isset($target[$aggregate->identifier])) {
                     self::checkWritten($aggregate, $storedForm);
                     $values = self::entityValuesOf($aggregate, $targetSchemas, $resolver);
                     $uniqueness->addMoved($rows->rowsOf($values, $id, Placement::standalone(), self::ownedIdsOf($aggregate, $values)));
                 }
+
+                if (count($sampled) < $samples) {
+                    $sample = EntrySample::of($id, $aggregate->identifier, $beforeValues, $beforeMarks, $aggregate->values(), $aggregate->marks());
+                    if ($sample !== null) {
+                        $sampled[] = $sample;
+                    }
+                }
             } catch (Exception $failure) {
                 $failures[$id] = $failure->getMessage();
             }
         }
 
-        return new ContentCheck($failures, $uniqueness->duplicates($this->entitiesOf($roots)));
+        return new ContentCheck($failures, $uniqueness->duplicates($this->entitiesOf($roots)), $sampled);
     }
 
     /**

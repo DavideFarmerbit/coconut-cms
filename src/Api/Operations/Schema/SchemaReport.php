@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Api\Operations\Schema;
 
 use XyloIsCoding\CoconutCms\Api\Operation\OperationResult;
 use XyloIsCoding\CoconutCms\Persistence\Migration\DefaultBreak;
+use XyloIsCoding\CoconutCms\Persistence\Migration\EntrySample;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\Difference;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Uniqueness\Duplicate;
@@ -28,6 +29,9 @@ final readonly class SchemaReport implements OperationResult
      * @param list<DefaultBreak> $defaultBreaks Warnings, never refusing: each
      *        rule a changed type's default breaks, its type, path and error.
      *        An entity left at such a default is refused when it's saved.
+     * @param list<EntrySample> $samples A preview's: the first entries it
+     *        moves, each its `id`, `type`, and `before` and `after`, flat by
+     *        path in stored form, holding only what changes.
      */
     public function __construct(
         public int $revision,
@@ -39,6 +43,7 @@ final readonly class SchemaReport implements OperationResult
         public array $duplicates,
         public int $moved,
         public array $defaultBreaks,
+        public array $samples,
     ) {
     }
 
@@ -53,6 +58,7 @@ final readonly class SchemaReport implements OperationResult
             $report->duplicates,
             $report->moved,
             $report->defaultBreaks,
+            $report->samples,
         );
     }
 }

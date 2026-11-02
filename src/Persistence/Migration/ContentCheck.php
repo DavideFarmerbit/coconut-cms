@@ -10,10 +10,12 @@ final readonly class ContentCheck
     /**
      * @param array<string, string> $failures Why each entry can't move, keyed by its root's id.
      * @param list<Duplicate> $duplicates Values a unique index would hold twice.
+     * @param list<EntrySample> $samples The first entries that move, in id order, with what changes in each: a preview's.
      */
     public function __construct(
         public array $failures,
         public array $duplicates,
+        public array $samples = [],
     ) {
     }
 

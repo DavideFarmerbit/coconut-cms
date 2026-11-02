@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Migration\Editor;
 
 use XyloIsCoding\CoconutCms\Persistence\Migration\BreakResolution;
 use XyloIsCoding\CoconutCms\Persistence\Migration\DefaultBreak;
+use XyloIsCoding\CoconutCms\Persistence\Migration\EntrySample;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\Difference;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Uniqueness\Duplicate;
 
@@ -29,6 +30,8 @@ final readonly class EditorSaveReport
      * @param list<DefaultBreak> $defaultBreaks The rules the default of a type
      *        it changes breaks, or of one extending it: warnings, never a
      *        refusal, since a default may be a placeholder on purpose.
+     * @param list<EntrySample> $samples The first entries it moves, in id
+     *        order, with what changes in each: a preview's, when asked.
      */
     public function __construct(
         public int $revision,
@@ -40,6 +43,7 @@ final readonly class EditorSaveReport
         public array $duplicates = [],
         public int $moved = 0,
         public array $defaultBreaks = [],
+        public array $samples = [],
     ) {
     }
 

@@ -224,14 +224,17 @@ final class Persistence
 
     /**
      * What saveSchemas() would do with $save, found without changing
-     * anything. Takes the same right: it lists entries by id.
+     * anything. Takes the same right: it lists entries by id and, with
+     * $samples, shows what changes in the first ones, whatever their
+     * permissions.
+     * @param int $samples How many entries that change to show: the first, in id order.
      */
-    public function previewSchemas(EditorSave $save, Actor $actor): EditorSaveReport {
+    public function previewSchemas(EditorSave $save, Actor $actor, int $samples = 0): EditorSaveReport {
         $this->assertSchemaEditor($actor);
         $blueprints = NativeEntityReader::readAll($this->allClasses());
         $this->register($this->registrationsOf($blueprints));
 
-        return (new Migrator($this->connection, $this->registry, $this->schemas, $this->values, $this->policy))->previewEditor($blueprints, $this->steps(), $save);
+        return (new Migrator($this->connection, $this->registry, $this->schemas, $this->values, $this->policy))->previewEditor($blueprints, $this->steps(), $save, $samples);
     }
 
     /** Throws unless $actor holds the schema-editor role; with none named, unless it's the system. */

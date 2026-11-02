@@ -47,6 +47,7 @@ final readonly class PreparedEditorSave
             $this->content->duplicates,
             $moved,
             $this->defaultBreaks,
+            $this->content->samples,
         );
     }
 }

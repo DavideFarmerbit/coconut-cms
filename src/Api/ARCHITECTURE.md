@@ -412,6 +412,8 @@ input:
   parameter. A `mapping` is a list of `{"from": value, "to": value}`, each
   in stored form.
 - `acceptBreaks` says the admin saw the breaks the preview listed.
+- `samples`, on `schema.preview` only, says how many entries to sample:
+  3 by default, from 0 to 20.
 
 Each error names its path: `operations.2.field.kind`. An operation that
 can't apply where it stands is refused at `operations.N`.
@@ -425,7 +427,16 @@ its id), `duplicates` (values a unique index would hold twice: `type`,
 `defaultBreaks`: warnings, never a refusal. Each is a rule the default of
 a type the save changes breaks, as `type`, `path` and `error`. A default
 may be a placeholder on purpose: an entity left at it is refused with
-`validation_failed` when it's saved. A save the
+`validation_failed` when it's saved. A preview adds `samples`: the first
+entries that change, in id order, each its `id`, `type`, `before` and
+`after`. Those are flat, by path, in stored form, owned objects included,
+and hold only what changes: `before` the paths that change or go, under
+their old names, `after` those that change or come, under their new ones.
+A value following a default, before and after, isn't shown. A Collection
+shows as its count and its items: `{"color": 1, "color.0": "red"}`. An
+entry that can't move is in `failures` instead. A save's `samples` is
+empty. Samples show values whatever the field permissions: the
+schema-editor role sees every entry the save moves. A save the
 policy blocks, with breaks not accepted, or whose content can't take it is
 refused with `schema_save_refused`: `reason` is `blocked`,
 `breaks_not_accepted` or `content_refused`, beside the same lists.
