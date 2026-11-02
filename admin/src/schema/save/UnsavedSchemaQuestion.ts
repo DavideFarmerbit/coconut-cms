@@ -8,6 +8,6 @@ export interface UnsavedSchemaQuestion {
     /** Review and save, Discard or Cancel. */
     ask(): Promise<UnsavedSchemaAnswer>;
 
-    /** Shows `session`'s preview and lets the admin save it: whether it saved. Closing it saves nothing. */
+    /** Shows `session`'s preview and lets the admin save it: whether nothing is left unsaved, saved or dropped. Closing it saves nothing. */
     review(session: SchemaSession): Promise<boolean>;
 }

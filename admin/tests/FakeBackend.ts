@@ -67,6 +67,8 @@ export class FakeBackend {
     public findings: Partial<SchemaReport> = {};
     /** Whether the next schema.save is refused, content having changed since its preview. */
     public refuseNextSave = false;
+    /** Whether the user lacks the schema-editor role: schema.get, preview and save are refused. */
+    public schemaDenied = false;
     private nextId = 1;
 
     /** Puts a car named `name` in, and gives its id. */
@@ -125,7 +127,7 @@ export class FakeBackend {
             case 'coconut-cms:schema.values':
                 return this.values;
             case 'coconut-cms:schema.get':
-                return this.schema;
+                return this.schemaDenied ? FakeBackend.fail('permission_denied', 'Only a schema editor may.') : this.schema;
             case 'coconut-cms:schema.preview':
                 this.assertRevision(input);
 

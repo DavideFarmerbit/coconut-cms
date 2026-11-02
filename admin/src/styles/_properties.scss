@@ -412,6 +412,23 @@
     font-weight: 600;
 }
 
+.dialog--wide {
+    width: min(760px, 92vw);
+    max-height: 86vh;
+}
+
+.dialog__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cc-space-3);
+    min-height: 0;
+    overflow: auto;
+
+    p {
+        margin: 0;
+    }
+}
+
 .dialog__buttons {
     display: flex;
     justify-content: flex-end;
