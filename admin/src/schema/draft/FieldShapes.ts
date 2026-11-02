@@ -37,7 +37,7 @@ export class FieldShapes {
 
     /** Whether a field holding `shape` names an entity type: a value object's target is no type. */
     private static namesType(shape: FieldShape): boolean {
-        return shape.kind === 'embed' || shape.kind === 'reference' || shape.kind === 'owning_reference';
+        return shape.kind === 'embed' || shape.kind === 'reference' || shape.kind === 'owning_reference' || shape.kind === 'type_reference';
     }
 
     /** What `shape` becomes with its own nullability, or its items' for a Collection, set to `nullable`. */

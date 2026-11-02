@@ -59,7 +59,7 @@ final readonly class AddUniqueGroup implements SchemaOperation
         $indexable = match ($field->kind()) {
             FieldKind::Scalar => $field->scalarType() !== ScalarType::Text,
             FieldKind::ValueObject => $field->indexable(),
-            FieldKind::Reference => true,
+            FieldKind::Reference, FieldKind::TypeReference => true,
             default => false,
         };
         if (!$indexable) {

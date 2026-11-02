@@ -9,7 +9,6 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 
 /**
  * A type's own field, or its Collection's items, no longer holding null.
@@ -50,7 +49,7 @@ final readonly class MakeNotNullable implements Fixup, MovesValues
         foreach (Occurrences::ofType($this->type, $values, $before) as $occurrence) {
             $path = $occurrence->fieldPath($this->field);
             if ($field->kind() === FieldKind::Collection) {
-                self::removeNullItems($values, $path);
+                $values->removeNullItems($path);
             } elseif ($values->has($path) && $values->get($path) === null) {
                 $values->removeAt($path);
             }
@@ -63,32 +62,5 @@ final readonly class MakeNotNullable implements Fixup, MovesValues
 
     public function describe(): string {
         return sprintf('MakeNotNullable(%s, %s)', $this->type, $this->field);
-    }
-
-    /**
-     * Removes the Collection at $path's null items, moving the ones after
-     * each up. One that follows its default is left alone: the new default
-     * holds no null.
-     */
-    private static function removeNullItems(AggregateValues $values, FieldPath $path): void {
-        $mark = $values->markOf($path);
-        if ($mark->isDefault() || !$values->has($path)) {
-            return;
-        }
-
-        $count = (int) $values->get($path);
-        $kept = 0;
-        for ($index = 0; $index < $count; $index++) {
-            $item = $path->traverse($index);
-            if ($values->get($item) === null) {
-                $values->removeAt($item);
-                continue;
-            }
-
-            $values->move($item, $path->traverse($kept));
-            $kept++;
-        }
-
-        $values->set($path, $kept, $mark);
     }
 }

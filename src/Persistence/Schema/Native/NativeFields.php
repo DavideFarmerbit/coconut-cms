@@ -11,6 +11,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\TypeReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 
 /**
@@ -19,7 +20,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
  */
 final class NativeFields
 {
-    private const KIND_ATTRIBUTES = [Scalar::class, ValueObject::class, Embed::class, Reference::class, OwningReference::class, Collection::class];
+    private const KIND_ATTRIBUTES = [Scalar::class, ValueObject::class, Embed::class, Reference::class, OwningReference::class, TypeReference::class, Collection::class];
 
     /** Whether $class is marked #[Entity]. */
     public static function isEntity(string $class): bool {

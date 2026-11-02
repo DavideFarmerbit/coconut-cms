@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Migration\Fixup;
 
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateValues;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\NamedTypes;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\OccurrenceKind;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Occurrences;
 use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
@@ -14,11 +15,12 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
  * of any length works the same. Only the result is checked: no two types
  * end up with one identifier. Every parent and target naming one follows,
  * in schemas of every source, and so does its table: it takes the one the
- * target gives the renamed type.
+ * target gives the renamed type. So does every value naming one through a
+ * type reference.
  *
  *     new RenameTypes(['shop:boat' => 'shop:ship', 'shop:ship' => 'shop:boat'])
  */
-final readonly class RenameTypes implements Fixup, MovesValues
+final readonly class RenameTypes implements Fixup, MovesValues, ChangesTypes
 {
     /** @var array<string, string> Each old identifier's new one. */
     public array $renames;
@@ -42,6 +44,9 @@ final readonly class RenameTypes implements Fixup, MovesValues
 
     /** Every root and owned slot holding an old identifier holds its new one, touched or not as it was. */
     public function moveValues(AggregateValues $values, SchemaState $before, SchemaState $after): void {
+        // First, while every object still has the name the schemas know it by.
+        NamedTypes::rename($values, $before, $this->renames);
+
         foreach (Occurrences::in($values, $before) as $occurrence) {
             if ($occurrence->kind === OccurrenceKind::Owned && isset($this->renames[$occurrence->identifier])) {
                 $values->set($occurrence->path, $this->renames[$occurrence->identifier], $values->markOf($occurrence->path));

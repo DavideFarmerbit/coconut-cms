@@ -26,6 +26,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Data\ValueMark;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\BreaksNotAccepted;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSave;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\FixupAtStep;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Uniqueness\UniqueIndex;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Uniqueness\UniquenessCheck;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsBuilder;
@@ -34,7 +35,9 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\InvalidOperation;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\PreparedEditorSave;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaDraft;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\StaleSchemaRevision;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\ChangesTypes;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MovesValues;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\MigrationPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\StrictPolicy;
 use XyloIsCoding\CoconutCms\Persistence\MigrationPending;
@@ -537,10 +540,24 @@ final readonly class Migrator
         // subtypes, and in every type holding it, owned or as an Embed. Each
         // of those depends on it.
         $moved = [];
+        $typesChange = false;
         foreach ($plan->fixups as $planned) {
             if ($planned->fixup instanceof MovesValues) {
                 foreach ($planned->fixup->movedTypes() as $type) {
                     $moved[$type] = true;
+                }
+            }
+            // An editor save's fixup comes wrapped with its step.
+            $fixup = $planned->fixup instanceof FixupAtStep ? $planned->fixup->fixup : $planned->fixup;
+            $typesChange = $typesChange || $fixup instanceof ChangesTypes;
+        }
+
+        // A value naming a type may follow a type it doesn't depend on: a
+        // subtype of its base renamed, dropped or moved.
+        if ($typesChange) {
+            foreach ($stored as $each) {
+                if (self::declaresTypeReference($each->schema)) {
+                    $moved[$each->schema->identifier] = true;
                 }
             }
         }
@@ -804,6 +821,18 @@ final readonly class Migrator
         }
 
         return $fields === $schema->fields ? $schema : $schema->withFields($fields);
+    }
+
+    /** Whether $schema declares a type reference of its own, as a field or as a Collection's items. */
+    private static function declaresTypeReference(EntitySchema $schema): bool {
+        foreach ($schema->fields as $field) {
+            $held = $field->kind() === FieldKind::Collection ? $field->itemDescriptor() : $field;
+            if ($held->kind() === FieldKind::TypeReference) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static function anyFingerprintChanged(array $stored, CompiledBatch $batch): bool {

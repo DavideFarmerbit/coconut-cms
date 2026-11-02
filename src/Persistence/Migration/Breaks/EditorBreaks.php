@@ -118,10 +118,10 @@ final class EditorBreaks
         return ($schemas->targetSchemas()[$identifier] ?? $schemas->get($identifier))->editorExtensible;
     }
 
-    /** The type $field declares, as its target or its items', that's gone; null when there's none. */
+    /** The type $field declares, as its target, its base or its items', that's gone; null when there's none. */
     private static function targetGone(FieldDescriptor $field, SchemaState $schemas): ?string {
         $declared = $field->kind() === FieldKind::Collection ? $field->itemDescriptor() : $field;
-        if (!in_array($declared->kind(), [FieldKind::Embed, FieldKind::Reference, FieldKind::OwningReference], true)) {
+        if (!in_array($declared->kind(), [FieldKind::Embed, FieldKind::Reference, FieldKind::OwningReference, FieldKind::TypeReference], true)) {
             return null;
         }
 

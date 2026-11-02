@@ -18,6 +18,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\FieldValidator
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\TypeReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\CollectionNode;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\LeafNode;
@@ -163,6 +164,27 @@ final class EntityRegistrarDerived extends EntityRegistrarBase
 {
     #[Scalar(ScalarType::String)]
     private string $extra = '';
+}
+
+/** Names kinds of the base: one it spawns, maybe none, and the ones it may. */
+#[Entity]
+final class EntityRegistrarSpawner
+{
+    #[TypeReference(EntityRegistrarBase::class)]
+    private ?string $spawns = null;
+
+    #[TypeReference(EntityRegistrarBase::class)]
+    private string $fallback = 'default:entity_registrar_base';
+
+    #[Collection(FieldKind::TypeReference, itemTarget: EntityRegistrarBase::class, itemNullability: Nullability::NotNullable)]
+    private array $allowed = [];
+}
+
+#[Entity]
+final class EntityRegistrarSpawnerOfInts
+{
+    #[TypeReference(EntityRegistrarBase::class)]
+    private int $spawns = 0;
 }
 
 #[Entity]
@@ -709,6 +731,20 @@ final class NativeEntityReaderTest extends TestCase
         $this->expectExceptionMessage(MaxLength::class . ' checks a Scalar of string or text, and field "sizes" is not one.');
 
         NativeEntityReader::read(EntityRegistrarRuleOnTheWrongField::class);
+    }
+
+    public function testATypeReferenceNamesItsBaseAndHoldsAnIdentifier(): void {
+        $blueprint = NativeEntityReader::read(EntityRegistrarSpawner::class);
+        $spawns = $blueprint->fields->get(FieldName::of('spawns'));
+
+        self::assertEquals(FieldDescriptor::typeReference('spawns', 'default:entity_registrar_base', Nullability::Nullable), $spawns);
+        self::assertSame(Nullability::NotNullable, $blueprint->fields->get(FieldName::of('fallback'))->nullability());
+        self::assertEquals(FieldDescriptor::typeReference('allowed', 'default:entity_registrar_base', Nullability::NotNullable), $blueprint->fields->get(FieldName::of('allowed'))->itemDescriptor());
+        self::assertSame('default:entity_registrar_base', self::leafAt($blueprint, 'fallback'));
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('must be declared as a string: a type reference holds a type\'s identifier');
+        NativeEntityReader::read(EntityRegistrarSpawnerOfInts::class);
     }
 
     public function testReadTakesNullabilityFromThePropertyType(): void {

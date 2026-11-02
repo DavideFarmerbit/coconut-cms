@@ -150,6 +150,8 @@ final class DatabaseSchema
             FieldKind::Scalar => self::scalarTypeOf($field),
             FieldKind::ValueObject => $field->indexable() ? [Types::STRING, ['length' => StorableValues::MAX_INDEXABLE_LENGTH]] : [Types::TEXT, []],
             FieldKind::Reference => [Types::GUID, []],
+            // An identifier: "namespace:key", as long as any stored string.
+            FieldKind::TypeReference => [Types::STRING, ['length' => ScalarValues::MAX_STRING_LENGTH]],
             default => throw new InvalidArgumentException(sprintf('A %s field has no column of its own.', $field->kind()->name)),
         };
     }

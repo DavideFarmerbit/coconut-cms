@@ -323,7 +323,7 @@ final class SchemaCompiler
         foreach ($this->weakDependenciesOf($blueprints[$identifier]) as $dependency) {
             if (!isset($blueprints[$dependency]) && !$this->registry->has($dependency)) {
                 throw new InvalidArgumentException(sprintf(
-                    '"%s" is referenced as a Reference or OwningReference target by "%s" but was neither given to compile() nor compiled before.',
+                    '"%s" is referenced as a Reference or OwningReference target, or a type reference\'s base, by "%s" but was neither given to compile() nor compiled before.',
                     $dependency,
                     $identifier,
                 ));
@@ -366,8 +366,8 @@ final class SchemaCompiler
 
     /**
      * This blueprint's own weak dependencies: every Reference or
-     * OwningReference target among its own fields. They must exist, but impose
-     * no order.
+     * OwningReference target, and every type reference's base, among its own
+     * fields. They must exist, but impose no order.
      * @return string[]
      */
     private function weakDependenciesOf(EntityBlueprint $blueprint): array {
@@ -386,7 +386,7 @@ final class SchemaCompiler
     /** This field's own Reference or OwningReference target, found through a Collection's item if needed, or null. */
     private function weakTargetOf(FieldDescriptor $field): ?string {
         return match ($field->kind()) {
-            FieldKind::Reference, FieldKind::OwningReference => $field->target(),
+            FieldKind::Reference, FieldKind::OwningReference, FieldKind::TypeReference => $field->target(),
             FieldKind::Collection => $this->weakTargetOf($field->itemDescriptor()),
             default => null,
         };

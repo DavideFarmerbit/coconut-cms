@@ -184,11 +184,20 @@ real data is read. A Collection still names its `itemTarget`: `array` says nothi
 items. Editor-created fields have no property, so their descriptors carry the
 target explicitly.
 
+A TypeReference holds a type, as Unreal's `TSubclassOf`: the identifier of
+its base, or of a type extending it, native or editor-made. Its property is
+a `string` holding that identifier, so its base is the attribute's argument:
+`#[TypeReference(GameItem::class)]`, naming an `#[Entity]`-marked class. It
+holds no object: nothing is loaded through it, and it relates no entries.
+Migrations keep what it names current (see "Fixups transform values").
+
 Every field records whether it may hold null, as a `Nullability`: `Nullable`
 or `NotNullable`. A native field takes it from its property's type. A
 Collection's items declare it as `itemNullability`, since `array` can't say
-it. It's required for Scalar, ValueObject and OwningReference items, and
-rejected for the rest. A Reference is always `Nullable`, singular or as items:
+it. It's required for Scalar, ValueObject, OwningReference and
+TypeReference items, and rejected for the rest. A `NotNullable`
+TypeReference always names a type: a migration removing the one it names
+gives it its default. A Reference is always `Nullable`, singular or as items:
 deleting its target nulls it. So a Reference property must be declared
 nullable. An Embed and a Collection are never null, so neither property may be
 declared nullable, and an Embed item takes no `itemNullability`. A
@@ -373,6 +382,9 @@ the Doctrine schema of every table they need. Neither reads the database.
   one column per value its own fields store:
   - Scalar and ValueObject: one column.
   - Reference: the target's id, a foreign key to `entities`, `SET NULL`.
+  - TypeReference: the identifier, a string of 255 characters at most. No
+    foreign key: the schema table is rewritten whole at each save, so
+    migrations keep what it names current instead.
   - Embed: its leaves, flattened. The path's `:` becomes `__`:
     `chassis:engine:piston:diameter` is `chassis__engine__piston__diameter`.
   - OwningReference: no column. The owned row is an `entities` row whose
@@ -1941,12 +1953,15 @@ The common fixups are shorthands:
   'shop:ship' => 'shop:boat']`. A loop of any length works the same. Only
   the result is checked: no two types end up with one identifier. Renamed
   one at a time, a swap can't be written: the first rename would find the
-  other name still taken.
+  other name still taken. Every TypeReference value naming a renamed type
+  names it as renamed.
 - `DropType(type)`: deletes its entities and everything they own. References
   to them become null. Where one sits in another entity's owned field, or as
   an Owned Collection item, that slot becomes null, the same for both: what it
   held is gone. A converter or transformation before the drop can put
-  something else there.
+  something else there. A TypeReference value naming it is cleared: null when
+  nullable, its default when required, and a required Collection item goes,
+  the items after it moving up.
 - `ReplaceType(type, with, initializers, converters, resets)`: every entity
   of the type becomes an entity of `with`, keeping its id, so References and
   owned slots holding it stay valid. A replacement new to the code comes
@@ -1971,7 +1986,9 @@ The common fixups are shorthands:
   fits none of them is an `InvalidFixup`. A field declared with an ancestor
   of the type, holding one of its entities, must accept `with` too: an
   `Engine` slot holding a turbo engine replaced by an unrelated type fails
-  the migration, naming the entity, when it's checked before writing.
+  the migration, naming the entity, when it's checked before writing. A
+  TypeReference value naming the type names `with`, and is cleared, as for
+  `DropType`, when `with` isn't under its base.
 - `MoveTable(type)`: its table moves to the name the code gives it.
 - `Reparent(type, initializer?)`: the type moves under the parent the code
   gives it. A level it gains holds fields every existing entity already
@@ -1979,7 +1996,15 @@ The common fixups are shorthands:
   initializer. It's called for every entity of the type and its subclasses,
   receives the entity's values, and sets fields of the levels gained, and only
   those. One initializer fills every level one `Reparent` inserts. A level the
-  type loses takes its values with it, unless a fixup before moves them.
+  type loses takes its values with it, unless a fixup before moves them. A
+  TypeReference value naming the type, or a type under it, that's no longer
+  under its base is cleared, as for `DropType`.
+
+An aggregate naming a type through a TypeReference may hold nothing of it:
+a spawner names `game:weapon` without holding a weapon. So when a migration
+renames, drops, replaces or reparents a type, it also moves every aggregate
+holding a TypeReference, whatever types it holds. Those fixups are marked
+`ChangesTypes`; `NamedTypes` finds the values they rewrite or clear.
 - `AddUniqueGroup(type, fields)`, `DropUniqueGroup(type, fields)`.
 - `AddField(type, field, initializer)`: gives existing entities a value other
   than the default.
@@ -2185,6 +2210,7 @@ The rules, kind by kind, are what a save produces:
   most when it's indexable.
 - Reference: an id. The foreign key says the entity exists.
 - OwningReference: the identifier of the target type or a type extending it.
+- TypeReference: the identifier of its base or a type extending it.
 - Collection: the item count, an int. Its items follow their own rules.
 - Null only where the field, or the item, is `Nullable`.
 
@@ -2431,6 +2457,140 @@ One transaction for all the data is long on a large database. That's
 acceptable for now. If it isn't one day, the fix is batches with a record of
 which entities have moved. Moving only the aggregates a change affects (see
 "What a change costs") keeps it short for most changes.
+
+## Adding a field kind
+
+A field kind is what a field holds, and how: `FieldKind` lists them. A
+new kind is handled in many places. Each place asks one of four questions
+about a kind, so the places are listed here by question. To add a kind,
+answer each question for it, at each place listed.
+
+The places are in the persistence layer (`src/Persistence/`), the API
+(`src/Api/`) and the admin (`admin/src/`). Paths below are relative to
+those.
+
+### 1. Does it hold one value, or lead into more fields?
+
+Walkers over values and schemas go inside an Embed, an owned object or a
+Collection, and stop at anything else. A kind holding one value takes the
+"stop" branch everywhere; a kind leading into fields needs each walker to
+know how it goes in.
+
+- Values: `Schema/Values/Resolver/FieldValueResolver`,
+  `Schema/Values/Resolver/Overrides`, `Schema/Values/ValueFlattener`,
+  `Schema/Values/StoredForm::collectValue`, `Entity/Values/EntitySnapshot`,
+  `Entity/Dynamic/DynamicEntity` (`get`, `set`, `fromBag`, `fromView`),
+  `Entity/Dynamic/DynamicEntityWriter`, `Entity/Edit/StoredFormEditor`
+  (`applyAt`, `applyInCollection`), `Entity/Record/RecordReader`.
+- Migrations: `Migration/Data/Occurrences`, `Migration/Data/AggregateValues`,
+  `Migration/SchemaState` (`leadsSomewhere`, `leadsIntoItem`),
+  `Migration/Editor/SchemaDraft::walk`.
+- Native classes: `Schema/Native/NativeObjectBuilder::itemsOf`,
+  `Schema/Native/NativeValueReader::readItems`,
+  `Schema/Native/NativeEntityReader::resolveCollectionItemDescriptor`,
+  `Schema/Attribute/Property/Collection` (what its items may be).
+- Admin: `schema/draft/SchemaDraft` (`pathOf`, default paths),
+  `types/TypeChanges` (the types holding another),
+  `properties/PropertyVisibility`.
+
+### 2. How is its one value stored and checked?
+
+A kind holding one value has a stored form (what JSON, rows and defaults
+hold), a check of that form, a database column, and a conversion between
+the stored form and what code works with. A kind leading into fields has
+none of them.
+
+- Stored form and check: `Schema/Values/StoredForm::checkedValue`,
+  `Entity/Dynamic/DynamicValues::check`, `Migration/Editor/DefaultValue`.
+- Column: `Entity/Layout/DatabaseSchema::typeOf`,
+  `Entity/Layout/LayoutBuilder` (`addField`, `isIndexable`),
+  `Migration/Editor/Operations/AddUniqueGroup::assertIndexable`.
+- Conversion: `Entity/Values/EntitySnapshot::resolve`,
+  `Entity/Dynamic/DynamicEntity::fromBag`,
+  `Entity/Dynamic/DynamicEntityWriter::nodeOf`,
+  `Entity/Edit/StoredFormEditor::converted`,
+  `Entity/Rows/EntityRowsReader::fromDatabase`,
+  `Schema/Native/NativeObjectBuilder` and `NativeValueReader` (a native
+  property's value), `Query/QueryRunner::stored` (a condition's value).
+- Admin: `properties/NewValues` (a new value), `properties/WriteForm` (the
+  form an edit is sent in).
+
+A Scalar's conversion is `Schema/Field/ScalarValues`. The kinds holding
+one value differ in one way: a value object's and a Scalar's conversion
+depends only on the value, while a Reference's depends on the place
+reading it. It's an id, an entry with its target, or a loaded object.
+
+### 3. Does it point at other content?
+
+A Reference points at an entry, so it takes part in what relates entries:
+it isn't true of any other kind holding one value.
+
+- `Entity/EntityReader::referencedIdsIn`, `Entity/Rows/EntityRowsBuilder`
+  (`referenceColumnsOf`), `Entity/Layout/DatabaseSchema::addValueColumn`
+  (its foreign key), `Migration/ReferenceCheck`, `Query/Joins`,
+  `Permission/Permissions`, `Migration/Breaks/EditorBreaks::targetGone`,
+  `Schema/Compiler/SchemaCompiler` (weak and owning targets).
+
+### 4. How is it described?
+
+Each kind is described once in each of these. A new kind adds itself to
+every one.
+
+- The descriptor: `Schema/Field/FieldDescriptor` (its constructor, the
+  accessors that apply, `withNullability`, `retargetedAll` when it names a
+  type), `Schema/Field/FieldSignature` (matching and describing it).
+- Stored schemas: `Schema/Registry/EntitySchemaCodec`.
+- Native classes: its property attribute, under
+  `Schema/Attribute/Property/`, read by `Schema/Native/NativeEntityReader`
+  and `Schema/Native/NativeRegistrations`.
+- The API: `Api/Operations/Schema/FieldForm` (what an editor save sends),
+  `Api/Operations/Schema/SignatureForm`,
+  `Api/Operations/Types/ValueDescription` (what `types.get` gives).
+- The admin: `public/types/TypeDescription` (`ValueKind`),
+  `schema/SchemaDefinitions`, `schema/SignatureData`,
+  `schema/FieldSignature`, `schema/draft/FieldShapes` (`namesType`, when it
+  names a type: what follows a type rename), `icons/IconParts`,
+  `icons/TypeIcon`, `icons/ValueWords`, `properties/DefaultEditors` (its
+  property editor), `properties/filters/KindFilter`.
+
+### Kinds naming a type
+
+A kind whose descriptor names a type, as its target or its base, follows
+that type through migrations. What the schema says, the descriptor's
+`retargetedAll` renames; it does so for any target but a value object's.
+Each of these says whether the type it names must exist or is gone:
+
+- `Schema/Compiler/SchemaCompiler::weakTargetOf`: the type must exist, and
+  counts in the fingerprint, without ordering the compile.
+- `Migration/Breaks/EditorBreaks::targetGone`: an editor-made field whose
+  type the code removed is a break.
+
+A kind whose values name a type, as a TypeReference's do, needs its values
+followed too:
+
+- `Migration/Data/NamedTypes` finds them; the fixups marked `ChangesTypes`
+  rewrite or clear them.
+- `Migration/Migrator::changedTypes` moves every aggregate holding such a
+  value whenever a `ChangesTypes` fixup runs, since the aggregate may hold
+  nothing of the type it names.
+- `Migration/Editor/SchemaDraft::pinnedClassesRenamed`: a default change an
+  editor save pins follows a rename later in the save.
+- The admin: `schema/draft/FieldShapes::namesType` (the shape follows a
+  rename in the draft), `schema/draft/SchemaDraft::pinsNaming` (so do the
+  defaults pinned in the draft).
+
+### Not built yet
+
+Groups 1 and 2 could ask a kind instead of listing kinds: `FieldKind`
+answering "holds one value" and "leads into a type", and one class per
+kind holding one value for its stored form, check and column. Adding a
+kind would then touch groups 3 and 4 only.
+
+Adding TypeReference while every place still listed kinds supports it.
+Of the places it changed in groups 1 and 2, most listed the kinds holding
+one value by name (`Scalar, ValueObject, Reference`) and took it in the
+same branch, unchanged. The others converted or checked its one value, as
+a Scalar's or an owned object's is. None of them walked into it.
 
 ## Booting
 

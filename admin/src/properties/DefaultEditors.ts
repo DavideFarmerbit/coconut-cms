@@ -8,6 +8,7 @@ import {NumberEditor} from './editors/NumberEditor.ts';
 import {OwnedEditor} from './editors/OwnedEditor.ts';
 import {ReferenceEditor} from './editors/ReferenceEditor.ts';
 import {TextEditor} from './editors/TextEditor.ts';
+import {TypeReferenceEditor} from './editors/TypeReferenceEditor.ts';
 
 /** The admin's own property editors: a default for every kind, and for each scalar type. */
 export class DefaultEditors {
@@ -25,6 +26,7 @@ export class DefaultEditors {
         editors.register({kind: 'embed'}, EmbedEditor);
         editors.register({kind: 'owning_reference'}, OwnedEditor);
         editors.register({kind: 'reference'}, ReferenceEditor);
+        editors.register({kind: 'type_reference'}, TypeReferenceEditor);
         editors.register({kind: 'collection'}, CollectionEditor);
     }
 }

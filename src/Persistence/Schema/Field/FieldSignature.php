@@ -58,6 +58,11 @@ final readonly class FieldSignature
         return new self(FieldKind::OwningReference, target: $type);
     }
 
+    /** A type reference to $base or a type extending it; to any base when null. */
+    public static function typeReference(?string $base = null): self {
+        return new self(FieldKind::TypeReference, target: $base);
+    }
+
     /** A Collection of items matching $item; of any items when null. */
     public static function collection(?self $item = null): self {
         return new self(FieldKind::Collection, item: $item);
@@ -78,9 +83,9 @@ final readonly class FieldSignature
         return self::oneOf(self::scalar(ScalarType::Int), self::scalar(ScalarType::Float), self::scalar(ScalarType::Decimal));
     }
 
-    /** A Scalar, a value object or a Reference: one stored value, with nothing under it. */
+    /** A Scalar, a value object, a Reference or a type reference: one stored value, with nothing under it. */
     public static function leaf(): self {
-        return self::oneOf(self::scalar(), self::valueObject(), self::reference());
+        return self::oneOf(self::scalar(), self::valueObject(), self::reference(), self::typeReference());
     }
 
     /** Whether it's a union of others. */
@@ -136,6 +141,7 @@ final readonly class FieldSignature
             FieldKind::Embed => 'an Embed',
             FieldKind::Reference => 'a Reference',
             FieldKind::OwningReference => 'an owned object',
+            FieldKind::TypeReference => 'a type reference',
             FieldKind::Collection => 'a Collection',
         };
 

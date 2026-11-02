@@ -371,6 +371,12 @@
                         "scalarType": null,
                         "target": null,
                         "item": null
+                    },
+                    {
+                        "kind": "type_reference",
+                        "scalarType": null,
+                        "target": null,
+                        "item": null
                     }
                 ]
             },
@@ -394,6 +400,12 @@
                         },
                         {
                             "kind": "reference",
+                            "scalarType": null,
+                            "target": null,
+                            "item": null
+                        },
+                        {
+                            "kind": "type_reference",
                             "scalarType": null,
                             "target": null,
                             "item": null
@@ -428,6 +440,12 @@
                             "scalarType": null,
                             "target": null,
                             "item": null
+                        },
+                        {
+                            "kind": "type_reference",
+                            "scalarType": null,
+                            "target": null,
+                            "item": null
                         }
                     ]
                 }
@@ -448,6 +466,12 @@
                     },
                     {
                         "kind": "reference",
+                        "scalarType": null,
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "type_reference",
                         "scalarType": null,
                         "target": null,
                         "item": null

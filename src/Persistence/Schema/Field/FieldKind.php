@@ -3,9 +3,10 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Schema\Field;
 
 /**
- * The six field kinds a FieldDescriptor can represent. Mirrors the six native
+ * The field kinds a FieldDescriptor can represent. Mirrors the native
  * field-kind attributes (#[Scalar], #[ValueObject], #[Embed], #[Reference],
- * #[OwningReference], #[Collection]) one-to-one.
+ * #[OwningReference], #[TypeReference], #[Collection]) one-to-one. What
+ * adding one takes is in the storage architecture, "Adding a field kind".
  */
 enum FieldKind: string
 {
@@ -14,5 +15,6 @@ enum FieldKind: string
     case Embed = 'embed';
     case Reference = 'reference';
     case OwningReference = 'owning_reference';
+    case TypeReference = 'type_reference';
     case Collection = 'collection';
 }

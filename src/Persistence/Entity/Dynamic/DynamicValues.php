@@ -47,6 +47,7 @@ final readonly class DynamicValues
             FieldKind::Scalar => $this->checkScalar($field, $value, $at),
             FieldKind::ValueObject => $value instanceof ($field->target()) ? null : throw new InvalidValue($at, sprintf('it holds a %s.', $field->target())),
             FieldKind::Reference => $this->checkReference($field, $value, $at),
+            FieldKind::TypeReference => $this->checkTypeReference($field, $value, $at),
             FieldKind::Embed, FieldKind::OwningReference => $this->checkEntity($field, $value, $at),
             FieldKind::Collection => $this->checkItems($field, $value, $at),
         };
@@ -98,6 +99,13 @@ final readonly class DynamicValues
         $this->checkEntity($field, $value, $at);
         if ($this->idOf($value) === null) {
             throw new InvalidValue($at, 'the entity was never saved: save it first, so it has an id to point at.');
+        }
+    }
+
+    /** A type reference's value: the identifier of its base, or of a type extending it. */
+    private function checkTypeReference(FieldDescriptor $field, mixed $value, string $at): void {
+        if (!is_string($value) || !$this->schemas->has($value) || !$this->isA($value, $field->target())) {
+            throw new InvalidValue($at, sprintf('it names %s or a type extending it.', $field->target()));
         }
     }
 

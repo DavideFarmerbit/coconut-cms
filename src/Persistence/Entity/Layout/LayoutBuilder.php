@@ -55,7 +55,7 @@ final readonly class LayoutBuilder
     /** Dispatches on the field's kind. */
     private function addField(LayoutParts $parts, FieldDescriptor $field, FieldPath $path): void {
         match ($field->kind()) {
-            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $parts->addColumn(new ValueColumn($path, ColumnNames::of($path), $field)),
+            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference, FieldKind::TypeReference => $parts->addColumn(new ValueColumn($path, ColumnNames::of($path), $field)),
             FieldKind::Embed => $this->addEmbed($parts, $field->target(), $path->embed(...)),
             FieldKind::OwningReference => $parts->addOwned(new OwnedLayout($path, null)),
             FieldKind::Collection => $this->addCollection($parts, $field->itemDescriptor(), $path),

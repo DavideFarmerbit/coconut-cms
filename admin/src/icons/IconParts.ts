@@ -3,15 +3,15 @@ import type {ValueDescription} from '../public/types/TypeDescription.ts';
 /** The frame, from multiplicity: a circle for one value, a grid for a Collection. */
 export type IconFrame = 'single' | 'collection';
 
-/** The glyph, from how the value is held: a value, an Embed, an owned object, a Reference. */
-export type IconGlyph = 'value' | 'embed' | 'owned' | 'reference';
+/** The glyph, from how the value is held: a value, an Embed, an owned object, a Reference, a type. */
+export type IconGlyph = 'value' | 'embed' | 'owned' | 'reference' | 'type';
 
 /** The color, from the value's type: each names a --cc-type-* theme token. */
 export type IconColor = 'bool' | 'int' | 'float' | 'string' | 'date' | 'enum' | 'value-object' | 'entity';
 
 /**
  * The layers a field's type icon is stacked from, each picked on its own:
- * so every combination is drawn from 2 frames, 4 glyphs, 1 badge and 8
+ * so every combination is drawn from 2 frames, 5 glyphs, 1 badge and 8
  * colors, never drawn whole.
  */
 export class IconParts {
@@ -39,6 +39,8 @@ export class IconParts {
                 return 'owned';
             case 'reference':
                 return 'reference';
+            case 'type_reference':
+                return 'type';
             default:
                 return 'value';
         }

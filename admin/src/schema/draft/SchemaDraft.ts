@@ -264,7 +264,13 @@ export class SchemaDraft {
         const retargeted = this.records.allFields()
             .filter((field) => field.now !== null && !FieldShapes.same(field.now.shape, FieldShapes.retargeted(field.now.shape, rename)))
             .map((field) => this.fieldSwap({...field, now: {...field.now!, shape: FieldShapes.retargeted(field.now!.shape, rename)}}));
-        this.commit(`Rename ${old}`, [this.typeSwap({...type, now: {...type.now, identifier}}), ...retargeted]);
+        const renamedSelf = {...type, now: {...type.now, identifier, defaults: this.pinsNaming(type.now.defaults, rename)}};
+        const repinned = this.types()
+            .filter((each) => each.id !== id && each.source === 'editor')
+            .map((each) => ({each, defaults: this.pinsNaming(each.now!.defaults, rename)}))
+            .filter(({each, defaults}) => [...defaults].some(([key, pinned]) => pinned !== each.now!.defaults.get(key)))
+            .map(({each, defaults}) => this.typeSwap({...each, now: {...each.now!, defaults}}));
+        this.commit(`Rename ${old}`, [this.typeSwap(renamedSelf), ...repinned, ...retargeted]);
     }
 
     /** Deletes the type `id` and its own fields. One extending it is moved or deleted first. */
@@ -624,6 +630,32 @@ export class SchemaDraft {
         if (taken !== undefined) {
             throw new EditRefused(`"${this.records.type(taken.now!.owner)!.now!.identifier}" already has a field "${name}".`);
         }
+    }
+
+    /**
+     * `defaults` with each one set through a type reference naming a type
+     * `rename` renames named as renamed: one type, a Collection's list of
+     * them, or one item of such a Collection. The others are kept as they are.
+     */
+    private pinsNaming(defaults: ReadonlyMap<string, PinnedDefault>, rename: (identifier: string) => string): Map<string, PinnedDefault> {
+        const renamed = new Map(defaults);
+        for (const [key, pinned] of defaults) {
+            const segments = pinned.path.segments;
+            const last = segments[segments.length - 1]!;
+            const fieldId = typeof last === 'number' ? segments[segments.length - 2] : last;
+            const shape = typeof fieldId === 'string' ? this.records.field(fieldId)?.now?.shape : undefined;
+            const names = shape?.kind === 'type_reference' || (shape?.kind === 'collection' && shape.item?.kind === 'type_reference');
+            if (!names) {
+                continue;
+            }
+
+            const value = typeof pinned.value === 'string' ? rename(pinned.value) : Array.isArray(pinned.value) ? pinned.value.map((each: unknown) => typeof each === 'string' ? rename(each) : each) : pinned.value;
+            if (JSON.stringify(value) !== JSON.stringify(pinned.value)) {
+                renamed.set(key, {path: pinned.path, value});
+            }
+        }
+
+        return renamed;
     }
 
     /**

@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Migration\Fixup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\LevelInitializer;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\MigratingValues;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\NamedTypes;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Occurrences;
 use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
@@ -13,9 +14,11 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
  * A type moved under the parent its target gives it. A level it gains holds
  * fields every existing entity should already have, so it's filled, not added:
  * following its defaults, or by the initializer. A level it loses takes its
- * values with it, unless a fixup before moves them.
+ * values with it, unless a fixup before moves them. A type reference naming
+ * it, or a type under it, whose base it no longer extends, is cleared: null,
+ * its default when required, or gone as a required item.
  */
-final readonly class Reparent implements Fixup, MovesValues
+final readonly class Reparent implements Fixup, MovesValues, ChangesTypes
 {
     public function __construct(
         public string $type,
@@ -33,8 +36,18 @@ final readonly class Reparent implements Fixup, MovesValues
         return $schemas->with($schemas->get($this->type)->withParent($parent));
     }
 
-    /** Lets the initializer fill the gained levels' fields, and only those, wherever an entity of the type or a subclass lives. */
+    /**
+     * Lets the initializer fill the gained levels' fields, and only those,
+     * wherever an entity of the type or a subclass lives; then clears what
+     * names a type no longer under its field's base.
+     */
     public function moveValues(AggregateValues $values, SchemaState $before, SchemaState $after): void {
+        $this->initialize($values, $before, $after);
+        NamedTypes::clearUnfit($values, $after);
+    }
+
+    /** Lets the initializer fill the gained levels' fields, when there's one. */
+    private function initialize(AggregateValues $values, SchemaState $before, SchemaState $after): void {
         if ($this->initializer === null) {
             return;
         }

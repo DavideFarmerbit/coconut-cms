@@ -227,6 +227,7 @@ final readonly class StoredFormEditor
             FieldKind::Scalar => ScalarValues::fromStorage($field->scalarType(), $field->enumClass(), $this->checked($field, $value, $at)),
             FieldKind::ValueObject => ($stored = $this->checked($field, $value, $at)) === null ? null : $field->target()::fromStorage($stored),
             FieldKind::Reference => $this->referenced($field, $value, $at),
+            FieldKind::TypeReference => $this->checked($field, $value, $at),
             FieldKind::Embed => $this->embedded($field->target(), $value, $at),
             FieldKind::OwningReference => $this->owned($field, $value, $at, $candidates),
             FieldKind::Collection => throw new InvalidChange($at, 'a Collection holds no Collection.'),

@@ -11,6 +11,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\TypeReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\CollectionNode;
@@ -92,7 +93,8 @@ final readonly class NativeValueReader
             $attribute instanceof Scalar => new LeafNode(ScalarValues::toStorage($attribute->type, $value)),
             $attribute instanceof ValueObject => new LeafNode($value === null ? null : StorableValues::toStorage($value)),
             $attribute instanceof Reference => new LeafNode($value === null ? null : ($this->referenceId)($value)),
-            $attribute instanceof Embed => $value === null ? null : $this->readAs(new ReflectionClass(self::declaredClassOf($property)), $value, $path->embed(...), $onOwned, $kept, $completed),
+            $attribute instanceof TypeReference => new LeafNode($value),
+            $attribute instanceof Embed =>$value === null ? null : $this->readAs(new ReflectionClass(self::declaredClassOf($property)), $value, $path->embed(...), $onOwned, $kept, $completed),
             $attribute instanceof OwningReference => $this->readOwned($value, $path, $onOwned, $kept, $completed),
             $attribute instanceof Collection => $this->readItems($attribute, $value, $path, $onOwned, $kept, $completed),
         };
@@ -118,7 +120,8 @@ final readonly class NativeValueReader
                 FieldKind::Scalar => new LeafNode(ScalarValues::toStorage($attribute->itemScalarType, $item)),
                 FieldKind::ValueObject => new LeafNode($item === null ? null : StorableValues::toStorage($item)),
                 FieldKind::Reference => new LeafNode($item === null ? null : ($this->referenceId)($item)),
-                FieldKind::Embed => $item === null ? null : $this->readAs(new ReflectionClass($attribute->itemTarget), $item, $itemPath->traverse(...), $onOwned, $kept, $completed),
+                FieldKind::TypeReference => new LeafNode($item),
+                FieldKind::Embed =>$item === null ? null : $this->readAs(new ReflectionClass($attribute->itemTarget), $item, $itemPath->traverse(...), $onOwned, $kept, $completed),
                 FieldKind::OwningReference => $this->readOwned($item, $itemPath, $onOwned, $kept, $completed),
             };
         }

@@ -12,7 +12,8 @@ export class NewValues {
     /**
      * A new value of what `value` describes. A value starts empty, or at
      * zero, or at an enum's first value; an Embed and an owned object from
-     * their target's defaults; a Reference and anything nullable at null.
+     * their target's defaults; a type reference at its base; a Reference and
+     * anything nullable at null.
      */
     public static of(catalog: TypeCatalog, value: ValueDescription): unknown {
         switch (value.kind) {
@@ -20,6 +21,8 @@ export class NewValues {
                 return NewValues.object(catalog, value.target ?? '');
             case 'owning_reference':
                 return value.nullable ? null : NewValues.object(catalog, value.target ?? '');
+            case 'type_reference':
+                return value.nullable ? null : value.target;
             case 'collection':
                 return [];
             case 'reference':

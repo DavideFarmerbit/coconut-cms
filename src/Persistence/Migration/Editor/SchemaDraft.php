@@ -262,18 +262,27 @@ final class SchemaDraft
     }
 
     /**
-     * Every owned slot's pinned class $renames renames, all at once.
+     * Every pending pin naming a class $renames renames, all at once: an
+     * owned slot's class, a type reference's type, or a Collection of type
+     * references' types.
      * @param array<string, string> $renames Each old identifier's new one.
      */
     private function pinnedClassesRenamed(array $renames): void {
         $this->defaults = array_map(function (DefaultChange $change) use ($renames): DefaultChange {
-            if (!$change->pins() || !is_string($change->value->value) || !isset($renames[$change->value->value])) {
+            if (!$change->pins()) {
                 return $change;
             }
 
             $segments = $this->walk($change->type, $change->path);
+            $field = $segments[array_key_last($segments)][3];
+            $value = $change->value->value;
+            $rename = static fn (mixed $each): mixed => is_string($each) ? $renames[$each] ?? $each : $each;
 
-            return $segments[array_key_last($segments)][3]?->kind() === FieldKind::OwningReference ? $change->pinning(new DefaultValue($renames[$change->value->value])) : $change;
+            return match (true) {
+                is_string($value) && isset($renames[$value]) && in_array($field?->kind(), [FieldKind::OwningReference, FieldKind::TypeReference], true) => $change->pinning(new DefaultValue($renames[$value])),
+                is_array($value) && $field?->kind() === FieldKind::Collection && $field->itemDescriptor()->kind() === FieldKind::TypeReference => $change->pinning(new DefaultValue(array_map($rename, $value))),
+                default => $change,
+            };
         }, $this->defaults);
     }
 
@@ -389,14 +398,6 @@ final class SchemaDraft
     }
 
     /**
-     * Each segment of $path from type $type: the segment, the join before it,
-     * the type it's a field of (null for an index, or past what doesn't
-     * resolve), and the field it resolves to. $named gives the name a segment
-     * resolves by, on the type it's a field of: what a rename makes of it.
-     * @param (callable(string, FieldName): FieldName)|null $named
-     * @return list<array{FieldName|int, ?string, ?string, ?FieldDescriptor}>
-     */
-    /**
      * What $path on type $type holds now: its field, or a Collection's item
      * for a path ending on an index. Null when it reaches nothing.
      */
@@ -406,6 +407,14 @@ final class SchemaDraft
         return $segments === [] ? null : $segments[array_key_last($segments)][3];
     }
 
+    /**
+     * Each segment of $path from type $type: the segment, the join before it,
+     * the type it's a field of (null for an index, or past what doesn't
+     * resolve), and the field it resolves to. $named gives the name a segment
+     * resolves by, on the type it's a field of: what a rename makes of it.
+     * @param (callable(string, FieldName): FieldName)|null $named
+     * @return list<array{FieldName|int, ?string, ?string, ?FieldDescriptor}>
+     */
     private function walk(string $type, FieldPath $path, ?callable $named = null): array {
         $segments = [];
         $owner = $type;

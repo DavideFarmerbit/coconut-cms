@@ -45,6 +45,9 @@ export class TypeIcon {
                 return Svg.create('path', {d: 'M8 4.25 11.75 8 8 11.75 4.25 8Z', fill: 'currentColor'});
             case 'reference':
                 return Svg.create('path', {d: 'M4.5 8h6M8.5 5.25 11.25 8 8.5 10.75', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.6, 'stroke-linecap': 'round', 'stroke-linejoin': 'round'});
+            case 'type':
+                // An outlined triangle: a hierarchy, the type named rather than an object held.
+                return Svg.create('path', {d: 'M8 4.75 11.25 10.5H4.75Z', fill: 'none', stroke: 'currentColor', 'stroke-width': 1.4, 'stroke-linejoin': 'round'});
         }
     }
 

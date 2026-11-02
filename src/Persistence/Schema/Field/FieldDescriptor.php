@@ -107,12 +107,25 @@ final readonly class FieldDescriptor
     }
 
     /**
+     * A type, as Unreal's TSubclassOf: the identifier of $base or of a type
+     * extending it, native or editor-made. Stored as that identifier, and
+     * rewritten by the migrations renaming or replacing the type it names.
+     * @param string $name The field's own name.
+     * @param string $base The type every value is, or extends.
+     * @param Nullability $nullability Whether it may hold no type.
+     * @return self
+     */
+    public static function typeReference(string $name, string $base, Nullability $nullability): self {
+        return new self(FieldKind::TypeReference, $name, target: $base, nullability: $nullability);
+    }
+
+    /**
      * A collection of items, ordered by position. Whether the collection is Owned or
      * Shared rides entirely on $itemDescriptor's own kind (owningReference() versus
      * reference()).
      * @param string $name The field's own name.
      * @param self $itemDescriptor The item's own descriptor, built from one of this
-     *        class's other five factories. Never another collection(), which would
+     *        class's other factories. Never another collection(), which would
      *        make the cardinality ambiguous.
      * @return self
      */
@@ -156,9 +169,9 @@ final readonly class FieldDescriptor
         return $this->enumBacking;
     }
 
-    /** Valid for ValueObject, Embed, Reference, and OwningReference. */
+    /** Valid for ValueObject, Embed, Reference, OwningReference and TypeReference: for a TypeReference, its base type. */
     public function target(): string {
-        $validKinds = [FieldKind::ValueObject, FieldKind::Embed, FieldKind::Reference, FieldKind::OwningReference];
+        $validKinds = [FieldKind::ValueObject, FieldKind::Embed, FieldKind::Reference, FieldKind::OwningReference, FieldKind::TypeReference];
         if (!in_array($this->kind, $validKinds, true)) {
             throw new LogicException(sprintf('target() is not valid for FieldKind::%s.', $this->kind->name));
         }
@@ -180,7 +193,7 @@ final readonly class FieldDescriptor
         return $this->itemDescriptor;
     }
 
-    /** Valid for Scalar, ValueObject, Reference and OwningReference: an Embed and a Collection are never null. */
+    /** Valid for Scalar, ValueObject, Reference, OwningReference and TypeReference: an Embed and a Collection are never null. */
     public function nullability(): Nullability {
         if ($this->nullability === null) {
             throw new LogicException(sprintf('nullability() is not valid for FieldKind::%s.', $this->kind->name));

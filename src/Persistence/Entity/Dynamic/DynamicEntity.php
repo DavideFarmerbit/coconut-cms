@@ -322,7 +322,7 @@ final class DynamicEntity implements EntityView
     /** $value, as the view's property holds it, in the form get() gives. */
     private function fromView(FieldDescriptor $field, mixed $value): mixed {
         return match ($field->kind()) {
-            FieldKind::Scalar, FieldKind::ValueObject => $value,
+            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::TypeReference => $value,
             FieldKind::Reference => $value === null ? null : $this->entities->idOf($value),
             FieldKind::Embed, FieldKind::OwningReference => $value === null ? null : $this->entities->of($value),
             FieldKind::Collection => array_map(fn (mixed $item): mixed => $this->fromView($field->itemDescriptor(), $item), array_values($value)),
@@ -334,7 +334,7 @@ final class DynamicEntity implements EntityView
         return match ($field->kind()) {
             FieldKind::Scalar => ScalarValues::fromStorage($field->scalarType(), $field->enumClass(), LeafNode::valueOf($node)),
             FieldKind::ValueObject => LeafNode::valueOf($node) === null ? null : $field->target()::fromStorage(LeafNode::valueOf($node)),
-            FieldKind::Reference => LeafNode::valueOf($node),
+            FieldKind::Reference, FieldKind::TypeReference => LeafNode::valueOf($node),
             FieldKind::Embed => $this->entities->inBag($field->target(), ObjectNode::from($node) ?? ObjectNode::empty(), null, DynamicEntities::under($this->ownedIds, $at)),
             FieldKind::OwningReference => OwnedNode::from($node) === null ? null : $this->entities->inBag(
                 OwnedNode::from($node)->identifier,

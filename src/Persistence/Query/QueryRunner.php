@@ -234,7 +234,7 @@ final class QueryRunner
         }
 
         if ($item->itself !== null) {
-            if (!in_array($itemField->kind(), [FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference], true)) {
+            if (!in_array($itemField->kind(), [FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference, FieldKind::TypeReference], true)) {
                 throw new InvalidArgumentException(sprintf('The items of "%s" aren\'t values: Item::where() names their fields.', $collectionPath));
             }
 
@@ -303,6 +303,9 @@ final class QueryRunner
                 FieldKind::Reference => is_object($value)
                     ? $this->identities->idOf($value) ?? throw new InvalidArgumentException(sprintf('the %s it\'s compared with was never saved.', $value::class))
                     : throw new InvalidArgumentException(sprintf('a Reference is compared with an entity, not %s.', get_debug_type($value))),
+                FieldKind::TypeReference => is_string($value)
+                    ? $value
+                    : throw new InvalidArgumentException(sprintf('a type reference is compared with a type\'s identifier, not %s.', get_debug_type($value))),
                 default => throw new InvalidArgumentException('it has no value of its own to compare.'),
             };
         } catch (InvalidArgumentException $invalid) {

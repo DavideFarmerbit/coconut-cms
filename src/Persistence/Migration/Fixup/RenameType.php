@@ -11,7 +11,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
  * target gives the renamed type. RenameTypes with one rename: to swap two
  * types' names, or rename in a loop, give RenameTypes all of them at once.
  */
-final readonly class RenameType implements Fixup, MovesValues
+final readonly class RenameType implements Fixup, MovesValues, ChangesTypes
 {
     /** The same rename, as RenameTypes does it. */
     private RenameTypes $all;

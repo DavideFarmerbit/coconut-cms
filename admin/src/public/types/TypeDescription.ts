@@ -1,5 +1,5 @@
 /** A field's kind, as coconut-cms:types.get names it. */
-export type ValueKind = 'scalar' | 'value_object' | 'embed' | 'reference' | 'owning_reference' | 'collection';
+export type ValueKind = 'scalar' | 'value_object' | 'embed' | 'reference' | 'owning_reference' | 'type_reference' | 'collection';
 
 /** What a field holds, as coconut-cms:types.get describes it. */
 export interface ValueDescription {

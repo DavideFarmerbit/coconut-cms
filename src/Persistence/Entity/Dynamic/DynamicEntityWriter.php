@@ -224,7 +224,7 @@ final class DynamicEntityWriter
         return match ($field->kind()) {
             FieldKind::Scalar => new LeafNode(ScalarValues::toStorage($field->scalarType(), $value)),
             FieldKind::ValueObject => new LeafNode($value === null ? null : StorableValues::toStorage($value)),
-            FieldKind::Reference => new LeafNode($value),
+            FieldKind::Reference, FieldKind::TypeReference => new LeafNode($value),
             FieldKind::Embed => $this->treeOf($value, $path, $embedJoin, $unseen),
             FieldKind::OwningReference => $value === null ? null : $this->ownedNodeOf($value, $path, $unseen),
             FieldKind::Collection => new CollectionNode(array_map(

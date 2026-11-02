@@ -147,7 +147,7 @@ final readonly class EntitySnapshot implements EntityView
         return match ($field->kind()) {
             FieldKind::Scalar => ScalarValues::fromStorage($field->scalarType(), $field->enumClass(), $stored),
             FieldKind::ValueObject => $stored === null ? null : $field->target()::fromStorage($stored),
-            FieldKind::Reference => $stored,
+            FieldKind::Reference, FieldKind::TypeReference => $stored,
             FieldKind::Embed => new self($this->schemas, $this->values, $field->target(), $at, $isItem ? FieldPath::TRAVERSE : FieldPath::EMBED),
             FieldKind::OwningReference => $stored === null ? null : new self($this->schemas, $this->values, $stored, $at, FieldPath::TRAVERSE),
             FieldKind::Collection => array_map(

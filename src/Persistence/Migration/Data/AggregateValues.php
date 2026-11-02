@@ -266,6 +266,33 @@ final class AggregateValues
      * Replaces whatever is at $path and under it with $value: for a default
      * instance, the path stays its type's own if it was.
      */
+    /**
+     * Removes the Collection at $path's items holding null, closing the gaps:
+     * what's left keeps its order. A Collection following its default is
+     * left alone: its items are the default's.
+     */
+    public function removeNullItems(FieldPath $path): void {
+        $mark = $this->markOf($path);
+        if ($mark->isDefault() || !$this->has($path)) {
+            return;
+        }
+
+        $count = (int) $this->get($path);
+        $kept = 0;
+        for ($index = 0; $index < $count; $index++) {
+            $item = $path->traverse($index);
+            if ($this->get($item) === null) {
+                $this->removeAt($item);
+                continue;
+            }
+
+            $this->move($item, $path->traverse($kept));
+            $kept++;
+        }
+
+        $this->set($path, $kept, $mark);
+    }
+
     public function replaceAt(FieldPath $path, mixed $value, ValueMark $mark): void {
         $wasOwn = isset($this->own[(string) $path]);
         $this->removeAt($path);

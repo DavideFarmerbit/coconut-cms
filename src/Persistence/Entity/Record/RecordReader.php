@@ -97,7 +97,7 @@ final readonly class RecordReader
      */
     private function value(FieldDescriptor $field, ?ValueNode $node, FieldPath $at, LoadedEntity $loaded, array $targets): mixed {
         return match ($field->kind()) {
-            FieldKind::Scalar, FieldKind::ValueObject => LeafNode::valueOf($node),
+            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::TypeReference => LeafNode::valueOf($node),
             FieldKind::Reference => $this->reference(LeafNode::valueOf($node), $targets),
             FieldKind::Embed => $node === null ? null : $this->record($field->target(), null, ObjectNode::from($node), $at, FieldPath::EMBED, $loaded, $targets),
             FieldKind::OwningReference => $this->owned(OwnedNode::from($node), $at, $loaded, $targets),

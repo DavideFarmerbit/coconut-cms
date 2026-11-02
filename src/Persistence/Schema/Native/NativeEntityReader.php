@@ -21,6 +21,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReferenc
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Setter;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\TypeReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\BlueprintDefaults;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
@@ -211,7 +212,8 @@ final class NativeEntityReader
             $attribute instanceof Embed => FieldDescriptor::embed($name, self::resolveEntityTarget(self::declaredClassOf(self::assertNotNullable($property, 'an Embed is never null')), $property)),
             $attribute instanceof Reference => FieldDescriptor::reference($name, self::resolveEntityTarget(self::declaredClassOf(self::assertNullable($property)), $property)),
             $attribute instanceof OwningReference => FieldDescriptor::owningReference($name, self::resolveEntityTarget(self::declaredClassOf($property), $property), self::nullabilityOf($property)),
-            $attribute instanceof Collection => FieldDescriptor::collection($name, self::resolveCollectionItemDescriptor($name, $attribute, self::assertNotNullable($property, 'a Collection is never null'))),
+            $attribute instanceof TypeReference => FieldDescriptor::typeReference($name, self::resolveEntityTarget($attribute->base, self::assertString($property, 'a type reference holds a type\'s identifier')), self::nullabilityOf($property)),
+            $attribute instanceof Collection =>FieldDescriptor::collection($name, self::resolveCollectionItemDescriptor($name, $attribute, self::assertNotNullable($property, 'a Collection is never null'))),
         };
     }
 
@@ -241,6 +243,22 @@ final class NativeEntityReader
                 '%s::$%s is a Reference, so it must be declared nullable: deleting its target nulls it.',
                 $property->getDeclaringClass()->getName(),
                 $property->getName(),
+            ));
+        }
+
+        return $property;
+    }
+
+    /** Returns $property, once it's declared as a string, nullable or not, $because. */
+    private static function assertString(ReflectionProperty $property, string $because): ReflectionProperty {
+        $type = $property->getType();
+        if (!$type instanceof ReflectionNamedType || $type->getName() !== 'string') {
+            throw new InvalidArgumentException(sprintf(
+                '%s::$%s must be declared as a string: %s; found "%s".',
+                $property->getDeclaringClass()->getName(),
+                $property->getName(),
+                $because,
+                $type ?? 'no type',
             ));
         }
 
@@ -403,6 +421,7 @@ final class NativeEntityReader
             FieldKind::Embed => FieldDescriptor::embed($name, self::resolveEntityItemTarget(self::assertNoItemNullability($attribute, $property, 'an Embed item is never null'), $property)),
             FieldKind::Reference => FieldDescriptor::reference($name, self::resolveEntityItemTarget(self::assertNoItemNullability($attribute, $property, 'a Reference item is always Nullable'), $property)),
             FieldKind::OwningReference => FieldDescriptor::owningReference($name, self::resolveEntityItemTarget($attribute, $property), self::resolveItemNullability($attribute, $property)),
+            FieldKind::TypeReference => FieldDescriptor::typeReference($name, self::resolveEntityItemTarget($attribute, $property), self::resolveItemNullability($attribute, $property)),
             FieldKind::Collection => throw new InvalidArgumentException('A Collection item cannot itself be a Collection.'),
         };
     }

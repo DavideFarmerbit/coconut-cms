@@ -103,6 +103,27 @@ describe('SchemaDraft', () => {
         expect(() => loaded.renameType(id('shop:maker'), 'shop:yacht')).toThrow('save the delete first');
     });
 
+    it('renames what a type reference names with the type: its base, and the defaults naming it', () => {
+        const kind = {kind: 'type_reference', nullable: true, target: 'shop:boat'} as const;
+        const kinds = {kind: 'collection', nullable: false, item: {...kind, nullable: false}} as const;
+        const loaded = SchemaDraft.load({revision: 1, types: [
+            type('shop:boat', {}),
+            type('shop:yacht', {parent: 'shop:boat'}),
+            type('shop:harbor', {fields: {docks: kind, allows: kinds}, defaults: {docks: 'shop:yacht', allows: 2, 'allows.0': 'shop:boat', 'allows.1': 'shop:yacht'}}),
+        ]});
+        const harbor = loaded.typeNamed('shop:harbor')!.id;
+
+        loaded.renameType(loaded.typeNamed('shop:yacht')!.id, 'shop:ketch');
+        loaded.renameType(loaded.typeNamed('shop:boat')!.id, 'shop:ship');
+
+        expect(defaultsOf(loaded, 'shop:harbor')).toEqual({docks: 'shop:ketch', allows: ['shop:ship', 'shop:ketch']});
+        expect(loaded.fieldNamed(harbor, 'docks')!.now!.shape.target).toBe('shop:ship');
+        expect(loaded.fieldNamed(harbor, 'allows')!.now!.shape.item?.target).toBe('shop:ship');
+        loaded.history.undo();
+        loaded.history.undo();
+        expect(defaultsOf(loaded, 'shop:harbor')).toEqual({docks: 'shop:yacht', allows: ['shop:boat', 'shop:yacht']});
+    });
+
     it('holds a stored Collection\'s default as one list', () => {
         const tags = {kind: 'collection', nullable: false, item: text} as const;
         const loaded = SchemaDraft.load({revision: 1, types: [type('shop:flag', {fields: {tags}, defaults: {tags: 2, 'tags.0': 'sea', 'tags.1': 'night'}})]});

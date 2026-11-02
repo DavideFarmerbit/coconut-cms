@@ -43,7 +43,7 @@ final readonly class ValueDescription
                 $field->enumClass() === null ? null : array_map(static fn (BackedEnum $case): string|int => $case->value, $field->enumClass()::cases()),
             ),
             FieldKind::ValueObject => new self(FieldKind::ValueObject, $field->allowsNull(), target: (string) NativeIdentifiers::storedAs($field->target())),
-            FieldKind::Embed, FieldKind::Reference, FieldKind::OwningReference => new self($field->kind(), $field->allowsNull(), target: $field->target()),
+            FieldKind::Embed, FieldKind::Reference, FieldKind::OwningReference, FieldKind::TypeReference => new self($field->kind(), $field->allowsNull(), target: $field->target()),
             FieldKind::Collection => new self(FieldKind::Collection, false, item: self::of($field->itemDescriptor())),
         };
     }

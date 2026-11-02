@@ -63,7 +63,7 @@ final readonly class Overrides
     /** Dispatches on the field's kind. */
     private function keepValue(Subject $subject, FieldDescriptor $field, ?ValueNode $value, FieldPath $path, FieldValues $dense, FieldValuesBuilder $kept): void {
         match ($field->kind()) {
-            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $this->keepIfDiffers($subject, $path, LeafNode::valueOf($value), $kept),
+            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference, FieldKind::TypeReference => $this->keepIfDiffers($subject, $path, LeafNode::valueOf($value), $kept),
             FieldKind::Embed => $this->keepValues($subject, $this->schemas->hierarchyFieldsOf($field->target()), ObjectNode::from($value) ?? ObjectNode::empty(), $path->embed(...), $dense, $kept),
             FieldKind::OwningReference => $this->keepOwned($subject, OwnedNode::from($value), $path, $dense, $kept),
             FieldKind::Collection => $this->keepCollection($subject, $field->itemDescriptor(), CollectionNode::from($value)?->items ?? [], $path, $dense, $kept),

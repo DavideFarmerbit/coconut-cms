@@ -177,7 +177,7 @@ final readonly class EntitySchemaCodec
                 'indexable' => $field->indexable(),
                 'nullability' => $field->nullability()->value,
             ],
-            FieldKind::OwningReference => ['kind' => $field->kind()->value, 'name' => $field->name(), 'target' => $field->target(), 'nullability' => $field->nullability()->value],
+            FieldKind::OwningReference, FieldKind::TypeReference => ['kind' => $field->kind()->value, 'name' => $field->name(), 'target' => $field->target(), 'nullability' => $field->nullability()->value],
             FieldKind::Collection => ['kind' => $field->kind()->value, 'name' => $field->name(), 'item' => $this->encodeDescriptor($field->itemDescriptor())],
             FieldKind::Embed, FieldKind::Reference => ['kind' => $field->kind()->value, 'name' => $field->name(), 'target' => $field->target()],
         };
@@ -202,6 +202,7 @@ final readonly class EntitySchemaCodec
             FieldKind::Embed => FieldDescriptor::embed($field['name'], $field['target']),
             FieldKind::Reference => FieldDescriptor::reference($field['name'], $field['target']),
             FieldKind::OwningReference => FieldDescriptor::owningReference($field['name'], $field['target'], Nullability::from($field['nullability'])),
+            FieldKind::TypeReference => FieldDescriptor::typeReference($field['name'], $field['target'], Nullability::from($field['nullability'])),
             FieldKind::Collection => FieldDescriptor::collection($field['name'], $this->decodeDescriptor($field['item'])),
         };
     }

@@ -10,6 +10,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Collection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\TypeReference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
@@ -122,6 +123,7 @@ final class NativeObjectBuilder
             $attribute instanceof Scalar => ScalarValues::fromStorage($attribute->type, self::declaredClassOf($property), LeafNode::valueOf($node)),
             $attribute instanceof ValueObject => self::valueObjectOf(self::declaredClassOf($property), LeafNode::valueOf($node)),
             $attribute instanceof Reference => $this->referenceOf(self::declaredClassOf($property), LeafNode::valueOf($node)),
+            $attribute instanceof TypeReference => LeafNode::valueOf($node),
             $attribute instanceof Embed => $this->buildAs(new ReflectionClass(self::declaredClassOf($property)), ObjectNode::from($node) ?? ObjectNode::empty(), null, $path->embed(...), $onOwned, $onHidden, $known),
             $attribute instanceof OwningReference => $this->ownedOf(OwnedNode::from($node), $path, $onOwned, $onHidden, $known),
             $attribute instanceof Collection => $this->itemsOf($attribute, CollectionNode::from($node)?->items ?? [], $path, $onOwned, $onHidden, $known),
@@ -140,6 +142,7 @@ final class NativeObjectBuilder
                 FieldKind::Scalar => ScalarValues::fromStorage($attribute->itemScalarType, $attribute->itemEnumClass, LeafNode::valueOf($item)),
                 FieldKind::ValueObject => self::valueObjectOf($attribute->itemTarget, LeafNode::valueOf($item)),
                 FieldKind::Reference => $this->referenceOf($attribute->itemTarget, LeafNode::valueOf($item)),
+                FieldKind::TypeReference => LeafNode::valueOf($item),
                 FieldKind::Embed => $this->buildAs(new ReflectionClass($attribute->itemTarget), ObjectNode::from($item) ?? ObjectNode::empty(), null, $itemPath->traverse(...), $onOwned, $onHidden, $known),
                 FieldKind::OwningReference => $this->ownedOf(OwnedNode::from($item), $itemPath, $onOwned, $onHidden, $known),
             };

@@ -139,7 +139,8 @@ final readonly class StoredForm
             FieldKind::Scalar => $this->checkedScalar($field, $value, $path),
             FieldKind::ValueObject => $this->checkedValueObject($field, $value, $path),
             FieldKind::Reference => is_string($value) ? $value : throw self::invalid($path, 'an entity id', $value),
-            FieldKind::OwningReference => is_string($value) && $this->isOrExtends($value, $field->target())
+            // An owned object's stored value is its type, as a type reference's is.
+            FieldKind::OwningReference, FieldKind::TypeReference => is_string($value) && $this->isOrExtends($value, $field->target())
                 ? $value
                 : throw self::invalid($path, sprintf('the identifier of "%s" or of a type extending it', $field->target()), $value),
             FieldKind::Collection => is_int($value) && $value >= 0 ? $value : throw self::invalid($path, 'an item count', $value),

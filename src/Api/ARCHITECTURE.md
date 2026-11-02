@@ -176,8 +176,8 @@ gives one, refusing a type it may not read. A type reads as:
 - A field the caller may not read is still listed, with `read` false: its
   name isn't secret, its values are.
 - An enum scalar lists its values; an Embed, a Reference or an owned object
-  its target type; a value object its registered identifier, never its
-  class.
+  its target type; a type reference (`type_reference`) its base type; a
+  value object its registered identifier, never its class.
 - `defaults` gives what a new entity of the type holds, inherited fields
   included, in the form `entities.get` gives values, with no ids: what an
   editor starts a new object or item from. A field the caller may not read
@@ -201,6 +201,7 @@ same rules as a native load:
 An entity reads as its type, its id, and its values by field:
 
 - a scalar, an enum or a value object in stored form, the form JSON holds;
+- a type reference as the identifier of the type it names, or null;
 - an Embed, or an owned object, as a nested `{type, id, values}`, an
   Embed's id null;
 - a Reference as `{type, id}`, so the admin can open its target, or null

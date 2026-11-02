@@ -109,7 +109,7 @@ final class FieldValueResolver
     /** Dispatches on the field's kind. */
     private function nodeOf(Subject $subject, FieldDescriptor $field, FieldPath $path): ?ValueNode {
         return match ($field->kind()) {
-            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => new LeafNode($this->resolve($subject, $path)),
+            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference, FieldKind::TypeReference => new LeafNode($this->resolve($subject, $path)),
             FieldKind::Embed => $this->treeOf($subject, $this->schemas->hierarchyFieldsOf($field->target()), $path->embed(...)),
             FieldKind::OwningReference => $this->ownedNodeOf($subject, $path),
             FieldKind::Collection => $this->collectionNodeOf($subject, $field->itemDescriptor(), $path),
@@ -147,7 +147,7 @@ final class FieldValueResolver
         $key = FieldPath::of($head);
 
         return match ($field->kind()) {
-            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $path->tail() === null
+            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference, FieldKind::TypeReference => $path->tail() === null
                 ? $this->firstValue($sources, $key, $excluded, $identifier, $path)
                 : throw $this->invalidPath($identifier, $path, sprintf('"%s" has no fields of its own', $head)),
             FieldKind::Embed => $this->resolveThroughEmbed($sources, $key, $field->target(), $this->tailAfter($identifier, $path, FieldPath::EMBED), $excluded),

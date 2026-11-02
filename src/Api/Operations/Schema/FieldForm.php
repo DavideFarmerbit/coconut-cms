@@ -50,6 +50,7 @@ final readonly class FieldForm
                 FieldKind::Embed => FieldDescriptor::embed($name, Json::string($data, 'target', $path)),
                 FieldKind::Reference => FieldDescriptor::reference($name, Json::string($data, 'target', $path)),
                 FieldKind::OwningReference => FieldDescriptor::owningReference($name, Json::string($data, 'target', $path), $nullability),
+                FieldKind::TypeReference => FieldDescriptor::typeReference($name, Json::string($data, 'target', $path), $nullability),
                 FieldKind::Collection => FieldDescriptor::collection($name, $this->read($data['item'] ?? throw InvalidInput::at("$path.item", 'Missing: what the Collection holds.'), "$path.item", $name)),
             };
         } catch (InvalidArgumentException|LogicException $refused) {
@@ -103,7 +104,7 @@ final readonly class FieldForm
                 ? ['scalarType' => $field->scalarType()->value]
                 : ['scalarType' => $field->scalarType()->value, 'enum' => (string) $this->enums->identifierOf($field->enumClass())],
             FieldKind::ValueObject => ['target' => (string) $this->valueObjects->identifierOf($field->target())],
-            FieldKind::Embed, FieldKind::Reference, FieldKind::OwningReference => ['target' => $field->target()],
+            FieldKind::Embed, FieldKind::Reference, FieldKind::OwningReference, FieldKind::TypeReference => ['target' => $field->target()],
             FieldKind::Collection => ['item' => $this->write($field->itemDescriptor(), false)],
         };
     }

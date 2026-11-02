@@ -32,7 +32,7 @@ export class ValueWords {
     public static targetOf(value: ValueDescription): string | null {
         const held = value.kind === 'collection' && value.item !== null ? value.item : value;
 
-        return held.kind === 'embed' || held.kind === 'reference' || held.kind === 'owning_reference' ? held.target : null;
+        return held.kind === 'embed' || held.kind === 'reference' || held.kind === 'owning_reference' || held.kind === 'type_reference' ? held.target : null;
     }
 
     /** Everything about it, in a sentence: what a tooltip says. */
@@ -60,6 +60,8 @@ export class ValueWords {
                 return `${plural ? '' : 'an '}owned ${value.target}${s} or subtypes, saved and deleted with the entity`;
             case 'reference':
                 return `${plural ? 'references' : 'a reference'} to ${plural ? '' : 'a '}${value.target}${s} or subtypes, standing on their own`;
+            case 'type_reference':
+                return `${plural ? '' : 'a '}type${s}: ${value.target} or a type extending it`;
             default:
                 return '';
         }

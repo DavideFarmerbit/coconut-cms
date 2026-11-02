@@ -47,7 +47,7 @@ final readonly class ValueFlattener
     /** Dispatches on the field's kind. */
     private function flattenValue(FieldDescriptor $field, ?ValueNode $value, FieldPath $path, FieldValuesBuilder $valuesByPath): void {
         match ($field->kind()) {
-            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference => $valuesByPath->set($path, LeafNode::valueOf($value)),
+            FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference, FieldKind::TypeReference => $valuesByPath->set($path, LeafNode::valueOf($value)),
             FieldKind::Embed => $this->flattenValues($this->schemas->hierarchyFieldsOf($field->target()), ObjectNode::from($value) ?? ObjectNode::empty(), $path->embed(...), $valuesByPath),
             FieldKind::OwningReference => $this->flattenOwned($field, OwnedNode::from($value), $path, $valuesByPath),
             FieldKind::Collection => $this->flattenCollection($field->itemDescriptor(), CollectionNode::from($value)?->items ?? [], $path, $valuesByPath),

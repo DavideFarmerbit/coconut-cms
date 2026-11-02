@@ -16,6 +16,7 @@ export class FieldSignature {
         embed: 'an Embed',
         reference: 'a Reference',
         owning_reference: 'an owned object',
+        type_reference: 'a type reference',
         collection: 'a Collection',
     };
 

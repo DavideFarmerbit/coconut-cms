@@ -691,6 +691,9 @@ item added comes back from the session as a change of shape too.
   - a value: a text box for a String, a number box for an Int or a Float,
     a checkbox for a Bool, a date box for a Date, a dropdown for an Enum,
     its stored text for a value object;
+  - a type reference: a dropdown of its base and every type extending it,
+    as the catalog has them, with "None" when it may be empty. A type it
+    holds that the catalog doesn't show stays a choice;
   - an Embed: a collapsible group of its fields' properties, by the same
     rules, like a struct;
   - an owned object: shown as an edit-inline instanced subobject. Its
@@ -859,7 +862,8 @@ independent layers, after Unreal's pins, so no combination is drawn whole:
 - **glyph**, from how the value is held, in the frame's center: a dot for a
   value, a square for an Embed (outlined in a grid, where a filled one reads
   as a cell), a diamond for an owned object (UML's composition), an arrow
-  for a Reference;
+  for a Reference, an outlined triangle (a hierarchy) for a type reference,
+  which names a type and holds nothing of it;
 - **badge**, a slashed circle in the corner, when the value, or a
   Collection's item, may be empty;
 - **color**, from the value's type, drawn in `currentColor` set to a theme

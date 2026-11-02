@@ -6,6 +6,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Captured;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldInitializer;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\NamedTypes;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\OccurrenceKind;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Occurrences;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Values;
@@ -29,13 +30,15 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
  * default, or an initializer. A field both have, but differently, is declared
  * like a retype, with a converter or a reset; one left undeclared is an
  * InvalidFixup. Every subtype is reparented onto $with the same way, and every
- * field targeting the old type, Embeds included, targets $with.
+ * field targeting the old type, Embeds included, targets $with. A type
+ * reference naming it names $with, and is cleared when $with doesn't fit its
+ * base: null, its default when required, or gone as a required item.
  *
  * A value holding the old type where only an ancestor of it is declared must
  * still fit once it's a $with: the checks before writing fail the migration
  * naming the entity otherwise.
  */
-final readonly class ReplaceType implements Fixup, MovesValues
+final readonly class ReplaceType implements Fixup, MovesValues, ChangesTypes
 {
     /**
      * @param array<string, FieldInitializer> $initializers By field name: a
@@ -160,6 +163,14 @@ final readonly class ReplaceType implements Fixup, MovesValues
      * makes each entity of the old type an entity of $with.
      */
     public function moveValues(AggregateValues $values, SchemaState $before, SchemaState $after): void {
+        // What names the type names its replacement, read while every object has its old type.
+        NamedTypes::rename($values, $before, [$this->type => $this->with]);
+        $this->replace($values, $before, $after);
+        NamedTypes::clearUnfit($values, $after);
+    }
+
+    /** Moves every object of the type, or extending it, to what the replacing type holds. */
+    private function replace(AggregateValues $values, SchemaState $before, SchemaState $after): void {
         foreach (Occurrences::in($values, $before) as $occurrence) {
             if (!$before->isA($occurrence->identifier, $this->type)) {
                 continue;
