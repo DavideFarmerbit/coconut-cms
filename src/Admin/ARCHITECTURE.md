@@ -805,9 +805,10 @@ admin's job:
   field itself, with the same rules as the server.
 - **The admin writes the operations.** From the objects, in an order where
   each finds what it names, the way a person would write them on the
-  command line: a rename before what uses the new name, a swap of two names
-  through a temporary one. A thing created then deleted sends nothing.
-  Defaults set earlier follow later renames, at any depth of their path.
+  command line: a rename before what uses the new name, every rename of one
+  scope in one mapping, so a swap needs no other name. A thing created
+  then deleted sends nothing. Defaults set earlier follow later renames, at
+  any depth of their path.
 - **"Save all" is one save.** Saving every open type at sign-out sends all
   their operations in one save: saves sent in a row go stale after the
   first.
@@ -833,18 +834,59 @@ loaded from `schema.get`, shared by every type tab, with one history:
 - A type's own defaults are held by path, each path the field objects and
   item indexes it goes through: renaming a field anywhere along it needs
   nothing rewritten. A path is written with the names its fields end with.
+  A Collection of plain items holds its default as one list, as an edit
+  sets it; stored, it's a count and an item per index, folded at load.
 - Each edit replaces the objects it changes, whole, and keeps the ones it
   replaced: undoing puts them back. Every edit is checked as the server
   would check it, and one it would refuse throws `EditRefused`, changing
   nothing: a name taken or malformed, a native type touched, a type
-  extending its own subtype, a default missing or not a list.
+  extending its own subtype, a default missing or not a list. A type can't
+  take the name of one the draft deletes: the save deletes it only after
+  the renames when something leaves it first.
 - Removing a field drops every default set through it, on any type, and
   every unique group over it. Retyping one drops its rules and every
   default through it. Moving one down drops the defaults set through it by
-  the types no longer holding it.
+  the types no longer holding it. Moving a type does the same for the
+  fields it and its subtypes no longer inherit. Renaming a type re-points
+  every field naming it.
+
+`DraftWriter` writes a draft as one save's operations: what its editor-made
+objects became, whatever the edits that got them there. It compares each
+object's `was` with its `now`, and writes in phases, each making the next
+possible:
+
+1. Clear what a later step would trip on. Cross-field rules are cleared
+   when the type's own fields change, since the server checks every rule
+   after each operation. A unique group going away is removed.
+2. Free names: removed fields, then deleted types, subtypes first.
+3. Rename: every type in one `renameTypes`, then each type's fields in one
+   `renameFields`. Swaps and loops need nothing else.
+4. Create types, parents first.
+5. Retype fields. A change of nullability only is `makeOptional` or
+   `makeRequired`: no values convert.
+6. Move fields along the chain they're on, reparent types parents first
+   along the final tree, then move the fields that needed it. A deleted
+   type that a field leaves, or a subtype of which stays, is deleted here,
+   after them.
+7. Add fields.
+8. Set what isn't what the server holds after the steps before: field rules
+   (a retype cleared them), permissions, cross-field rules, unique groups.
+9. Set each default that changed, or goes through a field retyped or moved,
+   unless an operation gave it. Inherit each one gone that the type still
+   reaches.
+
+Names are the ones each operation finds when it runs: stored ones before
+the renames, final ones after. What it can't write yet is a `SaveProblem`
+on its type or field: a retype with no conversion chosen, a field needing
+a default, a move between types on no chain before or after the reparents.
+A save is sent only with none.
+
+The order can't settle every case. A field renamed onto a name its type
+inherits now, but won't once it moves, is refused by the server: the
+renames run before the reparents. The preview shows the refusal.
 
 Not built yet: replacing a type, copying a field's values into another,
-and the writer turning a draft into a save's operations.
+and checking that a chosen converter or initializer still fits.
 
 What fits a field is the admin's to work out. `SchemaListings`
 (`admin/src/schema/`) loads `schema.conversions` and `schema.validators`

@@ -29,6 +29,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\ContentRefused;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CreateType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefault;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MakeOptional;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\Reparent;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
@@ -238,6 +239,20 @@ final class EditorSaveTest extends DynamicTestCase
                 self::assertStringContainsString($message, $refused->getMessage());
             }
         }
+    }
+
+    public function testAFieldMadeOptionalKeepsItsValuesAndThenHoldsNull(): void {
+        $yacht = $this->store('dy:yacht', ['cabins' => 5]);
+
+        $report = $this->save(new MakeOptional('dy:yacht', 'cabins'));
+
+        self::assertSame([], $report->fixups);
+        $session = $this->session();
+        $loaded = $session->loadDynamic($yacht);
+        self::assertSame(5, $loaded->get('cabins'));
+        $loaded->set('cabins', null);
+        $session->save($loaded);
+        self::assertNull($this->session()->loadDynamic($yacht)->get('cabins'));
     }
 
     public function testANumberIsRetypedAndRounded(): void {

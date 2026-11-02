@@ -45,6 +45,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\SchemaCompiler;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\StoredBlueprintReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaStore;
@@ -610,15 +611,15 @@ final readonly class Migrator
             $own[$change->type] = $change->applyTo($own[$change->type]);
         }
 
-        // Rules and permissions are no difference, so no fixup carries them:
-        // an editor save's are the draft's.
+        // Rules, permissions and a field made nullable are no difference, so
+        // no fixup carries them: an editor save's are the draft's.
         $targets = $draft?->targets() ?? [];
         $blueprints = [];
         foreach ($own as $identifier => $values) {
             $schema = $plan->schemas->get($identifier);
             $target = $targets[$identifier] ?? null;
             if ($target !== null) {
-                $schema = $schema
+                $schema = self::widened($schema, $target)
                     ->withFieldValidators($target->fieldValidators)
                     ->withFieldPermissions($target->fieldPermissions)
                     ->withPrototypeValidators($target->prototypeValidators)
@@ -785,6 +786,26 @@ final readonly class Migrator
     }
 
     /** @param list<StoredSchema> $stored */
+    /**
+     * $schema with each field the draft's $target made nullable taken from
+     * it: widening is no difference, so no fixup gave it to $schema.
+     */
+    private static function widened(EntitySchema $schema, EntitySchema $target): EntitySchema {
+        $fields = $schema->fields;
+        foreach ($schema->fields as $name => $field) {
+            if (!$target->fields->has($name)) {
+                continue;
+            }
+
+            $wanted = $target->fields->get($name);
+            if ($field->ownOrItemNullability() === Nullability::NotNullable && $wanted->ownOrItemNullability() === Nullability::Nullable && $field->differsOnlyInNullability($wanted)) {
+                $fields = $fields->with($name, $wanted);
+            }
+        }
+
+        return $fields === $schema->fields ? $schema : $schema->withFields($fields);
+    }
+
     private static function anyFingerprintChanged(array $stored, CompiledBatch $batch): bool {
         $fingerprints = [];
         foreach ($stored as $each) {

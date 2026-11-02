@@ -18,6 +18,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CopyValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CreateType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefault;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MakeOptional;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MakeRequired;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
@@ -91,7 +92,7 @@ final readonly class OperationForm
             'reparent' => ['type', 'parent', 'initializer'],
             'replaceType' => ['type', 'with', 'initializers', 'converters', 'resets'],
             'addField' => ['type', 'field', 'default', 'initializer'],
-            'removeField', 'makeRequired' => ['type', 'field'],
+            'removeField', 'makeRequired', 'makeOptional' => ['type', 'field'],
             'moveField' => ['type', 'field', 'to', 'default', 'initializer'],
             'copyValues' => ['type', 'from', 'to'],
             'addUniqueGroup', 'removeUniqueGroup' => ['type', 'fields'],
@@ -102,7 +103,7 @@ final readonly class OperationForm
             'setPrototypeRules' => ['type', 'rules'],
             'setFieldPermission' => ['type', 'field', 'read', 'write'],
             'setTypePermission' => ['type', 'read', 'create', 'update', 'delete'],
-            default => throw InvalidInput::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, renameTypes, renameFields, deleteType, reparent, replaceType, addField, removeField, renameField, moveField, copyValues, makeRequired, retypeField, setDefault, inheritDefault, addUniqueGroup, removeUniqueGroup, setFieldRules, setPrototypeRules, setFieldPermission, setTypePermission.', $op)),
+            default => throw InvalidInput::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, renameTypes, renameFields, deleteType, reparent, replaceType, addField, removeField, renameField, moveField, copyValues, makeRequired, makeOptional, retypeField, setDefault, inheritDefault, addUniqueGroup, removeUniqueGroup, setFieldRules, setPrototypeRules, setFieldPermission, setTypePermission.', $op)),
         };
         Json::onlyKeys($data, ['op', ...$keys], $path);
         $string = static fn (string $key): string => Json::string($data, $key, $path);
@@ -157,6 +158,7 @@ final readonly class OperationForm
                 isset($data['initializer']) ? $this->initializer($data['initializer'], "$path.initializer") : null,
             ),
             'makeRequired' => new MakeRequired($string('type'), $string('field')),
+            'makeOptional' => new MakeOptional($string('type'), $string('field')),
             'retypeField' => new RetypeField(
                 $string('type'),
                 $this->fields->read($data['field'] ?? null, "$path.field"),
@@ -337,6 +339,7 @@ final readonly class OperationForm
                 + self::defaultForm('default', $operation->default)
                 + ($operation->initializer === null ? [] : ['initializer' => $this->conversionForm($operation->initializer)]),
             $operation instanceof MakeRequired => ['op' => 'makeRequired', 'type' => $operation->type, 'field' => (string) $operation->field],
+            $operation instanceof MakeOptional => ['op' => 'makeOptional', 'type' => $operation->type, 'field' => (string) $operation->field],
             $operation instanceof RetypeField => ['op' => 'retypeField', 'type' => $operation->type, 'field' => $this->fields->write($operation->field)]
                 + ($operation->converter === null ? [] : ['converter' => $this->conversionForm($operation->converter)])
                 + self::defaultForm('default', $operation->default),

@@ -1599,6 +1599,7 @@ few real entries, since the content is right there.
 | Move a field up or down the chain | `MoveField` | Moving up: what the entries gaining it get, as for adding. |
 | Change a field's kind or type | `RetypeField` | A converter that fits, or a reset. A built-in one is selected when it exists. |
 | Make a field required | `MakeNotNullable` | Empty entries: the default, or cancel. |
+| Make a field optional | None | Nothing: every stored value stays valid. |
 | Rename a type | `RenameType` | Nothing. |
 | Replace a type | `ReplaceType` | The type replacing it, then initializers and converters field by field. |
 | Delete a type | `DropType` | Nothing; it confirms. |
@@ -1613,7 +1614,8 @@ operation in order. Each gives a change to the definitions and the fixups
 moving the data there: "add a field" carries its descriptor, its default
 and what existing entries get, and gives `AddField`. An operation moving no
 data gives no fixup: creating a type, setting or inheriting a default,
-changing a permission. So definitions and fixups come from one source, and
+changing a permission, making a field optional (`MakeOptional`). Such a
+change reaches the stored definition from the draft. So definitions and fixups come from one source, and
 can't disagree. Each operation is one small class: it reads its own form,
 checks it, and gives its change.
 

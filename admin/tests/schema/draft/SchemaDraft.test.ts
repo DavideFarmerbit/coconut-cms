@@ -1,50 +1,8 @@
 import {describe, expect, it} from 'vitest';
-import type {SchemaDefinitionList, TypeDefinition} from '../../../src/schema/SchemaDefinitions.ts';
 import {DefaultPath} from '../../../src/schema/draft/DefaultPath.ts';
-import type {FieldId, TypeId} from '../../../src/schema/draft/DraftIds.ts';
 import {EditRefused} from '../../../src/schema/draft/EditRefused.ts';
 import {SchemaDraft} from '../../../src/schema/draft/SchemaDraft.ts';
-
-/** A type as schema.get gives it, every part empty unless `changes` sets it. */
-function type(identifier: string, changes: Partial<TypeDefinition>): TypeDefinition {
-    return {identifier, source: 'editor', parent: null, editorExtensible: true, fields: {}, defaults: {}, fieldRules: {}, fieldPermissions: {}, prototypeRules: [], typePermission: null, uniqueGroups: [], ...changes};
-}
-
-const int = {kind: 'scalar', nullable: false, scalarType: 'int'} as const;
-const text = {kind: 'scalar', nullable: false, scalarType: 'string'} as const;
-
-/**
- * A native vehicle allowing editor subtypes and a native engine allowing
- * none; the editor's boat extends the vehicle, holds a sail and names a
- * maker; its yacht sets the sail's area again.
- */
-const schema: SchemaDefinitionList = {
-    revision: 4,
-    types: [
-        type('shop:vehicle', {source: 'native', fields: {name: text}, defaults: {name: ''}}),
-        type('shop:engine', {source: 'native', editorExtensible: false, fields: {power: int}, defaults: {power: 90}}),
-        type('shop:sail', {fields: {area: int}, defaults: {area: 10}}),
-        type('shop:maker', {fields: {title: text}, defaults: {title: ''}, uniqueGroups: [['title']]}),
-        type('shop:boat', {
-            parent: 'shop:vehicle',
-            fields: {length: int, sail: {kind: 'embed', nullable: false, target: 'shop:sail'}, maker: {kind: 'reference', nullable: true, target: 'shop:maker'}},
-            defaults: {length: 12, 'sail:area': 20, maker: null},
-            fieldRules: {length: [{rule: 'coconut-cms:range', config: {min: 1}}]},
-        }),
-        type('shop:yacht', {parent: 'shop:boat', fields: {cabins: int}, defaults: {cabins: 2, 'sail:area': 30}}),
-    ],
-};
-
-/** The draft of `schema`, with what tests reach by name. */
-function draft(): {draft: SchemaDraft; id: (identifier: string) => TypeId; field: (type: string, name: string) => FieldId} {
-    const loaded = SchemaDraft.load(schema);
-
-    return {
-        draft: loaded,
-        id: (identifier) => loaded.typeNamed(identifier)!.id,
-        field: (owner, name) => loaded.fieldNamed(loaded.typeNamed(owner)!.id, name)!.id,
-    };
-}
+import {int, shopDraft as draft, text, type} from './ShopSchema.ts';
 
 /** The defaults `identifier` sets itself now, by path, as a save writes them. */
 function defaultsOf(loaded: SchemaDraft, identifier: string): Record<string, unknown> {
@@ -128,6 +86,40 @@ describe('SchemaDraft', () => {
         expect(() => loaded.createType('shop:maker', null)).toThrow('save its rename or delete first');
         loaded.renameType(boat, 'shop:maker');
         expect(loaded.typeNamed('shop:maker')?.id, 'Renaming one to it is a swap the save writes in turn.').toBe(boat);
+    });
+
+    it('re-points every field naming a type it renames, and refuses a deleted type\'s name', () => {
+        const {draft: loaded, id, field} = draft();
+        loaded.renameType(id('shop:maker'), 'shop:builder');
+        expect(loaded.field(field('shop:boat', 'maker'))!.now!.shape.target).toBe('shop:builder');
+        loaded.renameType(id('shop:sail'), 'shop:canvas');
+        expect(defaultsOf(loaded, 'shop:yacht'), 'A default through the Embed still reads.').toEqual({cabins: 2, 'sail:area': 30});
+
+        loaded.history.undo();
+        loaded.history.undo();
+        expect(loaded.field(field('shop:boat', 'maker'))!.now!.shape.target).toBe('shop:maker');
+
+        loaded.deleteType(id('shop:yacht'));
+        expect(() => loaded.renameType(id('shop:maker'), 'shop:yacht')).toThrow('save the delete first');
+    });
+
+    it('holds a stored Collection\'s default as one list', () => {
+        const tags = {kind: 'collection', nullable: false, item: text} as const;
+        const loaded = SchemaDraft.load({revision: 1, types: [type('shop:flag', {fields: {tags}, defaults: {tags: 2, 'tags.0': 'sea', 'tags.1': 'night'}})]});
+
+        expect(defaultsOf(loaded, 'shop:flag')).toEqual({tags: ['sea', 'night']});
+    });
+
+    it('moves a type: it and its subtypes lose the defaults through fields they no longer inherit', () => {
+        const {draft: loaded, id} = draft();
+        loaded.reparent(id('shop:yacht'), id('shop:vehicle'));
+        expect(defaultsOf(loaded, 'shop:yacht')).toEqual({cabins: 2});
+
+        loaded.history.undo();
+        expect(defaultsOf(loaded, 'shop:yacht')).toEqual({cabins: 2, 'sail:area': 30});
+
+        loaded.addField(id('shop:maker'), 'length', int, {value: 0});
+        expect(() => loaded.reparent(id('shop:maker'), id('shop:boat'))).toThrow('already has a field "length"');
     });
 
     it('adds a field with its default, and removes one with what goes through it', () => {

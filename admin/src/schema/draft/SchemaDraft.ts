@@ -8,6 +8,7 @@ import {type DraftListener, DraftRecords} from './DraftRecords.ts';
 import {EditRefused} from './EditRefused.ts';
 import {NO_FIELD_CHOICES} from './FieldChoices.ts';
 import type {FieldRecord} from './FieldRecord.ts';
+import {FieldShapes} from './FieldShapes.ts';
 import type {FieldState} from './FieldState.ts';
 import type {PinnedDefault} from './PinnedDefault.ts';
 import {NO_TYPE_CHOICES} from './TypeChoices.ts';
@@ -81,7 +82,7 @@ export class SchemaDraft {
             }
 
             const record = records.type(id)!;
-            const state = {...record.now!, defaults};
+            const state = {...record.now!, defaults: draft.folded(defaults)};
             records.putType(id, {...record, was: state, now: state});
         }
 
@@ -224,14 +225,23 @@ export class SchemaDraft {
         return id;
     }
 
-    /** Renames the type `id` to `identifier`. */
+    /** Renames the type `id` to `identifier`: every field naming it follows. */
     public renameType(id: TypeId, identifier: string): void {
         const type = this.editableType(id);
         if (type.now.identifier === identifier) {
             return;
         }
         this.assertFreeIdentifier(identifier);
-        this.commit(`Rename ${type.now.identifier}`, [this.typeSwap({...type, now: {...type.now, identifier}})]);
+        if (this.records.allTypes().some((each) => each.now === null && each.was?.identifier === identifier)) {
+            throw new EditRefused(`"${identifier}" named a type this draft deletes: save the delete first.`);
+        }
+
+        const old = type.now.identifier;
+        const rename = (target: string): string => target === old ? identifier : target;
+        const retargeted = this.records.allFields()
+            .filter((field) => field.now !== null && !FieldShapes.same(field.now.shape, FieldShapes.retargeted(field.now.shape, rename)))
+            .map((field) => this.fieldSwap({...field, now: {...field.now!, shape: FieldShapes.retargeted(field.now!.shape, rename)}}));
+        this.commit(`Rename ${old}`, [this.typeSwap({...type, now: {...type.now, identifier}}), ...retargeted]);
     }
 
     /** Deletes the type `id` and its own fields. One extending it is moved or deleted first. */
@@ -248,20 +258,42 @@ export class SchemaDraft {
         ]);
     }
 
-    /** Moves the type `id` under `parent`, or makes it a root for null. */
+    /**
+     * Moves the type `id` under `parent`, or makes it a root for null. It
+     * and its subtypes lose the defaults they set through fields they no
+     * longer inherit.
+     */
     public reparent(id: TypeId, parent: TypeId | null): void {
         const type = this.editableType(id);
         if (type.now.parent === parent) {
             return;
         }
+        const moving = [type, ...this.descendantsOf(id)];
+        const gained = parent === null ? [] : this.chainOf(parent).flatMap((each) => this.fieldsOf(each.id));
         if (parent !== null) {
             this.assertExtensible(parent);
-            if (parent === id || this.descendantsOf(id).some((each) => each.id === parent)) {
+            if (parent === id || moving.some((each) => each.id === parent)) {
                 throw new EditRefused(`"${type.now.identifier}" can't extend itself or one of its own subtypes.`);
+            }
+            const clash = moving.flatMap((each) => this.fieldsOf(each.id)).find((field) => gained.some((each) => each.now!.name === field.now!.name));
+            if (clash !== undefined) {
+                throw new EditRefused(`"${this.records.type(parent)!.now!.identifier}" or a type above it already has a field "${clash.now!.name}".`);
             }
         }
 
-        this.commit(`Move ${type.now.identifier}`, [this.typeSwap({...type, now: {...type.now, parent}})]);
+        const swaps: RecordSwap[] = [];
+        for (const each of moving) {
+            // What it reaches afterwards: its chain from itself up to `id`, then the new parent's.
+            const chain = this.chainOf(each.id);
+            const kept = new Set([...chain.slice(0, chain.findIndex((link) => link.id === id) + 1).flatMap((link) => link.now!.fields), ...gained.map((field) => field.id)]);
+            const defaults = new Map([...each.now!.defaults].filter(([, pinned]) => kept.has(pinned.path.head)));
+            if (each.id === id) {
+                swaps.push(this.typeSwap({...each, now: {...each.now!, parent, defaults}}));
+            } else if (defaults.size !== each.now!.defaults.size) {
+                swaps.push(this.typeSwap({...each, now: {...each.now!, defaults}}));
+            }
+        }
+        this.commit(`Move ${type.now.identifier}`, swaps);
     }
 
     /** Chooses what fills the levels the reparented type `id`'s entries gain; null for their defaults. */
@@ -569,6 +601,35 @@ export class SchemaDraft {
         if (taken !== undefined) {
             throw new EditRefused(`"${this.records.type(taken.now!.owner)!.now!.identifier}" already has a field "${name}".`);
         }
+    }
+
+    /**
+     * `defaults` as stored, with each Collection of plain items held as one
+     * list, as an edit pins it: stored, it's a count at the field's path and
+     * an item under it per index. One of Embeds or owned objects stays as
+     * stored, by path.
+     */
+    private folded(defaults: ReadonlyMap<string, PinnedDefault>): Map<string, PinnedDefault> {
+        const folded = new Map(defaults);
+        for (const pinned of defaults.values()) {
+            const last = pinned.path.segments[pinned.path.segments.length - 1]!;
+            const shape = typeof last === 'number' ? undefined : this.records.field(last)?.now?.shape;
+            const item = shape?.kind === 'collection' ? shape.item?.kind : undefined;
+            if (item === undefined || item === 'embed' || item === 'owning_reference' || typeof pinned.value !== 'number') {
+                continue;
+            }
+
+            const items = Array.from({length: pinned.value}, (_, index) => {
+                const key = DefaultPath.of(...pinned.path.segments, index).key;
+                const value = defaults.get(key)?.value ?? null;
+                folded.delete(key);
+
+                return value;
+            });
+            folded.set(pinned.path.key, {path: pinned.path, value: items});
+        }
+
+        return folded;
     }
 
     /** Throws unless `given` fits a field holding `shape`: every kind but an Embed needs one, a Collection a list. */

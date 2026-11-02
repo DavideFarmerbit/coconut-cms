@@ -382,7 +382,7 @@ input:
   `initializer`), `removeField` (`type`, `field`), `renameField` (`type`,
   `old`, `new`), `moveField` (`type`, `field`, `to`, `default`,
   `initializer`), `copyValues` (`type`, `from`, `to`), `makeRequired`
-  (`type`, `field`), `retypeField` (`type`,
+  and `makeOptional` (`type`, `field`), `retypeField` (`type`,
   `field`, `converter`, `default`), `setDefault` (`type`, `path`, `value`),
   `inheritDefault` (`type`, `path`), `addUniqueGroup` and
   `removeUniqueGroup` (`type`, `fields`: a list of names), `setFieldRules`

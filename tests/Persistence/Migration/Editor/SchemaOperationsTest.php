@@ -27,6 +27,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\AddField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CreateType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefault;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MakeOptional;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MakeRequired;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\Reparent;
@@ -286,6 +287,15 @@ final class SchemaOperationsTest extends TestCase
         self::assertSame(Nullability::NotNullable, $draft->targets()['shop:boat']->fields->get(FieldName::of('length'))->nullability());
         $this->assertRefused('holds no null to refuse', new MakeRequired('shop:maker', 'title'));
         $this->assertRefused('A Reference is always Nullable', new MakeRequired('shop:boat', 'maker'));
+    }
+
+    public function testMakingAFieldOptionalTakesNoFixup(): void {
+        $draft = $this->apply(new MakeOptional('shop:maker', 'title'));
+
+        self::assertSame([], self::fixups($draft));
+        self::assertSame(Nullability::Nullable, $draft->targets()['shop:maker']->fields->get(FieldName::of('title'))->nullability());
+        $this->assertRefused('already holds null', new MakeOptional('shop:boat', 'length'));
+        $this->assertRefused('already holds null', new MakeOptional('shop:boat', 'maker'));
     }
 
     public function testRetypingConvertsOrResets(): void {
