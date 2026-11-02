@@ -8,7 +8,7 @@ Built: the operations core (registry, input reader, result writer, errors,
 HTTP and command-line transports), the read operations (`types.list`,
 `types.get`, `entities.get`, `entities.query`), and the write operations
 for native types (`entities.create`, `entities.update`, `entities.delete`),
-changing editor-created types (`schema.preview`, `schema.save`,
+changing editor-created types (`schema.get`, `schema.preview`, `schema.save`,
 `schema.conversions`, `schema.validators`), and authentication (sign-in operations, CSRF,
 `--as`). Not built yet: API tokens. Each is noted inline.
 
@@ -473,6 +473,26 @@ takes other field rules, such as `coconut-cms:on-items` does. The input may
 give `field`, as `types.get` describes it, without a name. Then only the
 field rules fitting it are listed. For the rules `on-items` takes, give the
 Collection's item.
+
+`coconut-cms:schema.get` gives what the schema editor loads: the schema
+`revision`, and every type as stored now, native and editor-made, sorted by
+identifier. It takes nothing, and needs the schema-editor role, as a save
+does: it shows rules and roles an ordinary reader doesn't see. Each type
+gives its `identifier`, `source` (`native` for one the code declares,
+`editor` for one the editor made: only that one changes), `parent`,
+`editorExtensible`, and each part a save may change, in the form its
+operations take it:
+
+- `fields`: its own fields, by name, in order, each as `addField` and
+  `retypeField` take one, without its name: an enum Scalar names its enum
+  by identifier;
+- `defaults`: the defaults it sets itself, by path, in stored form, as
+  `setDefault` takes one; a path left out follows its ancestors;
+- `fieldRules`: each own field's rules, by name, as `setFieldRules` takes
+  them; `fieldPermissions`: each own field's `read` and `write` roles;
+- `prototypeRules`, as `setPrototypeRules` takes them; `typePermission`: its
+  own `read`, `create`, `update` and `delete` roles, or null for none;
+- `uniqueGroups`: each over its own fields, by name.
 
 ## Authentication
 

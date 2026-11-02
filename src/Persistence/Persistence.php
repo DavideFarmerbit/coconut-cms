@@ -16,6 +16,8 @@ use XyloIsCoding\CoconutCms\Persistence\Permission\SystemActor;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSave;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\InvalidOperation;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaDefinition;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaSnapshot;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\StaleSchemaRevision;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationBlocked;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationReport;
@@ -235,6 +237,27 @@ final class Persistence
         $this->register($this->registrationsOf($blueprints));
 
         return (new Migrator($this->connection, $this->registry, $this->schemas, $this->values, $this->policy))->previewEditor($blueprints, $this->steps(), $save, $samples);
+    }
+
+    /**
+     * Every type as stored now, with whether the code or the editor made it
+     * and the defaults it sets itself, at the schema revision they're at:
+     * what the schema editor loads. Takes the same right as saveSchemas():
+     * it shows rules and roles an ordinary reader doesn't see.
+     * @throws SchemaEditingDenied When $actor doesn't hold the schema-editor role.
+     */
+    public function schemaSnapshot(Actor $actor): SchemaSnapshot {
+        $this->assertSchemaEditor($actor);
+        $this->assertReady();
+        $this->conversions();
+
+        $definitions = [];
+        foreach ($this->schemas->all() as $stored) {
+            $definitions[$stored->schema->identifier] = new SchemaDefinition($stored->schema, $stored->source, $this->values->load($stored->schema->identifier));
+        }
+        ksort($definitions, SORT_STRING);
+
+        return new SchemaSnapshot($this->migrationState->revision(), array_values($definitions));
     }
 
     /** Throws unless $actor holds the schema-editor role; with none named, unless it's the system. */

@@ -234,6 +234,45 @@ final class SchemaApiTest extends DynamicTestCase
         self::assertSame(403, $status, 'Only an architect creates buoys now.');
     }
 
+    public function testTheSchemaEditorLoadsEveryTypeInTheFormItsSaveTakes(): void {
+        $rules = [['rule' => 'coconut-cms:max-length', 'config' => ['max' => 10]]];
+        $this->save([
+            ['op' => 'setFieldRules', 'type' => 'dy:buoy', 'field' => 'color', 'rules' => $rules],
+            ['op' => 'setFieldPermission', 'type' => 'dy:buoy', 'field' => 'color', 'read' => null, 'write' => 'architect'],
+            ['op' => 'setTypePermission', 'type' => 'dy:buoy', 'read' => null, 'create' => 'architect', 'update' => null, 'delete' => null],
+            ['op' => 'addUniqueGroup', 'type' => 'dy:buoy', 'fields' => ['color']],
+        ]);
+
+        [$status, $body] = $this->post('coconut-cms:schema.get', []);
+        self::assertSame(200, $status, json_encode($body));
+        self::assertSame(2, $body['result']['revision']);
+        $types = array_column($body['result']['types'], null, 'identifier');
+
+        self::assertSame([
+            'identifier' => 'dy:buoy',
+            'source' => 'editor',
+            'parent' => null,
+            'editorExtensible' => true,
+            'fields' => ['color' => ['kind' => 'scalar', 'nullable' => false, 'scalarType' => 'string']],
+            'defaults' => ['color' => 'red'],
+            'fieldRules' => ['color' => $rules],
+            'fieldPermissions' => ['color' => ['read' => null, 'write' => 'architect']],
+            'prototypeRules' => [],
+            'typePermission' => ['read' => null, 'create' => 'architect', 'update' => null, 'delete' => null],
+            'uniqueGroups' => [['color']],
+        ], $types['dy:buoy']);
+        self::assertSame('native', $types['dy:craft']['source']);
+        self::assertEquals(['name' => 'Yacht', 'cabins' => 3, 'dinghy' => null], $types['dy:yacht']['defaults'], 'What the yacht sets itself, its inherited name included.');
+        self::assertSame(['kind' => 'owning_reference', 'nullable' => true, 'target' => 'dy:motor'], $types['dy:yacht']['fields']['dinghy']);
+
+        [$status, $body] = $this->save([['op' => 'addField', 'type' => 'dy:buoy', 'field' => ['name' => 'light', ...$types['dy:buoy']['fields']['color']], 'default' => 'off']], revision: 2);
+        self::assertSame(200, $status, 'A field as schema.get gives it is one addField takes. ' . json_encode($body));
+
+        $this->authenticator->actor = new PermActor(['editor']);
+        [$status] = $this->post('coconut-cms:schema.get', []);
+        self::assertSame(403, $status, 'It shows rules and roles: the schema editor\'s role only.');
+    }
+
     public function testAPreviewSamplesTheFirstEntriesThatChange(): void {
         $first = $this->store('dy:yacht', ['name' => 'Sea', 'cabins' => 4]);
         $second = $this->store('dy:yacht', ['name' => 'Wind', 'cabins' => 2]);
