@@ -1,4 +1,5 @@
 import type {ApiClient} from '../api/ApiClient.ts';
+import type {Editors} from '../editors/Editors.ts';
 import type {PropertyEditors} from '../properties/PropertyEditors.ts';
 import type {ServiceType} from '../services/ServiceType.ts';
 import type {JsonValue} from './Json.ts';
@@ -17,6 +18,8 @@ export interface ViewContext {
     readonly params: JsonValue;
     /** Every property editor: what shows an entity's values. */
     readonly properties: PropertyEditors;
+    /** Which editor opens an entry or a type: open one through it, never a plugin's tab directly. */
+    readonly editors: Editors;
 
     /**
      * The one `type` service of the user signed in, shared by every view:

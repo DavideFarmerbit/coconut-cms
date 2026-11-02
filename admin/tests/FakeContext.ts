@@ -1,6 +1,7 @@
 import type {FakeBackend} from './FakeBackend.ts';
 import type {ApiClient} from '../src/public/api/ApiClient.ts';
 import {Auth} from '../src/public/auth/Auth.ts';
+import {Editors} from '../src/public/editors/Editors.ts';
 import {PropertyEditors} from '../src/public/properties/PropertyEditors.ts';
 import {Services} from '../src/public/services/Services.ts';
 import type {ServiceType} from '../src/public/services/ServiceType.ts';
@@ -52,6 +53,7 @@ export class FakeContext implements ViewContext {
     public readonly state: ViewState = new MemoryState();
     public readonly workspace = new RecordingWorkspace();
     public readonly properties = new PropertyEditors();
+    public readonly editors = new Editors();
     /** Whether the view marked itself dirty last. */
     public dirty = false;
     /** The title the view gave its tab last; null when it gave none. */

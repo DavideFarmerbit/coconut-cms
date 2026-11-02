@@ -33,6 +33,7 @@ export class ViewContexts {
             workspace: this.workspace,
             params,
             properties: runtime.properties,
+            editors: runtime.editors,
             service: (type) => runtime.service(type),
             markDirty: (isDirty: boolean) => dirty.set(key, isDirty),
             setTitle: (title: string) => {

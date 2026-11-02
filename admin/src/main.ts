@@ -10,6 +10,8 @@ import {PluginLoader} from './boot/PluginLoader.ts';
 import {Tooltips} from './dom/Tooltips.ts';
 import {DefaultEditors} from './properties/DefaultEditors.ts';
 import {admin, ApiClient} from './public/index.ts';
+import {Editors} from './public/editors/Editors.ts';
+import {EntityTabView} from './tools/entities/EntityTabView.ts';
 import {SchemaChangesTool} from './tools/schema/SchemaChangesTool.ts';
 import {TypesTool} from './tools/types/TypesTool.ts';
 
@@ -22,6 +24,8 @@ async function start(): Promise<void> {
     DefaultEditors.register(admin.properties);
     TypesTool.register(admin);
     SchemaChangesTool.register(admin);
+    // The generic entry editor: what opens an entry no plugin's editor covers.
+    admin.tabTypes.register({id: Editors.ENTITY_TAB, view: EntityTabView});
     // Before the workspace: every tool must be there when the saved layout is reconciled.
     await PluginLoader.loadAll(config.plugins, admin);
     await new AdminApp(admin, document.body).start();

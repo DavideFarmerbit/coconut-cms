@@ -1,6 +1,7 @@
 import type {ApiClient} from './api/ApiClient.ts';
 import {Auth} from './auth/Auth.ts';
 import type {User} from './auth/User.ts';
+import {Editors} from './editors/Editors.ts';
 import {PropertyEditors} from './properties/PropertyEditors.ts';
 import {Services} from './services/Services.ts';
 import type {ServiceType} from './services/ServiceType.ts';
@@ -26,6 +27,9 @@ export class AdminRuntime {
 
     /** Every property editor: the admin's defaults, and customizations replacing them. */
     public readonly properties = new PropertyEditors();
+
+    /** Which editor opens an entry, and which a type: register one before the shell starts. */
+    public readonly editors = new Editors();
 
     /** Set once the app has started; undefined before. */
     private client: ApiClient | undefined;

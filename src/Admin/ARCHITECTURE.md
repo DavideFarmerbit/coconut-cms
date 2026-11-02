@@ -783,14 +783,55 @@ item added comes back from the session as a change of shape too.
     save, discard or cancel, as above. A tab's view tells the shell
     through its context's `markDirty()` and its own `canClose()`.
 
+## Editors
+
+An entity has no use of its own: what an entry or a type is for, and how
+it's edited, is up to the plugin that gives it meaning. A page builder
+edits a page its own way; a game editor edits an item its own way. So
+editing is customized at three scales, as in Unreal:
+
+1. **A property's row**: how one value shows in the property grid.
+   `admin.properties` (see "Editors and rows"), like
+   `IPropertyTypeCustomization`.
+2. **A class's details**: how the property grid lays out an entry of a
+   class (not built yet), like `IDetailCustomization`.
+3. **A whole editor**: which tab opens an entry, or a type, like an asset
+   definition choosing the editor an asset opens in. `admin.editors`,
+   reached in a view as `context.editors`.
+
+`admin.editors` holds two registries, each by entity type:
+
+- `instances`: the tab type editing the entries of a type, and of every
+  type extending it. An entry whose type has one is an asset.
+- `types`: the tab type editing the types extending a type.
+
+A type takes the editor registered for it, else the one of its nearest
+ancestor: one for `game:item` edits a `game:weapon` too, unless
+`game:weapon` has its own. Two editors for one type are refused.
+
+- `openInstance(context, {id, type, title}, opening)` opens an entry in
+  its editor's tab, with `{id, type}`, keyed by its id. With none
+  registered, it opens in the generic entry editor,
+  `coconut-cms:entity`: its properties, through the `EntityEditor`.
+- `openType(context, identifier, opening)` opens a type in its editor's
+  tab, with `{type}`, keyed by its identifier. With none registered, it
+  opens in `coconut-cms:type`, the type inspector, until the generic type
+  editor is built.
+- `instances.of(type, catalog)` gives the editor registered, or null:
+  never the generic one. What lists assets lists the entries of types
+  having one.
+
 ## The Types tool
 
 The admin's first tool, registered the way a plugin registers its own. It
-browses the entity types the user may read; browsing entities comes later,
-with their first uses.
+browses the entity types the user may read, as saved: it shows what's
+there, and edits nothing. Creating and editing types, and entries, is the
+editors' work (see "Editors"), which plugins provide; like Unreal's class
+viewer, this is the generic view of everything.
 
 - **The panel** lists the types in a collapsible group per namespace, each
-  type by its key. Which groups are closed, and which type was opened last,
+  type by its key, or by hierarchy, each type under the one it extends.
+  The grouping, which groups are closed, and which type was opened last,
   are kept in the view's state.
 - **Opening a type** shows it in the type inspector. A click reuses the
   inspector tab shown most recently; Cmd or Ctrl and a click, a middle
@@ -961,25 +1002,20 @@ opens, with its dialogs as the `UnsavedSchemaQuestion` (not built yet).
 Leaving the page with unsaved edits warns, as with unsaved entities (not
 built yet).
 
-The schema editor's views extend the Types tool, the way an IDE edits
-files in their own tabs and lists pending work apart. They share one
-service, `SchemaEditing` (`admin/src/tools/schema/`): it loads the
-session on the first ask and guards signing out from then on, and loads
-the listings once. A user the server refuses the schema to, without the
-schema-editor role, gets no session: the Types tool stays read-only.
+The core offers no place to create or open a type for editing: plugins
+do, each for the classes it provides (see "Editors"). The core gives them
+what every type editor needs. They share one service, `SchemaEditing`
+(`admin/src/tools/schema/`): it loads the session on the first ask and
+guards signing out from then on, and loads the listings once. A user the
+server refuses the schema to, without the schema-editor role, gets no
+session.
 
-- **The Types panel shows the draft** to a user with the schema-editor
-  role: created, renamed and deleted types are marked, a deleted one
-  struck through and opening nothing. "New type" is above the list and
-  in each namespace's right-click menu: an identifier and the type it
-  extends, what the draft refuses shown in the dialog. Without the role,
-  it shows the type store's catalog, read-only.
-- **The inspector tab is the type editor** (not built yet). Its layout stays. An
-  editor-made type is edited in place: in the header its name, parent,
-  permissions and cross-field rules; per field its name, shape, default,
-  rules and permission. A native type stays read-only. A choice a change
-  needs, such as a converter or an initializer, shows under its field, and
-  so does each problem. Undo is the draft's one history.
+- **The generic type editor** (not built yet) is the type tab a plugin
+  gets when it registers none of its own. In the header the type's name,
+  parent, permissions and cross-field rules; per field its name, shape,
+  default, rules and permission. A choice a change needs, such as a
+  converter or an initializer, shows under its field, and so does each
+  problem. Undo is the draft's one history.
 - **The "Schema changes" tool**, docked at the bottom, lists what the draft
   changes, by type, in words (`DraftChanges`, comparing each object's
   `was` with its `now`), and above them what keeps it from saving. Save

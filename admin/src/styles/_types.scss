@@ -25,32 +25,20 @@
     padding-top: 0;
 }
 
-// The schema draft's marks: a type created, renamed or deleted.
+// The switch between grouping by namespace and by hierarchy.
 .types-view__toolbar {
     display: flex;
+    gap: var(--cc-space-1);
     padding: var(--cc-space-1) var(--cc-space-2);
-}
 
-.type-group .list__item {
-    display: flex;
-    align-items: center;
-    gap: var(--cc-space-2);
-
-    &.is-deleted {
-        color: var(--cc-color-text-muted);
-        text-decoration: line-through;
-        cursor: default;
-
-        &:hover {
-            background: none;
-        }
+    .is-selected {
+        background: var(--cc-color-selected);
     }
 }
 
-.list__badge {
-    margin-left: auto;
-    color: var(--cc-color-accent);
-    font-size: var(--cc-font-size-small);
+// By hierarchy: each type indented under the one it extends.
+.type-tree .list__item {
+    padding-left: calc(var(--cc-space-2) + var(--depth, 0) * var(--cc-space-4));
 }
 
 .type-link {
