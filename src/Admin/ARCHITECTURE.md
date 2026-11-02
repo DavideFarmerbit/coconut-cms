@@ -815,6 +815,37 @@ admin's job:
   that can't move and the values a unique group would hold twice, before
   the admin saves.
 
+The schema editor edits one `SchemaDraft` (`admin/src/schema/draft/`),
+loaded from `schema.get`, shared by every type tab, with one history:
+
+- Every type is a type object and every field a field object, each with an
+  id that never changes. Native ones are there to be parents, targets and
+  fields reached through; only editor-made ones change.
+- Each object knows what it `was` when loaded, null for one the draft
+  made, and what it is `now`, null for one it deleted or removed. A field's
+  owner is part of it: moving a field up or down its chain changes its
+  owner.
+- What a save needs that isn't state hangs on the object, as its choices:
+  how a retyped field's values convert, or "reset"; what existing entries
+  gaining a field get; what fills the levels a reparented type's entries
+  gain. A retype asks again; a choice that no longer fits stays, shown as
+  a problem, until chosen again.
+- A type's own defaults are held by path, each path the field objects and
+  item indexes it goes through: renaming a field anywhere along it needs
+  nothing rewritten. A path is written with the names its fields end with.
+- Each edit replaces the objects it changes, whole, and keeps the ones it
+  replaced: undoing puts them back. Every edit is checked as the server
+  would check it, and one it would refuse throws `EditRefused`, changing
+  nothing: a name taken or malformed, a native type touched, a type
+  extending its own subtype, a default missing or not a list.
+- Removing a field drops every default set through it, on any type, and
+  every unique group over it. Retyping one drops its rules and every
+  default through it. Moving one down drops the defaults set through it by
+  the types no longer holding it.
+
+Not built yet: replacing a type, copying a field's values into another,
+and the writer turning a draft into a save's operations.
+
 What fits a field is the admin's to work out. `SchemaListings`
 (`admin/src/schema/`) loads `schema.conversions` and `schema.validators`
 once: modules register their converters and rules at boot, so they change

@@ -1,0 +1,217 @@
+import {describe, expect, it} from 'vitest';
+import type {SchemaDefinitionList, TypeDefinition} from '../../../src/schema/SchemaDefinitions.ts';
+import {DefaultPath} from '../../../src/schema/draft/DefaultPath.ts';
+import type {FieldId, TypeId} from '../../../src/schema/draft/DraftIds.ts';
+import {EditRefused} from '../../../src/schema/draft/EditRefused.ts';
+import {SchemaDraft} from '../../../src/schema/draft/SchemaDraft.ts';
+
+/** A type as schema.get gives it, every part empty unless `changes` sets it. */
+function type(identifier: string, changes: Partial<TypeDefinition>): TypeDefinition {
+    return {identifier, source: 'editor', parent: null, editorExtensible: true, fields: {}, defaults: {}, fieldRules: {}, fieldPermissions: {}, prototypeRules: [], typePermission: null, uniqueGroups: [], ...changes};
+}
+
+const int = {kind: 'scalar', nullable: false, scalarType: 'int'} as const;
+const text = {kind: 'scalar', nullable: false, scalarType: 'string'} as const;
+
+/**
+ * A native vehicle allowing editor subtypes and a native engine allowing
+ * none; the editor's boat extends the vehicle, holds a sail and names a
+ * maker; its yacht sets the sail's area again.
+ */
+const schema: SchemaDefinitionList = {
+    revision: 4,
+    types: [
+        type('shop:vehicle', {source: 'native', fields: {name: text}, defaults: {name: ''}}),
+        type('shop:engine', {source: 'native', editorExtensible: false, fields: {power: int}, defaults: {power: 90}}),
+        type('shop:sail', {fields: {area: int}, defaults: {area: 10}}),
+        type('shop:maker', {fields: {title: text}, defaults: {title: ''}, uniqueGroups: [['title']]}),
+        type('shop:boat', {
+            parent: 'shop:vehicle',
+            fields: {length: int, sail: {kind: 'embed', nullable: false, target: 'shop:sail'}, maker: {kind: 'reference', nullable: true, target: 'shop:maker'}},
+            defaults: {length: 12, 'sail:area': 20, maker: null},
+            fieldRules: {length: [{rule: 'coconut-cms:range', config: {min: 1}}]},
+        }),
+        type('shop:yacht', {parent: 'shop:boat', fields: {cabins: int}, defaults: {cabins: 2, 'sail:area': 30}}),
+    ],
+};
+
+/** The draft of `schema`, with what tests reach by name. */
+function draft(): {draft: SchemaDraft; id: (identifier: string) => TypeId; field: (type: string, name: string) => FieldId} {
+    const loaded = SchemaDraft.load(schema);
+
+    return {
+        draft: loaded,
+        id: (identifier) => loaded.typeNamed(identifier)!.id,
+        field: (owner, name) => loaded.fieldNamed(loaded.typeNamed(owner)!.id, name)!.id,
+    };
+}
+
+/** The defaults `identifier` sets itself now, by path, as a save writes them. */
+function defaultsOf(loaded: SchemaDraft, identifier: string): Record<string, unknown> {
+    const now = loaded.typeNamed(identifier)!.now!;
+
+    return Object.fromEntries([...now.defaults.values()].map((pinned) => [loaded.pathText(pinned.path), pinned.value]));
+}
+
+describe('SchemaDraft', () => {
+    it('loads every type and field as an object knowing what it was', () => {
+        const {draft: loaded, id} = draft();
+
+        expect(loaded.revision).toBe(4);
+        expect(loaded.chainOf(id('shop:yacht')).map((each) => each.now!.identifier)).toEqual(['shop:yacht', 'shop:boat', 'shop:vehicle']);
+        expect(loaded.fieldNamed(id('shop:yacht'), 'name')?.now?.owner).toBe(id('shop:vehicle'));
+        expect(loaded.fieldsOf(id('shop:boat')).map((each) => each.now!.name)).toEqual(['length', 'sail', 'maker']);
+        expect(loaded.typeNamed('shop:boat')!.was).toBe(loaded.typeNamed('shop:boat')!.now);
+        expect(defaultsOf(loaded, 'shop:yacht')).toEqual({cabins: 2, 'sail:area': 30});
+    });
+
+    it('holds a default by the fields it goes through: a rename anywhere along it follows', () => {
+        const {draft: loaded, field} = draft();
+        const area = field('shop:sail', 'area');
+
+        loaded.renameField(area, 'size');
+        expect(defaultsOf(loaded, 'shop:yacht')).toEqual({cabins: 2, 'sail:size': 30});
+        expect(defaultsOf(loaded, 'shop:boat')).toMatchObject({'sail:size': 20});
+
+        loaded.history.undo();
+        expect(defaultsOf(loaded, 'shop:yacht')).toEqual({cabins: 2, 'sail:area': 30});
+    });
+
+    it('creates, renames and deletes types, each undoable', () => {
+        const {draft: loaded, id} = draft();
+        const buoy = loaded.createType('shop:buoy', null);
+        loaded.renameType(buoy, 'shop:marker');
+        expect(loaded.typeNamed('shop:marker')?.was).toBeNull();
+
+        loaded.history.undo();
+        expect(loaded.typeNamed('shop:buoy')).toBeDefined();
+        loaded.history.undo();
+        expect(loaded.type(buoy), 'Its creation undone, it was never there.').toBeUndefined();
+
+        loaded.deleteType(id('shop:yacht'));
+        expect(loaded.typeNamed('shop:yacht')).toBeUndefined();
+        expect(loaded.everything().fields.filter((each) => each.now === null).map((each) => each.was!.name)).toEqual(['cabins']);
+        loaded.history.undo();
+        expect(loaded.typeNamed('shop:yacht')?.now?.fields).toHaveLength(1);
+    });
+
+    it('refuses what the server would, changing nothing', () => {
+        const {draft: loaded, id, field} = draft();
+        const refusals: [string, () => unknown][] = [
+            ['declared by the code', () => loaded.renameType(id('shop:vehicle'), 'shop:car')],
+            ['declared by the code', () => loaded.addField(id('shop:engine'), 'rpm', int, {value: 0})],
+            ['doesn\'t allow editor-made subtypes', () => loaded.createType('shop:turbo', id('shop:engine'))],
+            ['already exists', () => loaded.renameType(id('shop:boat'), 'shop:sail')],
+            ['no "namespace:key"', () => loaded.createType('buoy', null)],
+            ['already has a field "name"', () => loaded.addField(id('shop:yacht'), 'name', text, {value: ''})],
+            // A subtype holds it.
+            ['already has a field "cabins"', () => loaded.addField(id('shop:boat'), 'cabins', int, {value: 0})],
+            ['no field name', () => loaded.renameField(field('shop:boat', 'length'), '__length')],
+            ['needs a default', () => loaded.addField(id('shop:boat'), 'beam', int, null)],
+            ['a list of its items', () => loaded.addField(id('shop:boat'), 'tags', {kind: 'collection', nullable: false, item: text}, {value: 'sea'})],
+            ['extends "shop:boat"', () => loaded.deleteType(id('shop:boat'))],
+            ['one of its own subtypes', () => loaded.reparent(id('shop:boat'), id('shop:yacht'))],
+        ];
+
+        for (const [message, attempt] of refusals) {
+            expect(attempt, message).toThrow(EditRefused);
+            expect(attempt, message).toThrow(message);
+        }
+        expect(loaded.history.canUndo()).toBe(false);
+    });
+
+    it('refuses a new type taking a name one had when the draft loaded', () => {
+        const {draft: loaded, id} = draft();
+        const boat = id('shop:boat');
+        loaded.renameType(id('shop:maker'), 'shop:builder');
+
+        expect(() => loaded.createType('shop:maker', null)).toThrow('save its rename or delete first');
+        loaded.renameType(boat, 'shop:maker');
+        expect(loaded.typeNamed('shop:maker')?.id, 'Renaming one to it is a swap the save writes in turn.').toBe(boat);
+    });
+
+    it('adds a field with its default, and removes one with what goes through it', () => {
+        const {draft: loaded, id, field} = draft();
+        const beam = loaded.addField(id('shop:boat'), 'beam', int, {value: 4});
+        expect(defaultsOf(loaded, 'shop:boat')).toMatchObject({beam: 4});
+        expect(loaded.field(beam)?.was).toBeNull();
+
+        loaded.removeField(field('shop:boat', 'sail'));
+        expect(defaultsOf(loaded, 'shop:boat')).toEqual({length: 12, maker: null, beam: 4});
+        expect(defaultsOf(loaded, 'shop:yacht'), 'A subtype\'s defaults through it go too.').toEqual({cabins: 2});
+
+        loaded.removeField(field('shop:maker', 'title'));
+        expect(loaded.typeNamed('shop:maker')!.now!.uniqueGroups, 'A unique group over it goes.').toEqual([]);
+
+        loaded.history.undo();
+        loaded.history.undo();
+        expect(defaultsOf(loaded, 'shop:yacht')).toEqual({cabins: 2, 'sail:area': 30});
+        expect(loaded.typeNamed('shop:maker')!.now!.uniqueGroups).toHaveLength(1);
+    });
+
+    it('retypes a field: its rules and every default through it go, its conversion is asked again', () => {
+        const {draft: loaded, field} = draft();
+        const length = field('shop:boat', 'length');
+        loaded.chooseRetype(length, 'reset');
+
+        loaded.retypeField(length, text, {value: 'twelve'});
+        const retyped = loaded.field(length)!;
+        expect(retyped.now?.shape).toEqual(text);
+        expect(retyped.now?.rules).toEqual([]);
+        expect(retyped.choices.retype).toBeNull();
+        expect(defaultsOf(loaded, 'shop:boat')).toMatchObject({length: 'twelve'});
+
+        loaded.chooseRetype(length, {kind: 'coconut-cms:number-to-text', parameters: {}});
+        expect(loaded.history.undoLabel()).toBe('Choose how length converts');
+        loaded.history.undo();
+        loaded.history.undo();
+        expect(loaded.field(length)!.now?.rules).toHaveLength(1);
+        expect(loaded.field(length)!.choices.retype).toBe('reset');
+    });
+
+    it('moves a field down its chain: a type no longer holding it loses its defaults through it', () => {
+        const {draft: loaded, id, field} = draft();
+        const length = field('shop:boat', 'length');
+
+        loaded.moveField(length, id('shop:yacht'), {value: 30});
+        expect(loaded.field(length)?.now?.owner).toBe(id('shop:yacht'));
+        expect(defaultsOf(loaded, 'shop:boat')).not.toHaveProperty('length');
+        expect(defaultsOf(loaded, 'shop:yacht')).toMatchObject({length: 30});
+
+        loaded.history.undo();
+        expect(loaded.field(length)?.now?.owner).toBe(id('shop:boat'));
+        expect(defaultsOf(loaded, 'shop:boat')).toMatchObject({length: 12});
+        expect(() => loaded.moveField(length, id('shop:maker'), {value: 1})).toThrow('aren\'t one chain');
+    });
+
+    it('sets and inherits defaults by path, rules and permissions, each undoable', () => {
+        const {draft: loaded, id, field} = draft();
+        const area = DefaultPath.of(field('shop:boat', 'sail'), field('shop:sail', 'area'));
+
+        loaded.inheritDefault(id('shop:yacht'), area);
+        expect(defaultsOf(loaded, 'shop:yacht')).toEqual({cabins: 2});
+        loaded.setDefault(id('shop:yacht'), area, 40);
+        expect(defaultsOf(loaded, 'shop:yacht')).toEqual({cabins: 2, 'sail:area': 40});
+
+        loaded.setFieldRules(field('shop:yacht', 'cabins'), [{rule: 'coconut-cms:range', config: {max: 9}}]);
+        loaded.setFieldPermission(field('shop:yacht', 'cabins'), {read: null, write: 'captain'});
+        loaded.setTypePermission(id('shop:yacht'), {read: null, create: 'captain', update: null, delete: null});
+        expect(loaded.typeNamed('shop:yacht')!.now!.typePermission?.create).toBe('captain');
+
+        while (loaded.history.canUndo()) {
+            loaded.history.undo();
+        }
+        expect(loaded.typeNamed('shop:yacht')!.now).toBe(loaded.typeNamed('shop:yacht')!.was);
+        expect(loaded.field(field('shop:yacht', 'cabins'))!.now).toBe(loaded.field(field('shop:yacht', 'cabins'))!.was);
+    });
+
+    it('tells its listeners after every edit, done or undone', () => {
+        const {draft: loaded, id} = draft();
+        let told = 0;
+        loaded.onChange(() => told++);
+
+        loaded.renameType(id('shop:boat'), 'shop:skiff');
+        loaded.history.undo();
+        expect(told).toBe(2);
+    });
+});
