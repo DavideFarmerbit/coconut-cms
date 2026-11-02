@@ -14,4 +14,12 @@ export interface Edit {
 
     /** Puts back what apply() changed. */
     revert(): void;
+
+    /**
+     * Takes `next`, done right after it, into itself, so one undo reverts
+     * both: a field typed letter by letter is one edit. False keeps them
+     * apart. Without it, an edit takes none. The history asks only while
+     * this is the last edit, and not sealed.
+     */
+    absorb?(next: Edit): boolean;
 }

@@ -110,6 +110,8 @@ folder. Without `--project`, it builds the admin alone, into the package's
 from the sources in `admin/src`, in the same folders: the test of
 `admin/src/shell/model/Layout.ts` is `admin/tests/shell/model/Layout.test.ts`.
 Helpers they share, such as `FakeBackend`, sit at the root of `admin/tests`.
+A test needing a DOM says so on its first line, `// @vitest-environment
+happy-dom`; the others run without one.
 A project type-checks its own admin code
 with a `tsconfig.json` mapping `@coconut-cms/admin` to the package's
 `admin/src/public/index.ts`.
@@ -369,14 +371,25 @@ plugin's. Both are in the public module:
   renamed. It's a class holding what it changes and what it needs to put
   it back, with a `label` a menu names it by, `apply()` and `revert()`. So
   it reverts on its own, whatever came after it.
-- An `EditHistory` holds the edits of one edit context: `do(edit)` applies
-  and records it, `undo()` and `redo()` step through, in turn. A new edit
-  forgets what could be redone; `clear()` forgets everything, after a save
-  or a reload. `canUndo()`, `canRedo()` and their labels tell a menu what
-  it would do; `onChange` tells it when that changes.
-- Each edit context holds its own history: an entity editor's tab, the
-  schema editor, a plugin's editor. The view showing it gives it as its
-  `PanelView`'s `history`.
+- An `EditHistory` holds the edits of one thing being edited: `do(edit)` applies
+  and records it, `undo()` and `redo()` step through, in turn. `record(edit)`
+  records one already applied: a change made live, as it's typed. A new
+  edit forgets what could be redone; `clear()` forgets everything, after a
+  save or a reload. `canUndo()`, `canRedo()` and their labels tell a menu
+  what it would do; `onChange` tells it when that changes.
+- The last edit may `absorb` the next, so one undo reverts both: a value
+  typed letter by letter is one edit. `seal()` stops it: what comes next is
+  an edit of its own. Undo and redo seal too.
+- History belongs to what's edited, never to a view: an entity's session,
+  the schema draft, a plugin's own model, a view's own state. Every view of
+  it shares its history, whichever made a change: two tabs on one entity
+  undo the same edits. A view gives the history of what it's editing where
+  the focus is as its `PanelView`'s `history`; one editing several things
+  gives the history of the one focused.
+- An edit changing several things at once, such as one action on two
+  entities, will be put in each one's history, and undone only while it's
+  the last edit of all of them, so nothing is undone out of turn (not built
+  yet: nothing does it so far).
 - The shell sends Cmd or Ctrl and Z to the history of the view the key was
   pressed in, and Shift with them, or Ctrl and Y, as redo. A view without a
   history has nothing to undo. A text field being typed in keeps the
@@ -387,8 +400,20 @@ An editor's history is separate from what it saves. The entity editor
 saves the values a session holds, the schema editor what its draft became
 since it loaded: undoing every edit leaves nothing to save.
 
-Not built yet: the entity editor's and the schema editor's edits, and an
-Edit menu.
+An entity's history is its `EntitySession`'s: every view of the entity
+shares the session, so an undo sees every change, whichever view made it.
+`EntityEditor.history` gives it, for its tab's view to give. Each change
+the session makes is a `SessionEdit`: a value set, an owned object's class
+picked, items added, removed, moved, duplicated or cleared, a reset, and
+discarding every change. An edit keeps the draft as it was before and
+after, whole, so undoing puts back exactly what was there: items removed
+come back as the items saved, not new ones. Undone or redone, its views
+are told the same change it made, from no view, so each shows it. A value
+set again at the same path is absorbed; the editor seals its history when
+the focus leaves a field. A save, a reload, or the types changing forgets
+the history.
+
+Not built yet: the schema editor's edits, and an Edit menu.
 
 ## Types
 

@@ -2,6 +2,7 @@ import {PropertyPath} from '../public/properties/PropertyPath.ts';
 import type {PropertyStatus} from '../public/properties/PropertyStatus.ts';
 import type {TypeCatalog} from '../public/types/TypeCatalog.ts';
 import type {ValueDescription} from '../public/types/TypeDescription.ts';
+import type {DraftState} from './DraftState.ts';
 import {ReadTree} from './ReadTree.ts';
 import {Values} from './Values.ts';
 import {WriteForm} from './WriteForm.ts';
@@ -31,9 +32,9 @@ interface Counterpart {
 export class EntityDraft {
     private readonly saved: Record<string, unknown>;
     private working: Record<string, unknown>;
-    private readonly changed = new Map<string, ValueDescription>();
+    private changed = new Map<string, ValueDescription>();
     /** Each restructured Collection's items' saved indexes, null for a new item, by the working copy's list. */
-    private readonly origins = new WeakMap<unknown[], (number | null)[]>();
+    private origins = new WeakMap<unknown[], (number | null)[]>();
 
     /** @param values The entity's values, as a read gives them. */
     public constructor(values: Readonly<Record<string, unknown>>) {
@@ -101,6 +102,24 @@ export class EntityDraft {
         }
     }
 
+    /** Its whole state now, copied: what an edit goes back to. */
+    public snapshot(): DraftState {
+        const origins = this.origins;
+
+        return EntityDraft.copied(this.working, this.changed, (items) => origins.get(items));
+    }
+
+    /** Goes back to `state`, as snapshot() took it; `state` stays as it is, to go back to again. */
+    public restore(state: DraftState): void {
+        const copy = EntityDraft.copied(state.working, state.changed, (items) => state.origins.get(items));
+        this.working = copy.working as Record<string, unknown>;
+        this.changed = new Map(copy.changed);
+        this.origins = new WeakMap();
+        for (const [items, origins] of copy.origins) {
+            this.origins.set(items, [...origins]);
+        }
+    }
+
     /** Drops every change. */
     public revert(): void {
         this.working = structuredClone(this.saved);
@@ -153,6 +172,35 @@ export class EntityDraft {
         const savedCount = Array.isArray(saved) ? saved.length : 0;
 
         return this.origins.get(items) ?? items.map((_item, index) => index < savedCount ? index : null);
+    }
+
+    /**
+     * `working` and `changed` copied, each list's origins, as `originsOf`
+     * gives them, carried over to its copy: they're kept by the list itself.
+     */
+    private static copied(
+        working: Readonly<Record<string, unknown>>,
+        changed: ReadonlyMap<string, ValueDescription>,
+        originsOf: (items: unknown[]) => readonly (number | null)[] | undefined,
+    ): DraftState {
+        const origins = new Map<unknown[], readonly (number | null)[]>();
+        const copy = (value: unknown): unknown => {
+            if (Array.isArray(value)) {
+                const items = value.map(copy);
+                const kept = originsOf(value);
+                if (kept !== undefined) {
+                    origins.set(items, [...kept]);
+                }
+
+                return items;
+            }
+
+            return typeof value === 'object' && value !== null
+                ? Object.fromEntries(Object.entries(value).map(([key, each]) => [key, copy(each)]))
+                : value;
+        };
+
+        return {working: copy(working) as Record<string, unknown>, changed: new Map(changed), origins};
     }
 
     /** Notes that the property at `path` changed; a change already covering it is enough. */

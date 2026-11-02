@@ -26,9 +26,11 @@ export interface PanelView {
     canClose?(): Promise<boolean>;
 
     /**
-     * The edits made in it, when it's an edit context: the shell sends it
-     * Cmd or Ctrl and Z, and Shift with them, while the focus is inside it.
-     * Without it, there's nothing to undo here.
+     * The history of what it's editing where the focus is: an entity's
+     * session, the schema draft, a plugin's own model, or the view's own
+     * state. The shell sends it Cmd or Ctrl and Z, and Shift with them,
+     * while the focus is inside it. A view editing several things gives the
+     * history of the one focused; without it, there's nothing to undo here.
      */
     readonly history?: EditHistory;
 }

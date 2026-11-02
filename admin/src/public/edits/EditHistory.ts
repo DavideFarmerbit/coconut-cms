@@ -4,23 +4,46 @@ import type {Edit} from './Edit.ts';
 export type HistoryListener = () => void;
 
 /**
- * The edits made in one edit context, undoable and redoable in turn: an
- * entity editor's tab, the schema editor, a plugin's editor. Each context
- * holds its own; the view showing it gives it as its PanelView's `history`,
- * so the shell sends it Cmd or Ctrl and Z. A new edit clears what could be
- * redone.
+ * The edits made to one thing being edited, undoable and redoable in turn,
+ * whichever view made them: an entity's session, the schema draft, a
+ * plugin's own model. What's edited holds it, never a view, so every view
+ * of it undoes the same edits; a view gives the history of what it's
+ * editing where the focus is as its PanelView's `history`, so the shell
+ * sends it Cmd or Ctrl and Z. A new edit clears what could be redone. The
+ * last edit may absorb the next, until sealed: what's typed in one field,
+ * until the focus leaves it.
  */
 export class EditHistory {
     private readonly done: Edit[] = [];
     private readonly undone: Edit[] = [];
     private readonly listeners: HistoryListener[] = [];
+    /** Whether the last edit takes no more: sealed, undone or redone since. */
+    private sealed = true;
 
     /** Applies `edit` and records it: the next undo() reverts it. */
     public do(edit: Edit): void {
         edit.apply();
-        this.done.push(edit);
+        this.record(edit);
+    }
+
+    /**
+     * Records `edit`, already applied: a change made live, as it was typed.
+     * The last edit absorbs it when it can, and isn't sealed.
+     */
+    public record(edit: Edit): void {
+        const last = this.done[this.done.length - 1];
+        if (this.sealed || last?.absorb?.(edit) !== true) {
+            this.done.push(edit);
+        }
+
+        this.sealed = false;
         this.undone.length = 0;
         this.changed();
+    }
+
+    /** Stops the last edit taking any more: what comes next is an edit of its own. */
+    public seal(): void {
+        this.sealed = true;
     }
 
     /** Whether there's an edit to undo. */
@@ -52,6 +75,7 @@ export class EditHistory {
 
         edit.revert();
         this.undone.push(edit);
+        this.sealed = true;
         this.changed();
     }
 
@@ -64,11 +88,13 @@ export class EditHistory {
 
         edit.apply();
         this.done.push(edit);
+        this.sealed = true;
         this.changed();
     }
 
     /** Forgets every edit: after a save, or a reload, nothing before it can be undone. */
     public clear(): void {
+        this.sealed = true;
         if (this.done.length === 0 && this.undone.length === 0) {
             return;
         }

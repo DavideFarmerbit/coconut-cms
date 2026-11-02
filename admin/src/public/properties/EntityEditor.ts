@@ -1,5 +1,6 @@
 import {Elements} from '../../dom/Elements.ts';
 import {ViewStateCollapse} from '../../properties/ViewStateCollapse.ts';
+import type {EditHistory} from '../edits/EditHistory.ts';
 import type {EntityHold} from '../entities/EntityHold.ts';
 import type {EntitySession} from '../entities/EntitySession.ts';
 import type {SessionChange} from '../entities/SessionChange.ts';
@@ -12,10 +13,12 @@ import {PropertyGrid} from './PropertyGrid.ts';
  * entity. It shows a session it holds: the session loads and saves, other
  * views of the entity share it. Cmd or Ctrl and S saves. Which properties
  * and groups are collapsed is kept in its view's state, per entity type.
- * A tab's view hands its canClose() to the shell, and disposes of it.
+ * A tab's view hands its canClose() and its history to the shell, and
+ * disposes of it.
  *
  *     this.editor = EntityEditor.edit(context, id);
  *     this.element = this.editor.element;
+ *     public get history(): EditHistory { return this.editor.history; }
  */
 export class EntityEditor {
     /** The view state's name for the groups closed, by entity type. */
@@ -60,6 +63,8 @@ export class EntityEditor {
                 void this.session.save();
             }
         });
+        // What's typed in a field is one edit until the focus leaves it.
+        this.element.addEventListener('focusout', () => this.session.history.seal());
 
         this.session.onChange(this.listener);
         if (this.session.state === 'loading') {
@@ -77,6 +82,11 @@ export class EntityEditor {
     /** An editor of a new entity of `type`, from its defaults: its first save creates it. */
     public static create(context: ViewContext, type: string): EntityEditor {
         return new EntityEditor(context, context.entities.create(type));
+    }
+
+    /** The changes made to its entity, whichever view made them: what its tab's view gives as its history. */
+    public get history(): EditHistory {
+        return this.session.history;
     }
 
     /** Whether it may close: lets its hold go, which asks first when it's the last one on unsaved changes. */

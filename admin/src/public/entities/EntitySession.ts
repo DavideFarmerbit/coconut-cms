@@ -1,10 +1,13 @@
 import {DraftCollectionItems} from '../../properties/DraftCollectionItems.ts';
+import type {DraftState} from '../../properties/DraftState.ts';
 import {EntityDraft} from '../../properties/EntityDraft.ts';
 import {NewValues} from '../../properties/NewValues.ts';
 import {PropertyInfos} from '../../properties/PropertyInfos.ts';
 import {ReadTree} from '../../properties/ReadTree.ts';
+import {type EditedChange, SessionEdit} from '../../properties/SessionEdit.ts';
 import {ApiFailure} from '../api/ApiFailure.ts';
 import {ErrorCode} from '../api/ErrorCode.ts';
+import {EditHistory} from '../edits/EditHistory.ts';
 import type {CollectionItems} from '../properties/CollectionItems.ts';
 import {EntityLabels} from '../properties/EntityLabels.ts';
 import type {PropertyInfo} from '../properties/PropertyInfo.ts';
@@ -49,6 +52,12 @@ export interface SessionSaver {
 export class EntitySession {
     /** Settles once the entity is read, or failed to be. */
     public readonly ready: Promise<void>;
+    /**
+     * Every change made since it was read or saved, undoable, whichever view
+     * made it: its views give it as their history. A save or a reload
+     * forgets it.
+     */
+    public readonly history = new EditHistory();
     private currentState: SessionState = 'loading';
     private failureMessage = '';
     private entityId: string | null;
@@ -185,27 +194,33 @@ export class EntitySession {
     /** Sets the value at `path`, `source` the view setting it. Its error, from the last save, is answered. */
     public set(path: string, value: unknown, source: object | null = null): void {
         const info = this.describe(path);
-        if (this.draft === undefined || info === undefined) {
+        const draft = this.draft;
+        if (draft === undefined || info === undefined) {
             return;
         }
 
+        const before = draft.snapshot();
         this.errors.delete(path);
-        this.draft.set(path, value, info.value);
+        draft.set(path, value, info.value);
         this.emit({kind: 'values', paths: [path], source});
         this.emit({kind: 'state'});
+        this.recorded(`Change ${path}`, {kind: 'values', paths: [path], source: null}, before);
     }
 
     /** Sets the value at `path` and tells it as a change of shape: an owned object's class picked, emptied. */
     public replace(path: string, value: unknown, source: object | null = null): void {
         const info = this.describe(path);
-        if (this.draft === undefined || info === undefined) {
+        const draft = this.draft;
+        if (draft === undefined || info === undefined) {
             return;
         }
 
+        const before = draft.snapshot();
         this.errors.delete(path);
-        this.draft.set(path, value, info.value);
+        draft.set(path, value, info.value);
         this.emit({kind: 'shape', path, source});
         this.emit({kind: 'state'});
+        this.recorded(`Change ${path}`, {kind: 'shape', path, source: null}, before);
     }
 
     /** The items of the Collection at `path`, changed one operation at a time; undefined when it isn't one. */
@@ -218,10 +233,11 @@ export class EntitySession {
 
         const slot = {get: () => this.valueAt(path), set: (next: unknown) => draft.set(path, next, info.value)};
 
-        return new DraftCollectionItems(draft, slot, path, info.value, () => {
+        return new DraftCollectionItems(draft, slot, path, info.value, (label, before) => {
             this.errors.delete(path);
             this.emit({kind: 'shape', path, source});
             this.emit({kind: 'state'});
+            this.recorded(label, {kind: 'shape', path, source: null}, before);
         });
     }
 
@@ -247,10 +263,17 @@ export class EntitySession {
 
     /** Puts back what was saved at `path`; for a new entity, its default. */
     public resetAt(path: string, source: object | null = null): void {
-        this.draft?.resetAt(path);
+        const draft = this.draft;
+        if (draft === undefined) {
+            return;
+        }
+
+        const before = draft.snapshot();
+        draft.resetAt(path);
         this.errors.delete(path);
         this.emit({kind: 'shape', path, source});
         this.emit({kind: 'state'});
+        this.recorded(`Reset ${path}`, {kind: 'shape', path, source: null}, before);
     }
 
     /** Puts what a new object holds at `path`; an owned object keeps its id, only its values reset. */
@@ -261,11 +284,18 @@ export class EntitySession {
         }
     }
 
-    /** Drops every change. */
+    /** Drops every change: itself an edit, so undoing it brings them back. */
     public revert(): void {
-        this.draft?.revert();
+        const draft = this.draft;
+        if (draft === undefined) {
+            return;
+        }
+
+        const before = draft.snapshot();
+        draft.revert();
         this.clearErrors();
         this.emit({kind: 'reloaded'});
+        this.recorded('Discard changes', {kind: 'reloaded'}, before);
     }
 
     /**
@@ -343,12 +373,20 @@ export class EntitySession {
         return {catalog, values: description.defaults, type};
     }
 
-    /** Starts over from `values`, what was stored. */
+    /** Starts over from `values`, what was stored: nothing done before can be undone. */
     private start(values: Readonly<Record<string, unknown>>): void {
         const draft = new EntityDraft(values);
         const catalog = this.catalog;
         this.draft = draft;
         this.infos = catalog === undefined ? undefined : new PropertyInfos(catalog, this.entityType, () => draft.values);
+        this.history.clear();
+    }
+
+    /** Records the change just made to the draft, from `before`, named `label`: `change` is what its views are told when it's undone or redone. */
+    private recorded(label: string, change: EditedChange, before: DraftState): void {
+        if (this.draft !== undefined) {
+            this.history.record(new SessionEdit(label, this.draft, change, before, this.draft.snapshot(), (told) => this.emit(told)));
+        }
     }
 
     /** Puts `failure`'s errors at their paths, or on the whole entity. */

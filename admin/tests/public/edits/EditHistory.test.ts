@@ -24,6 +24,33 @@ class AddWord implements Edit {
     }
 }
 
+/** Sets the word at `index` from `before` to `after`; absorbs the next typed at the same index. */
+class Typed implements Edit {
+    public readonly label: string;
+
+    public constructor(private readonly target: Words, private readonly index: number, private readonly before: string, private after: string) {
+        this.label = `Type ${after}`;
+    }
+
+    public apply(): void {
+        this.target.words[this.index] = this.after;
+    }
+
+    public revert(): void {
+        this.target.words[this.index] = this.before;
+    }
+
+    public absorb(next: Edit): boolean {
+        if (!(next instanceof Typed) || next.index !== this.index) {
+            return false;
+        }
+
+        this.after = next.after;
+
+        return true;
+    }
+}
+
 describe('EditHistory', () => {
     it('undoes and redoes edits in turn', () => {
         const model = new Words();
@@ -67,6 +94,30 @@ describe('EditHistory', () => {
         expect(history.canRedo()).toBe(false);
         history.redo();
         expect(model.words).toEqual(['calm']);
+    });
+
+    it('lets the last edit absorb the next until sealed, undone or redone', () => {
+        const model = new Words();
+        const history = new EditHistory();
+        model.words.push('s');
+        history.record(new Typed(model, 0, '', 's'));
+        model.words[0] = 'se';
+        history.record(new Typed(model, 0, 's', 'se'));
+        model.words[0] = 'sea';
+        history.record(new Typed(model, 0, 'se', 'sea'));
+
+        history.undo();
+        expect(model.words, 'Recorded, not applied again; absorbed, undone at once.').toEqual(['']);
+        history.redo();
+        expect(model.words).toEqual(['sea']);
+
+        history.do(new Typed(model, 0, 'sea', 'seas'));
+        expect(history.undoLabel(), 'Redone, the last edit takes no more.').toBe('Type seas');
+
+        history.seal();
+        history.do(new Typed(model, 0, 'seas', 'seashore'));
+        history.undo();
+        expect(model.words).toEqual(['seas']);
     });
 
     it('forgets everything when cleared, and tells its listeners of each change', () => {
