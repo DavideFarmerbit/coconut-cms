@@ -287,7 +287,11 @@ built so it stands on the same footing as its own tools.
   `api` client and its signed-in `user`); `ApiClient`, `ApiFailure`,
   `ErrorCode`; the workspace's types (`ToolDefinition`, `TabTypeDefinition`,
   `PanelView`, `ViewContext`, `ViewState`, `Workspace`, the typed ids and
-  placements); and the `User` and `Me` types.
+  placements); and the `User` and `Me` types. Its UI kit, so a plugin's
+  views look and behave like the admin's own: `Elements` (making markup),
+  `Modal` and `Dialog`, `ContextMenu`, `ChoicePicker` with `LocalChoices`,
+  and `TypeIcon`. The admin's stylesheet classes (`list`, `button`,
+  `field__input`…) apply to a plugin's markup as to the admin's.
 - **One running copy.** The admin page declares an import map, so
   `@coconut-cms/admin` resolves to the admin's own running module. A plugin's
   build marks it external and never bundles a copy: its `import { tools }

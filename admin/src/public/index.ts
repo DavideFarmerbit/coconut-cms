@@ -7,6 +7,18 @@
  */
 import {AdminRuntime} from './AdminRuntime.ts';
 
+// The admin's UI kit: what a plugin builds its views with, so they look and behave like the admin's own.
+export type {Choice} from '../dom/Choice.ts';
+export {ChoicePicker, type ChoiceOptions} from '../dom/ChoicePicker.ts';
+export type {ChoicePage, ChoiceSource} from '../dom/ChoiceSource.ts';
+export {ContextMenu} from '../dom/ContextMenu.ts';
+export {Dialog, type DialogChoice} from '../dom/Dialog.ts';
+export {Elements, type ElementOptions} from '../dom/Elements.ts';
+export {LocalChoices} from '../dom/LocalChoices.ts';
+export type {MenuItem} from '../dom/MenuItem.ts';
+export {Modal, type ModalButton} from '../dom/Modal.ts';
+export {TypeIcon} from '../icons/TypeIcon.ts';
+
 export type {AdminPlugin, AdminPluginClass} from './AdminPlugin.ts';
 export {AdminRuntime} from './AdminRuntime.ts';
 export {ApiClient, type Fetcher} from './api/ApiClient.ts';
