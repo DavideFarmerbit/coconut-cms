@@ -759,3 +759,18 @@ admin's job:
 - **The preview shows what will run:** the fixups, the breaks, the entries
   that can't move and the values a unique group would hold twice, before
   the admin saves.
+
+What fits a field is the admin's to work out. `SchemaListings`
+(`admin/src/schema/`) loads `schema.conversions` and `schema.validators`
+once: modules register their converters and rules at boot, so they change
+only with a deploy. It asks for both lists at once, and answers from them:
+the converters for a field holding one thing and going to hold another,
+the initializers filling a field, the rules checking it, each by
+identifier with the parameters a form asks for. `FieldSignature` matches a
+signature against what a field holds, as `types.get` describes it, with
+the server's rules: what a signature leaves out matches any, a union
+matches any of its signatures, nullability is never part of it. It
+describes itself in the server's words. Its tests match against the
+server's own listings, kept in `admin/tests/schema/fixtures`; a server
+test fails when those no longer match what the server lists, naming the
+command that prints them again.

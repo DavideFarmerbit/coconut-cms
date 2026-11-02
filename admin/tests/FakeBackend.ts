@@ -5,6 +5,8 @@ import {EntityStore} from '../src/public/entities/EntityStore.ts';
 import type {UnsavedAnswer, UnsavedQuestion} from '../src/public/entities/UnsavedQuestion.ts';
 import {TypeStore} from '../src/public/types/TypeStore.ts';
 import type {FieldDescription, TypeDescription, ValueDescription} from '../src/public/types/TypeDescription.ts';
+import type {ConversionList} from '../src/schema/ConversionList.ts';
+import type {ValidatorList} from '../src/schema/ValidatorList.ts';
 
 /** A value description with `changes` over a non-null string scalar. */
 export function value(changes: Partial<ValueDescription>): ValueDescription {
@@ -34,7 +36,7 @@ export const bikeType: TypeDescription = {...carType, identifier: 'shop:bike', f
 
 /**
  * The backend, in memory, behind a real ApiClient: auth.me, signIn and
- * signOut, types.list, and
+ * signOut, types.list, schema.conversions and schema.validators, and
  * entities.get, query, create, update and delete over entities by id, root
  * paths only. A query
  * lists a type's entities by id, a page at a time. Counts the calls, and
@@ -48,6 +50,10 @@ export class FakeBackend {
     public types: TypeDescription[] = [carType, wheelType, bikeType];
     /** Who's signed in. The one user signs in as "ada" with the password "lovelace". */
     public signedIn: User | null = null;
+    /** What schema.conversions gives: none, unless a test sets them. */
+    public conversions: ConversionList = {converters: [], initializers: [], levelInitializers: []};
+    /** What schema.validators gives: none, unless a test sets them. */
+    public validators: ValidatorList = {fieldRules: [], prototypeRules: []};
     private nextId = 1;
 
     /** Puts a car named `name` in, and gives its id. */
@@ -99,6 +105,10 @@ export class FakeBackend {
                 return {user: null};
             case 'coconut-cms:types.list':
                 return {types: this.types, revision: 1};
+            case 'coconut-cms:schema.conversions':
+                return this.conversions;
+            case 'coconut-cms:schema.validators':
+                return this.validators;
             case 'coconut-cms:entities.get':
                 return this.entities.get(String(input['id'])) ?? FakeBackend.fail('not_found', 'No such entity.');
             case 'coconut-cms:entities.query':

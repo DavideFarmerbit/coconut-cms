@@ -177,6 +177,16 @@ final class SchemaApiTest extends DynamicTestCase
         self::assertSame([], $body['result']['levelInitializers'], 'No module registers one here.');
     }
 
+    public function testTheAdminsFixturesAreWhatTheServerListsNow(): void {
+        $fixtures = __DIR__ . '/../../../admin/tests/schema/fixtures';
+        $refresh = 'The admin tests match against an old listing: refresh admin/tests/schema/fixtures with `vendor/bin/coconut coconut-cms:schema.%s --json=\'{}\' --output=json` from the app.';
+
+        foreach (['conversions', 'validators'] as $listing) {
+            [, $body] = $this->post('coconut-cms:schema.' . $listing, []);
+            self::assertSame(json_decode((string) file_get_contents("$fixtures/$listing.json"), true), $body['result'], sprintf($refresh, $listing));
+        }
+    }
+
     public function testTheFieldRulesListedAreThoseFittingTheField(): void {
         $core = static fn (array $rules): array => array_values(array_filter(array_column($rules, 'rule'), static fn (string $rule): bool => str_starts_with($rule, 'coconut-cms:')));
 

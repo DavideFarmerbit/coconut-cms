@@ -1,0 +1,163 @@
+{
+    "fieldRules": [
+        {
+            "rule": "coconut-cms:max-length",
+            "fits": {
+                "oneOf": [
+                    {
+                        "kind": "scalar",
+                        "scalarType": "string",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "text",
+                        "target": null,
+                        "item": null
+                    }
+                ]
+            },
+            "parameters": [
+                {
+                    "name": "max",
+                    "type": "int",
+                    "nullable": false,
+                    "optional": false,
+                    "default": null,
+                    "choices": null
+                }
+            ]
+        },
+        {
+            "rule": "coconut-cms:range",
+            "fits": {
+                "oneOf": [
+                    {
+                        "kind": "scalar",
+                        "scalarType": "int",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "float",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "decimal",
+                        "target": null,
+                        "item": null
+                    }
+                ]
+            },
+            "parameters": [
+                {
+                    "name": "min",
+                    "type": "float",
+                    "nullable": true,
+                    "optional": true,
+                    "default": null,
+                    "choices": null
+                },
+                {
+                    "name": "max",
+                    "type": "float",
+                    "nullable": true,
+                    "optional": true,
+                    "default": null,
+                    "choices": null
+                }
+            ]
+        },
+        {
+            "rule": "coconut-cms:pattern",
+            "fits": {
+                "oneOf": [
+                    {
+                        "kind": "scalar",
+                        "scalarType": "string",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "text",
+                        "target": null,
+                        "item": null
+                    }
+                ]
+            },
+            "parameters": [
+                {
+                    "name": "regex",
+                    "type": "string",
+                    "nullable": false,
+                    "optional": false,
+                    "default": null,
+                    "choices": null
+                }
+            ]
+        },
+        {
+            "rule": "coconut-cms:max-items",
+            "fits": {
+                "kind": "collection",
+                "scalarType": null,
+                "target": null,
+                "item": null
+            },
+            "parameters": [
+                {
+                    "name": "max",
+                    "type": "int",
+                    "nullable": false,
+                    "optional": false,
+                    "default": null,
+                    "choices": null
+                }
+            ]
+        },
+        {
+            "rule": "coconut-cms:min-items",
+            "fits": {
+                "kind": "collection",
+                "scalarType": null,
+                "target": null,
+                "item": null
+            },
+            "parameters": [
+                {
+                    "name": "min",
+                    "type": "int",
+                    "nullable": false,
+                    "optional": false,
+                    "default": null,
+                    "choices": null
+                }
+            ]
+        },
+        {
+            "rule": "coconut-cms:on-items",
+            "fits": {
+                "kind": "collection",
+                "scalarType": null,
+                "target": null,
+                "item": null
+            },
+            "parameters": [
+                {
+                    "name": "rules",
+                    "type": "field_rules",
+                    "nullable": false,
+                    "optional": true,
+                    "default": [],
+                    "choices": null
+                }
+            ]
+        }
+    ],
+    "prototypeRules": []
+}

@@ -1,0 +1,503 @@
+{
+    "converters": [
+        {
+            "kind": "coconut-cms:number-to-text",
+            "from": {
+                "oneOf": [
+                    {
+                        "kind": "scalar",
+                        "scalarType": "int",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "float",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "decimal",
+                        "target": null,
+                        "item": null
+                    }
+                ]
+            },
+            "to": {
+                "oneOf": [
+                    {
+                        "kind": "scalar",
+                        "scalarType": "string",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "text",
+                        "target": null,
+                        "item": null
+                    }
+                ]
+            },
+            "parameters": []
+        },
+        {
+            "kind": "coconut-cms:text-to-number",
+            "from": {
+                "oneOf": [
+                    {
+                        "kind": "scalar",
+                        "scalarType": "string",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "text",
+                        "target": null,
+                        "item": null
+                    }
+                ]
+            },
+            "to": {
+                "oneOf": [
+                    {
+                        "kind": "scalar",
+                        "scalarType": "int",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "float",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "decimal",
+                        "target": null,
+                        "item": null
+                    }
+                ]
+            },
+            "parameters": [
+                {
+                    "name": "onFailure",
+                    "type": "enum",
+                    "nullable": false,
+                    "optional": false,
+                    "default": null,
+                    "choices": [
+                        "default",
+                        "cancel"
+                    ]
+                }
+            ]
+        },
+        {
+            "kind": "coconut-cms:text-to-enum",
+            "from": {
+                "oneOf": [
+                    {
+                        "kind": "scalar",
+                        "scalarType": "string",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "text",
+                        "target": null,
+                        "item": null
+                    }
+                ]
+            },
+            "to": {
+                "kind": "scalar",
+                "scalarType": "enum",
+                "target": null,
+                "item": null
+            },
+            "parameters": [
+                {
+                    "name": "onFailure",
+                    "type": "enum",
+                    "nullable": false,
+                    "optional": false,
+                    "default": null,
+                    "choices": [
+                        "default",
+                        "cancel"
+                    ]
+                }
+            ]
+        },
+        {
+            "kind": "coconut-cms:date-to-date-time",
+            "from": {
+                "kind": "scalar",
+                "scalarType": "date",
+                "target": null,
+                "item": null
+            },
+            "to": {
+                "kind": "scalar",
+                "scalarType": "date_time",
+                "target": null,
+                "item": null
+            },
+            "parameters": []
+        },
+        {
+            "kind": "coconut-cms:number-to-number",
+            "from": {
+                "oneOf": [
+                    {
+                        "kind": "scalar",
+                        "scalarType": "int",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "float",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "decimal",
+                        "target": null,
+                        "item": null
+                    }
+                ]
+            },
+            "to": {
+                "oneOf": [
+                    {
+                        "kind": "scalar",
+                        "scalarType": "int",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "float",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "decimal",
+                        "target": null,
+                        "item": null
+                    }
+                ]
+            },
+            "parameters": [
+                {
+                    "name": "onFailure",
+                    "type": "enum",
+                    "nullable": false,
+                    "optional": false,
+                    "default": null,
+                    "choices": [
+                        "default",
+                        "cancel"
+                    ]
+                },
+                {
+                    "name": "rounding",
+                    "type": "enum",
+                    "nullable": false,
+                    "optional": true,
+                    "default": "half-up",
+                    "choices": [
+                        "half-up",
+                        "half-even",
+                        "down",
+                        "up"
+                    ]
+                }
+            ]
+        },
+        {
+            "kind": "coconut-cms:text-to-text",
+            "from": {
+                "oneOf": [
+                    {
+                        "kind": "scalar",
+                        "scalarType": "string",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "text",
+                        "target": null,
+                        "item": null
+                    }
+                ]
+            },
+            "to": {
+                "oneOf": [
+                    {
+                        "kind": "scalar",
+                        "scalarType": "string",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "text",
+                        "target": null,
+                        "item": null
+                    }
+                ]
+            },
+            "parameters": [
+                {
+                    "name": "onTooLong",
+                    "type": "enum",
+                    "nullable": false,
+                    "optional": false,
+                    "default": null,
+                    "choices": [
+                        "truncate",
+                        "default",
+                        "cancel"
+                    ]
+                }
+            ]
+        },
+        {
+            "kind": "coconut-cms:enum-to-text",
+            "from": {
+                "kind": "scalar",
+                "scalarType": "enum",
+                "target": null,
+                "item": null
+            },
+            "to": {
+                "oneOf": [
+                    {
+                        "kind": "scalar",
+                        "scalarType": "string",
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "scalar",
+                        "scalarType": "text",
+                        "target": null,
+                        "item": null
+                    }
+                ]
+            },
+            "parameters": []
+        },
+        {
+            "kind": "coconut-cms:map-values",
+            "from": {
+                "kind": "scalar",
+                "scalarType": null,
+                "target": null,
+                "item": null
+            },
+            "to": {
+                "kind": "scalar",
+                "scalarType": null,
+                "target": null,
+                "item": null
+            },
+            "parameters": [
+                {
+                    "name": "mapping",
+                    "type": "map",
+                    "nullable": false,
+                    "optional": false,
+                    "default": null,
+                    "choices": null
+                },
+                {
+                    "name": "onFailure",
+                    "type": "enum",
+                    "nullable": false,
+                    "optional": false,
+                    "default": null,
+                    "choices": [
+                        "default",
+                        "cancel"
+                    ]
+                }
+            ]
+        },
+        {
+            "kind": "coconut-cms:date-time-to-date",
+            "from": {
+                "kind": "scalar",
+                "scalarType": "date_time",
+                "target": null,
+                "item": null
+            },
+            "to": {
+                "kind": "scalar",
+                "scalarType": "date",
+                "target": null,
+                "item": null
+            },
+            "parameters": []
+        },
+        {
+            "kind": "coconut-cms:to-single-item",
+            "from": {
+                "oneOf": [
+                    {
+                        "kind": "scalar",
+                        "scalarType": null,
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "value_object",
+                        "scalarType": null,
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "reference",
+                        "scalarType": null,
+                        "target": null,
+                        "item": null
+                    }
+                ]
+            },
+            "to": {
+                "kind": "collection",
+                "scalarType": null,
+                "target": null,
+                "item": {
+                    "oneOf": [
+                        {
+                            "kind": "scalar",
+                            "scalarType": null,
+                            "target": null,
+                            "item": null
+                        },
+                        {
+                            "kind": "value_object",
+                            "scalarType": null,
+                            "target": null,
+                            "item": null
+                        },
+                        {
+                            "kind": "reference",
+                            "scalarType": null,
+                            "target": null,
+                            "item": null
+                        }
+                    ]
+                }
+            },
+            "parameters": []
+        },
+        {
+            "kind": "coconut-cms:first-item",
+            "from": {
+                "kind": "collection",
+                "scalarType": null,
+                "target": null,
+                "item": {
+                    "oneOf": [
+                        {
+                            "kind": "scalar",
+                            "scalarType": null,
+                            "target": null,
+                            "item": null
+                        },
+                        {
+                            "kind": "value_object",
+                            "scalarType": null,
+                            "target": null,
+                            "item": null
+                        },
+                        {
+                            "kind": "reference",
+                            "scalarType": null,
+                            "target": null,
+                            "item": null
+                        }
+                    ]
+                }
+            },
+            "to": {
+                "oneOf": [
+                    {
+                        "kind": "scalar",
+                        "scalarType": null,
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "value_object",
+                        "scalarType": null,
+                        "target": null,
+                        "item": null
+                    },
+                    {
+                        "kind": "reference",
+                        "scalarType": null,
+                        "target": null,
+                        "item": null
+                    }
+                ]
+            },
+            "parameters": []
+        }
+    ],
+    "initializers": [
+        {
+            "kind": "coconut-cms:constant",
+            "from": null,
+            "to": {
+                "kind": null,
+                "scalarType": null,
+                "target": null,
+                "item": null
+            },
+            "parameters": [
+                {
+                    "name": "value",
+                    "type": "mixed",
+                    "nullable": true,
+                    "optional": false,
+                    "default": null,
+                    "choices": null
+                }
+            ]
+        },
+        {
+            "kind": "coconut-cms:copy",
+            "from": null,
+            "to": {
+                "kind": null,
+                "scalarType": null,
+                "target": null,
+                "item": null
+            },
+            "parameters": [
+                {
+                    "name": "path",
+                    "type": "string",
+                    "nullable": false,
+                    "optional": false,
+                    "default": null,
+                    "choices": null
+                }
+            ]
+        }
+    ],
+    "levelInitializers": []
+}
