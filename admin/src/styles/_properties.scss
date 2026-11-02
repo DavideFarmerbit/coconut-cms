@@ -388,10 +388,12 @@
 }
 
 // A modal question over a dimmed page.
+// Under the floating layers: a dropdown or a tooltip a dialog opens shows
+// over it, while nothing behind it can open one.
 .dialog-overlay {
     position: fixed;
     inset: 0;
-    z-index: 4000;
+    z-index: 1500;
     display: grid;
     place-items: center;
     background: var(--cc-color-overlay);

@@ -25,6 +25,34 @@
     padding-top: 0;
 }
 
+// The schema draft's marks: a type created, renamed or deleted.
+.types-view__toolbar {
+    display: flex;
+    padding: var(--cc-space-1) var(--cc-space-2);
+}
+
+.type-group .list__item {
+    display: flex;
+    align-items: center;
+    gap: var(--cc-space-2);
+
+    &.is-deleted {
+        color: var(--cc-color-text-muted);
+        text-decoration: line-through;
+        cursor: default;
+
+        &:hover {
+            background: none;
+        }
+    }
+}
+
+.list__badge {
+    margin-left: auto;
+    color: var(--cc-color-accent);
+    font-size: var(--cc-font-size-small);
+}
+
 .type-link {
     padding: 0;
     color: var(--cc-color-accent-hover);

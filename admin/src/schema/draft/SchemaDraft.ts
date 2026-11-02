@@ -8,7 +8,7 @@ import {type DraftListener, DraftRecords} from './DraftRecords.ts';
 import {EditRefused} from './EditRefused.ts';
 import {NO_FIELD_CHOICES} from './FieldChoices.ts';
 import type {FieldRecord} from './FieldRecord.ts';
-import {FieldShapes} from './FieldShapes.ts';
+import {FieldShapes, type NullabilityChange} from './FieldShapes.ts';
 import type {FieldState} from './FieldState.ts';
 import type {PinnedDefault} from './PinnedDefault.ts';
 import {NO_TYPE_CHOICES} from './TypeChoices.ts';
@@ -192,6 +192,29 @@ export class SchemaDraft {
         }
 
         return text;
+    }
+
+    /**
+     * How the stored field `id`'s shape changed since it loaded, the types it
+     * names read as they're called now: only its nullability, a retype, or
+     * null for nothing, or for a field added or removed.
+     */
+    public shapeChange(id: FieldId): NullabilityChange | 'retype' | null {
+        const field = this.records.field(id);
+        if (field?.was === null || field?.now === null || field === undefined) {
+            return null;
+        }
+
+        const was = FieldShapes.retargeted(field.was.shape, (identifier) => {
+            const type = this.records.allTypes().find((each) => each.was?.identifier === identifier);
+
+            return type?.now?.identifier ?? identifier;
+        });
+        if (FieldShapes.same(was, field.now.shape)) {
+            return null;
+        }
+
+        return FieldShapes.nullabilityChange(was, field.now.shape) ?? 'retype';
     }
 
     /** Tells `listener` after every edit, done, undone or redone. */

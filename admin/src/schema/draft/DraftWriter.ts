@@ -4,7 +4,6 @@ import {DefaultPath} from './DefaultPath.ts';
 import type {FieldId, TypeId} from './DraftIds.ts';
 import {EditRefused} from './EditRefused.ts';
 import type {FieldRecord} from './FieldRecord.ts';
-import {FieldShapes, type NullabilityChange} from './FieldShapes.ts';
 import type {FieldState} from './FieldState.ts';
 import type {PinnedDefault} from './PinnedDefault.ts';
 import type {SaveProblem} from './SaveProblem.ts';
@@ -47,8 +46,6 @@ export class DraftWriter {
     private readonly types: readonly TypeRecord[];
     /** Every field of an editor-made type, removed and added ones included. */
     private readonly fields: readonly FieldRecord[];
-    /** Each stored type's identifier, by the one it had when loaded. */
-    private readonly finalIdentifiers: ReadonlyMap<string, string>;
     /** Defaults an addField, moveField or retypeField gave: no setDefault repeats them. By type and path key. */
     private readonly given = new Set<string>();
     /** Types whose cross-field rules were cleared first. */
@@ -66,7 +63,6 @@ export class DraftWriter {
             return state !== null && draft.type(state.owner)?.source === 'editor';
         });
         this.chain = ChainState.stored(everything.types, everything.fields);
-        this.finalIdentifiers = new Map(everything.types.filter((type) => type.was !== null).map((type) => [type.was!.identifier, type.now?.identifier ?? type.was!.identifier]));
     }
 
     /** `draft` written as one save's operations, with what keeps it from being sent. */
@@ -164,7 +160,7 @@ export class DraftWriter {
     /** Retypes each stored field holding something else, or only makes it optional or required. */
     private reshape(): void {
         for (const field of this.keptFields()) {
-            const change = this.shapeChange(field);
+            const change = this.draft.shapeChange(field.id);
             const owner = this.chain.ownerOf(field.id);
             if (change === null) {
                 continue;
@@ -381,20 +377,10 @@ export class DraftWriter {
     private ownFieldsChange(type: TypeRecord): boolean {
         return this.fields.some((field) => {
             const own = field.was?.owner === type.id || field.now?.owner === type.id;
-            const changes = field.was === null || field.now === null || field.was.name !== field.now.name || field.was.owner !== field.now.owner || this.shapeChange(field as Kept<FieldRecord, FieldState>) !== null;
+            const changes = field.was === null || field.now === null || field.was.name !== field.now.name || field.was.owner !== field.now.owner || this.draft.shapeChange(field.id) !== null;
 
             return own && changes;
         });
-    }
-
-    /** How a kept field's shape changed, its stored type names read as they end; null when it didn't. */
-    private shapeChange(field: Kept<FieldRecord, FieldState>): NullabilityChange | 'retype' | null {
-        const was = FieldShapes.retargeted(field.was.shape, (identifier) => this.finalIdentifiers.get(identifier) ?? identifier);
-        if (FieldShapes.same(was, field.now.shape)) {
-            return null;
-        }
-
-        return FieldShapes.nullabilityChange(was, field.now.shape) ?? 'retype';
     }
 
     /** Whether `path` goes through a field written a retype, or moved. */

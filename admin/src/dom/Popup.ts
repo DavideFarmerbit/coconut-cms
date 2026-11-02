@@ -61,6 +61,11 @@ export class Popup {
         return popup;
     }
 
+    /** Whether one is open: Escape is its to close it. */
+    public static isOpen(): boolean {
+        return Popup.current !== undefined;
+    }
+
     /** Places it again: after its content changed its size. At least as wide as its anchor, as a dropdown. */
     public place(): void {
         const anchor = this.anchor.getBoundingClientRect();

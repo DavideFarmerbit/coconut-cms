@@ -961,27 +961,39 @@ opens, with its dialogs as the `UnsavedSchemaQuestion` (not built yet).
 Leaving the page with unsaved edits warns, as with unsaved entities (not
 built yet).
 
-The schema editor's views (not built yet) extend the Types tool, the way
-an IDE edits files in their own tabs and lists pending work apart:
+The schema editor's views extend the Types tool, the way an IDE edits
+files in their own tabs and lists pending work apart. They share one
+service, `SchemaEditing` (`admin/src/tools/schema/`): it loads the
+session on the first ask and guards signing out from then on, and loads
+the listings once. A user the server refuses the schema to, without the
+schema-editor role, gets no session: the Types tool stays read-only.
 
 - **The Types panel shows the draft** to a user with the schema-editor
   role: created, renamed and deleted types are marked, a deleted one
-  struck through. "New type" is in the panel's header and in each
-  namespace's right-click menu. Without the role, it shows the type
-  store's catalog, read-only.
-- **The inspector tab is the type editor.** Its layout stays. An
+  struck through and opening nothing. "New type" is above the list and
+  in each namespace's right-click menu: an identifier and the type it
+  extends, what the draft refuses shown in the dialog. Without the role,
+  it shows the type store's catalog, read-only.
+- **The inspector tab is the type editor** (not built yet). Its layout stays. An
   editor-made type is edited in place: in the header its name, parent,
   permissions and cross-field rules; per field its name, shape, default,
   rules and permission. A native type stays read-only. A choice a change
   needs, such as a converter or an initializer, shows under its field, and
   so does each problem. Undo is the draft's one history.
 - **The "Schema changes" tool**, docked at the bottom, lists what the draft
-  changes, by type, with its problems. It has Save and Discard, and shows
-  that the draft is stale, offering a reload.
+  changes, by type, in words (`DraftChanges`, comparing each object's
+  `was` with its `now`), and above them what keeps it from saving. Save
+  opens the preview; Discard, once confirmed, loads the draft again.
 - **The preview is a modal dialog**: editing while it's open would make it
-  out of date. It shows the fixups, the breaks, the default warnings, what
-  refuses the save and the sample entries. Confirm reads "Accept breaks and
-  save" when there are breaks. Signing out's Review and save opens it too.
+  out of date. It shows what refuses the save, the breaks, the steps, the
+  default warnings and the sample entries. Save reads "Accept breaks and
+  save" when there are breaks, and is disabled when the save would be
+  refused. A stale draft offers "Reload, dropping my edits". Signing out's
+  Review and save opens it too.
+
+Every view of the draft gives its history, so undo works wherever the
+focus is. A `Modal` answers Escape only when it's the topmost, and only
+once no dropdown or menu open in it is left to close.
 
 A field's shape is picked one layer at a time, the layers its icon draws:
 

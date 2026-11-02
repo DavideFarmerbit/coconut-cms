@@ -1,4 +1,42 @@
-// The schema editor: the save preview's report.
+// The schema editor: the Schema changes panel, the save preview's report.
+
+.schema-changes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cc-space-3);
+    padding: var(--cc-space-2);
+}
+
+.schema-changes__toolbar {
+    display: flex;
+    gap: var(--cc-space-2);
+}
+
+.schema-changes__type {
+    display: flex;
+    flex-direction: column;
+    gap: var(--cc-space-1);
+}
+
+.schema-changes__type--problems .schema-changes__title {
+    color: var(--cc-color-danger);
+}
+
+.schema-changes__title {
+    margin: 0;
+    font-size: var(--cc-font-size);
+    font-weight: 600;
+}
+
+.schema-changes__deleted {
+    text-decoration: line-through;
+    color: var(--cc-color-text-muted);
+}
+
+.schema-changes__list {
+    margin: 0;
+    padding-left: var(--cc-space-4);
+}
 
 .schema-report__section {
     display: flex;

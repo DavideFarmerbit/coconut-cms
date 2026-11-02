@@ -10,6 +10,7 @@ import {PluginLoader} from './boot/PluginLoader.ts';
 import {Tooltips} from './dom/Tooltips.ts';
 import {DefaultEditors} from './properties/DefaultEditors.ts';
 import {admin, ApiClient} from './public/index.ts';
+import {SchemaChangesTool} from './tools/schema/SchemaChangesTool.ts';
 import {TypesTool} from './tools/types/TypesTool.ts';
 
 /** Starts the admin. */
@@ -20,6 +21,7 @@ async function start(): Promise<void> {
     // The admin's own first: a plugin's customizations replace its default editors.
     DefaultEditors.register(admin.properties);
     TypesTool.register(admin);
+    SchemaChangesTool.register(admin);
     // Before the workspace: every tool must be there when the saved layout is reconciled.
     await PluginLoader.loadAll(config.plugins, admin);
     await new AdminApp(admin, document.body).start();

@@ -53,6 +53,11 @@ export class ContextMenu {
         });
     }
 
+    /** Whether one is open: Escape is its to close it. */
+    public static isOpen(): boolean {
+        return ContextMenu.current !== undefined;
+    }
+
     /** Opens a menu of `items` under `anchor`: a dropdown. */
     public static below(anchor: HTMLElement, items: readonly MenuItem[]): void {
         const rect = anchor.getBoundingClientRect();

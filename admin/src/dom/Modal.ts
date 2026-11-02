@@ -1,4 +1,6 @@
+import {ContextMenu} from './ContextMenu.ts';
 import {Elements} from './Elements.ts';
+import {Popup} from './Popup.ts';
 
 /** One button of a Modal: its label, what clicking it does, and how it shows. */
 export interface ModalButton {
@@ -29,7 +31,8 @@ export class Modal {
     private readonly overlay: HTMLElement;
     private readonly buttons: HTMLElement;
     private readonly onKey = (event: KeyboardEvent): void => {
-        if (event.key === 'Escape' && Modal.open[Modal.open.length - 1] === this) {
+        // A dropdown or menu open in it closes first, on its own.
+        if (event.key === 'Escape' && Modal.open[Modal.open.length - 1] === this && !Popup.isOpen() && !ContextMenu.isOpen()) {
             event.stopPropagation();
             this.onEscape();
         }
