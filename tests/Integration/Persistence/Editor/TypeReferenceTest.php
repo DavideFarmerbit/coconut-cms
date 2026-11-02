@@ -11,11 +11,13 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\AddField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\Reparent;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\ReplaceType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaOperation;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\StrictPolicy;
 use XyloIsCoding\CoconutCms\Persistence\Permission\SystemActor;
 use XyloIsCoding\CoconutCms\Persistence\Persistence;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Dynamic\DynamicModule;
 use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Dynamic\DynamicTestCase;
@@ -88,6 +90,32 @@ final class TypeReferenceTest extends DynamicTestCase
         $this->save(2, new Reparent('dy:yacht', null));
 
         self::assertNull($this->marks($buoy));
+    }
+
+    public function testAReplacedTypeIsNamedByItsReplacementWhenThatFitsTheBase(): void {
+        $buoy = $this->buoyMarking(FieldDescriptor::typeReference('marks', 'dy:craft', Nullability::Nullable), null, ['marks' => 'dy:yacht']);
+
+        $this->save(2, new ReplaceType('dy:yacht', 'dy:craft'));
+
+        self::assertSame('dy:craft', $this->marks($buoy));
+    }
+
+    public function testAReplacementOutsideTheBaseIsCleared(): void {
+        $buoy = $this->buoyMarking(FieldDescriptor::typeReference('marks', 'dy:craft', Nullability::Nullable), null, ['marks' => 'dy:yacht']);
+
+        $this->save(2, new ReplaceType('dy:yacht', 'dy:buoy'));
+
+        self::assertNull($this->marks($buoy), 'A buoy is no craft.');
+    }
+
+    public function testAFieldWhoseBaseIsReplacedTakesTheReplacementAsItsBase(): void {
+        $buoy = $this->buoyMarking(FieldDescriptor::typeReference('marks', 'dy:yacht', Nullability::Nullable), null, ['marks' => 'dy:yacht']);
+
+        $this->save(2, new ReplaceType('dy:yacht', 'dy:craft'));
+
+        [, , $registry] = $this->stores();
+        self::assertSame('dy:craft', $registry->get('dy:buoy')->fields->get(FieldName::of('marks'))->target());
+        self::assertSame('dy:craft', $this->marks($buoy));
     }
 
     public function testItNamesOnlyTheBaseOrATypeExtendingIt(): void {
