@@ -150,8 +150,12 @@ final class SchemaApiTest extends DynamicTestCase
         ]);
 
         self::assertSame(200, $status, json_encode($body));
-        self::assertSame(['coconut-cms:text-to-number'], array_column($body['result']['converters'], 'kind'));
+        self::assertSame(['coconut-cms:text-to-number', 'coconut-cms:map-values'], array_column($body['result']['converters'], 'kind'));
         self::assertSame([], $body['result']['initializers'], 'A retype takes converters only.');
+        self::assertSame(
+            ['name' => 'mapping', 'type' => 'map', 'nullable' => false, 'optional' => false, 'default' => null, 'choices' => null],
+            $body['result']['converters'][1]['parameters'][0],
+        );
         $converter = $body['result']['converters'][0];
         self::assertSame(['oneOf' => [
             ['kind' => 'scalar', 'scalarType' => 'string', 'target' => null, 'item' => null],
@@ -162,11 +166,14 @@ final class SchemaApiTest extends DynamicTestCase
         ], $converter['parameters'], 'The number type is the new field\'s: nothing to ask.');
 
         [, $body] = $this->post('coconut-cms:schema.conversions', ['to' => ['kind' => 'scalar', 'scalarType' => 'int', 'nullable' => false]]);
-        self::assertSame(['coconut-cms:text-to-number'], array_column($body['result']['converters'], 'kind'));
+        self::assertSame(
+            ['coconut-cms:text-to-number', 'coconut-cms:number-to-number', 'coconut-cms:map-values', 'coconut-cms:first-item'],
+            array_column($body['result']['converters'], 'kind'),
+        );
         self::assertSame(['coconut-cms:constant', 'coconut-cms:copy'], array_column($body['result']['initializers'], 'kind'));
 
         [, $body] = $this->post('coconut-cms:schema.conversions', []);
-        self::assertCount(4, $body['result']['converters']);
+        self::assertCount(11, $body['result']['converters']);
         self::assertSame([], $body['result']['levelInitializers'], 'No module registers one here.');
     }
 

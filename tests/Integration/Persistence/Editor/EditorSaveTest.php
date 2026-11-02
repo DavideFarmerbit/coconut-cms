@@ -7,9 +7,12 @@ use XyloIsCoding\CoconutCms\Persistence\MigrateOn;
 use XyloIsCoding\CoconutCms\Persistence\Migration\BreakResolution;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\ConstantValue;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\CopyOfField;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\FirstItem;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\NumberToNumber;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\NumberToText;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\OnFailure;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\TextToNumber;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\ToSingleItem;
 use XyloIsCoding\CoconutCms\Persistence\PersistenceStatus;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\BreaksNotAccepted;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\DefaultValue;
@@ -165,6 +168,28 @@ final class EditorSaveTest extends DynamicTestCase
         $stored = $this->stores()[1]->load('dy:buoy')->toArray();
         self::assertSame(['tags' => 1, 'tags.0' => 'sea'], array_intersect_key($stored, array_flip(['tags', 'tags.0', 'tags.1', 'tags.2'])), 'A shorter list leaves no item behind.');
         self::assertSame(['sea'], $this->session()->newDynamic('dy:buoy')->get('tags'));
+    }
+
+    public function testAValueBecomesAListOfOneAndBackThroughAStoredSave(): void {
+        $red = $this->store('dy:buoy', ['color' => 'red']);
+        $none = $this->store('dy:buoy', []);
+        $colors = FieldDescriptor::collection('color', FieldDescriptor::scalar('color', ScalarType::String, Nullability::NotNullable));
+
+        $this->save(new RetypeField('dy:buoy', $colors, new ToSingleItem(), new DefaultValue([])));
+        self::assertSame(['red'], $this->session()->loadDynamic($red)->get('color'));
+        self::assertSame([], $this->session()->loadDynamic($none)->get('color'), 'It followed the default: it follows the new one.');
+
+        $this->saveAs(new StrictPolicy(), new EditorSave(2, [new RetypeField('dy:buoy', FieldDescriptor::scalar('color', ScalarType::String, Nullability::NotNullable), new FirstItem(), new DefaultValue('white'))]));
+        self::assertSame('red', $this->session()->loadDynamic($red)->get('color'));
+        self::assertSame('white', $this->session()->loadDynamic($none)->get('color'));
+    }
+
+    public function testANumberIsRetypedAndRounded(): void {
+        $yacht = $this->store('dy:yacht', ['cabins' => 4]);
+
+        $this->save(new RetypeField('dy:yacht', FieldDescriptor::scalar('cabins', ScalarType::Decimal, Nullability::NotNullable), new NumberToNumber(OnFailure::Cancel)));
+
+        self::assertSame('4.000000', $this->session()->loadDynamic($yacht)->get('cabins'));
     }
 
     public function testACollectionsDefaultIsAList(): void {

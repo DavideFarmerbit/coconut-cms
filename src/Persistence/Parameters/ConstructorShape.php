@@ -89,8 +89,9 @@ final class ConstructorShape
             $named === 'float' => ParameterType::Float,
             $named === 'bool' => ParameterType::Bool,
             $named === 'mixed' => ParameterType::Mixed,
+            $named === ValueMapping::class => ParameterType::Map,
             is_subclass_of($named, BackedEnum::class) => ParameterType::Enum,
-            default => throw new LogicException(sprintf('%s: parameter $%s takes %s, which plain parameters can\'t give: a string, int, float, bool, mixed, backed enum or field rules only.', $class, $parameter->getName(), $named)),
+            default => throw new LogicException(sprintf('%s: parameter $%s takes %s, which plain parameters can\'t give: a string, int, float, bool, mixed, backed enum, ValueMapping or field rules only.', $class, $parameter->getName(), $named)),
         };
 
         return new ConstructorParameter($parameter->getName(), $parameterType, $type->allowsNull(), $optional, $default, $parameterType === ParameterType::Enum ? $named : null);
@@ -147,6 +148,7 @@ final class ConstructorShape
             ParameterType::Enum => is_string($value) || is_int($value) ? $parameter->enum::tryFrom($value) : null,
             ParameterType::RegisteredEnum => is_string($value) ? self::enumNamed($value, $registries) : null,
             ParameterType::FieldRules => is_array($value) && array_is_list($value) ? self::rulesFrom($parameter->name, $value, $registries) : null,
+            ParameterType::Map => self::mappingFrom($parameter->name, $value),
         };
         if ($read === null && $parameter->type !== ParameterType::Mixed) {
             throw new InvalidParameters($parameter->name, sprintf('"%s" can\'t take %s.', $parameter->name, json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)));
@@ -184,9 +186,34 @@ final class ConstructorShape
     }
 
     /**
+     * $value, a list of `{"from": value, "to": value}`, as a ValueMapping;
+     * null when it isn't one. A key given twice is named by its place.
+     */
+    private static function mappingFrom(string $name, mixed $value): ?ValueMapping {
+        if (!is_array($value) || !array_is_list($value)) {
+            return null;
+        }
+
+        $pairs = [];
+        foreach ($value as $index => $pair) {
+            if (!is_array($pair) || (array_keys($pair) !== ['from', 'to'] && array_keys($pair) !== ['to', 'from'])) {
+                throw new InvalidParameters($name . '.' . $index, sprintf('"%s.%d" is {"from": value, "to": value}.', $name, $index));
+            }
+
+            $pairs[] = [$pair['from'], $pair['to']];
+        }
+
+        try {
+            return ValueMapping::of($pairs);
+        } catch (InvalidArgumentException $refused) {
+            throw new InvalidParameters($name, $refused->getMessage());
+        }
+    }
+
+    /**
      * $built's parameters, the way build() takes them: an enum by its value,
      * a registered enum by its identifier, field rules each as
-     * `{"rule": identifier, "config": parameters}`.
+     * `{"rule": identifier, "config": parameters}`, a mapping as its pairs.
      * @return array<string, mixed>
      */
     public function parametersOf(object $built, ParameterRegistries $registries): array {
@@ -198,6 +225,7 @@ final class ConstructorShape
                 $parameter->type === ParameterType::Enum => $value->value,
                 $parameter->type === ParameterType::RegisteredEnum => (string) $registries->enums->identifierOf($value),
                 $parameter->type === ParameterType::FieldRules => array_map(static fn (FieldValidatorRule $rule): array => $registries->fieldRules()->entryOf($rule, $registries), $value),
+                $parameter->type === ParameterType::Map => array_map(static fn (array $pair): array => ['from' => $pair[0], 'to' => $pair[1]], $value->pairs()),
                 default => $value,
             };
         }

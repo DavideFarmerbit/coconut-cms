@@ -21,4 +21,9 @@ enum ParameterType
      * `{"rule": identifier, "config": its own parameters}`.
      */
     case FieldRules;
+    /**
+     * Values mapped to others, as a ValueMapping: given as a list of
+     * `{"from": value, "to": value}`, each in stored form.
+     */
+    case Map;
 }

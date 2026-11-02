@@ -1803,15 +1803,38 @@ them too:
 - `TextToEnum(onFailure)`: text to the case it backs, in the new field's
   enum.
 - `DateToDateTime`: a day to its midnight, in UTC.
+- `NumberToNumber(onFailure, rounding)`: an Int, Float or Decimal to
+  another of them, the new field's. Places lost are rounded as `Rounding`
+  says: `half-up` (the default), `half-even`, `down` (toward zero) or `up`
+  (away from zero). A Decimal is rounded exactly, digit by digit, never
+  through a float. A number the new type can't hold, past an Int's range,
+  past a Decimal's 14 whole digits, or a Float that's no number, is a
+  failure.
+- `TextToText(onTooLong)`: a String to a Text or back. Text longer than a
+  String's 255 characters does what `OnTooLong` says: `truncate`,
+  `default` or `cancel`.
+- `EnumToText`: a case to the value it's stored as, as text.
+- `MapValues(mapping, onFailure)`: any Scalar to any Scalar, each value as
+  a `ValueMapping` says, both in stored form. A key matches by type and
+  value: 1 and "1" are two keys. Null maps like any value; left out, it
+  stays null. A value not mapped is a failure.
+- `DateTimeToDate`: a moment to its day, in UTC, the time dropped.
+- `ToSingleItem`: one value, a Scalar, a value object or a Reference, to a
+  Collection holding it as its only item. Null becomes no item.
+- `FirstItem`: a Collection of such values to its first item. An empty one
+  follows the new default.
 
-A converter keeps null as null. A value that followed the old default
-follows the new one: the stored default is converted the same way. Text
-that holds no fitting value does what `OnFailure` says: the entry follows
-the default, or the migration fails with `ConversionFailed`, naming the
-value.
+A converter keeps null as null, but where it says otherwise. A value that
+followed the old default follows the new one: the stored default is
+converted the same way. A value it can't convert does what `OnFailure`
+says: the entry follows the default, or the migration fails with
+`ConversionFailed`, naming the value. What a converter gives is checked
+against the new field before anything is written.
 
-Not built yet: number to text with a format, one value to a Collection and
-back (the first item, or joined), one Reference to a Collection of them.
+Not built yet: number to text with a format; a Collection of text joined
+into one text and split back; an Embed to an owned object of the same type
+and back; a Reference to an owned object and back, which copies or
+orphans an entity and needs its own design.
 
 A save picks a converter or initializer by identifier. Modules register
 them: `Module::converters()` lists the classes, each a `FieldConverter`
@@ -1820,11 +1843,17 @@ marked `#[Converter('shop:euro-price')]`, or a `FieldInitializer` or a
 A level initializer has no signature: it's written for the types it fills,
 so the editor offers it for any reparent. The core module registers the built-ins, as
 `coconut-cms:constant`, `coconut-cms:copy`, `coconut-cms:number-to-text`,
-`coconut-cms:text-to-number`, `coconut-cms:text-to-enum` and
-`coconut-cms:date-to-date-time`. `ConversionRegistry` builds one from the
+`coconut-cms:text-to-number`, `coconut-cms:text-to-enum`,
+`coconut-cms:date-to-date-time`, `coconut-cms:number-to-number`,
+`coconut-cms:text-to-text`, `coconut-cms:enum-to-text`,
+`coconut-cms:map-values`, `coconut-cms:date-time-to-date`,
+`coconut-cms:to-single-item` and `coconut-cms:first-item`.
+`ConversionRegistry` builds one from the
 parameters a save gives, by its constructor's parameter names, and writes
 one back the same way. So each parameter is a public property of the same
-name, and takes a string, int, float, bool, mixed value or backed enum. A
+name, and takes a string, int, float, bool, mixed value, backed enum or
+`ValueMapping`. A `ValueMapping` is given as a list of pairs, `[{"from":
+"red", "to": "crimson"}]`, so a key may be any scalar, not only a string. A
 parameter holding an enum class is marked `#[RegisteredEnum]`: a save names
 the enum by its registered identifier. A converter used only by a code step
 needs no registration. `ConversionRegistry::all()` lists every registered

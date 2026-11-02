@@ -7,7 +7,9 @@ use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Core\Identifier;
 use XyloIsCoding\CoconutCms\Persistence\CoreModule;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\ConstantValue;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\MapValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\OnFailure;
+use XyloIsCoding\CoconutCms\Persistence\Parameters\ValueMapping;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\TextToEnum;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\TextToNumber;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Captured;
@@ -101,6 +103,31 @@ final class ConversionRegistryTest extends TestCase
         self::assertEquals(new TextToNumber(OnFailure::Cancel), $converter);
         self::assertSame(['coconut-cms:text-to-number', ['onFailure' => 'cancel']], $registry->describe($converter));
         self::assertEquals(new ConstantValue(['a' => 1]), $registry->initializer('coconut-cms:constant', ['value' => ['a' => 1]]));
+    }
+
+    public function testAMappingIsGivenAsPairsAndWrittenBackTheSame(): void {
+        $registry = $this->registry();
+        $pairs = [['from' => 'yes', 'to' => true], ['from' => 1, 'to' => true], ['from' => null, 'to' => false]];
+
+        $converter = $registry->converter('coconut-cms:map-values', ['mapping' => $pairs, 'onFailure' => 'default']);
+
+        self::assertEquals(new MapValues(ValueMapping::of([['yes', true], [1, true], [null, false]]), OnFailure::Default), $converter);
+        self::assertSame(['coconut-cms:map-values', ['mapping' => $pairs, 'onFailure' => 'default']], $registry->describe($converter));
+
+        $refusals = [
+            [['mapping' => ['yes' => true], 'onFailure' => 'default'], 'mapping'],
+            [['mapping' => [['from' => 'yes']], 'onFailure' => 'default'], 'mapping.0'],
+            [['mapping' => [['from' => 'no', 'to' => 1], ['from' => 'no', 'to' => 2]], 'onFailure' => 'default'], 'mapping'],
+            [['mapping' => [['from' => ['a'], 'to' => 1]], 'onFailure' => 'default'], 'mapping'],
+        ];
+        foreach ($refusals as [$parameters, $at]) {
+            try {
+                $registry->converter('coconut-cms:map-values', $parameters);
+                self::fail(json_encode($parameters));
+            } catch (InvalidParameters $refused) {
+                self::assertSame($at, $refused->parameter, json_encode($parameters));
+            }
+        }
     }
 
     public function testAnEnumIsNamedByItsIdentifier(): void {

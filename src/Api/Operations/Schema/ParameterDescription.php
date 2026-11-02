@@ -16,8 +16,9 @@ final readonly class ParameterDescription
     /**
      * @param string $type "string", "int", "float", "bool", "mixed" (a value
      *        in stored form), "enum" (one of $choices), "registered_enum"
-     *        (an enum's registered identifier), or "field_rules" (a list of
-     *        `{"rule": identifier, "config": {...}}`).
+     *        (an enum's registered identifier), "field_rules" (a list of
+     *        `{"rule": identifier, "config": {...}}`), or "map" (a list of
+     *        `{"from": value, "to": value}`, each in stored form).
      * @param mixed $default What it takes when left out; null when it can't be.
      * @param list<string|int>|null $choices An enum's values, in order.
      */
@@ -45,6 +46,7 @@ final readonly class ParameterDescription
                 ParameterType::Enum => 'enum',
                 ParameterType::RegisteredEnum => 'registered_enum',
                 ParameterType::FieldRules => 'field_rules',
+                ParameterType::Map => 'map',
             },
             $parameter->nullable,
             $parameter->optional,

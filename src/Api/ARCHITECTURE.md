@@ -403,8 +403,14 @@ input:
   built-ins are `coconut-cms:constant` (`value`), `coconut-cms:copy`
   (`path`), `coconut-cms:number-to-text`, `coconut-cms:text-to-number`
   (`onFailure`), `coconut-cms:text-to-enum` (`onFailure`),
-  `coconut-cms:date-to-date-time`. What a converter gives, such as the
-  number type or the enum, is the new field's: never a parameter.
+  `coconut-cms:date-to-date-time`, `coconut-cms:number-to-number`
+  (`onFailure`, `rounding`), `coconut-cms:text-to-text` (`onTooLong`),
+  `coconut-cms:enum-to-text`, `coconut-cms:map-values` (`mapping`,
+  `onFailure`), `coconut-cms:date-time-to-date`,
+  `coconut-cms:to-single-item`, `coconut-cms:first-item`. What a converter
+  gives, such as the number type or the enum, is the new field's: never a
+  parameter. A `mapping` is a list of `{"from": value, "to": value}`, each
+  in stored form.
 - `acceptBreaks` says the admin saw the breaks the preview listed.
 
 Each error names its path: `operations.2.field.kind`. An operation that
@@ -432,8 +438,9 @@ to send), `from` (the fields a converter takes; null otherwise), `to` (the
 fields it gives or fills; null for a level initializer), and `parameters`:
 each
 one's `name`, `type` (`string`, `int`, `float`, `bool`, `mixed`, `enum`
-with its `choices`, `registered_enum`, or `field_rules`: a list of
-`{"rule", "config"}`, only a validator rule takes), `nullable`, `optional` and
+with its `choices`, `registered_enum`, `map`: a list of `{"from", "to"}`,
+or `field_rules`: a list of `{"rule", "config"}`, only a validator rule
+takes), `nullable`, `optional` and
 `default`. A signature has the keys `types.get` describes a field with,
 `{"kind", "scalarType", "target", "item"}`, where null matches any; or it's
 a union, `{"oneOf": [...]}`, matching any of its signatures. The editor can

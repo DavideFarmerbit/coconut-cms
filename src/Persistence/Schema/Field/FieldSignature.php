@@ -78,6 +78,11 @@ final readonly class FieldSignature
         return self::oneOf(self::scalar(ScalarType::Int), self::scalar(ScalarType::Float), self::scalar(ScalarType::Decimal));
     }
 
+    /** A Scalar, a value object or a Reference: one stored value, with nothing under it. */
+    public static function leaf(): self {
+        return self::oneOf(self::scalar(), self::valueObject(), self::reference());
+    }
+
     /** Whether it's a union of others. */
     public function isUnion(): bool {
         return $this->oneOf !== [];

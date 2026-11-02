@@ -21,7 +21,14 @@ use XyloIsCoding\CoconutCms\Api\Operations\Types\ListTypes;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Cms;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\ConstantValue;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\CopyOfField;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\DateTimeToDate;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\DateToDateTime;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\EnumToText;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\FirstItem;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\MapValues;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\NumberToNumber;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\TextToText;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\ToSingleItem;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\NumberToText;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\TextToEnum;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Builtin\TextToNumber;
@@ -62,6 +69,8 @@ final readonly class CoreModule implements Module
         return [
             ConstantValue::class, CopyOfField::class,
             NumberToText::class, TextToNumber::class, TextToEnum::class, DateToDateTime::class,
+            NumberToNumber::class, TextToText::class, EnumToText::class, MapValues::class, DateTimeToDate::class,
+            ToSingleItem::class, FirstItem::class,
         ];
     }
 
