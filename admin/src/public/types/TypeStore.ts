@@ -1,19 +1,22 @@
 import {TypeChanges} from '../../types/TypeChanges.ts';
 import type {ApiClient} from '../api/ApiClient.ts';
+import type {ServiceContext} from '../services/ServiceContext.ts';
 import type {TypeChange, TypeListener} from './TypeChange.ts';
 import {TypeCatalog} from './TypeCatalog.ts';
 import type {TypeList} from './TypeDescription.ts';
 
 /**
- * The entity types the user may read, one store per admin, every view
- * reaching it as `context.types`. Its catalog is an immutable snapshot; when
- * the types change, the schema editor reloads the store, which swaps the
- * snapshot and tells its listeners what changed. A view reads `catalog`
- * when it shows something, and never keeps one.
+ * The entity types the user may read: a service, one per signed-in user,
+ * every view reaching it as `context.service(TypeStore)`. Its catalog is
+ * an immutable snapshot; when the types change, the schema editor reloads
+ * the store, which swaps the snapshot and tells its listeners what
+ * changed. A view reads `catalog` when it shows something, and never
+ * keeps one.
  *
- *     await context.types.ready;
- *     this.show(context.types.catalog);
- *     context.types.onChange(() => this.show(context.types.catalog));
+ *     const types = context.service(TypeStore);
+ *     await types.ready;
+ *     this.show(types.catalog);
+ *     types.onChange(() => this.show(types.catalog));
  */
 export class TypeStore {
     /** Settles once the first catalog is read; fails when it can't be. */
@@ -25,6 +28,11 @@ export class TypeStore {
 
     public constructor(private readonly api: ApiClient) {
         this.ready = this.read(false).then(() => undefined);
+    }
+
+    /** The user's store, as a service: it reads the types at once. */
+    public static create(context: ServiceContext): TypeStore {
+        return new TypeStore(context.api);
     }
 
     /** The types now; none until ready. */

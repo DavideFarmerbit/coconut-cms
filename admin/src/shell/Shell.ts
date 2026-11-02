@@ -51,9 +51,8 @@ export class Shell implements View, LayoutListener, Workspace {
         this.workspace = new WorkspaceArea(runtime.tools, runtime.tabTypes, this.store, this.host, contexts, this.dirty);
         this.dirty.onChange(() => this.render(this.store.current));
         // Unsaved work isn't left by accident: the browser asks first.
-        const entities = runtime.entities;
         this.beforeUnload = (event) => {
-            if (this.dirty.any || entities.hasUnsaved) {
+            if (this.dirty.any || runtime.hasUnsaved) {
                 event.preventDefault();
             }
         };

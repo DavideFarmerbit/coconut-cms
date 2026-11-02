@@ -44,6 +44,14 @@ final class ValueObjectRegistry
         return Identifier::fromString($key);
     }
 
+    /**
+     * Every value object registered, in the order registered: what the schema editor offers.
+     * @return array<string, class-string<StorableValue>> By identifier.
+     */
+    public function all(): array {
+        return $this->valueObjects;
+    }
+
     /** @return class-string<StorableValue> */
     public function resolve(Identifier $id): string {
         $key = (string) $id;

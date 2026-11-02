@@ -44,7 +44,7 @@ export interface SessionSaver {
  * tells its views what changed. Paths are the API's: "chassis:weight",
  * "engine.horsepower", "wheels.1.size".
  *
- *     const hold = context.entities.edit(id);
+ *     const hold = context.service(EntityStore).edit(id);
  *     await hold.session.ready;
  *     hold.session.set('name', 'Alpha', this);
  *     await hold.session.save();

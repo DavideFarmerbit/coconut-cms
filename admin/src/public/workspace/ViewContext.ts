@@ -1,7 +1,6 @@
 import type {ApiClient} from '../api/ApiClient.ts';
-import type {EntityStore} from '../entities/EntityStore.ts';
 import type {PropertyEditors} from '../properties/PropertyEditors.ts';
-import type {TypeStore} from '../types/TypeStore.ts';
+import type {ServiceType} from '../services/ServiceType.ts';
 import type {JsonValue} from './Json.ts';
 import type {ViewState} from './ViewState.ts';
 import type {Workspace} from './Workspace.ts';
@@ -18,10 +17,13 @@ export interface ViewContext {
     readonly params: JsonValue;
     /** Every property editor: what shows an entity's values. */
     readonly properties: PropertyEditors;
-    /** The entities, and the sessions editing them. */
-    readonly entities: EntityStore;
-    /** The entity types the user may read: read its catalog when showing something, never keep one. */
-    readonly types: TypeStore;
+
+    /**
+     * The one `type` service of the user signed in, shared by every view:
+     * `context.service(EntityStore)`, `context.service(TypeStore)`, or a
+     * tool's own. What several views keep in sync lives in one.
+     */
+    service<T>(type: ServiceType<T>): T;
 
     /**
      * Tells whether the view has unsaved changes: its tab shows a mark, a

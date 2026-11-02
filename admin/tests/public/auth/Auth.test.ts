@@ -144,10 +144,10 @@ describe('Signing out with unsaved entities', () => {
         expect(holds.some((hold) => hold.session.errorAt('power') === 'Too low.')).toBe(true);
     });
 
-    it('lets sessions go without asking once closed', async () => {
+    it('lets sessions go without asking once disposed of', async () => {
         const answer = new FixedAnswer('cancel');
         const {store, holds} = await editing(answer);
-        store.close();
+        store.dispose();
 
         expect(await holds[0]!.release()).toBe(true);
         expect(answer.asked).toBe(0);

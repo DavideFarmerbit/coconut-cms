@@ -10,6 +10,7 @@ import type {SchemaOperationData} from '../src/schema/draft/SchemaOperationData.
 import type {SchemaDefinitionList} from '../src/schema/SchemaDefinitions.ts';
 import type {SchemaReport} from '../src/schema/SchemaReport.ts';
 import type {ValidatorList} from '../src/schema/ValidatorList.ts';
+import type {ValueList} from '../src/schema/ValueList.ts';
 
 /** A value description with `changes` over a non-null string scalar. */
 export function value(changes: Partial<ValueDescription>): ValueDescription {
@@ -58,6 +59,8 @@ export class FakeBackend {
     public conversions: ConversionList = {converters: [], initializers: [], levelInitializers: []};
     /** What schema.validators gives: none, unless a test sets them. */
     public validators: ValidatorList = {fieldRules: [], prototypeRules: []};
+    /** What schema.values gives: none, unless a test sets them. */
+    public values: ValueList = {enums: [], valueObjects: []};
     /** What schema.get gives. A save at another revision is stale; one that runs makes it the next revision. */
     public schema: SchemaDefinitionList = {revision: 1, types: []};
     /** What schema.preview and schema.save find, beside the operations sent: nothing, unless a test sets it. */
@@ -119,6 +122,8 @@ export class FakeBackend {
                 return this.conversions;
             case 'coconut-cms:schema.validators':
                 return this.validators;
+            case 'coconut-cms:schema.values':
+                return this.values;
             case 'coconut-cms:schema.get':
                 return this.schema;
             case 'coconut-cms:schema.preview':

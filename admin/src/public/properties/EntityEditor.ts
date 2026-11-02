@@ -2,6 +2,7 @@ import {Elements} from '../../dom/Elements.ts';
 import {ViewStateCollapse} from '../../properties/ViewStateCollapse.ts';
 import type {EditHistory} from '../edits/EditHistory.ts';
 import type {EntityHold} from '../entities/EntityHold.ts';
+import {EntityStore} from '../entities/EntityStore.ts';
 import type {EntitySession} from '../entities/EntitySession.ts';
 import type {SessionChange} from '../entities/SessionChange.ts';
 import type {ViewContext} from '../workspace/ViewContext.ts';
@@ -76,12 +77,12 @@ export class EntityEditor {
 
     /** An editor of the entity `id`, sharing its session with the entity's other views. */
     public static edit(context: ViewContext, id: string): EntityEditor {
-        return new EntityEditor(context, context.entities.edit(id));
+        return new EntityEditor(context, context.service(EntityStore).edit(id));
     }
 
     /** An editor of a new entity of `type`, from its defaults: its first save creates it. */
     public static create(context: ViewContext, type: string): EntityEditor {
-        return new EntityEditor(context, context.entities.create(type));
+        return new EntityEditor(context, context.service(EntityStore).create(type));
     }
 
     /** The changes made to its entity, whichever view made them: what its tab's view gives as its history. */

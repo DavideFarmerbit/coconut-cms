@@ -49,14 +49,17 @@ describe('SchemaListings', () => {
         expect(listings.conversion('shop:nothing')).toBeUndefined();
     });
 
-    it('loads both listings from the server, at once', async () => {
+    it('loads every listing from the server, at once', async () => {
         const backend = new FakeBackend();
         backend.conversions = conversions;
         backend.validators = validators;
+        backend.values = {enums: [{identifier: 'shop:color', values: ['red', 'blue']}], valueObjects: ['shop:money']};
 
         const loaded = await SchemaListings.load(backend.client());
 
         expect(kinds(loaded.convertersFor(string, int))).toEqual(['coconut-cms:text-to-number', 'coconut-cms:map-values']);
-        expect([backend.count('coconut-cms:schema.conversions'), backend.count('coconut-cms:schema.validators')]).toEqual([1, 1]);
+        expect(loaded.enum('shop:color')?.values).toEqual(['red', 'blue']);
+        expect(loaded.values.valueObjects).toEqual(['shop:money']);
+        expect(['conversions', 'validators', 'values'].map((listing) => backend.count(`coconut-cms:schema.${listing}`))).toEqual([1, 1, 1]);
     });
 });

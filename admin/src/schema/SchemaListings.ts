@@ -5,13 +5,15 @@ import {FieldSignature} from './FieldSignature.ts';
 import type {ListedConversion} from './ListedConversion.ts';
 import type {ListedRule} from './ListedRule.ts';
 import type {RuleDescription, ValidatorList} from './ValidatorList.ts';
+import type {EnumDescription, ValueList} from './ValueList.ts';
 
 /**
- * Every converter, initializer and validator rule the server offers, as
- * schema.conversions and schema.validators list them, loaded once: the
- * modules register them at boot, so they change only with a deploy. Asked
- * what fits a field, it matches here, with the server's rules, so the
- * editor never waits on the server for it.
+ * Every converter, initializer and validator rule the server offers, and
+ * every enum and value object a field may hold, as schema.conversions,
+ * schema.validators and schema.values list them, loaded once: the modules
+ * register them at boot, so they change only with a deploy. Asked what
+ * fits a field, it matches here, with the server's rules, so the editor
+ * never waits on the server for it.
  */
 export class SchemaListings {
     private constructor(
@@ -20,28 +22,37 @@ export class SchemaListings {
         private readonly levels: readonly ListedConversion[],
         private readonly fieldRules: readonly ListedRule[],
         private readonly prototypes: readonly ListedRule[],
+        /** The enums and value objects a field may hold. */
+        public readonly values: ValueList,
     ) {
     }
 
-    /** The listings the server gives, asked for both at once. */
+    /** The listings the server gives, asked for all at once. */
     public static async load(api: ApiClient): Promise<SchemaListings> {
-        const [conversions, validators] = await Promise.all([
+        const [conversions, validators, values] = await Promise.all([
             api.call<ConversionList>('coconut-cms:schema.conversions'),
             api.call<ValidatorList>('coconut-cms:schema.validators'),
+            api.call<ValueList>('coconut-cms:schema.values'),
         ]);
 
-        return SchemaListings.of(conversions, validators);
+        return SchemaListings.of(conversions, validators, values);
     }
 
-    /** The listings `conversions` and `validators` describe. */
-    public static of(conversions: ConversionList, validators: ValidatorList): SchemaListings {
+    /** The listings `conversions`, `validators` and `values` describe. */
+    public static of(conversions: ConversionList, validators: ValidatorList, values: ValueList = {enums: [], valueObjects: []}): SchemaListings {
         return new SchemaListings(
             conversions.converters.map(SchemaListings.conversion),
             conversions.initializers.map(SchemaListings.conversion),
             conversions.levelInitializers.map(SchemaListings.conversion),
             validators.fieldRules.map(SchemaListings.rule),
             validators.prototypeRules.map(SchemaListings.rule),
+            values,
         );
+    }
+
+    /** The enum named `identifier`; undefined when none is registered under it. */
+    public enum(identifier: string): EnumDescription | undefined {
+        return this.values.enums.find((each) => each.identifier === identifier);
     }
 
     /** The converters for a field holding `from` that will hold `to`: those taking the one and giving the other. */

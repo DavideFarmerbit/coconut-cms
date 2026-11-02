@@ -2,6 +2,7 @@ import {Elements} from '../../dom/Elements.ts';
 import {MemoryCollapse} from '../../properties/MemoryCollapse.ts';
 import {RowTree} from '../../properties/RowTree.ts';
 import type {EntitySession} from '../entities/EntitySession.ts';
+import {EntityStore} from '../entities/EntityStore.ts';
 import type {ViewContext} from '../workspace/ViewContext.ts';
 import type {CollapseMemory} from './CollapseMemory.ts';
 
@@ -20,7 +21,7 @@ export class PropertyRow {
     /** @param collapse Where its collapsed properties are remembered; only while it lives, unless given. */
     public constructor(context: ViewContext, private readonly session: EntitySession, private readonly path: string, collapse: CollapseMemory = new MemoryCollapse()) {
         this.element = Elements.create('div', {classes: ['properties']});
-        this.tree = new RowTree(session, {api: context.api, editors: context.properties, entities: context.entities, collapse, filter: null}, () => this.render());
+        this.tree = new RowTree(session, {api: context.api, editors: context.properties, entities: context.service(EntityStore), collapse, filter: null}, () => this.render());
         this.render();
     }
 

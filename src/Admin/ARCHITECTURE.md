@@ -81,9 +81,9 @@ The entity store's guard is `coconut-cms:entities`. The schema editor's,
 
 What follows the user:
 
-- The runtime starts the type store and the entity store over for each
-  user, and has none while nobody is signed in. The last user's entity
-  store closes: its sessions are let go without asking, the question
+- The runtime starts the services over for each user, and has none while
+  nobody is signed in (see "Services"). The last user's entity store is
+  disposed of: its sessions are let go without asking, the question
   answered already.
 - The app shows the sign-in form to nobody, an email or username, a
   password and "remember me"; and the shell to a user, whose menubar names
@@ -94,6 +94,30 @@ What follows the user:
 A server session ending on its own, by expiring or from another browser
 tab, isn't noticed yet (not built yet). The admin will see calls failing
 as not signed in, and offer to sign in again without losing open work.
+
+## Services
+
+What several views keep in sync lives in a service: one instance per
+signed-in user, shared by every view asking for it. The type store and the
+entity store are services; so is what a tool's tabs and panels share, the
+admin's or a plugin's. It's the same idea as Unreal's subsystems, or an
+IDE's project services.
+
+- A service is a class with a static `create(context)`. The context gives
+  the API client, auth (to guard signing out) and `service()`, so one
+  service can use another. Its constructor stays free for tests.
+- A view asks for one by its class: `context.service(EntityStore)`. So
+  does the runtime: `admin.service(EntityStore)`. Nothing is registered
+  first: the first ask creates it. Services needing each other to be
+  created throw, naming them.
+- When the user changes, every service created is disposed of, the last
+  created first, calling its `dispose()` when it has one, and a new set
+  starts with the next ask.
+- Leaving the page asks first while a service's `hasUnsaved` is true, as
+  well as while a view is marked dirty.
+
+The context gets no slot per service: what a new feature shares is a new
+service, not a change to the context.
 
 ## Assets
 
@@ -313,7 +337,7 @@ not its code): an IntelliJ-style window manager.
   shows; a tab type is an id with its view class. The shell builds a view
   with `new View(context)`, the context giving the API client, the view's
   own saved state, the workspace (to open tabs), a tab's parameters, the
-  property editors, the type store and the entity store. A
+  property editors, and the user's services (see "Services"). A
   tool or tab type that can't be built shows a message in its place.
 - Views stay alive when hidden, moved or switched: their element and state
   survive, parked off the layout while hidden; a move uses `moveBefore()`
@@ -434,11 +458,10 @@ Not built yet: the schema editor's edits, and an Edit menu.
 
 ## Types
 
-`TypeStore` holds the entity types the user may read. There is one per
-signed-in user, given to every view as `context.types`, and in the public
-module as `admin.types`; signing in or out starts the types and the
-entities over. Types change while the admin is open: the schema editor
-migrates, and the store reads them again.
+`TypeStore` holds the entity types the user may read. It's a service (see
+"Services"): one per signed-in user, `context.service(TypeStore)`. Types
+change while the admin is open: the schema editor migrates, and the store
+reads them again.
 
 - `catalog` is the current `TypeCatalog`: an immutable snapshot that works
   out ancestors, subtypes and namespaces. A readable type's ancestors are
@@ -500,8 +523,9 @@ nothing of the API.
 
 ### The store
 
-`EntityStore` holds the entities the admin works with. There is one per
-admin, given to every view as `context.entities`.
+`EntityStore` holds the entities the admin works with. It's a service:
+one per signed-in user, `context.service(EntityStore)`. Created, it
+guards signing out as `coconut-cms:entities`.
 
 - It reads, queries, creates, updates and deletes entities through the
   API, and keeps what it read.
@@ -937,10 +961,47 @@ opens, with its dialogs as the `UnsavedSchemaQuestion` (not built yet).
 Leaving the page with unsaved edits warns, as with unsaved entities (not
 built yet).
 
+The schema editor's views (not built yet) extend the Types tool, the way
+an IDE edits files in their own tabs and lists pending work apart:
+
+- **The Types panel shows the draft** to a user with the schema-editor
+  role: created, renamed and deleted types are marked, a deleted one
+  struck through. "New type" is in the panel's header and in each
+  namespace's right-click menu. Without the role, it shows the type
+  store's catalog, read-only.
+- **The inspector tab is the type editor.** Its layout stays. An
+  editor-made type is edited in place: in the header its name, parent,
+  permissions and cross-field rules; per field its name, shape, default,
+  rules and permission. A native type stays read-only. A choice a change
+  needs, such as a converter or an initializer, shows under its field, and
+  so does each problem. Undo is the draft's one history.
+- **The "Schema changes" tool**, docked at the bottom, lists what the draft
+  changes, by type, with its problems. It has Save and Discard, and shows
+  that the draft is stale, offering a reload.
+- **The preview is a modal dialog**: editing while it's open would make it
+  out of date. It shows the fixups, the breaks, the default warnings, what
+  refuses the save and the sample entries. Confirm reads "Accept breaks and
+  save" when there are breaks. Signing out's Review and save opens it too.
+
+A field's shape is picked one layer at a time, the layers its icon draws:
+
+1. what it holds, in one searchable picker grouped as values (the
+   scalars), enums, value objects and entity types, the draft's own
+   included;
+2. for an entity type, how it's held: Embed, Owned or Reference;
+3. one value, or a Collection;
+4. whether it may be empty: never for an Embed or a Collection itself,
+   always for a Reference; for a Collection, its items.
+
+The icon follows as the layers change. Changing only whether it may be
+empty is `makeOptional` or `makeRequired`; anything else is a retype.
+
 What fits a field is the admin's to work out. `SchemaListings`
-(`admin/src/schema/`) loads `schema.conversions` and `schema.validators`
-once: modules register their converters and rules at boot, so they change
-only with a deploy. It asks for both lists at once, and answers from them:
+(`admin/src/schema/`) loads `schema.conversions`, `schema.validators` and
+`schema.values` once: modules register their converters, rules, enums and
+value objects at boot, so they change only with a deploy. It asks for all
+three at once, and answers from them: the enums and value objects a field
+may hold, an enum's values for its default,
 the converters for a field holding one thing and going to hold another,
 the initializers filling a field, the rules checking it, each by
 identifier with the parameters a form asks for. `FieldSignature` matches a

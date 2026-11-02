@@ -187,6 +187,12 @@ final class SchemaApiTest extends DynamicTestCase
         }
     }
 
+    public function testTheValuesListedAreTheEnumsAndValueObjectsRegistered(): void {
+        [$status, $body] = $this->post('coconut-cms:schema.values', []);
+        self::assertSame(200, $status, json_encode($body));
+        self::assertSame(['enums' => [], 'valueObjects' => []], $body['result'], 'The dynamic types use none.');
+    }
+
     public function testTheFieldRulesListedAreThoseFittingTheField(): void {
         $core = static fn (array $rules): array => array_values(array_filter(array_column($rules, 'rule'), static fn (string $rule): bool => str_starts_with($rule, 'coconut-cms:')));
 

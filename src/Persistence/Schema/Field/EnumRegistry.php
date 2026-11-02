@@ -45,6 +45,14 @@ final class EnumRegistry
         return Identifier::fromString($key);
     }
 
+    /**
+     * Every enum registered, in the order registered: what the schema editor offers.
+     * @return array<string, class-string<BackedEnum>> By identifier.
+     */
+    public function all(): array {
+        return $this->enums;
+    }
+
     /** @return class-string<BackedEnum> */
     public function resolve(Identifier $id): string {
         $key = (string) $id;

@@ -2,6 +2,7 @@ import {ContextMenu} from '../../dom/ContextMenu.ts';
 import {Elements} from '../../dom/Elements.ts';
 import type {TypeCatalog} from '../../public/types/TypeCatalog.ts';
 import type {FieldDescription, TypeDescription} from '../../public/types/TypeDescription.ts';
+import {TypeStore} from '../../public/types/TypeStore.ts';
 import type {JsonValue} from '../../public/workspace/Json.ts';
 import type {PanelView} from '../../public/workspace/PanelView.ts';
 import type {ViewContext} from '../../public/workspace/ViewContext.ts';
@@ -21,12 +22,14 @@ import {TypesTool} from './TypesTool.ts';
 export class TypeTabView implements PanelView {
     public readonly element: HTMLElement;
     private readonly listener = (): void => this.showType();
+    private readonly types: TypeStore;
 
     public constructor(private readonly context: ViewContext) {
         this.element = Elements.create('div', {classes: ['inspector']});
-        context.types.ready.then(() => {
+        this.types = context.service(TypeStore);
+        this.types.ready.then(() => {
             this.showType();
-            context.types.onChange(this.listener);
+            this.types.onChange(this.listener);
         }, (failure: unknown) => this.showMessage(failure instanceof Error ? failure.message : String(failure)));
     }
 
@@ -37,13 +40,13 @@ export class TypeTabView implements PanelView {
     }
 
     public dispose(): void {
-        this.context.types.offChange(this.listener);
+        this.types.offChange(this.listener);
     }
 
     /** Shows the type the tab was opened with, as the catalog now has it. */
     private showType(): void {
         const identifier = TypeTabView.typeIn(this.context.params);
-        const catalog = this.context.types.catalog;
+        const catalog = this.types.catalog;
         const type = identifier === null ? undefined : catalog.get(identifier);
         if (type === undefined) {
             this.showMessage(identifier === null ? 'This tab names no type.' : `There is no type "${identifier}" you may read.`);

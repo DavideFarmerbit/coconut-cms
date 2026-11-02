@@ -1,6 +1,7 @@
 import {Elements} from '../../dom/Elements.ts';
 import {TypeCatalog} from '../../public/types/TypeCatalog.ts';
 import type {TypeDescription} from '../../public/types/TypeDescription.ts';
+import {TypeStore} from '../../public/types/TypeStore.ts';
 import type {PanelView} from '../../public/workspace/PanelView.ts';
 import type {ViewContext} from '../../public/workspace/ViewContext.ts';
 import {TypeLink} from './TypeLink.ts';
@@ -20,12 +21,14 @@ export class TypesView implements PanelView {
 
     public readonly element: HTMLElement;
     private readonly listener = (): void => this.show();
+    private readonly types: TypeStore;
 
     public constructor(private readonly context: ViewContext) {
         this.element = Elements.create('div', {classes: ['types-view']}, [Elements.create('p', {classes: ['list__note', 'muted'], text: 'Loading…'})]);
-        context.types.ready.then(() => {
+        this.types = context.service(TypeStore);
+        this.types.ready.then(() => {
             this.show();
-            context.types.onChange(this.listener);
+            this.types.onChange(this.listener);
         }, (failure: unknown) => {
             this.element.replaceChildren(Elements.create('p', {classes: ['list__note', 'muted'], text: failure instanceof Error ? failure.message : String(failure)}));
         });
@@ -38,12 +41,12 @@ export class TypesView implements PanelView {
     }
 
     public dispose(): void {
-        this.context.types.offChange(this.listener);
+        this.types.offChange(this.listener);
     }
 
     /** Lists the types of the catalog now. */
     private show(): void {
-        const groups = this.context.types.catalog.byNamespace();
+        const groups = this.types.catalog.byNamespace();
         this.element.replaceChildren(...[...groups.entries()].map(([namespace, types]) => this.group(namespace, types)));
         this.markSelected();
     }

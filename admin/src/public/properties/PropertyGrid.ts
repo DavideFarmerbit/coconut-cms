@@ -3,6 +3,7 @@ import {ActionIcon} from '../../icons/ActionIcon.ts';
 import {MemoryCollapse} from '../../properties/MemoryCollapse.ts';
 import {RowTree} from '../../properties/RowTree.ts';
 import type {EntitySession} from '../entities/EntitySession.ts';
+import {EntityStore} from '../entities/EntityStore.ts';
 import type {CatalogField} from '../types/TypeCatalog.ts';
 import type {ViewContext} from '../workspace/ViewContext.ts';
 import type {CollapseMemory} from './CollapseMemory.ts';
@@ -39,7 +40,7 @@ export class PropertyGrid {
         this.tree = new RowTree(session, {
             api: context.api,
             editors: context.properties,
-            entities: context.entities,
+            entities: context.service(EntityStore),
             collapse: options.properties ?? new MemoryCollapse(),
             filter: options.filter ?? null,
         }, () => this.render());

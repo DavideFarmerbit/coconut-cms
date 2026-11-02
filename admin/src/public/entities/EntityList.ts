@@ -18,7 +18,7 @@ export type ListListener = () => void;
  * again too when the types change for one it lists. dispose() of it when
  * its view goes.
  *
- *     const cars = new EntityList(context.entities, {type: 'shop:car', orderBy: [{path: 'name'}], limit: 20});
+ *     const cars = new EntityList(context.service(EntityStore), {type: 'shop:car', orderBy: [{path: 'name'}], limit: 20});
  *     cars.onChange(() => this.render(cars.items));
  */
 export class EntityList {

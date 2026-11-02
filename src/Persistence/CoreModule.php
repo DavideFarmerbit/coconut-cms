@@ -15,6 +15,7 @@ use XyloIsCoding\CoconutCms\Api\Operations\Entities\QueryEntities;
 use XyloIsCoding\CoconutCms\Api\Operations\Schema\GetSchema;
 use XyloIsCoding\CoconutCms\Api\Operations\Schema\ListConversions;
 use XyloIsCoding\CoconutCms\Api\Operations\Schema\ListValidators;
+use XyloIsCoding\CoconutCms\Api\Operations\Schema\ListValues;
 use XyloIsCoding\CoconutCms\Api\Operations\Schema\PreviewSchema;
 use XyloIsCoding\CoconutCms\Api\Operations\Schema\SaveSchema;
 use XyloIsCoding\CoconutCms\Api\Operations\Types\GetType;
@@ -59,7 +60,7 @@ final readonly class CoreModule implements Module
     public function operations(): array {
         return [
             SignIn::class, SignOut::class, GetMe::class,
-            ListTypes::class, GetType::class, GetSchema::class, PreviewSchema::class, SaveSchema::class, ListConversions::class, ListValidators::class,
+            ListTypes::class, GetType::class, GetSchema::class, PreviewSchema::class, SaveSchema::class, ListConversions::class, ListValidators::class, ListValues::class,
             GetEntity::class, QueryEntities::class, CreateEntity::class, UpdateEntity::class, DeleteEntity::class,
             ListAdminCode::class,
         ];

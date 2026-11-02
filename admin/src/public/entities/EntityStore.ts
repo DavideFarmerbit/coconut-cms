@@ -1,11 +1,14 @@
+import {DialogUnsavedQuestion} from '../../entities/DialogUnsavedQuestion.ts';
 import type {ApiClient} from '../api/ApiClient.ts';
+import type {Auth} from '../auth/Auth.ts';
 import type {SignOutGuard} from '../auth/SignOutGuard.ts';
+import type {ServiceContext} from '../services/ServiceContext.ts';
 import {EntityLabels} from '../properties/EntityLabels.ts';
 import type {ReferenceValue} from '../properties/RecordValues.ts';
 import {TypeChanges} from '../../types/TypeChanges.ts';
 import type {TypeCatalog} from '../types/TypeCatalog.ts';
 import type {TypeChange} from '../types/TypeChange.ts';
-import type {TypeStore} from '../types/TypeStore.ts';
+import {TypeStore} from '../types/TypeStore.ts';
 import type {EntityChange, EntityListener} from './EntityChange.ts';
 import type {EntityData} from './EntityData.ts';
 import {EntityHold, type HoldReleaser} from './EntityHold.ts';
@@ -20,8 +23,8 @@ interface Held {
 }
 
 /**
- * The entities the admin works with, one store per admin, every view
- * reaching it as `context.entities`. It reads, queries, creates, updates and
+ * The entities the admin works with: a service, one per signed-in user,
+ * every view reaching it as `context.service(EntityStore)`. It reads, queries, creates, updates and
  * deletes them through the API, keeps what it read, and tells its listeners
  * of each change, so a list or a label follows a save.
  *
@@ -33,9 +36,9 @@ interface Held {
  * types affected, and every session of one without edits reads its entity
  * again. settle() asks about the sessions with edits before a change. As a
  * sign-out guard, it asks once about every unsaved session before its
- * user signs out; close() it once they did.
+ * user signs out; it's disposed of once they did.
  *
- *     const hold = context.entities.edit(id);
+ *     const hold = context.service(EntityStore).edit(id);
  *     // ...show hold.session...
  *     const closed = await hold.release();
  */
@@ -52,6 +55,8 @@ export class EntityStore implements SessionSaver, HoldReleaser, SignOutGuard {
     private readonly typesListener = (change: TypeChange): void => this.typesChanged(change);
     /** Whether its user signed out. */
     private closed = false;
+    /** The sign-out it guards, as a service; null for one made directly. */
+    private guarded: Auth | null = null;
 
     /**
      * @param types The types the user may read: what sessions, labels and lists work with.
@@ -63,6 +68,15 @@ export class EntityStore implements SessionSaver, HoldReleaser, SignOutGuard {
         private readonly unsaved: UnsavedQuestion,
     ) {
         types.onChange(this.typesListener);
+    }
+
+    /** The user's store, as a service: it asks with the admin's dialogs, and guards their sign-out as `coconut-cms:entities`. */
+    public static create(context: ServiceContext): EntityStore {
+        const store = new EntityStore(context.api, context.service(TypeStore), new DialogUnsavedQuestion());
+        context.auth.guard(store, {name: 'coconut-cms:entities'});
+        store.guarded = context.auth;
+
+        return store;
     }
 
     /** Whether any session has unsaved changes: leaving the page asks first then. */
@@ -128,13 +142,14 @@ export class EntityStore implements SessionSaver, HoldReleaser, SignOutGuard {
     }
 
     /**
-     * Closes it, once its user signed out: its sessions are let go without
-     * asking, the user having answered already, and it no longer follows
-     * the types.
+     * Ends it, once its user signed out: its sessions are let go without
+     * asking, the user having answered already, it no longer follows the
+     * types, and it guards no sign-out.
      */
-    public close(): void {
+    public dispose(): void {
         this.closed = true;
         this.types.offChange(this.typesListener);
+        this.guarded?.unguard(this);
     }
 
     /** Tells `listener` of every entity created, updated or deleted. */

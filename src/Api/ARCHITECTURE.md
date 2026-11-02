@@ -9,7 +9,7 @@ HTTP and command-line transports), the read operations (`types.list`,
 `types.get`, `entities.get`, `entities.query`), and the write operations
 for native types (`entities.create`, `entities.update`, `entities.delete`),
 changing editor-created types (`schema.get`, `schema.preview`, `schema.save`,
-`schema.conversions`, `schema.validators`), and authentication (sign-in operations, CSRF,
+`schema.conversions`, `schema.validators`, `schema.values`), and authentication (sign-in operations, CSRF,
 `--as`). Not built yet: API tokens. Each is noted inline.
 
 Scope:
@@ -476,6 +476,13 @@ takes other field rules, such as `coconut-cms:on-items` does. The input may
 give `field`, as `types.get` describes it, without a name. Then only the
 field rules fitting it are listed. For the rules `on-items` takes, give the
 Collection's item.
+
+`coconut-cms:schema.values` lists what a field may hold beside the scalars
+and the entity types: the enums and value objects the modules' classes use,
+each list in the order registered. It takes nothing. `enums` gives each
+enum's `identifier`, what a field names it by, and its `values`, its cases'
+values in order, for picking a default. `valueObjects` gives each value
+object's identifier.
 
 `coconut-cms:schema.get` gives what the schema editor loads: the schema
 `revision`, and every type as stored now, native and editor-made, sorted by
