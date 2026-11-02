@@ -372,6 +372,9 @@ input:
 - `operations` are a clean chain, in the order they run: the server folds
   nothing (see the storage document). `op` names each one:
   `createType` (`type`, `parent`), `renameType` (`old`, `new`),
+  `renameTypes` (`renames`: each old identifier's new one, all at once, so
+  two types may swap names), `renameFields` (`type`, `renames`: each old
+  field name's new one, the same way),
   `deleteType` (`type`), `reparent` (`type`, `parent`, `initializer`: a
   level initializer), `replaceType` (`type`, `with`, `initializers` and
   `converters` by field name, `resets`: a list of field names), `addField`

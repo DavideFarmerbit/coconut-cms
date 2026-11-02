@@ -36,6 +36,8 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Data\LevelInitializer;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\MigratingValues;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameField;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameFields;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameTypes;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RetypeField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetDefault;
@@ -182,6 +184,60 @@ final class EditorSaveTest extends DynamicTestCase
         $this->saveAs(new StrictPolicy(), new EditorSave(2, [new RetypeField('dy:buoy', FieldDescriptor::scalar('color', ScalarType::String, Nullability::NotNullable), new FirstItem(), new DefaultValue('white'))]));
         self::assertSame('red', $this->session()->loadDynamic($red)->get('color'));
         self::assertSame('white', $this->session()->loadDynamic($none)->get('color'));
+    }
+
+    public function testTwoFieldsSwapNamesWithTheirValuesAndDefaults(): void {
+        $this->save(new AddField('dy:yacht', FieldDescriptor::scalar('berths', ScalarType::Int, Nullability::NotNullable), new DefaultValue(1)));
+        $yacht = $this->store('dy:yacht', ['name' => 'Sea', 'cabins' => 4, 'berths' => 2]);
+
+        $this->saveAs(new StrictPolicy(), new EditorSave(2, [new RenameFields('dy:yacht', ['cabins' => 'berths', 'berths' => 'cabins'])]));
+
+        $loaded = $this->session()->loadDynamic($yacht);
+        self::assertSame([2, 4], [$loaded->get('cabins'), $loaded->get('berths')]);
+        self::assertSame([1, 3], [$this->defaultsOf('dy:yacht')['cabins'], $this->defaultsOf('dy:yacht')['berths']], 'Each default follows its field.');
+    }
+
+    public function testTwoFieldsOfDifferentKindsSwapNames(): void {
+        $this->save(new AddField('dy:yacht', FieldDescriptor::scalar('label', ScalarType::String, Nullability::NotNullable), new DefaultValue('')));
+        $yacht = $this->store('dy:yacht', ['name' => 'Sea', 'cabins' => 4, 'label' => 'Blue']);
+
+        $this->saveAs(new StrictPolicy(), new EditorSave(2, [new RenameFields('dy:yacht', ['cabins' => 'label', 'label' => 'cabins'])]));
+
+        $loaded = $this->session()->loadDynamic($yacht);
+        self::assertSame(['Blue', 4], [$loaded->get('cabins'), $loaded->get('label')]);
+    }
+
+    public function testTwoTypesSwapNamesWithTheirEntries(): void {
+        $this->save(
+            new CreateType('dy:marker', null),
+            new AddField('dy:marker', FieldDescriptor::scalar('color', ScalarType::String, Nullability::NotNullable), new DefaultValue('white')),
+        );
+        $buoy = $this->store('dy:buoy', ['color' => 'red']);
+        $marker = $this->store('dy:marker', ['color' => 'blue']);
+
+        $this->saveAs(new StrictPolicy(), new EditorSave(2, [new RenameTypes(['dy:buoy' => 'dy:marker', 'dy:marker' => 'dy:buoy'])]));
+
+        $session = $this->session();
+        self::assertSame(['dy:marker', 'red'], [$session->loadDynamic($buoy)->type(), $session->loadDynamic($buoy)->get('color')]);
+        self::assertSame(['dy:buoy', 'blue'], [$session->loadDynamic($marker)->type(), $session->loadDynamic($marker)->get('color')]);
+        self::assertSame('red', $this->defaultsOf('dy:marker')['color'], 'The type that was the buoy keeps its defaults.');
+    }
+
+    public function testRenamesAtOnceStillRefuseTwoEndingWithOneName(): void {
+        $this->save(new AddField('dy:yacht', FieldDescriptor::scalar('berths', ScalarType::Int, Nullability::NotNullable), new DefaultValue(1)));
+
+        foreach ([
+            [new RenameFields('dy:yacht', ['cabins' => 'berths']), 'already has a field "berths"'],
+            [new RenameFields('dy:yacht', ['cabins' => 'rooms', 'berths' => 'rooms']), 'would be named "rooms"'],
+            [new RenameTypes(['dy:yacht' => 'dy:buoy']), 'already exists'],
+        ] as [$operation, $message]) {
+            try {
+                $this->saveAs(new StrictPolicy(), new EditorSave(2, [$operation]));
+                self::fail($message);
+            } catch (InvalidOperation $refused) {
+                self::assertStringContainsString($message, $refused->getMessage());
+            }
+        }
     }
 
     public function testANumberIsRetypedAndRounded(): void {

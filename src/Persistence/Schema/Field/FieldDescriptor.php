@@ -254,7 +254,18 @@ final readonly class FieldDescriptor
      * is a class, never an entity type, so it never changes.
      */
     public function retargeted(string $from, string $to): self {
-        $retargets = $this->kind !== FieldKind::ValueObject && $this->target === $from;
+        return $this->retargetedAll([$from => $to]);
+    }
+
+    /**
+     * The same field, pointing at each entity type `$renames` maps its target
+     * to, all at once: two types swapping names swap what points at them.
+     * A value object's target is a class, never an entity type, so it never
+     * changes.
+     * @param array<string, string> $renames Each old identifier's new one.
+     */
+    public function retargetedAll(array $renames): self {
+        $retargets = $this->kind !== FieldKind::ValueObject && $this->target !== null && isset($renames[$this->target]);
 
         return new self(
             $this->kind,
@@ -262,8 +273,8 @@ final readonly class FieldDescriptor
             $this->scalarType,
             $this->enumClass,
             $this->enumBacking,
-            $retargets ? $to : $this->target,
-            $this->itemDescriptor?->retargeted($from, $to),
+            $retargets ? $renames[$this->target] : $this->target,
+            $this->itemDescriptor?->retargetedAll($renames),
             $this->indexable,
             $this->nullability,
         );

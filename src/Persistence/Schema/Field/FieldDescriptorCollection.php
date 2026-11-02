@@ -59,9 +59,34 @@ final readonly class FieldDescriptorCollection implements IteratorAggregate, Cou
         return new self($fields);
     }
 
+    /**
+     * This collection with each field `$renames` names renamed, all at once,
+     * in place: `a` to `b` with `b` to `a` swaps them. The caller checks no
+     * two end up with one name.
+     * @param array<string, string> $renames Each old name's new one.
+     */
+    public function renamedAll(array $renames): self {
+        $fields = [];
+        foreach ($this->fields as $name => $field) {
+            $new = $renames[(string) $name] ?? null;
+            $fields[$new ?? (string) $name] = $new === null ? $field : $field->renamed($new);
+        }
+
+        return new self($fields);
+    }
+
     /** Every field, retargeted from the entity type $from to $to. */
     public function retargeted(string $from, string $to): self {
-        return new self(array_map(static fn (FieldDescriptor $field): FieldDescriptor => $field->retargeted($from, $to), $this->fields));
+        return $this->retargetedAll([$from => $to]);
+    }
+
+    /**
+     * Every field, pointing at each entity type `$renames` maps its target
+     * to, all at once.
+     * @param array<string, string> $renames Each old identifier's new one.
+     */
+    public function retargetedAll(array $renames): self {
+        return new self(array_map(static fn (FieldDescriptor $field): FieldDescriptor => $field->retargetedAll($renames), $this->fields));
     }
 
     public function get(FieldName $name): FieldDescriptor {

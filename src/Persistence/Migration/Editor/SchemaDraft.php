@@ -193,23 +193,42 @@ final class SchemaDraft
      * names an editor-created one.
      */
     public function rename(string $old, EntitySchema $renamed): void {
-        $this->editorType($old);
-        unset($this->editor[$old]);
-        $this->editor[$renamed->identifier] = $renamed;
-        if (isset($this->created[$old])) {
-            unset($this->created[$old]);
-            $this->created[$renamed->identifier] = true;
+        $this->renameAll([$old => $renamed]);
+    }
+
+    /**
+     * Each editor-created type $renamed keys renamed to the schema it maps to,
+     * all at once: every old one goes before any new one is put, so two types
+     * swap names, and every editor-created parent, field, default change and
+     * pinned owned class naming one follows. A native type never names an
+     * editor-created one.
+     * @param array<string, EntitySchema> $renamed Each old identifier's renamed schema.
+     */
+    public function renameAll(array $renamed): void {
+        $renames = array_map(static fn (EntitySchema $schema): string => $schema->identifier, $renamed);
+        $created = [];
+        foreach (array_keys($renamed) as $old) {
+            $this->editorType($old);
+            $created[$old] = isset($this->created[$old]);
+            unset($this->editor[$old], $this->created[$old]);
+        }
+
+        foreach ($renamed as $old => $schema) {
+            $this->editor[$schema->identifier] = $schema;
+            if ($created[$old]) {
+                $this->created[$schema->identifier] = true;
+            }
         }
 
         foreach ($this->editor as $identifier => $schema) {
             $this->editor[$identifier] = $schema
-                ->withParent($schema->parent === $old ? $renamed->identifier : $schema->parent)
-                ->withFields($schema->fields->retargeted($old, $renamed->identifier));
+                ->withParent($schema->parent === null ? null : $renames[$schema->parent] ?? $schema->parent)
+                ->withFields($schema->fields->retargetedAll($renames));
         }
 
-        // A default change on the type follows it.
-        $this->defaults = array_map(static fn (DefaultChange $change): DefaultChange => $change->type === $old ? $change->onType($renamed->identifier) : $change, $this->defaults);
-        $this->pinnedClassRenamed($old, $renamed->identifier);
+        // A default change on a type follows it.
+        $this->defaults = array_map(static fn (DefaultChange $change): DefaultChange => isset($renames[$change->type]) ? $change->onType($renames[$change->type]) : $change, $this->defaults);
+        $this->pinnedClassesRenamed($renames);
     }
 
     /**
@@ -239,14 +258,22 @@ final class SchemaDraft
      * depth, names $new now.
      */
     private function pinnedClassRenamed(string $old, string $new): void {
-        $this->defaults = array_map(function (DefaultChange $change) use ($old, $new): DefaultChange {
-            if (!$change->pins() || $change->value->value !== $old) {
+        $this->pinnedClassesRenamed([$old => $new]);
+    }
+
+    /**
+     * Every owned slot's pinned class $renames renames, all at once.
+     * @param array<string, string> $renames Each old identifier's new one.
+     */
+    private function pinnedClassesRenamed(array $renames): void {
+        $this->defaults = array_map(function (DefaultChange $change) use ($renames): DefaultChange {
+            if (!$change->pins() || !is_string($change->value->value) || !isset($renames[$change->value->value])) {
                 return $change;
             }
 
             $segments = $this->walk($change->type, $change->path);
 
-            return $segments[array_key_last($segments)][3]?->kind() === FieldKind::OwningReference ? $change->pinning(new DefaultValue($new)) : $change;
+            return $segments[array_key_last($segments)][3]?->kind() === FieldKind::OwningReference ? $change->pinning(new DefaultValue($renames[$change->value->value])) : $change;
         }, $this->defaults);
     }
 
@@ -280,9 +307,23 @@ final class SchemaDraft
      * content moved, under the final names.
      */
     public function fieldRenamed(string $identifier, FieldName $old, FieldName $new): void {
-        $renames = fn (string $owner, FieldName $name): FieldName => (string) $name === (string) $old && $this->declares($owner, $identifier, $old) ? $new : $name;
+        $this->fieldsRenamed($identifier, [(string) $old => (string) $new]);
+    }
+
+    /**
+     * Type $identifier's own fields $renames names renamed, all at once: every
+     * default change through one follows, at any depth, so two fields
+     * swapping names swap the changes through them.
+     * @param array<string, string> $renames Each old name's new one.
+     */
+    public function fieldsRenamed(string $identifier, array $renames): void {
+        $renamed = function (string $owner, FieldName $name) use ($identifier, $renames): FieldName {
+            $new = $renames[(string) $name] ?? null;
+
+            return $new !== null && $this->declares($owner, $identifier, $name) ? FieldName::of($new) : $name;
+        };
         $this->defaults = array_map(
-            fn (DefaultChange $change): DefaultChange => $change->onPath(self::pathOf($this->walk($change->type, $change->path, $renames))),
+            fn (DefaultChange $change): DefaultChange => $change->onPath(self::pathOf($this->walk($change->type, $change->path, $renamed))),
             $this->defaults,
         );
     }

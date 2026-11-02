@@ -49,7 +49,21 @@ final readonly class FieldValidatorCollection implements IteratorAggregate, Coun
 
     /** This collection with field $old's rules under $new instead. */
     public function renamed(FieldName $old, FieldName $new): self {
-        return $this->has($old) ? $this->without($old)->with($new, $this->get($old)) : $this;
+        return $this->renamedAll([(string) $old => (string) $new]);
+    }
+
+    /**
+     * This collection with each field `$renames` names keeping its rules
+     * under its new name, all at once: two fields swapping names swap them.
+     * @param array<string, string> $renames Each old name's new one.
+     */
+    public function renamedAll(array $renames): self {
+        $validators = [];
+        foreach ($this->validators as $name => $rules) {
+            $validators[$renames[(string) $name] ?? (string) $name] = $rules;
+        }
+
+        return new self($validators);
     }
 
     /** @return FieldValidatorRule[] */

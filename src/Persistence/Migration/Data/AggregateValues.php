@@ -139,16 +139,30 @@ final class AggregateValues
      * included, replacing whatever was at $to.
      */
     public function move(FieldPath $from, FieldPath $to): void {
-        if ((string) $from === (string) $to) {
+        $this->moveAll([[$from, $to]]);
+    }
+
+    /**
+     * Everything at each move's first path and under it moves to its second,
+     * all at once: each is read from the paths as they were before any moved,
+     * so `a` to `b` with `b` to `a` swaps them. Whatever was at a path moved
+     * to, and isn't moving itself, is replaced.
+     * @param list<array{FieldPath, FieldPath}> $moves Each from, then to.
+     */
+    public function moveAll(array $moves): void {
+        $moves = array_values(array_filter(
+            array_map(static fn (array $move): array => [(string) $move[0], (string) $move[1]], $moves),
+            static fn (array $move): bool => $move[0] !== $move[1],
+        ));
+        if ($moves === []) {
             return;
         }
 
-        $this->removeAt($to);
-        $this->values = self::rekeyed($this->values, (string) $from, (string) $to);
-        $this->marks = self::rekeyed($this->marks, (string) $from, (string) $to);
-        $this->ownedIds = self::rekeyed($this->ownedIds, (string) $from, (string) $to);
+        $this->values = self::rekeyed($this->values, $moves);
+        $this->marks = self::rekeyed($this->marks, $moves);
+        $this->ownedIds = self::rekeyed($this->ownedIds, $moves);
         if ($this->own !== null) {
-            $this->own = self::rekeyed($this->own, (string) $from, (string) $to);
+            $this->own = self::rekeyed($this->own, $moves);
         }
     }
 
@@ -410,20 +424,55 @@ final class AggregateValues
     /**
      * @template T
      * @param array<string, T> $entries
-     * @return array<string, T> $entries with every key at or under $from moved under $to.
+     * @param list<array{string, string}> $moves Each from, then to.
+     * @return array<string, T> $entries with every key at or under a move's
+     *         from moved under its to, all at once, and every other key at or
+     *         under a to dropped: it's replaced.
      */
-    private static function rekeyed(array $entries, string $from, string $to): array {
+    private static function rekeyed(array $entries, array $moves): array {
+        // In one pass, in order: what a move replaces goes unless it moves
+        // away itself, so a key moved never meets one kept.
         $rekeyed = [];
         foreach ($entries as $key => $entry) {
             $key = (string) $key;
-            if (self::isAtOrUnder($key, $from)) {
+            $move = self::moveOf($key, $moves);
+            if ($move !== null) {
                 // Keeps whatever joins the rest on: "price:amount" moves to "cost:amount".
-                $key = $to . substr($key, strlen($from));
+                $rekeyed[$move[1] . substr($key, strlen($move[0]))] = $entry;
+            } elseif (!self::isMovedOnto($key, $moves)) {
+                $rekeyed[$key] = $entry;
             }
-
-            $rekeyed[$key] = $entry;
         }
 
         return $rekeyed;
+    }
+
+    /**
+     * The move whose first path `$key` is at or under; null for none.
+     * @param list<array{string, string}> $moves
+     * @return array{string, string}|null
+     */
+    private static function moveOf(string $key, array $moves): ?array {
+        foreach ($moves as $move) {
+            if (self::isAtOrUnder($key, $move[0])) {
+                return $move;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Whether `$key` is at or under a path some move goes to.
+     * @param list<array{string, string}> $moves
+     */
+    private static function isMovedOnto(string $key, array $moves): bool {
+        foreach ($moves as $move) {
+            if (self::isAtOrUnder($key, $move[1])) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -22,7 +22,9 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MakeRequired
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameField;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameFields;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameType;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameTypes;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\Reparent;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\ReplaceType;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RetypeField;
@@ -83,6 +85,8 @@ final readonly class OperationForm
         $keys = match ($op) {
             'createType' => ['type', 'parent'],
             'renameType', 'renameField' => $op === 'renameType' ? ['old', 'new'] : ['type', 'old', 'new'],
+            'renameTypes' => ['renames'],
+            'renameFields' => ['type', 'renames'],
             'deleteType' => ['type'],
             'reparent' => ['type', 'parent', 'initializer'],
             'replaceType' => ['type', 'with', 'initializers', 'converters', 'resets'],
@@ -98,7 +102,7 @@ final readonly class OperationForm
             'setPrototypeRules' => ['type', 'rules'],
             'setFieldPermission' => ['type', 'field', 'read', 'write'],
             'setTypePermission' => ['type', 'read', 'create', 'update', 'delete'],
-            default => throw InvalidInput::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, deleteType, reparent, replaceType, addField, removeField, renameField, moveField, copyValues, makeRequired, retypeField, setDefault, inheritDefault, addUniqueGroup, removeUniqueGroup, setFieldRules, setPrototypeRules, setFieldPermission, setTypePermission.', $op)),
+            default => throw InvalidInput::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, renameTypes, renameFields, deleteType, reparent, replaceType, addField, removeField, renameField, moveField, copyValues, makeRequired, retypeField, setDefault, inheritDefault, addUniqueGroup, removeUniqueGroup, setFieldRules, setPrototypeRules, setFieldPermission, setTypePermission.', $op)),
         };
         Json::onlyKeys($data, ['op', ...$keys], $path);
         $string = static fn (string $key): string => Json::string($data, $key, $path);
@@ -119,6 +123,8 @@ final readonly class OperationForm
         return match ($op) {
             'createType' => new CreateType($string('type'), Json::optionalString($data, 'parent', $path)),
             'renameType' => new RenameType($string('old'), $string('new')),
+            'renameTypes' => new RenameTypes(self::renames($data['renames'] ?? null, "$path.renames")),
+            'renameFields' => new RenameFields($string('type'), self::renames($data['renames'] ?? null, "$path.renames")),
             'deleteType' => new DeleteType($string('type')),
             'reparent' => new Reparent(
                 $string('type'),
@@ -231,6 +237,20 @@ final readonly class OperationForm
     }
 
     /**
+     * $data as an object of renames, each old name's new one, at $path: at
+     * least one.
+     * @return array<string, string>
+     */
+    private static function renames(mixed $data, string $path): array {
+        $renames = Json::object($data, $path);
+        if ($renames === [] || array_filter($renames, 'is_string') !== $renames) {
+            throw InvalidInput::at($path, 'An object of renames is needed here: each old name\'s new one.');
+        }
+
+        return array_combine(array_map('strval', array_keys($renames)), $renames);
+    }
+
+    /**
      * $data as a list of field names, at $path.
      * @return list<string>
      */
@@ -294,6 +314,8 @@ final readonly class OperationForm
         return match (true) {
             $operation instanceof CreateType => ['op' => 'createType', 'type' => $operation->type, 'parent' => $operation->parent],
             $operation instanceof RenameType => ['op' => 'renameType', 'old' => $operation->old, 'new' => $operation->new],
+            $operation instanceof RenameTypes => ['op' => 'renameTypes', 'renames' => (object) $operation->renames],
+            $operation instanceof RenameFields => ['op' => 'renameFields', 'type' => $operation->type, 'renames' => (object) $operation->renames],
             $operation instanceof DeleteType => ['op' => 'deleteType', 'type' => $operation->type],
             $operation instanceof ReplaceType => [
                 'op' => 'replaceType', 'type' => $operation->type, 'with' => $operation->with,

@@ -42,9 +42,20 @@ final class UniqueGroups
      * @return list<UniqueGroup>
      */
     public static function withFieldRenamed(array $groups, FieldName $old, FieldName $new): array {
+        return self::withFieldsRenamed($groups, [(string) $old => (string) $new]);
+    }
+
+    /**
+     * $groups with each field $renames names renamed, all at once: a swap
+     * swaps them in every group.
+     * @param list<UniqueGroup> $groups
+     * @param array<string, string> $renames Each old name's new one.
+     * @return list<UniqueGroup>
+     */
+    public static function withFieldsRenamed(array $groups, array $renames): array {
         return array_map(
             static fn (UniqueGroup $group): UniqueGroup => UniqueGroup::of(...array_map(
-                static fn (FieldName $name): FieldName => (string) $name === (string) $old ? $new : $name,
+                static fn (FieldName $name): FieldName => isset($renames[(string) $name]) ? FieldName::of($renames[(string) $name]) : $name,
                 $group->fields(),
             )),
             $groups,

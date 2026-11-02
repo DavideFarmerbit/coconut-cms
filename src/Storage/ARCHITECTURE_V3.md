@@ -1932,7 +1932,14 @@ The common fixups are shorthands:
 - `RenameType(old, new)`: every parent and target naming the type follows
   it, and so does its table: it takes the table the code gives the renamed
   type, so a table derived from the identifier needs no `MoveTable` of its
-  own.
+  own. It's `RenameTypes` with one rename.
+- `RenameTypes(renames)`: several types renamed at once, each old
+  identifier to its new one. Every old identifier is read as it is before
+  any is renamed, so two types swap names: `['shop:boat' => 'shop:ship',
+  'shop:ship' => 'shop:boat']`. A loop of any length works the same. Only
+  the result is checked: no two types end up with one identifier. Renamed
+  one at a time, a swap can't be written: the first rename would find the
+  other name still taken.
 - `DropType(type)`: deletes its entities and everything they own. References
   to them become null. Where one sits in another entity's owned field, or as
   an Owned Collection item, that slot becomes null, the same for both: what it
@@ -1976,7 +1983,15 @@ The common fixups are shorthands:
   than the default.
 - `DropField(type, field)`.
 - `RenameField(type, old, new)`: the shorthand for moving the values from the
-  old name to the new, the old field dropped, the new one added.
+  old name to the new, the old field dropped, the new one added. It's
+  `RenameFields` with one rename.
+- `RenameFields(type, renames)`: several of a type's own fields renamed at
+  once, each old name to its new one, the same way: `['length' => 'beam',
+  'beam' => 'length']` swaps two fields. Their values move all at once,
+  each read from the paths as they were before any moved. Only the result
+  is checked: no two fields end up with one name. The database never sees
+  a rename: the move rewrites each aggregate in the new layout, and a
+  column whose type changes is moved aside first, as for any change.
 - `MoveField(from, field, to, initializer?)`: a field's declaration moved up
   or down its own chain. Its path doesn't change, so its values follow on
   their own. Moved up, entities that never had the field gain it: those of

@@ -48,9 +48,21 @@ final readonly class FieldPermissionCollection implements IteratorAggregate, Cou
 
     /** This collection with field $old's permission under $new instead. */
     public function renamed(FieldName $old, FieldName $new): self {
-        $permission = $this->get($old);
+        return $this->renamedAll([(string) $old => (string) $new]);
+    }
 
-        return $permission === null ? $this : $this->without($old)->with($new, $permission);
+    /**
+     * This collection with each field `$renames` names keeping its permission
+     * under its new name, all at once: two fields swapping names swap them.
+     * @param array<string, string> $renames Each old name's new one.
+     */
+    public function renamedAll(array $renames): self {
+        $permissions = [];
+        foreach ($this->permissions as $name => $permission) {
+            $permissions[$renames[(string) $name] ?? (string) $name] = $permission;
+        }
+
+        return new self($permissions);
     }
 
     public function get(FieldName $name): ?FieldPermission {

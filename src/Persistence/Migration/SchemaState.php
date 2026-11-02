@@ -275,16 +275,35 @@ final readonly class SchemaState
 
     /** Type $old as $renamed, under its new identifier, keeping its source. */
     public function renamed(string $old, EntitySchema $renamed): self {
-        $source = $this->sources[$old] ?? null;
-        $state = $this->without($old);
-        $state->assertAbsent($renamed->identifier);
+        return $this->renamedAll([$old => $renamed]);
+    }
 
-        return new self(
-            [...$state->schemas, $renamed->identifier => $renamed],
-            [...$state->sources, $renamed->identifier => $source],
-            $this->target,
-            $this->targetSources,
-        );
+    /**
+     * Each type `$renamed` keys as the schema it maps to, under its new
+     * identifier, keeping its source, all at once: every old one goes before
+     * any new one is checked, so two types swap names.
+     * @param array<string, EntitySchema> $renamed Each old identifier's renamed schema.
+     */
+    public function renamedAll(array $renamed): self {
+        $state = $this;
+        $sources = [];
+        foreach (array_keys($renamed) as $old) {
+            $sources[$old] = $this->sources[$old] ?? null;
+            $state = $state->without($old);
+        }
+
+        $schemas = $state->schemas;
+        $kept = $state->sources;
+        foreach ($renamed as $old => $schema) {
+            $state->assertAbsent($schema->identifier);
+            if (isset($schemas[$schema->identifier])) {
+                throw new InvalidFixup(sprintf('two types would be named "%s".', $schema->identifier));
+            }
+            $schemas[$schema->identifier] = $schema;
+            $kept[$schema->identifier] = $sources[$old];
+        }
+
+        return new self($schemas, $kept, $this->target, $this->targetSources);
     }
 
     /** @param Closure(EntitySchema): EntitySchema $change Applied to every schema, of every source. */

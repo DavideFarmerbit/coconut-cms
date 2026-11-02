@@ -3,20 +3,21 @@
 namespace XyloIsCoding\CoconutCms\Persistence\Migration\Fixup;
 
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateValues;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Occurrences;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\UniqueGroups;
 use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 
 /**
  * A type's own field renamed, its values kept. A unique group over it follows.
- * The shorthand for MoveValues from the old name to the new, the old field
- * dropped, the new one added.
+ * RenameFields with one rename: to swap two fields' names, or rename in a
+ * loop, give RenameFields all of them at once.
  */
 final readonly class RenameField implements Fixup, MovesValues
 {
     public FieldName $old;
     public FieldName $new;
+
+    /** The same rename, as RenameFields does it. */
+    private RenameFields $all;
 
     public function __construct(
         public string $type,
@@ -25,22 +26,16 @@ final readonly class RenameField implements Fixup, MovesValues
     ) {
         $this->old = FieldName::of($old);
         $this->new = FieldName::of($new);
+        $this->all = new RenameFields($type, [$old => $new]);
     }
 
+    /** Throws InvalidFixup when the type has no such field of its own, or one already has the new name. */
     public function applyTo(SchemaState $schemas): SchemaState {
-        $schemas->field($this->type, $this->old);
-        $schemas->assertNoField($this->type, $this->new);
-        $schema = $schemas->get($this->type);
-
-        return $schemas->with($schema
-            ->withFields($schema->fields->renamed($this->old, $this->new))
-            ->withUniqueGroups(UniqueGroups::withFieldRenamed($schema->uniqueGroups, $this->old, $this->new)));
+        return $this->all->applyTo($schemas);
     }
 
     public function moveValues(AggregateValues $values, SchemaState $before, SchemaState $after): void {
-        foreach (Occurrences::ofType($this->type, $values, $before) as $occurrence) {
-            $values->move($occurrence->fieldPath($this->old), $occurrence->fieldPath($this->new));
-        }
+        $this->all->moveValues($values, $before, $after);
     }
 
     public function movedTypes(): array {
