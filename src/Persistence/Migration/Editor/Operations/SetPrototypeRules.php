@@ -11,7 +11,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule
 /**
  * An editor-created type given its full list of cross-field rules, in order,
  * replacing the ones it had; none clears them. Each checks its configuration
- * against the type's own fields. Only the definition changes: content
+ * against the type's own fields; a broken one must be there already (see
+ * BrokenRulesKept). Only the definition changes: content
  * breaking a rule is caught on its next save.
  */
 final readonly class SetPrototypeRules implements SchemaOperation
@@ -28,6 +29,7 @@ final readonly class SetPrototypeRules implements SchemaOperation
 
     public function applyTo(SchemaDraft $draft): void {
         $schema = $draft->editorType($this->type);
+        BrokenRulesKept::assertIn($this->rules, $schema->prototypeValidators);
         foreach ($this->rules as $index => $rule) {
             try {
                 $rule->checkUsage($schema->fields);

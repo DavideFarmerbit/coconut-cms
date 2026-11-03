@@ -32,9 +32,9 @@ export const shopSchema: SchemaDefinitionList = {
     ],
 };
 
-/** A fresh draft of the shop, with what tests reach by name. */
-export function shopDraft(): {draft: SchemaDraft; id: (identifier: string) => TypeId; field: (type: string, name: string) => FieldId} {
-    const loaded = SchemaDraft.load(shopSchema);
+/** A fresh draft of the shop, or of `schema`, with what tests reach by name. */
+export function shopDraft(schema: SchemaDefinitionList = shopSchema): {draft: SchemaDraft; id: (identifier: string) => TypeId; field: (type: string, name: string) => FieldId} {
+    const loaded = SchemaDraft.load(schema);
 
     return {
         draft: loaded,

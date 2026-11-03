@@ -1423,9 +1423,10 @@ the batch, or hold the first one back. The resolver works path by path, so
 such cycles end. Resolving from the stored state instead would read a held
 type's old values, or miss a field it renamed in the same batch.
 
-The code's `StateKey` holds native fingerprints only. Editor-created types
-live in the database, not in code, so an editor save never makes a native
-migration pending.
+The code's `StateKey` holds no editor-created type. Editor-created types live
+in the database, not in code, so an editor save never makes a native
+migration pending. The key does hold every registered rule class's source:
+see "Broken rules".
 
 ### When native code breaks an editor-created type
 
@@ -1441,22 +1442,26 @@ editor-created types they never saw. A native change can break one:
 - a unique group added to a native type, which editor-created content breaks;
 - a native type taking an identifier an editor-created type has. This fails
   the same way two native classes with one identifier do, naming the
-  editor-created type.
+  editor-created type;
+- a validator rule an editor-created type stores that can't be built any
+  more: its class isn't registered now, or its constructor no longer takes
+  the stored configuration.
 
 A dropped type that is only a subtype of a field's target breaks nothing:
 the field stays valid, and only the values holding that subtype go, as
 `DropType` says.
 
 Each break is a difference, and the policy decides it, the same as any other
-difference (`EditorBreaks` finds them; `SetAsideField` and `CutChain` set
-them aside). A fixup the developer declares, `ReplaceType` above
-all, resolves a break before the policy sees it. Then:
+difference (`EditorBreaks` finds them; `SetAsideField`, `CutChain` and
+`KeepRuleBroken` resolve them). A fixup the developer declares, `ReplaceType`
+or `RewriteRule` above all, resolves a break before the policy sees it. Then:
 
 - **Strict** blocks the migration, naming the editor-created type and the
   break.
 - **Developer** and **unsafe** resolve it. Setting values aside as a
-  `NoType` record (see "NoType") keeps every one of them, so it's lossless,
-  and the developer policy applies lossless changes by itself.
+  `NoType` record (see "NoType") keeps every one of them, and keeping a rule
+  broken keeps it as stored. Both are lossless, and the developer policy
+  applies lossless changes by itself.
 - A unique group broken by content always blocks, under every policy:
   nothing can be set aside to fix it.
 
@@ -1502,6 +1507,8 @@ How each break resolves:
 - **A name clash**: the native field takes the name, since the code holds
   it. The editor-created field leaves the type's fields, and its values
   become a `NoType` record. No field is renamed or given a generated name.
+- **A rule that can't be built** is kept broken, where it is (see "Broken
+  rules").
 
 A dry run, `Persistence::check()`, plans a migration against a database and
 changes nothing: no lock, no table, no row. It plans to the end even when
@@ -1510,11 +1517,43 @@ draft), so every block and every break shows at once. Its `MigrationReport`
 says whether the database is empty or behind, and lists the pending steps,
 every fixup the migration would run, in order, every break with the
 editor-created type it hits and what the policy in use does with it, and
-every difference blocking it. `describe()` gives it as lines to print. Run
-against production before a deploy, it shows what strict would block. A
-`migrate --check` command wraps it once a command line exists (not built
-yet). The dry run plans; it doesn't compile the editor-created types again,
-so a type that would fail to compile shows only when the migration runs.
+every difference blocking it. It also warns about every rule kept broken,
+pending or not (see "Broken rules"). `describe()` gives it as lines to
+print. Run against production before a deploy, it shows what strict would
+block. A `migrate --check` command wraps it once a command line exists (not
+built yet). The dry run plans; it doesn't compile the editor-created types
+again, so a type that would fail to compile shows only when the migration
+runs.
+
+### Broken rules
+
+An editor-created type stores each rule as `{"rule": identifier, "config":
+{...}}`. Reading a stored schema builds each rule from it. When a rule
+can't be built, the schema still reads: the rule reads as a
+`BrokenFieldRule` or a `BrokenPrototypeRule`. It keeps the entry as stored
+and the reason it can't be built. It fits any field and checks nothing.
+
+Each broken rule found is a `RuleBroken` difference, found from the schemas
+alone, as other breaks are. The policy decides it:
+
+- **Strict** blocks the migration.
+- **Developer** and **unsafe** keep it broken: `KeepRuleBroken`. The stored
+  entry gets a `broken` key, the reason. Nothing is lost.
+- A custom policy may drop it: `DropRule`.
+- A step the developer declares may replace it with a rule that builds:
+  `RewriteRule`. Strict then passes.
+
+A rule kept broken is never a break again. Every dry run warns about each
+one (`KeptBrokenRule`): "Rule ... is kept broken and checks nothing:
+reason". It stays until the schema editor removes it (see "Editor saves are
+migrations"). A broken rule that builds again later, because its class came
+back, is a rule again on the next read.
+
+A rule class can change with no native type changing: its constructor, its
+checks. Then only editor-created types show it. So the code's `StateKey`
+holds a hash of every registered rule class's file. Any edit to one, a
+comment included, makes a migration pending. With nothing broken, that
+migration plans no fixup, moves nothing and stores the new key.
 
 ### Editor saves are migrations
 
@@ -1585,6 +1624,15 @@ refuses the operation, naming the type: a cross-field rule naming a field
 the save renamed or removed, say. A rule's configuration is its own, so
 nothing renames inside it: the save sets the rule anew, cleared before the
 operation and set after.
+
+A rule kept broken (see "Broken rules") is in a list like any other. The
+editor sends it back unchanged, with its `broken` reason, to keep it. It
+leaves it out to remove it. `SetFieldRules` and `SetPrototypeRules` take a
+broken rule only where the same rule is stored now, at that point of the
+save (`BrokenRulesKept`). So a save keeps a broken rule or removes it, and
+never adds one. A broken rule fits any field, so a save that clears
+cross-field rules before an operation keeps the broken ones in place. A
+retype clears a broken rule for good, as it clears every rule of the field.
 
 A save stores exactly the defaults the admin set, pinned, and never works
 out what's set by comparing values: a field the admin set to what its
@@ -2449,9 +2497,11 @@ found none started. `Persistence` checks it first, once per request (see
 "Booting").
 
 A finished migration also stores the code's `StateKey` in that row: a hash of
-every native type's fingerprint and every declared step id. Step ids count,
-since a step can move data with no schema change. While the code's key differs
-from the stored one, a migration is pending.
+every native type's fingerprint, every declared step id, and every registered
+rule class's file. Step ids count, since a step can move data with no schema
+change. Rule files count, since a changed rule can break a rule stored on an
+editor-created type (see "Broken rules"). While the code's key differs from
+the stored one, a migration is pending.
 
 One transaction for all the data is long on a large database. That's
 acceptable for now. If it isn't one day, the fix is batches with a record of

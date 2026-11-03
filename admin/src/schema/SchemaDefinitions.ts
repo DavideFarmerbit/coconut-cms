@@ -18,6 +18,12 @@ export interface FieldShape {
 export interface RuleEntry {
     readonly rule: string;
     readonly config: Readonly<Record<string, unknown>>;
+    /**
+     * Why the rule can't be built any more, when schema.get gives it broken.
+     * It checks nothing. Send it back unchanged to keep it, or leave it out
+     * to remove it: a save never takes a new broken rule.
+     */
+    readonly broken?: string;
 }
 
 /** The roles a field asks to be read and written; null leaves it open. */

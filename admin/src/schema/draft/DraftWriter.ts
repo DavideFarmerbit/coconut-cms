@@ -6,6 +6,7 @@ import {EditRefused} from './EditRefused.ts';
 import type {FieldRecord} from './FieldRecord.ts';
 import type {FieldState} from './FieldState.ts';
 import type {PinnedDefault} from './PinnedDefault.ts';
+import type {RuleEntry} from '../SchemaDefinitions.ts';
 import type {SaveProblem} from './SaveProblem.ts';
 import type {SchemaDraft} from './SchemaDraft.ts';
 import type {SchemaOperationData} from './SchemaOperationData.ts';
@@ -23,7 +24,7 @@ type Kept<T, S> = T & {readonly was: S; readonly now: S};
  * possible:
  *
  * 1. clear what would block a later step: cross-field rules over own fields
- *    that change, unique groups going away;
+ *    that change, broken ones aside, and unique groups going away;
  * 2. free names: removed fields, then deleted types, subtypes first;
  * 3. rename: every type at once, then every field of one type at once;
  * 4. create types, parents first;
@@ -48,8 +49,8 @@ export class DraftWriter {
     private readonly fields: readonly FieldRecord[];
     /** Defaults an addField, moveField or retypeField gave: no setDefault repeats them. By type and path key. */
     private readonly given = new Set<string>();
-    /** Types whose cross-field rules were cleared first. */
-    private readonly cleared = new Set<TypeId>();
+    /** Types whose cross-field rules were cleared first, to the broken ones they kept. */
+    private readonly cleared = new Map<TypeId, readonly RuleEntry[]>();
     /** Fields written a retypeField: the server cleared their rules. */
     private readonly retyped = new Set<FieldId>();
 
@@ -88,9 +89,12 @@ export class DraftWriter {
     /** Clears what a later step would trip on: cross-field rules over own fields that change, unique groups going away. */
     private clear(): void {
         for (const type of this.keptTypes()) {
-            if (type.was.prototypeRules.length > 0 && (!DraftWriter.equal(type.was.prototypeRules, type.now.prototypeRules) || this.ownFieldsChange(type))) {
-                this.write({op: 'setPrototypeRules', type: this.chain.typeName(type.id), rules: []});
-                this.cleared.add(type.id);
+            // A broken rule fits any fields, and the server takes one back only
+            // where it's stored: the broken ones stay.
+            const broken = type.was.prototypeRules.filter((rule) => rule.broken !== undefined);
+            if (type.was.prototypeRules.length > broken.length && (!DraftWriter.equal(type.was.prototypeRules, type.now.prototypeRules) || this.ownFieldsChange(type))) {
+                this.write({op: 'setPrototypeRules', type: this.chain.typeName(type.id), rules: broken});
+                this.cleared.set(type.id, broken);
             }
         }
 
@@ -270,9 +274,12 @@ export class DraftWriter {
         for (const field of this.fields.filter((each) => each.now !== null)) {
             const now = field.now!;
             const type = this.draft.type(now.owner)!.now!.identifier;
-            const rules = field.was === null || this.retyped.has(field.id) ? [] : field.was.rules;
-            if (!DraftWriter.equal(rules, now.rules)) {
-                this.write({op: 'setFieldRules', type, field: now.name, rules: now.rules});
+            const retyped = this.retyped.has(field.id);
+            const rules = field.was === null || retyped ? [] : field.was.rules;
+            // A retype cleared a broken rule for good: the server never takes a new one.
+            const wanted = retyped ? now.rules.filter((rule) => rule.broken === undefined) : now.rules;
+            if (!DraftWriter.equal(rules, wanted)) {
+                this.write({op: 'setFieldRules', type, field: now.name, rules: wanted});
             }
             if (!DraftWriter.equal(field.was?.permission ?? null, now.permission)) {
                 this.write({op: 'setFieldPermission', type, field: now.name, read: now.permission?.read ?? null, write: now.permission?.write ?? null});
@@ -286,7 +293,7 @@ export class DraftWriter {
                 this.write({op: 'setTypePermission', type: now.identifier, read: roles?.read ?? null, create: roles?.create ?? null, update: roles?.update ?? null, delete: roles?.delete ?? null});
             }
 
-            const rules = type.was === null || this.cleared.has(type.id) ? [] : type.was.prototypeRules;
+            const rules = type.was === null ? [] : this.cleared.get(type.id) ?? type.was.prototypeRules;
             if (!DraftWriter.equal(rules, now.prototypeRules)) {
                 this.write({op: 'setPrototypeRules', type: now.identifier, rules: now.prototypeRules});
             }

@@ -36,6 +36,8 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetPrototype
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetTypePermission;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaOperation;
 use XyloIsCoding\CoconutCms\Persistence\Parameters\ParameterRegistries;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Broken\BrokenFieldRule;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Broken\BrokenPrototypeRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
@@ -206,18 +208,32 @@ final readonly class OperationForm
         return $rules;
     }
 
+    /**
+     * $data as a field rule. One that can't be built is kept broken when it
+     * carries "broken", as schema.get gives it: the operation then takes it
+     * only where that same rule is stored.
+     */
     private function fieldRule(mixed $data, string $path): FieldValidatorRule {
         try {
             return $this->registries->fieldRules()->build($data, $this->registries);
         } catch (InvalidParameters $refused) {
+            if (is_array($data) && is_string($data['broken'] ?? null)) {
+                return new BrokenFieldRule(array_diff_key($data, ['broken' => true]), $refused->getMessage(), true);
+            }
+
             throw InvalidInput::at(Json::at($path, $refused->parameter ?? 'rule'), $refused->getMessage());
         }
     }
 
+    /** $data as a cross-field rule; one that can't be built as fieldRule() says. */
     private function prototypeRule(mixed $data, string $path): PrototypeValidatorRule {
         try {
             return $this->prototypeRules->build($data, $this->registries);
         } catch (InvalidParameters $refused) {
+            if (is_array($data) && is_string($data['broken'] ?? null)) {
+                return new BrokenPrototypeRule(array_diff_key($data, ['broken' => true]), $refused->getMessage(), true);
+            }
+
             throw InvalidInput::at(Json::at($path, $refused->parameter ?? 'rule'), $refused->getMessage());
         }
     }

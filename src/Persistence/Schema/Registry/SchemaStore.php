@@ -35,6 +35,15 @@ final class SchemaStore
     ) {
     }
 
+    /**
+     * Every rule class the stored schemas' rules are read with, as
+     * EntitySchemaCodec::ruleClasses() gives them.
+     * @return array<string, class-string>
+     */
+    public function ruleClasses(): array {
+        return $this->codec->ruleClasses();
+    }
+
     public function createTable(): void {
         $table = new Table(self::TABLE);
         $table->addColumn('identifier', Types::STRING, ['length' => 255]);

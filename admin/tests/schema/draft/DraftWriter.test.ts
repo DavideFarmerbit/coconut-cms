@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import {DefaultPath} from '../../../src/schema/draft/DefaultPath.ts';
 import {DraftWriter} from '../../../src/schema/draft/DraftWriter.ts';
-import {int, shopDraft, text} from './ShopSchema.ts';
+import {int, shopDraft, shopSchema, text} from './ShopSchema.ts';
 
 describe('DraftWriter', () => {
     it('writes nothing for a draft left as loaded, at the revision it loaded', () => {
@@ -35,6 +35,48 @@ describe('DraftWriter', () => {
             {op: 'renameFields', type: 'shop:yacht', renames: {cabins: 'berths'}},
             {op: 'setPrototypeRules', type: 'shop:yacht', rules: [{rule: 'shop:cabins-fit', config: {field: 'berths'}}]},
         ]);
+    });
+
+    describe('with broken rules', () => {
+        const gone = {rule: 'shop:gone', config: {}, broken: 'Nothing is registered under "shop:gone".'};
+        const fits = {rule: 'shop:cabins-fit', config: {field: 'cabins'}};
+        /** The shop with a broken rule on the boat's length and among the yacht's cross-field rules. */
+        const broken = (): ReturnType<typeof shopDraft> => shopDraft({
+            ...shopSchema,
+            types: shopSchema.types.map((each) => each.identifier === 'shop:boat' ? {...each, fieldRules: {length: [gone]}}
+                : each.identifier === 'shop:yacht' ? {...each, prototypeRules: [fits, gone]} : each),
+        });
+
+        it('keeps a broken cross-field rule through the clear: the server takes it back only where it\'s stored', () => {
+            const {draft, id, field} = broken();
+            draft.renameField(field('shop:yacht', 'cabins'), 'berths');
+            draft.setPrototypeRules(id('shop:yacht'), [{rule: 'shop:cabins-fit', config: {field: 'berths'}}, gone]);
+
+            expect(DraftWriter.write(draft).operations).toEqual([
+                {op: 'setPrototypeRules', type: 'shop:yacht', rules: [gone]},
+                {op: 'renameFields', type: 'shop:yacht', renames: {cabins: 'berths'}},
+                {op: 'setPrototypeRules', type: 'shop:yacht', rules: [{rule: 'shop:cabins-fit', config: {field: 'berths'}}, gone]},
+            ]);
+        });
+
+        it('sends a broken rule back unchanged, or leaves it out to remove it', () => {
+            const {draft, id} = broken();
+            draft.setPrototypeRules(id('shop:yacht'), [fits]);
+
+            expect(DraftWriter.write(draft).operations).toEqual([
+                {op: 'setPrototypeRules', type: 'shop:yacht', rules: [gone]},
+                {op: 'setPrototypeRules', type: 'shop:yacht', rules: [fits]},
+            ]);
+        });
+
+        it('drops a broken rule from a retyped field: the retype cleared it for good', () => {
+            const {draft, field} = broken();
+            const length = field('shop:boat', 'length');
+            draft.retypeField(length, text, {value: 'twelve'});
+            draft.chooseRetype(length, {kind: 'coconut-cms:number-to-text', parameters: {}});
+
+            expect(DraftWriter.write(draft).operations.map((operation) => operation.op)).toEqual(['retypeField']);
+        });
     });
 
     it('frees a name before it\'s taken again, and creates a type before what needs it', () => {

@@ -50,6 +50,25 @@ final readonly class EntitySchemaCodec
         return new ParameterRegistries($this->enums, $this->fieldValidators);
     }
 
+    /**
+     * Every rule class a stored rule may name, by where it's registered:
+     * "field|identifier" or "prototype|identifier". What decides whether a
+     * stored rule still builds.
+     * @return array<string, class-string>
+     */
+    public function ruleClasses(): array {
+        $classes = [];
+        foreach ($this->fieldValidators->all() as $identifier => $class) {
+            $classes["field|$identifier"] = $class;
+        }
+
+        foreach ($this->prototypeValidators->all() as $identifier => $class) {
+            $classes["prototype|$identifier"] = $class;
+        }
+
+        return $classes;
+    }
+
     /** @return array<string, mixed> Plain data only: JSON-safe. */
     public function encode(EntitySchema $schema): array {
         $fields = [];

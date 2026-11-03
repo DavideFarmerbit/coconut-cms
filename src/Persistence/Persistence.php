@@ -341,7 +341,7 @@ final class Persistence
         $this->register($classes);
 
         $batch = (new SchemaCompiler($this->registry, $this->values, $this->schemas))->compute($blueprints);
-        $state = ['key' => StateKey::of($batch, $this->steps()), 'classes' => $classes];
+        $state = ['key' => StateKey::of($batch, $this->steps(), $this->schemas->ruleClasses()), 'classes' => $classes];
         $this->remember($state);
 
         return $state;

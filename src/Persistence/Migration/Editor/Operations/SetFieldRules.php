@@ -12,7 +12,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 
 /**
  * An editor-created type's own field given its full list of rules, in order,
- * replacing the ones it had; none clears them. Each must fit the field. Only
+ * replacing the ones it had; none clears them. Each must fit the field; a
+ * broken one must be there already (see BrokenRulesKept). Only
  * the definition changes: content breaking a rule is caught on its next save.
  */
 final readonly class SetFieldRules implements SchemaOperation
@@ -33,6 +34,7 @@ final readonly class SetFieldRules implements SchemaOperation
 
     public function applyTo(SchemaDraft $draft): void {
         $descriptor = $draft->ownField($this->type, $this->field);
+        BrokenRulesKept::assertIn($this->rules, $draft->editorType($this->type)->fieldValidators->get($this->field));
         foreach ($this->rules as $index => $rule) {
             try {
                 FieldRuleUsage::check($rule, $descriptor);

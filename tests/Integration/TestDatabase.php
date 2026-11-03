@@ -26,6 +26,7 @@ final class TestDatabase
         'unix_socket' => '/Users/davidebosco/Library/Application Support/Local/run/PzVL9Ueo_/mysql/mysqld.sock',
     ];
 
+    /** Whether this run created the MySQL test database already. */
     private static bool $created = false;
 
     /** A new connection to the test database, readied for persistence. */
@@ -57,8 +58,17 @@ final class TestDatabase
         return DriverManager::getConnection([...self::MYSQL_SERVER, 'dbname' => self::NAME]);
     }
 
-    /** A file, not memory: some tests open a second connection to the same database. */
+    /**
+     * A file, not memory: some tests open a second connection to the same
+     * database. It lives in the package's ignored PHPUnit cache; one left by
+     * an earlier run is harmless, since every test drops all tables first.
+     */
     private static function sqlite(): Connection {
-        return DriverManager::getConnection(['driver' => 'pdo_sqlite', 'path' => sys_get_temp_dir() . '/' . self::NAME . '.sqlite']);
+        $directory = dirname(__DIR__, 2) . '/.phpunit.cache';
+        if (!is_dir($directory)) {
+            mkdir($directory, 0777, true);
+        }
+
+        return DriverManager::getConnection(['driver' => 'pdo_sqlite', 'path' => $directory . '/' . self::NAME . '.sqlite']);
     }
 }

@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Migration;
 
 use Doctrine\DBAL\Connection;
 use PHPUnit\Framework\TestCase;
+use XyloIsCoding\CoconutCms\Core\Identifier;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
@@ -33,17 +34,22 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\LostAncestorReason;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\EntitySchemaCodec;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaStore;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\StoredSchema;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\MaxLength;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 
-/** What a native change breaks on an editor-created type: blocked by strict, set aside by the developer policy, every value kept. */
+/** What a code change breaks on an editor-created type: blocked by strict, resolved by the developer policy, every value kept. */
 final class MigratorBreaksTest extends TestCase
 {
     private Connection $connection;
     private string $boatId;
     private string $vehicleId;
+    /** Whether the code registers MaxLength: false is a request after its class went away. */
+    private bool $maxLengthRegistered = true;
 
     protected function setUp(): void {
         $this->connection = TestDatabase::connect();
@@ -73,7 +79,11 @@ final class MigratorBreaksTest extends TestCase
 
     /** @return array{SchemaStore, SchemaFieldValueStore, SchemaRegistry} What a new request starts with. */
     private function stores(): array {
-        $codec = new EntitySchemaCodec(new FieldValidatorRegistry(), new PrototypeValidatorRegistry(), new ValueObjectRegistry(), new EnumRegistry());
+        $rules = new FieldValidatorRegistry();
+        if ($this->maxLengthRegistered) {
+            $rules->register(Identifier::fromString('coconut-cms:max-length'), MaxLength::class);
+        }
+        $codec = new EntitySchemaCodec($rules, new PrototypeValidatorRegistry(), new ValueObjectRegistry(), new EnumRegistry());
         $schemas = new SchemaStore($this->connection, $codec);
 
         return [$schemas, new SchemaFieldValueStore($this->connection), new SchemaRegistry($schemas)];
@@ -111,6 +121,21 @@ final class MigratorBreaksTest extends TestCase
     /** @return array<string, mixed> The boat's captures for $record, by site. */
     private function captured(BrokenField $record): array {
         return (new NoTypeCaptures($this->connection))->of($this->boatId, $record->id) ?? [];
+    }
+
+    /** Gives the boat's hull a MaxLength rule, as an editor save stores it. */
+    private function limitTheHull(): void {
+        $schemas = $this->stores()[0];
+        $stored = $schemas->load('ed:boat');
+        $schema = $stored->schema->withFieldValidators(FieldValidatorCollection::empty()->with(FieldName::of('hull'), [new MaxLength(10)]));
+        $schemas->saveAll([new StoredSchema($schema, $stored->source, $stored->fingerprint, $stored->dependencies)]);
+    }
+
+    /** @return array<string, mixed> The hull's rules, as stored. */
+    private function storedHullRules(): array {
+        $json = json_decode($this->connection->fetchOne("SELECT schema_json FROM entity_schemas WHERE identifier = 'ed:boat'"), true, flags: JSON_THROW_ON_ERROR);
+
+        return $json['fieldValidators']['hull'] ?? [];
     }
 
     private function boatStillLoads(): void {
@@ -243,5 +268,32 @@ final class MigratorBreaksTest extends TestCase
         self::assertSame(['' => 'white'], $this->captured($this->brokenField('color'))['']['values'] ?? null);
         self::assertSame('Van', $this->connection->fetchOne('SELECT name FROM ed_vehicle WHERE _id = ?', [$this->vehicleId]), 'The van, a vehicle itself, stays.');
         $this->boatStillLoads();
+    }
+
+    public function testARuleThatNoLongerBuildsIsBlockedByStrictAndKeptBrokenByTheDeveloperPolicy(): void {
+        $this->limitTheHull();
+        $this->maxLengthRegistered = false;
+        $broken = 'Rule "coconut-cms:max-length" on field "hull" of editor-created type "ed:boat" can no longer be built';
+
+        try {
+            $this->migrate(MigratorEditorTypes::V1, MigrationSteps::none());
+            self::fail('Strict should block.');
+        } catch (MigrationBlocked $blocked) {
+            self::assertStringContainsString($broken, $blocked->getMessage());
+        }
+        self::assertSame([['rule' => 'coconut-cms:max-length', 'config' => ['max' => 10]]], $this->storedHullRules(), 'Blocked: stored as it was.');
+
+        $this->migrate(MigratorEditorTypes::V1, MigrationSteps::none(), new DeveloperPolicy());
+
+        $rules = $this->storedHullRules();
+        self::assertCount(1, $rules);
+        self::assertSame(['rule' => 'coconut-cms:max-length', 'config' => ['max' => 10]], array_diff_key($rules[0], ['broken' => true]), 'Kept as stored.');
+        self::assertArrayHasKey('broken', $rules[0], 'Stored as kept broken.');
+        $this->boatStillLoads();
+
+        $report = $this->check(MigratorEditorTypes::V1, MigrationSteps::none());
+        self::assertFalse($report->pending, 'Kept broken: not a break again, even for strict.');
+        self::assertCount(1, $report->keptBroken);
+        self::assertStringContainsString('Warning: Rule "coconut-cms:max-length" on field "hull" of editor-created type "ed:boat" is kept broken and checks nothing:', $report->describe());
     }
 }

@@ -49,6 +49,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldPermissionCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Broken\BrokenFieldRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollection;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\ConvertsAnyField;
@@ -542,6 +543,26 @@ final class SchemaOperationsTest extends TestCase
         $this->assertRefused('native type', new SetFieldRules('shop:vehicle', 'name'));
         $this->assertRefused('native type', new SetTypePermission('shop:engine', read: 'staff'));
         $this->assertRefused('has no field "name" of its own', new SetFieldPermission('shop:boat', 'name', read: 'staff'));
+    }
+
+    public function testASaveKeepsOrRemovesABrokenRuleButNeverAddsOne(): void {
+        $broken = static fn (string $rule): BrokenFieldRule => new BrokenFieldRule(['rule' => $rule, 'config' => []], 'it changed', true);
+        $draft = static fn (): SchemaDraft => new SchemaDraft([], [
+            'shop:maker' => self::schema('shop:maker', ['title' => self::text('title')], editorExtensible: true)
+                ->withFieldValidators(FieldValidatorCollection::empty()->with(FieldName::of('title'), [$broken('shop:gone')])),
+        ]);
+
+        $kept = $draft();
+        (new SetFieldRules('shop:maker', 'title', $broken('shop:gone'), new MaxLength(10)))->applyTo($kept);
+        self::assertEquals([$broken('shop:gone'), new MaxLength(10)], $kept->targets()['shop:maker']->fieldValidators->get(FieldName::of('title')));
+
+        $removed = $draft();
+        (new SetFieldRules('shop:maker', 'title', new MaxLength(10)))->applyTo($removed);
+        self::assertEquals([new MaxLength(10)], $removed->targets()['shop:maker']->fieldValidators->get(FieldName::of('title')));
+
+        $this->expectException(InvalidOperation::class);
+        $this->expectExceptionMessage('Rule 0: it changed');
+        (new SetFieldRules('shop:maker', 'title', $broken('shop:other')))->applyTo($draft());
     }
 
     public function testAFieldsRulesAndPermissionFollowIt(): void {

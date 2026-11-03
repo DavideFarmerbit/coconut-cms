@@ -158,12 +158,13 @@ final readonly class Migrator
 
         return new MigrationReport(
             fresh: false,
-            pending: $state['startedAt'] !== null || $state['stateKey'] !== StateKey::of($nativeBatch, $steps),
+            pending: $state['startedAt'] !== null || $state['stateKey'] !== StateKey::of($nativeBatch, $steps, $this->schemas->ruleClasses()),
             pendingSteps: $pending->ids(),
             fixups: array_map(static fn (PlannedFixup $planned): string => $planned->fixup->describe(), $draft->plan->fixups),
             breaks: $draft->breaks,
             blocked: $draft->blocked,
             defaultBreaks: (new DefaultsCheck($this->registry, $this->values))->of([], $nativeBatch, $changed),
+            keptBroken: KeptBrokenRule::allIn($stored),
         );
     }
 
@@ -234,7 +235,7 @@ final readonly class Migrator
     private function prepareEditor(array $blueprints, MigrationSteps $steps, EditorSave $save, int $samples = 0): PreparedEditorSave {
         $stored = $this->schemas->tableExists() ? $this->schemas->all() : [];
         $nativeBatch = $this->compiler->compute($blueprints);
-        $stateKey = StateKey::of($nativeBatch, $steps);
+        $stateKey = StateKey::of($nativeBatch, $steps, $this->schemas->ruleClasses());
         $state = $this->state->read();
         if ($state['startedAt'] !== null) {
             throw new MigrationUnfinished($state['startedAt']);
@@ -409,7 +410,7 @@ final readonly class Migrator
         $stored = $this->schemas->all();
         $fresh = $stored === [];
         $nativeBatch = $this->compiler->compute($blueprints);
-        $stateKey = StateKey::of($nativeBatch, $steps);
+        $stateKey = StateKey::of($nativeBatch, $steps, $this->schemas->ruleClasses());
         $pending = $fresh ? MigrationSteps::none() : $steps->pending($this->log->applied());
         $plan = (new MigrationPlanner($this->policy))->plan($stored, $nativeBatch->schemas, $pending);
 

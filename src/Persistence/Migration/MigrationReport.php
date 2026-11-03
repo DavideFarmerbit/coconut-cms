@@ -25,6 +25,8 @@ final readonly class MigrationReport
      * @param list<DefaultBreak> $defaultBreaks The rules the default of a
      *        type changed in code breaks: warnings, never blocking, since a
      *        default may be a placeholder on purpose.
+     * @param list<KeptBrokenRule> $keptBroken Every rule an earlier migration
+     *        kept broken: warnings, told on every check until it's fixed.
      */
     public function __construct(
         public bool $fresh,
@@ -34,6 +36,7 @@ final readonly class MigrationReport
         public array $breaks,
         public array $blocked,
         public array $defaultBreaks = [],
+        public array $keptBroken = [],
     ) {
     }
 
@@ -49,7 +52,7 @@ final readonly class MigrationReport
         }
 
         if (!$this->pending) {
-            return 'The database matches the code: nothing to migrate.';
+            return implode("\n", ['The database matches the code: nothing to migrate.', ...$this->keptBrokenLines()]);
         }
 
         $lines = [$this->isBlocked() ? 'The migration is blocked.' : 'The migration can run.'];
@@ -59,7 +62,7 @@ final readonly class MigrationReport
         }
 
         foreach ($this->breaks as $resolution) {
-            $lines[] = sprintf('Break: %s %s', $resolution->break->describe(), $resolution->setAside === null ? 'Blocked.' : sprintf('Set aside by %s.', $resolution->setAside->describe()));
+            $lines[] = sprintf('Break: %s %s', $resolution->break->describe(), $resolution->setAside === null ? 'Blocked.' : sprintf('Resolved by %s.', $resolution->setAside->describe()));
         }
 
         foreach ($this->blocked as $difference) {
@@ -70,6 +73,11 @@ final readonly class MigrationReport
             $lines[] = 'Warning: ' . $break->describe();
         }
 
-        return implode("\n", $lines);
+        return implode("\n", [...$lines, ...$this->keptBrokenLines()]);
+    }
+
+    /** @return list<string> A warning line for each rule kept broken. */
+    private function keptBrokenLines(): array {
+        return array_map(static fn (KeptBrokenRule $rule): string => 'Warning: ' . $rule->describe(), $this->keptBroken);
     }
 }

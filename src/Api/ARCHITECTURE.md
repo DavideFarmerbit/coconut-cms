@@ -391,8 +391,11 @@ input:
   `setFieldPermission` (`type`, `field`, `read`, `write`) and
   `setTypePermission` (`type`, `read`, `create`, `update`, `delete`). A
   rule is `{"rule": identifier, "config": {...}}`, as `schema.validators`
-  lists them; `rules` is the full list, `[]` for none. A role left out or
-  null leaves that action open. An unknown key is refused.
+  lists them; `rules` is the full list, `[]` for none. A rule `schema.get`
+  gives broken, with its `broken` reason, is sent back unchanged to keep it,
+  or left out to remove it. It's taken only where that same rule is stored:
+  a save never adds a broken rule. A role left out or null leaves that
+  action open. An unknown key is refused.
 - A field is described as `types.get` describes what a field holds, with
   its `name`. An enum Scalar names its enum by identifier, `"enum":
   "shop:color"`; a value object, its `target`, the same way. A
@@ -424,7 +427,8 @@ can't apply where it stands is refused at `operations.N`.
 
 Both answer the same report: `revision` (the new one, once saved),
 `operations` (as given, in the same form: what runs), `fixups`
-(described), `breaks` (`type`, `description`, `setAside`: the fixup, or
+(described), `breaks` (`type`, `description`, `setAside`: the fixup
+resolving it, such as setting a field aside or keeping a rule broken, or
 null when blocked), `blocked`, `failures` (why each entry can't move, by
 its id), `duplicates` (values a unique index would hold twice: `type`,
 `values` by column, `entities` holding them), `moved`, and
@@ -504,6 +508,10 @@ operations take it:
 - `prototypeRules`, as `setPrototypeRules` takes them; `typePermission`: its
   own `read`, `create`, `update` and `delete` roles, or null for none;
 - `uniqueGroups`: each over its own fields, by name.
+
+A rule in `fieldRules` or `prototypeRules` that can't be built any more
+carries `broken`: why. It checks nothing. A save keeps it or removes it, as
+`setFieldRules` says.
 
 ## Authentication
 
