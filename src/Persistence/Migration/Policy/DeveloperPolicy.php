@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Migration\Policy;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Breaks\ChainCut;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Breaks\FieldNameClash;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Breaks\FieldTargetGone;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Breaks\RuleBroken;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\Difference;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\ParentChanged;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\TableChanged;
@@ -12,6 +13,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\UniqueGroupRemoved;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\CutChain;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\DropUniqueGroup;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\Fixup;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\KeepRuleBroken;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MoveTable;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\Reparent;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\SetAsideField;
@@ -23,7 +25,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\BrokenFieldReason;
  * For development: every change that can't lose stored data passes
  * undeclared. On top of strict's additions: a table moved, a unique group
  * dropped, a parent changed only by inserting levels, and what breaks on an
- * editor-created type set aside, every value kept in a NoType record.
+ * editor-created type set aside, every value kept in a NoType record, and a
+ * rule that no longer builds kept broken.
  * Anything that can lose data still blocks.
  */
 final readonly class DeveloperPolicy implements MigrationPolicy
@@ -43,6 +46,8 @@ final readonly class DeveloperPolicy implements MigrationPolicy
             $difference instanceof FieldTargetGone => new SetAsideField($difference->identifier(), (string) $difference->field, BrokenFieldReason::TargetGone, $difference->identifier()),
             $difference instanceof FieldNameClash => new SetAsideField($difference->identifier(), (string) $difference->field, BrokenFieldReason::NameClash, $difference->identifier()),
             $difference instanceof ChainCut => new CutChain($difference->identifier(), $difference->newParent, $difference->lost, $difference->lostFields),
+            // A rule kept broken keeps its stored configuration: lossless.
+            $difference instanceof RuleBroken => new KeepRuleBroken($difference->identifier(), $difference->field === null ? null : (string) $difference->field, $difference->index),
             default => null,
         };
     }

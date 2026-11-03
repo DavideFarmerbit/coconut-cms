@@ -7,6 +7,17 @@ use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Conversion;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldInitializer;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Values;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Breaks\RuleBroken;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\Difference;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\DropRule;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\RewriteRule;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\Fixup;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Policy\MigrationPolicy;
+use XyloIsCoding\CoconutCms\Persistence\Migration\SchemaState;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Broken\BrokenFieldRule;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Broken\BrokenPrototypeRule;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Builtin\Range;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\AddField;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\MakeNotNullable;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Fixup\DropField;
@@ -381,5 +392,84 @@ final class MigrationPlannerTest extends TestCase
         );
 
         self::assertSame(['Reparent(test:car)'], self::described($plan->fixups));
+    }
+
+    /** An editor-created type with $rules on its field "price" and $crossField as its own. */
+    private static function withRules(array $rules, array $crossField = []): EntitySchema {
+        return self::schema('editor:car', ['price' => self::int('price')])
+            ->withFieldValidators(FieldValidatorCollection::empty()->with(FieldName::of('price'), $rules))
+            ->withPrototypeValidators($crossField);
+    }
+
+    private static function broken(string $rule, bool $kept = false): BrokenFieldRule {
+        return new BrokenFieldRule(['rule' => $rule, 'config' => []], 'it changed', $kept);
+    }
+
+    public function testStrictBlocksARuleThatNoLongerBuilds(): void {
+        $this->expectException(MigrationBlocked::class);
+        $this->expectExceptionMessage('Rule "test:gone" on field "price" of editor-created type "editor:car" can no longer be built: it changed');
+
+        (new MigrationPlanner())->plan([self::stored(self::withRules([new Range(0), self::broken('test:gone')]), SchemaSource::Editor)], [], MigrationSteps::none());
+    }
+
+    public function testDeveloperKeepsABrokenRuleAndNeverReportsItAgain(): void {
+        $crossField = new BrokenPrototypeRule(['rule' => 'test:pair', 'config' => []], 'it changed', false);
+        $plan = (new MigrationPlanner(new DeveloperPolicy()))->plan(
+            [self::stored(self::withRules([new Range(0), self::broken('test:gone')], [$crossField]), SchemaSource::Editor)],
+            [],
+            MigrationSteps::none(),
+        );
+
+        self::assertSame(['KeepRuleBroken(rule 1 of editor:car.price)', 'KeepRuleBroken(cross-field rule 0 of editor:car)'], self::described($plan->fixups));
+        $car = $plan->schemas->get('editor:car');
+        self::assertTrue($car->fieldValidators->get(FieldName::of('price'))[1]->wasKept());
+        self::assertTrue($car->prototypeValidators[0]->wasKept());
+
+        $again = (new MigrationPlanner())->plan([self::stored($car, SchemaSource::Editor)], [], MigrationSteps::none());
+        self::assertTrue($again->isEmpty());
+    }
+
+    public function testDroppingBrokenRulesNeverMovesOneStillToDecide(): void {
+        $plan = (new MigrationPlanner(new DropsBrokenRules()))->plan(
+            [self::stored(self::withRules([self::broken('test:a'), new Range(0), self::broken('test:b')]), SchemaSource::Editor)],
+            [],
+            MigrationSteps::none(),
+        );
+
+        self::assertSame(['DropRule(rule 2 of editor:car.price)', 'DropRule(rule 0 of editor:car.price)'], self::described($plan->fixups));
+        self::assertEquals([new Range(0)], $plan->schemas->get('editor:car')->fieldValidators->get(FieldName::of('price')));
+    }
+
+    public function testAStepRewritingABrokenRulePassesStrict(): void {
+        $plan = (new MigrationPlanner())->plan(
+            [self::stored(self::withRules([self::broken('test:gone')]), SchemaSource::Editor)],
+            [],
+            MigrationSteps::none()->add('fix-price', [new RewriteRule('editor:car', 'price', 0, new Range(0, 10))]),
+        );
+
+        self::assertSame(['RewriteRule(rule 0 of editor:car.price, Range)'], self::described($plan->fixups));
+        self::assertEquals([new Range(0, 10)], $plan->schemas->get('editor:car')->fieldValidators->get(FieldName::of('price')));
+    }
+
+    public function testRewriteRuleRefusesARuleThatDoesntFitItsSlot(): void {
+        $this->expectException(InvalidFixup::class);
+        $this->expectExceptionMessage('cross-field rule 0 of editor:car takes a cross-field rule.');
+
+        $crossField = new BrokenPrototypeRule(['rule' => 'test:pair', 'config' => []], 'it changed', false);
+        (new MigrationPlanner())->plan(
+            [self::stored(self::withRules([], [$crossField]), SchemaSource::Editor)],
+            [],
+            MigrationSteps::none()->add('fix-pair', [new RewriteRule('editor:car', null, 0, new Range(0))]),
+        );
+    }
+}
+
+/** Drops every rule that no longer builds: what a custom policy may answer. */
+final class DropsBrokenRules implements MigrationPolicy
+{
+    public function fixupFor(Difference $difference, SchemaState $schemas): ?Fixup {
+        return $difference instanceof RuleBroken
+            ? new DropRule($difference->identifier(), $difference->field === null ? null : (string) $difference->field, $difference->index)
+            : null;
     }
 }

@@ -133,7 +133,7 @@ final readonly class EntitySchemaCodec
 
         $validators = FieldValidatorCollection::empty();
         foreach ($encoded['fieldValidators'] as $name => $rules) {
-            $validators = $validators->with(FieldName::of($name), array_map(fn (array $rule): FieldValidatorRule => $this->fieldValidators->build($rule, $this->registries()), $rules));
+            $validators = $validators->with(FieldName::of($name), array_map(fn (array $rule): FieldValidatorRule => $this->fieldValidators->read($rule, $this->registries()), $rules));
         }
 
         return new EntitySchema(
@@ -148,7 +148,8 @@ final readonly class EntitySchemaCodec
                 static fn (array $names): UniqueGroup => UniqueGroup::of(...array_map(FieldName::of(...), $names)),
                 $encoded['uniqueGroups'],
             ),
-            prototypeValidators: array_map(fn (array $rule): PrototypeValidatorRule => $this->prototypeValidators->build($rule, $this->registries()), $encoded['prototypeValidators']),
+            // A rule that can't be built reads broken: a stored schema always reads.
+            prototypeValidators: array_map(fn (array $rule): PrototypeValidatorRule => $this->prototypeValidators->read($rule, $this->registries()), $encoded['prototypeValidators']),
             typePermission: $encoded['typePermission'] === null ? null : new TypePermission(
                 $encoded['typePermission']['read'],
                 $encoded['typePermission']['create'],

@@ -9,13 +9,17 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\LostAncestorReason;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Broken\BrokenRule;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule;
 
 /**
  * Finds what a migration's schemas break on editor-created types, from the
  * schemas alone, never from a fixup: whether each field's declared target
  * exists, whether each chain is whole, each ancestor there and still allowing
  * editor-created subtypes, and whether a field a type declares clashes with
- * one it inherits. So any fixup, one written later included, takes part.
+ * one it inherits, and whether each validator rule still builds. So any
+ * fixup, one written later included, takes part.
  */
 final class EditorBreaks
 {
@@ -51,10 +55,35 @@ final class EditorBreaks
                     $break = new FieldNameClash($schema->identifier, FieldName::of((string) $name), $ancestor);
                     $breaks[$break->key()] = $break;
                 }
+
+                foreach (self::brokenRules($schema->identifier, FieldName::of((string) $name), $schema->fieldValidators->get(FieldName::of((string) $name))) as $break) {
+                    $breaks[$break->key()] = $break;
+                }
+            }
+
+            foreach (self::brokenRules($schema->identifier, null, $schema->prototypeValidators) as $break) {
+                $breaks[$break->key()] = $break;
             }
         }
 
         return $breaks;
+    }
+
+    /**
+     * A RuleBroken for each rule in $rules found broken, not kept so before.
+     * Last first: a policy dropping some never moves one still to decide.
+     * @param array<int, FieldValidatorRule|PrototypeValidatorRule> $rules
+     * @return list<RuleBroken>
+     */
+    private static function brokenRules(string $identifier, ?FieldName $field, array $rules): array {
+        $breaks = [];
+        foreach (array_values($rules) as $index => $rule) {
+            if ($rule instanceof BrokenRule && !$rule->wasKept()) {
+                $breaks[] = new RuleBroken($identifier, $field, $index, (string) ($rule->entry()['rule'] ?? '?'), $rule->reason());
+            }
+        }
+
+        return array_reverse($breaks);
     }
 
     /**

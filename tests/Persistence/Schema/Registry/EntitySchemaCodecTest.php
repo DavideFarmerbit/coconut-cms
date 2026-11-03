@@ -31,6 +31,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\StorableValue;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\EntitySchemaCodec;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Broken\BrokenFieldRule;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Broken\BrokenPrototypeRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRule;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
@@ -194,6 +197,31 @@ final class EntitySchemaCodecTest extends TestCase
         $decoded = $codec->decode(json_decode(json_encode($codec->encode($schema)), true));
 
         self::assertEquals($schema, $decoded);
+    }
+
+    public function testARuleThatNoLongerBuildsReadsBrokenAndIsStoredSoUntilItBuildsAgain(): void {
+        $codec = self::codec();
+        $encoded = $codec->encode(self::schemaOf(CodecProduct::class));
+        $encoded['prototypeValidators'][0]['config'] = ['first' => 'sku', 'second' => 'region'];
+        $encoded['fieldValidators']['sku'][0]['config'] = ['max' => 'twenty'];
+
+        $decoded = $codec->decode($encoded);
+        $broken = $decoded->prototypeValidators[0];
+        self::assertInstanceOf(BrokenPrototypeRule::class, $broken);
+        self::assertFalse($broken->wasKept(), 'Found broken now, not stored so.');
+        self::assertSame(['rule' => 'test:not-equal', 'config' => ['first' => 'sku', 'second' => 'region']], $broken->entry());
+        self::assertInstanceOf(BrokenFieldRule::class, $decoded->fieldValidators->get(FieldName::of('sku'))[0]);
+        self::assertInstanceOf(CodecMaxLength::class, $decoded->fieldValidators->get(FieldName::of('sku'))[1], 'Only the rule that broke.');
+
+        $stored = $codec->encode($decoded);
+        self::assertSame('test:not-equal', $stored['prototypeValidators'][0]['rule']);
+        self::assertArrayHasKey('broken', $stored['prototypeValidators'][0]);
+        $again = $codec->decode($stored)->prototypeValidators[0];
+        self::assertInstanceOf(BrokenPrototypeRule::class, $again);
+        self::assertTrue($again->wasKept());
+
+        $stored['prototypeValidators'][0]['config'] = ['left' => 'sku', 'right' => 'region'];
+        self::assertInstanceOf(CodecNotEqual::class, $codec->decode($stored)->prototypeValidators[0], 'Building again, it heals.');
     }
 
     public function testARuleIsStoredByItsIdentifierNeverItsClassName(): void {

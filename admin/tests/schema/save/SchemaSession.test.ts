@@ -115,6 +115,32 @@ describe('SchemaSession', () => {
         expect(session.hasUnsaved, 'The draft is kept, to fix.').toBe(true);
     });
 
+    it('lets participants act before a save is sent and once it ran; one throwing before cancels it', async () => {
+        const {backend, session} = await shop();
+        const told: string[] = [];
+        session.participate({
+            beforeSave: (save) => {
+                told.push(`before ${save.operations.length}, ${backend.count('coconut-cms:schema.save')} sent`);
+
+                return Promise.resolve();
+            },
+            afterSave: (report) => {
+                told.push(`after revision ${report.revision}`);
+
+                return Promise.reject(new Error('Its own to recover.'));
+            },
+        });
+        renameBoat(session.draft);
+
+        expect((await session.save(previewOf(await session.preview()))).kind).toBe('saved');
+        expect(told).toEqual(['before 1, 0 sent', 'after revision 5']);
+
+        session.participate({beforeSave: () => Promise.reject(new Error('Not now.')), afterSave: () => Promise.resolve()});
+        renameBoat(session.draft);
+        await expect(session.save(previewOf(await session.preview()))).rejects.toThrow('Not now.');
+        expect(backend.count('coconut-cms:schema.save')).toBe(1);
+    });
+
     it('tells a stale draft, and reloads it dropping its edits', async () => {
         const {backend, session} = await shop();
         renameBoat(session.draft);

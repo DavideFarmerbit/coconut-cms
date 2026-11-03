@@ -8,6 +8,8 @@ use XyloIsCoding\CoconutCms\Core\Identifier;
 use XyloIsCoding\CoconutCms\Persistence\Parameters\ConstructorShape;
 use XyloIsCoding\CoconutCms\Persistence\Parameters\InvalidParameters;
 use XyloIsCoding\CoconutCms\Persistence\Parameters\ParameterRegistries;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Broken\BrokenPrototypeRule;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Broken\BrokenRule;
 
 /**
  * A name-to-class registry of PrototypeValidatorRule classes, so an editor-created
@@ -100,6 +102,25 @@ final class PrototypeValidatorRegistry
      * @return array{rule: string, config: array<string, mixed>}
      */
     public function entryOf(PrototypeValidatorRule $rule, ParameterRegistries $registries): array {
+        if ($rule instanceof BrokenRule) {
+            return [...$rule->entry(), 'broken' => $rule->reason()];
+        }
+
         return ['rule' => (string) $this->identifierOf($rule::class), 'config' => ConstructorShape::of($rule::class)->parametersOf($rule, $registries)];
+    }
+
+    /**
+     * A stored rule, as build() makes it; a BrokenPrototypeRule keeping it as
+     * stored when it can't be built any more, so a stored schema always
+     * reads. One stored broken that builds again is a rule again.
+     * @param array<string, mixed> $entry As stored: a broken one carries why, as `broken`.
+     */
+    public function read(array $entry, ParameterRegistries $registries): PrototypeValidatorRule {
+        $stored = array_diff_key($entry, ['broken' => true]);
+        try {
+            return $this->build($stored, $registries);
+        } catch (InvalidParameters $refused) {
+            return new BrokenPrototypeRule($stored, $refused->getMessage(), isset($entry['broken']));
+        }
     }
 }

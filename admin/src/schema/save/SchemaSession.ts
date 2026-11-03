@@ -10,6 +10,7 @@ import type {SchemaDefinitionList} from '../SchemaDefinitions.ts';
 import type {SchemaReport} from '../SchemaReport.ts';
 import type {PreviewOutcome} from './PreviewOutcome.ts';
 import type {SaveOutcome} from './SaveOutcome.ts';
+import type {SaveParticipant} from './SaveParticipant.ts';
 import {SchemaPreview} from './SchemaPreview.ts';
 import type {UnsavedSchemaQuestion} from './UnsavedSchemaQuestion.ts';
 
@@ -22,18 +23,21 @@ export type DraftReplacedListener = (draft: SchemaDraft) => void;
  * would do; save() confirms that preview. Once saved, the types and the
  * draft load again, its history cleared: what it was is no longer stored.
  * A draft built on an old revision can't save: reload() drops its edits.
+ * A plugin keeping data about types takes part in every save as a
+ * SaveParticipant: before it's sent, and once it ran.
  *
  * As a sign-out guard, it asks about unsaved edits before the entity
  * store's guard: saving the schema settles the entity editors it affects.
  *
- *     const session = await SchemaSession.load(api, admin.entities, question);
- *     admin.auth.guard(session, SchemaSession.GUARD);
+ *     const session = await context.service(SchemaEditing).session();
+ *     session?.participate(myParticipant);
  */
 export class SchemaSession implements SignOutGuard {
     /** Its place among the sign-out guards. */
     public static readonly GUARD: GuardPlace = {name: 'coconut-cms:schema', before: ['coconut-cms:entities']};
 
     private readonly listeners: DraftReplacedListener[] = [];
+    private readonly participants: SaveParticipant[] = [];
 
     private constructor(
         private readonly api: ApiClient,
@@ -113,6 +117,10 @@ export class SchemaSession implements SignOutGuard {
             return {kind: 'cancelled'};
         }
 
+        for (const participant of [...this.participants]) {
+            await participant.beforeSave(preview.save, this.current);
+        }
+
         let report: SchemaReport;
         try {
             report = await this.api.call<SchemaReport>('coconut-cms:schema.save', {
@@ -132,8 +140,25 @@ export class SchemaSession implements SignOutGuard {
 
         await this.entities.types.reload();
         await this.reload();
+        for (const participant of [...this.participants]) {
+            // The save ran: a participant failing after it recovers on its own.
+            await participant.afterSave(report).catch(() => undefined);
+        }
 
         return {kind: 'saved', report};
+    }
+
+    /** Lets `participant` take part in every save from now on: before it's sent, and once it ran. */
+    public participate(participant: SaveParticipant): void {
+        this.participants.push(participant);
+    }
+
+    /** Stops `participant` taking part. */
+    public leave(participant: SaveParticipant): void {
+        const index = this.participants.indexOf(participant);
+        if (index >= 0) {
+            this.participants.splice(index, 1);
+        }
     }
 
     /** Loads the draft again from the server, dropping its edits and its history. */

@@ -19,6 +19,18 @@ export type {MenuItem} from '../dom/MenuItem.ts';
 export {Modal, type ModalButton} from '../dom/Modal.ts';
 export {TypeIcon} from '../icons/TypeIcon.ts';
 
+// Editing the schema: the shared draft, its save, and taking part in it.
+export {SchemaEditing} from '../tools/schema/SchemaEditing.ts';
+export type {SchemaSession, DraftReplacedListener} from '../schema/save/SchemaSession.ts';
+export type {SaveParticipant} from '../schema/save/SaveParticipant.ts';
+export type {SchemaDraft} from '../schema/draft/SchemaDraft.ts';
+export type {FieldId, TypeId} from '../schema/draft/DraftIds.ts';
+export type {TypeRecord} from '../schema/draft/TypeRecord.ts';
+export type {FieldRecord} from '../schema/draft/FieldRecord.ts';
+export type {WrittenSave} from '../schema/draft/WrittenSave.ts';
+export type {SchemaReport} from '../schema/SchemaReport.ts';
+export {EditRefused} from '../schema/draft/EditRefused.ts';
+
 export type {AdminPlugin, AdminPluginClass} from './AdminPlugin.ts';
 export {AdminRuntime} from './AdminRuntime.ts';
 export {ApiClient, type Fetcher} from './api/ApiClient.ts';
