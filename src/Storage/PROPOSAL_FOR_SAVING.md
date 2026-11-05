@@ -1,98 +1,184 @@
-# Proposal: Saving
+# Proposal: Saving and Migrating
 
-Status: proposed, under review. Nothing here is built. "Open points" lists
-what isn't settled.
+Status: proposed. Stage 1 is built, the rest isn't. `RetypeSpikeTest` proves
+parts of the design in plain SQL. "Open points" lists what isn't settled.
 
-The standard is now an e-commerce site that migrates in production, where a
-developer's only worry is the classes handling backward compatibility.
-"Availability" and "Running a batch" were written before that standard, and
-don't meet it: a move in one transaction, and types going `read-only` or
-`closed` for the length of a move.
+## The standard
 
-Direction so far, to be worked into the sections below:
-
-- **Migrations:** expand, backfill in batches, switch, contract later. New
-  columns go beside the old ones. Nothing is moved aside.
-- **Deploys:** an optional step runs before an atomic code switch. It expands
-  and backfills while the old release serves traffic.
-- **Translation:** converter classes on stored-form values, up and optionally
-  back. They run in the backfill and, for rows left behind, at load. An old
-  row is read through its stored schema, so no old class is needed.
-- **No dual write (to be proved):** each row records the schema version that
-  wrote it. The backfill converts it again after an old-release save, and
-  scans until no old rows remain.
-- **Old input:** a page loaded before the switch sends the old shape after it,
-  such as a customer at checkout. A save must not fail for that. Changes by
-  old paths are translated before `StoredFormEditor`: renames and converters
-  automatically, and a pre-edit hook for custom cases, on the `changes` map in
-  stored form. It lasts a grace period after the switch. CMS operations and
-  CMS functions handling post data pass through here. Code reading `$_POST`
-  directly handles its own backward compatibility.
-- **Known risk: empty new columns.** An old-release save leaves the new column
-  empty until the next scan. Loading by id still works, through the converter,
-  but a query on the new field misses the row for that moment. To watch it: a
-  test covering that sequence, a count of old rows per type in `check()`, and
-  an optional short write pause at the switch, per type.
+An e-commerce site that migrates in production, under load. A developer's only
+worry is the classes handling backward compatibility. The CMS does the rest.
 
 ## Goals
 
-- **One flexible save.** One batch can hold entity changes, schema changes
-  and a plugin's own changes.
-- **Only what must fail fails.** An entity missing a dependency is rejected,
-  with what depends on it. A type using a missing type is rejected. Unrelated
-  entities and types are saved.
+- **One flexible save.** One batch can hold entity changes, schema changes and a
+  plugin's own changes.
+- **Only what must fail fails.** An entity missing a dependency is rejected, with
+  what depends on it. A type using a missing type is rejected. Unrelated entities
+  and types are saved.
 - **No all-or-nothing saves.** A batch isn't atomic. Each change gets its own
   result, and each failure is explicit.
-- **Localized migrations.** A migration affects the types it changes. Every
-  other type stays readable and writable.
-- **Simultaneous saves.** Two saves, both with schema and entity changes, both
-  end well. If they share nothing, both succeed. If they conflict, only the
-  conflicting changes are rejected.
+- **No downtime for a migration.** Types keep being read and written while their
+  content changes. Nothing blocks the site.
+- **Simultaneous saves.** Two saves, both with schema and entity changes, both end
+  well. If they share nothing, both succeed. If they conflict, only the conflicting
+  changes are rejected.
 
 ## What the code does today
 
 Already local:
 
-- `Migrator::changedTypes()` finds the types a migration changes, from
-  per-type fingerprints and dependencies.
+- `Migrator::changedTypes()` finds the types a migration changes, from per-type
+  fingerprints and dependencies.
 - `rootsHolding()` moves only the aggregates holding those types.
-- `checkContent()` reports failures per entity, before anything changes.
+- A move reads one aggregate, runs the fixups on stored-form values, and writes it.
+  Converters never need the old class.
+- A stopped migration is recovered: a failure in the move restores the tables, and
+  the next `migrate()` cleans up after a crash.
 
-Global, and in the way:
+In the way of the standard:
 
-- `migration_state` is one row. One started migration blocks every read and
-  write, whatever types it touches.
-- The schema revision is one number. Any schema save makes every other schema
-  save stale.
-- `StateKey` is one hash. A pending change anywhere blocks everything. An edit
+- A move runs in one transaction. See the measure under "Prototype results".
+- `migration_state` is one row. One started migration blocks every read and write.
+- The schema revision is one number, so any schema save makes every other one
+  stale.
+- `StateKey` is one hash, so a pending change anywhere blocks everything. An edit
   to any rule file makes a migration pending.
-- `expand()` and `contract()` compare the whole database with one target.
-  So two migrations can't overlap: `contract()` would drop the columns and
-  `_old__` tables of the other one.
-- `MigrationState::assertSettled()` checks once and then remembers. A request
-  already past it can still write after a migration starts.
+- A retype moves a live column aside.
+- `checkContent()` reads every affected aggregate before starting.
+- `expand()` and `contract()` compare the whole database with one target, so two
+  migrations can't overlap.
+- `MigrationState::assertSettled()` checks once and remembers, so a request past it
+  can still write after a migration starts.
+- Content is dense, so an added field or a changed default rewrites every row.
 
 Wider than it needs to be:
 
 - A type holding a changed type only through a Reference moves too.
-- Any fixup that changes types moves every type declaring a type reference,
-  whatever its base (`declaresTypeReference()`).
+- Any fixup changing types moves every type declaring a type reference, whatever its
+  base.
 
-Stopped migrations are recovered already: a failure in the move restores the
-tables at once, and the next `migrate()` cleans up after a crash. A crash still
-blocks the site until then, and only `migrate()` recovers it.
+## Field identity
 
-## The model
+A field has two stored properties, and neither comes from its name:
 
-- **A batch** is everything sent in one save request. It has an id made in the
-  admin.
+- **Field id:** generated once, never changed, never reused.
+- **Column:** the physical column holding its current values, opaque, such as
+  `f_a1b2c3`. A new one is generated only when the content needs one.
+
+| Change | Field id | Column | Data moved |
+|---|---|---|---|
+| Rename, of any field | Same | Same | None |
+| Retype, or new meaning for the values | Same | New | Backfill |
+| Remove, then add the same name | New | New | None |
+
+- Both are stored in the schema and never derived. Only `LevelLayout` and
+  `LayoutBuilder` work out a column today, so this changes one place.
+- A column can't be worked out from a field's name and type: euros becoming cents
+  keeps the type, and int to text to int comes back to a column that may still be
+  in use.
+- Column names and field ids can differ between databases: a fresh install never
+  ran the old steps. Nothing may hard-code one. Everything goes through the layout.
+  A full dump keeps working, since the schema travels with the data, and an export
+  works through values. Copying rows between databases by hand doesn't.
+- Ids exist only in the stored schema. A native rename still needs a declared step,
+  which carries the id across.
+- The schema keeps a field's former names for a grace period, for old input.
+- `owner_field` and `_owner_field` hold the field id in place of the path, joined
+  along an Embed path. They're the only row-level data depending on a field, so no
+  rename touches a row. They're limited to 255 characters.
+
+## Migrating
+
+Changes fall into two groups.
+
+**Definition changes** only touch the stored schema, and take effect at once: a new
+type, a rename, rules, permissions, making a field optional.
+
+**Content changes** need a new column, table or level: a retype, new meaning for the
+values, a value becoming a list, a reparent. They go through four steps.
+
+1. **Expand.** New columns and tables go beside the old ones, never in their place.
+   A marker column goes on the level the old code rewrites. This is short DDL, and
+   only one runs at a time. It uses a short `lock_wait_timeout`, so an `ALTER`
+   waiting on a long transaction fails and doesn't queue up that table's traffic.
+2. **Backfill.** A background job converts rows in small batches, throttled and
+   resumable, without holding the migration lock. Each row is converted under the
+   lock a save takes, on its aggregate's root, so no save lands between the read and
+   the write. Old columns stay filled.
+3. **Switch.** Readers and writers move to the new columns.
+4. **Contract.** Old columns and markers go, once no row is left and no old code
+   runs. It can come much later.
+
+**The marker replaces dual write.** A save deletes its level rows and inserts them
+with the columns its code knows. So an old release clears the marker without knowing
+it exists, and needs no change. The backfill converts that row again. Saves to a
+Collection or a table with a `CASCADE` foreign key to the level are covered the same
+way. Saving a root rewrites what it owns.
+
+**Reading a row left behind.** An old row is read through its stored schema into
+stored-form values, and the converter brings them up. So the new class is filled
+correctly, by id, with no old class. A query on the new field misses that row until
+the next scan.
+
+**Translation** lives in converter classes on stored-form values, up and optionally
+back. The backfill and the load path run the same code. A failure in one row leaves
+that row behind and reports it. It stops neither the batch nor the site.
+
+**Unique indexes** go on the new column before the backfill. Empty values don't
+clash, so a clash stops only the row causing it. The switch waits until no row has
+failed.
+
+**A gained level** is a new table with a foreign key to `entities`. Rows missing from
+it are found by what's missing. If its values come from fields the old release can
+change, it also needs a marker on a level the old release rewrites.
+
+### Native deploys
+
+A deploy may run one step before an atomic code switch:
+
+1. `migrate --prepare`, from the new release on disk, expands and backfills while the
+   old release serves traffic.
+2. The code switches.
+3. `migrate --finish` scans until no row is left, then contracts after a grace period.
+
+The step is optional. Without it the converter still serves each entity by id, but
+queries on new fields are incomplete until the backfill ends, and `check()` says so.
+
+Rows keep being left behind while an old release is saving, so a backfill reaches
+zero only after the switch.
+
+### Editor saves
+
+There's no code switch, so a schema change returns once expand has run, with the
+status `migrating`. The backfill runs in the background. The switch comes when it
+ends, and commits only the stored schema.
+
+### Old input
+
+A page loaded before the switch sends the old shape after it, such as a customer at
+checkout. A save must not fail for that. Changes by old paths are translated before
+`StoredFormEditor`: renames and converters automatically, and a pre-edit hook for
+custom cases, on the `changes` map in stored form. It lasts a grace period after the
+switch. CMS operations and CMS functions handling post data pass through here. Code
+reading `$_POST` directly handles its own backward compatibility.
+
+### Known risk: rows left behind
+
+An old-release save leaves the new column empty until the next scan. A query on the
+new field misses that row for that moment, and a unique index doesn't cover it. To
+watch it: a test covering that sequence, a count of rows left per type in `check()`,
+and an optional short write pause at the switch, per type.
+
+## Saving
+
+- **A batch** is everything sent in one save request. It has an id made in the admin.
 - **A change** is one thing to save, with a stable key: an entity's aggregate
-  (`entity:<id>`), one type's schema operations (`schema:type:<identifier>`), or
-  a plugin's own change.
+  (`entity:<id>`), one type's schema operations (`schema:type:<identifier>`), or a
+  plugin's own change.
 - **A dependency** says one change needs another, or needs something stored.
-- **A group** is a set of changes that depend on each other in a loop. A group
-  saves whole or not at all. It's the only atomic thing, and only because no
-  order can save it. A change with no loop is a group of one.
+- **A group** is a set of changes that depend on each other in a loop. A group saves
+  whole or not at all. It's the only atomic thing, and only because no order can save
+  it. A change with no loop is a group of one.
 - **A result** says what happened to each change.
 
 ```json
@@ -109,27 +195,27 @@ blocks the site until then, and only `migrate()` recovers it.
 | Status | Meaning |
 |---|---|
 | `saved` | It's stored. |
+| `migrating` | A schema change is accepted, and its backfill is running. |
 | `rejected` | It failed its own check or write. |
 | `skipped` | Something it depends on failed. It lists what. |
 | `stale` | What it was built on changed. The user reviews it. |
-| `unavailable` | A type it needs is being migrated. It can be sent again. |
+| `unavailable` | It needs something not ready yet. It can be sent again. |
 
-What wasn't saved stays unsaved in the admin. The server tries once and never
-retries on its own.
+What wasn't saved stays unsaved in the admin. The server tries once and never retries
+on its own.
 
-## Dependencies
+### Dependencies
 
-The server works dependencies out from the changes, and never trusts the
-client for them:
+The server works dependencies out from the changes, and never trusts the client for
+them:
 
 - an entity needs its type, and each entity it references;
 - a type needs its parent, and each type its fields name;
 - a plugin's handler declares its changes' dependencies.
 
-A dependency is met when it's stored, or when a change in this batch saves it.
-
-The admin works them out too, but only to ask "this also needs X; save it
-too?". If it misses one, the server reports exactly that.
+A dependency is met when it's stored, or when a change in this batch saves it. The
+admin works them out too, but only to ask "this also needs X; save it too?". If it
+misses one, the server reports exactly that.
 
 Rejection spreads only along dependencies:
 
@@ -138,134 +224,75 @@ Rejection spreads only along dependencies:
 3. When a group fails, what depends on it is `skipped`.
 4. Everything else goes on.
 
-## Running a batch
+### Running a batch
 
 1. **Log.** The batch is stored in the save log.
-2. **Plan.** The server finds dependencies and groups. A change with a
-   dependency that can't be met is rejected here.
-3. **Schema.** The surviving schema groups are split by the types they touch.
-   Those that overlap form one migration. Each migration runs on its own
-   (see "Availability"), and a failed one affects only its groups and what
-   depends on them.
-4. **Entities and plugin changes.** Each group runs in its own transaction,
-   in dependency order. A group of several entities is written in passes:
-   rows with references empty, then references, then deletes.
+2. **Plan.** The server finds dependencies and groups. A change with a dependency that
+   can't be met is rejected here.
+3. **Schema.** Definition changes commit. Content changes run expand and return
+   `migrating`.
+4. **Entities and plugin changes.** Each group runs in its own transaction, in
+   dependency order. A group of several entities is written in passes: rows with
+   references empty, then references, then deletes. The transaction locks its entities
+   in sorted id order, compares their versions, and runs the normal validation and
+   permissions.
 5. **After commit.** Queued work runs. It must be safe to run twice.
 6. **Answer.** The log and the response get every result.
 
-Each group's transaction locks its entities in sorted id order, compares their
-versions, and runs the normal validation and permissions.
+The passes work because a Reference is always nullable. An owned object is written
+with its owner.
 
-The passes work because a Reference is always nullable. An owned object is
-written with its owner.
+A new type has no rows, so it's active at once. A new class and its content item both
+save in the same batch.
 
-## Availability
+### Two simultaneous saves
 
-A row per type replaces the single "started" mark. It holds the type's
-availability and its version. Migrations set it only for the types they touch.
+Save A changes `boat` and writes a boat. Save B changes `character` and writes a
+character.
 
-| State | Reads | Writes | When |
-|---|---|---|---|
-| `open` | yes | yes | No migration, or only definitions change: a new type, rules, permissions |
-| `read-only` | yes | no | Content moves, and columns stay in place: an added field, a rename |
-| `closed` | no | no | A column or table is moved aside: a retype |
+**They share nothing.** Each expand runs in turn and takes moments. Both backfills run
+in the background. Both entities are written. Nothing else is affected.
 
-**Why expand doesn't need a site lock.** Expand adds tables and nullable
-columns, so old readers and writers go on working. A move runs in one
-transaction, so readers see the old rows until it commits. Only moving a column
-aside breaks a reader, and only for that type. Contract removes what no current
-schema uses.
+**They both change `boat`.** A's expand runs. B finds `boat` at a newer version, so its
+boat changes are `stale`, what depends on them is `skipped`, and its unrelated changes
+are saved.
 
-**Which types a migration takes:**
+**B only writes a boat, while A's backfill runs.** B's save is ordinary. It writes the
+old shape and clears the marker, and the backfill converts the row again.
 
-- each type `changedTypes()` finds;
-- the type of every root whose aggregate moves. `rootsHolding()` finds these,
-  which covers a subtype held where only its parent is declared.
+**Staleness is per type.** Each schema change carries the fingerprint of each type it's
+built on. Fingerprints exist already, so the single revision can go.
 
-**Closing the race with running requests.** A write transaction reads the row
-of each type it writes `FOR SHARE`. A migration takes its rows `FOR UPDATE`, in
-sorted order, sets their state, and commits. That waits for writers already
-running, and later writers see the new state. It must commit before DDL, which
-commits on its own. SQLite has one writer, so it only reads the rows.
+### Failure reports
 
-**Reading across an unavailable type.** An entity stays readable when a type it
-references is closed: the reference is a ghost, and only loading the target
-fails. A query reaching a closed type, by a path or a subtype, is refused with
-`unavailable`.
-
-**Migrations run one at a time** in the first stage, as now: the second waits
-for the migration lock. Every other type stays open meanwhile, so waiting costs
-that one save a little time. Overlapping migrations would need `expand()` and
-`contract()` limited to their own tables, which can come later.
-
-DDL should use a short `lock_wait_timeout`, so an `ALTER` waiting on a long
-transaction fails with `unavailable` and doesn't queue up that table's traffic.
-
-## Two simultaneous saves
-
-Save A changes `boat` and writes a boat. Save B changes `character` and writes
-a character.
-
-**They share nothing.** A takes the migration lock, and `boat` becomes
-`read-only`. B waits for the lock. Everything else stays open. Then B runs, and
-`character` becomes `read-only`. Both entities are written. Both are `saved`.
-
-**They both change `boat`.** A runs. B then finds `boat` at a newer version, so
-its boat changes are `stale`, what depends on them is `skipped`, and its
-unrelated changes are saved.
-
-**B only writes a boat, while A migrates `boat`.** B's boat is `unavailable`,
-and its other changes are saved.
-
-**Staleness is per type.** Each schema change carries the fingerprint of each
-type it's built on. Fingerprints exist already, so the single revision can go.
-
-## Failure reports
-
-Each failure is data: its change's key, a stable code, a plain message, and
-optionally a path and details.
+Each failure is data: its change's key, a stable code, a plain message, and optionally
+a path and details.
 
 - The server reports every failure it can find, not only the first.
-- `skipped` names the changes that caused it, so the report can give the root
-  cause.
-- The admin gives each unit its own failures. An entity's unit puts each error
-  at its field.
-- Words have three levels: core defaults per kind, a unit adding to them, or a
-  unit replacing them.
+- `skipped` names the changes that caused it, so the report gives the root cause.
+- The admin gives each unit its own failures. An entity's unit puts each error at its
+  field.
+- Words have three levels: core defaults per kind, a unit adding to them, or a unit
+  replacing them.
+- A failed row in a backfill is reported per row, and listed by `check()`.
 
 The content browser could say:
 
 > "Fire Sword" was saved, but it couldn't be added to the browser.
 > Its folder "Weapons" was deleted.
 
-## Recovery
-
-A row per running migration records its types, and whether its transaction
-committed. That decides the recovery:
-
-- **Not committed:** stored schemas are still the old ones, so the tables are
-  put back to match them. Each `_old__` column or table is restored, and what
-  expand added is dropped. The save's changes are `rejected`.
-- **Committed:** contract runs, and the types reopen.
-
-`TableChanges` compares the database with a target, so restoring is another
-comparison with the stored schemas. A failed migration can restore itself at
-once. A crash is restored by the next request that finds the type unavailable
-and the migration lock free. So a crash leaves only its own types unavailable,
-for one request, and needs no terminal.
-
-## The save log
+### The save log
 
 Every batch gets a row: its id, actor, time, changes and results.
 
 - **A record** of who saved what, and of each failure.
-- **Safe retries.** If a response is lost, the admin sends the same id again and
-  gets the stored results.
+- **Safe retries.** If a response is lost, the admin sends the same id again and gets
+  the stored results.
 
 ## In the admin
 
-Whatever holds unsaved work registers a provider. Providers declare what's
-pending. The core collects, asks and sends, and never decides what saving means.
+Whatever holds unsaved work registers a provider. Providers declare what's pending.
+The core collects, asks and sends, and never decides what saving means.
 
 ```ts
 interface SaveProvider {
@@ -291,15 +318,17 @@ interface PendingSave {
 }
 ```
 
-A unit works out `changes()` from what's stored and what's there now. So a new
-class declares a type and a content item. If only the type saved, it then
-declares only the item. Two units claiming one change key send it once.
+A unit works out `changes()` from what's stored and what's there now. So a new class
+declares a type and a content item. If only the type saved, it then declares only the
+item. Two units claiming one change key send it once.
 
-A Save button means "this unit and what it needs". Save all means every pending
-unit. Signing out, closing a tab and leaving the page read the same list.
+A Save button means "this unit and what it needs". Save all means every pending unit.
+Signing out, closing a tab and leaving the page read the same list.
 
-Saving part of the schema draft needs two things: `DraftWriter` writing chosen
-types, and saved edits becoming the draft's new starting point.
+Saving part of the schema draft needs two things: `DraftWriter` writing chosen types,
+and saved edits becoming the draft's new starting point.
+
+This replaces `SaveParticipant`, the save guards and the "Schema changes" tool.
 
 ## On the server
 
@@ -325,57 +354,107 @@ interface SaveHandler
 }
 ```
 
+`entity` is a handler like any other. `schema` is the one special kind.
+
 ## Stages
 
 Each stage works on its own.
 
-1. **Fix the data loss.** Done: restoring, and the committed mark.
-2. **Availability per type,** replacing the "started" mark, with the
-   `FOR SHARE` check. Editor saves stop blocking the site.
-3. **Narrow what a migration takes:** Reference holders, and type references by
-   their base.
-4. **Batches of entities:** one operation, ids made in the admin, entity
-   versions, groups, per-change results, the save log.
-5. **Schema changes in batches:** per-type staleness, `DraftWriter` writing
-   parts of the draft, and a batch of operations split into groups.
-6. **The admin's mechanic:** providers, and removing `SaveParticipant`, the
-   save guards and the "Schema changes" tool.
-7. **Native deploys per type,** with `StateKey` split by type.
-8. **Overlapping migrations,** only if waiting proves too slow.
+1. **Recover stopped migrations.** Done.
+2. **Field identity.** Field ids and stored columns in the schema, `owner_field` holding
+   ids. No behaviour changes. Dev databases are reset.
+3. **The real reader on left-behind rows.** Markers, the converter at load, and an
+   entity with no row at a gained level.
+4. **Content changes by backfill,** for editor saves: expand, background backfill,
+   switch, contract, in place of the move in one transaction.
+5. **State per type.** The single revision, the single `StateKey` and the single
+   "started" mark go.
+6. **Native deploys:** `migrate --prepare` and `migrate --finish`.
+7. **Old input:** translating changes by old paths, and the pre-edit hook.
+8. **Narrow what a migration takes:** Reference holders, and type references by base.
+9. **Batches of entities:** one operation, ids made in the admin, entity versions,
+   groups, per-change results, the save log.
+10. **Schema changes in batches,** with `DraftWriter` writing parts of the draft.
+11. **The admin's mechanic:** providers, in place of what it replaces.
+
+## Prototype results
+
+`RetypeSpikeTest` runs in plain SQL, with the real writer and reader playing the old
+release. It passes on MySQL, and on SQLite with its one lock test skipped.
+
+| Case | Shown |
+|---|---|
+| Scalar retype | The old release keeps reading and writing. An old save clears the marker, and the row converts again |
+| Rows left behind | A query on the new field misses the row until the next scan, and never matches its old value |
+| Interrupted backfill | It carries on. A save waits for a row being converted |
+| References | A Reference points at `entities`, which a save never deletes, so it survives |
+| Collections | Items rewrite with the owner's row, so none goes stale, and a shrunken list leaves none behind |
+| A value becoming a list | The new table's `CASCADE` foreign key removes converted rows on an old save |
+| Owned objects | Saving the root clears their markers too. A big aggregate saved often costs more re-converting |
+| Unique indexes | A clash stops one row. An old save never trips the index. Duplicates fail the index cleanly |
+| Gained levels | Missing rows are found. An old save leaves them. Deleting an entity removes them |
+
+Load, on MySQL 8.4 on a laptop: 200,000 rows, four processes saving random rows, each
+with a 5-second lock timeout. Saves were simplified, the conversion was plain SQL, and
+there was no replica, so these compare approaches and don't predict production.
+
+| Saves during | Took | Saves | p50 | p99 | Max | Failed |
+|---|---:|---:|---:|---:|---:|---:|
+| Nothing running | 3 s | 3,918 | 0.3 ms | 3.8 ms | 21 ms | 0 |
+| Move in one transaction | 13.4 s | 500 | 0.6 ms | 5,020 ms | 5,346 ms | 8 |
+| Backfill in batches of 500 | 14.0 s | 19,177 | 0.3 ms | 3.7 ms | 59 ms | 0 |
+| Adding two columns | 0.01 s | 4 | 3.8 ms | 4.7 ms | 5 ms | 0 |
+| Unique index on a filled column | 0.17 s | 223 | 0.3 ms | 9.3 ms | 10 ms | 0 |
+| New column with its unique index | 0.44 s | 508 | 0.3 ms | 7.8 ms | 72 ms | 0 |
+| Backfill into an indexed column | 13.1 s | 18,793 | 0.3 ms | 2.7 ms | 21 ms | 0 |
+
+Not proved yet: the real reader and writer on stored columns, an entity with no row at
+a gained level, Embeds, values following a default, a duplicate slipping in after the
+switch, replicas, MariaDB, and tables far larger than this.
 
 ## Open points
 
-1. **One migration at a time.** Is a short wait for the second migration
-   enough, with overlapping migrations left for later?
-2. **Splitting schema operations.** `DraftWriter` writes one ordered chain.
-   Operations across types, such as a moved field or a rename swap, tie those
-   types into a group. Does splitting by type hold up for every operation? This
-   needs a prototype.
-3. **`pendingClass`.** Results per change and an unsaved item in the admin may
-   replace it. If the tab closes, a saved class has no item. Is an "Unplaced"
-   view enough?
-4. **`read-only` during a commit.** A request holding the old schema can read
-   after the move commits and find columns emptied. Is one failed read
-   acceptable, or should reads compare the type's version?
-5. **A schema change depending on an entity,** such as a default referencing an
-   unsaved entity. Refuse it for now?
-6. **Save log contents.** Full values, or a summary once a batch is closed? How
-   long is it kept?
-7. **Client ids.** A create must refuse an id that exists. Should the form be
-   checked too?
-8. **Entity versions** need a system column, and system columns aren't migrated
-   today. How is it added?
-9. **Files.** A file store, upload and cleanup in the core, or per plugin?
-10. **The queue.** What runs after-commit work on a site with no worker?
-11. **Existing operations.** Do `schema.save` and the `entities.*` writes stay?
-12. **SQLite** rebuilds tables and has one writer, so availability helps it
-    less. Is that acceptable?
+1. **Which schema each release reads.** Stored schemas are one set of rows, and during
+   a native deploy both releases read them. How does each find its own: two sets,
+   selected by the code's key?
+2. **What runs a backfill** on a site with no worker process: a command, cron, or small
+   slices in ordinary requests?
+3. **An entity depending on a change still `migrating`.** `unavailable`, sent again
+   after the switch?
+4. **Rolling back a deploy.** After the switch, new saves don't fill the old column. Is
+   the back translation required to allow a rollback, or is rollback a new release?
+5. **Dense content.** An added field or a changed default still rewrites every row.
+   Can values following a default be left unwritten?
+6. **`checkContent()`.** A full read is too heavy at this scale. Does a sample replace
+   it in the preview, with failures per row in the backfill?
+7. **Splitting schema operations.** `DraftWriter` writes one ordered chain. Operations
+   across types tie those types into a group. Does splitting by type hold up for every
+   operation? This needs a prototype.
+8. **`pendingClass`.** Results per change and an unsaved item in the admin may replace
+   it. If the tab closes, a saved class has no item. Is an "Unplaced" view enough?
+9. **A schema change depending on an entity,** such as a default referencing an unsaved
+   entity. Refuse it for now?
+10. **Save log contents.** Full values, or a summary once a batch is closed? How long is
+    it kept?
+11. **Client ids.** A create must refuse an id that exists. Should the form be checked
+    too?
+12. **Entity versions** need a system column. How is it added to a live table?
+13. **Hot rows.** Saving rewrites a whole aggregate. Stock counters and similar need
+    something else. It's outside this proposal, but it's part of the standard.
+14. **Files.** A file store, upload and cleanup in the core, or per plugin?
+15. **Existing operations.** Do `schema.save` and the `entities.*` writes stay?
+16. **Raw SQL.** Opaque columns need a way to read tables by hand: generated views, or a
+    command printing a type's layout?
 
 ## Prior art
 
+- **Stable ids with free renames:** Apache Iceberg, Delta Lake column mapping, Protocol
+  Buffers, Salesforce, Airtable.
+- **Renames through redirects:** Unreal's Core Redirects.
+- **Online changes:** expand and contract, gh-ost, safe-pg-migrations.
+- **Old data upgraded by version:** MongoDB's schema versioning, Unreal's custom
+  versions.
 - **Batches with local ids:** JSON:API Atomic Operations, Salesforce Composite.
-  Salesforce's `allOrNone: false` is the closest to per-change results.
 - **Insert, then fill in references:** Doctrine's UnitOfWork.
-- **Expand and contract:** the usual way to change a schema under live traffic.
 - **Version checks on save:** Contentful's `X-Contentful-Version`.
 - **Side effects queued in the transaction:** the transactional outbox.
