@@ -21,8 +21,11 @@ use Doctrine\DBAL\Types\Types;
  *
  * A migration marks itself started before its first DDL and finished after
  * its last. While it's started, the tables and the stored schemas don't
- * match, so reads and writes refuse to run. One that crashed stays started,
- * until a migration finishes the job.
+ * match, so reads and writes refuse to run. It marks itself committed inside
+ * the transaction storing the new schemas, so the row tells what a stopped
+ * one left: before the commit the stored schemas are the old ones, after it
+ * the new ones. One that crashed stays started, until the next migration
+ * cleans up after it.
  */
 final class MigrationState
 {
@@ -39,15 +42,20 @@ final class MigrationState
     ) {
     }
 
-    /** Creates the table, unless it exists; one made before the schema revision gains its column. */
+    /** Creates the table, unless it exists; an older one gains the columns it lacks. */
     public function ensureTable(): void {
         $schemaManager = $this->connection->createSchemaManager();
         if ($schemaManager->tablesExist([self::TABLE])) {
-            if (!$schemaManager->introspectTable(self::TABLE)->hasColumn('schema_revision')) {
-                $this->connection->executeStatement(sprintf(
-                    'ALTER TABLE %s ADD COLUMN schema_revision INTEGER NOT NULL DEFAULT 0',
-                    $this->connection->quoteSingleIdentifier(self::TABLE),
-                ));
+            $existing = $schemaManager->introspectTable(self::TABLE);
+            foreach (['schema_revision' => 'INTEGER', 'migration_committed' => 'SMALLINT'] as $column => $type) {
+                if (!$existing->hasColumn($column)) {
+                    $this->connection->executeStatement(sprintf(
+                        'ALTER TABLE %s ADD COLUMN %s %s NOT NULL DEFAULT 0',
+                        $this->connection->quoteSingleIdentifier(self::TABLE),
+                        $column,
+                        $type,
+                    ));
+                }
             }
 
             return;
@@ -57,6 +65,7 @@ final class MigrationState
         $table->addColumn('id', Types::SMALLINT);
         $table->addColumn('state_key', Types::STRING, ['length' => 64, 'notnull' => false]);
         $table->addColumn('migration_started_at', Types::DATETIME_IMMUTABLE, ['notnull' => false]);
+        $table->addColumn('migration_committed', Types::SMALLINT, ['default' => 0]);
         $table->addColumn('schema_revision', Types::INTEGER, ['default' => 0]);
         $table->setPrimaryKey(['id']);
         $schemaManager->createTable($table);
@@ -72,7 +81,7 @@ final class MigrationState
         $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 
         $updated = $this->connection->executeStatement(
-            sprintf('UPDATE %s SET migration_started_at = COALESCE(migration_started_at, ?) WHERE id = ?', $table),
+            sprintf('UPDATE %s SET migration_started_at = COALESCE(migration_started_at, ?), migration_committed = 0 WHERE id = ?', $table),
             [$now, self::ROW],
             [Types::DATETIME_IMMUTABLE, Types::SMALLINT],
         );
@@ -81,6 +90,32 @@ final class MigrationState
         }
 
         $this->connection->insert($table, ['id' => self::ROW, 'migration_started_at' => $now], ['id' => Types::SMALLINT, 'migration_started_at' => Types::DATETIME_IMMUTABLE]);
+    }
+
+    /**
+     * Marks the started migration's move committed. Called inside the
+     * transaction storing the new schemas, so it commits with them or not at
+     * all.
+     */
+    public function commit(): void {
+        $this->connection->executeStatement(
+            sprintf('UPDATE %s SET migration_committed = 1 WHERE id = ?', $this->connection->quoteSingleIdentifier(self::TABLE)),
+            [self::ROW],
+            [Types::SMALLINT],
+        );
+    }
+
+    /**
+     * Ends a stopped migration whose tables were cleaned up: the state key
+     * stays what it was. Raises the schema revision when $schemasChanged: one
+     * that stopped past its commit did change them.
+     */
+    public function end(bool $schemasChanged): void {
+        $this->connection->executeStatement(
+            sprintf('UPDATE %s SET migration_started_at = NULL, migration_committed = 0, schema_revision = schema_revision + ? WHERE id = ?', $this->connection->quoteSingleIdentifier(self::TABLE)),
+            [$schemasChanged ? 1 : 0, self::ROW],
+            [Types::INTEGER, Types::SMALLINT],
+        );
     }
 
     /**
@@ -93,7 +128,7 @@ final class MigrationState
         $raise = $schemasChanged ? 1 : 0;
 
         $updated = $this->connection->executeStatement(
-            sprintf('UPDATE %s SET state_key = ?, migration_started_at = NULL, schema_revision = schema_revision + ? WHERE id = ?', $table),
+            sprintf('UPDATE %s SET state_key = ?, migration_started_at = NULL, migration_committed = 0, schema_revision = schema_revision + ? WHERE id = ?', $table),
             [$stateKey, $raise, self::ROW],
             [Types::STRING, Types::INTEGER, Types::SMALLINT],
         );
@@ -118,10 +153,10 @@ final class MigrationState
 
     /**
      * The state key the database was last migrated to, and when the migration
-     * running now started, both null when there's none; and the schema
-     * revision. A database no migration ever ran on has neither, and
-     * revision 0.
-     * @return array{stateKey: ?string, startedAt: ?string, revision: int}
+     * running now started, both null when there's none; whether that
+     * migration's move committed; and the schema revision. A database no
+     * migration ever ran on has neither, and revision 0.
+     * @return array{stateKey: ?string, startedAt: ?string, committed: bool, revision: int}
      */
     public function read(): array {
         try {
@@ -134,6 +169,7 @@ final class MigrationState
         return [
             'stateKey' => $row['state_key'] ?? null,
             'startedAt' => $row['migration_started_at'] ?? null,
+            'committed' => (bool) ($row['migration_committed'] ?? false),
             'revision' => (int) ($row['schema_revision'] ?? 0),
         ];
     }

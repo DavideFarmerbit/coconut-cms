@@ -78,11 +78,9 @@ Wider than it needs to be:
 - Any fixup that changes types moves every type declaring a type reference,
   whatever its base (`declaresTypeReference()`).
 
-A bug, confirmed on SQLite and not yet tested on MySQL: an editor save that
-fails inside the move leaves the migration started, with old values in
-`_old__<column>`. Stored schemas are still the old ones, so `migrate()` finds
-an empty plan and only contracts. Contract drops `_old__<column>`, so the
-values are lost. See "Recovery".
+Stopped migrations are recovered already: a failure in the move restores the
+tables at once, and the next `migrate()` cleans up after a crash. A crash still
+blocks the site until then, and only `migrate()` recovers it.
 
 ## The model
 
@@ -331,8 +329,7 @@ interface SaveHandler
 
 Each stage works on its own.
 
-1. **Fix the data loss.** Test it, on MySQL too. Add restoring and the
-   per-migration row.
+1. **Fix the data loss.** Done: restoring, and the committed mark.
 2. **Availability per type,** replacing the "started" mark, with the
    `FOR SHARE` check. Editor saves stop blocking the site.
 3. **Narrow what a migration takes:** Reference holders, and type references by

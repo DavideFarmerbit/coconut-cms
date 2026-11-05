@@ -16,12 +16,12 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
 
 /**
- * The DDL around a migration's move: expand before it, contract after. Each
- * compares the database as it is with the target, so running either again
- * after an interruption only does what's left. Never moves data: DDL can't be
- * rolled back, so it only ever adds, moves aside, or drops what's unused.
- * Every value column is nullable, so a row the move rewrites in the new shape
- * can leave a column on its way out empty.
+ * The DDL around a migration's move: expand before it, contract after, and
+ * restore when no move followed. Each compares the database as it is with the
+ * target, so running one again after an interruption only does what's left.
+ * Never moves data: DDL can't be rolled back, so it only ever adds, moves
+ * aside, or drops what's unused. Every value column is nullable, so a row the
+ * move rewrites in the new shape can leave a column on its way out empty.
  */
 final readonly class TableChanges
 {
@@ -95,6 +95,105 @@ final readonly class TableChanges
     }
 
     /**
+     * Undoes an expand whose move never committed, back to $target, the
+     * layout of the schemas still stored: each "_old__" table and column
+     * takes its name back, values and all, replacing what expand put there,
+     * then whatever else expand added goes. contract() alone would drop the
+     * "_old__" ones, and the values in them.
+     * @param list<string> $contentTables Every table the stored layout has.
+     */
+    public function restore(Schema $target, array $contentTables): void {
+        $this->restoreTables();
+        $this->restoreColumns();
+        $this->contract($target, $contentTables);
+    }
+
+    /** Gives every "_old__" table its name back, dropping the table that took it and the foreign keys on that one. */
+    private function restoreTables(): void {
+        $platform = $this->connection->getDatabasePlatform();
+        $current = $this->current();
+
+        foreach ($current->getTables() as $table) {
+            if (!str_starts_with($table->getName(), ColumnNames::OLD)) {
+                continue;
+            }
+
+            $name = substr($table->getName(), strlen(ColumnNames::OLD));
+            $sql = [];
+            if ($current->hasTable($name)) {
+                foreach ($current->getTables() as $other) {
+                    $dropped = array_values(array_filter(
+                        $other->getForeignKeys(),
+                        static fn (ForeignKeyConstraint $foreignKey): bool => $other->getName() === $name || $foreignKey->getForeignTableName() === $name,
+                    ));
+                    if ($dropped !== []) {
+                        array_push($sql, ...$platform->getAlterTableSQL(new TableDiff($other, droppedForeignKeys: $dropped)));
+                    }
+                }
+
+                array_push($sql, ...$platform->getDropTablesSQL([$current->getTable($name)]));
+            }
+
+            $sql[] = $platform->getRenameTableSQL($table->getName(), $name);
+            $this->execute($sql);
+            $current = $this->current();
+        }
+    }
+
+    /** Gives every "_old__" column its name back, dropping the column that took it, with what hangs on that one. */
+    private function restoreColumns(): void {
+        $platform = $this->connection->getDatabasePlatform();
+
+        foreach ($this->current()->getTables() as $table) {
+            $renamed = [];
+            $replaced = [];
+            foreach ($table->getColumns() as $column) {
+                if (!str_starts_with($column->getName(), ColumnNames::OLD)) {
+                    continue;
+                }
+
+                $name = substr($column->getName(), strlen(ColumnNames::OLD));
+                $renamed[$column->getName()] = new ColumnDiff($column, $column->edit()->setUnquotedName($name)->create());
+                if ($table->hasColumn($name)) {
+                    $replaced[$name] = $table->getColumn($name);
+                }
+            }
+
+            if ($replaced !== []) {
+                $names = array_keys($replaced);
+                $this->execute($platform->getAlterTableSQL(new TableDiff(
+                    $table,
+                    droppedColumns: $replaced,
+                    droppedIndexes: self::indexesOn($table, $names),
+                    droppedForeignKeys: self::foreignKeysOn($table, $names),
+                )));
+            }
+
+            if ($renamed !== []) {
+                $this->execute($platform->getAlterTableSQL(new TableDiff($this->current()->getTable($table->getName()), changedColumns: $renamed)));
+            }
+        }
+    }
+
+    /**
+     * Every index of $table but its primary key that covers one of $columns.
+     * @param list<string> $columns
+     * @return list<Index>
+     */
+    private static function indexesOn(Table $table, array $columns): array {
+        return array_values(array_filter($table->getIndexes(), static fn (Index $index): bool => !$index->isPrimary() && array_intersect($columns, $index->getColumns()) !== []));
+    }
+
+    /**
+     * Every foreign key of $table starting from one of $columns.
+     * @param list<string> $columns
+     * @return list<ForeignKeyConstraint>
+     */
+    private static function foreignKeysOn(Table $table, array $columns): array {
+        return array_values(array_filter($table->getForeignKeys(), static fn (ForeignKeyConstraint $foreignKey): bool => array_intersect($columns, $foreignKey->getLocalColumns()) !== []));
+    }
+
+    /**
      * Creates every table $target has and $current doesn't, then adds every
      * missing column, index and foreign key to the tables both have: never a
      * drop, never a change.
@@ -141,8 +240,8 @@ final readonly class TableChanges
         $diff = new TableDiff(
             $existing,
             changedColumns: $renamed,
-            droppedIndexes: array_values(array_filter($existing->getIndexes(), static fn (Index $index): bool => !$index->isPrimary() && array_intersect($moved, $index->getColumns()) !== [])),
-            droppedForeignKeys: array_values(array_filter($existing->getForeignKeys(), static fn (ForeignKeyConstraint $foreignKey): bool => array_intersect($moved, $foreignKey->getLocalColumns()) !== [])),
+            droppedIndexes: self::indexesOn($existing, $moved),
+            droppedForeignKeys: self::foreignKeysOn($existing, $moved),
         );
 
         $this->execute($this->connection->getDatabasePlatform()->getAlterTableSQL($diff));

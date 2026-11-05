@@ -1268,9 +1268,9 @@ the migration before anything changes: see "The content check".
 ### The content check
 
 A migration checks the content before it marks itself started, native or
-editor alike, so a failure leaves the site as it was. Once started, a
-failure would leave it blocked until a migration finishes, and nobody can
-fix the content while it's blocked.
+editor alike, so a failure leaves the site as it was, with no table touched.
+A failure the check can't see is caught later, at a higher cost: see "How data
+moves".
 
 It reads every aggregate the migration moves, runs the plan over its
 values, and checks what it would write, writing nothing. Two things fail
@@ -2489,12 +2489,28 @@ From expand to contract, the stored schemas and the tables don't match. A read
 would see a moved-aside column as null, and a write would fail or land in a
 half-moved shape. So `MigrationState`, one row in `migration_state`, marks a
 migration started before expand and finished after contract. While it's
-started, `EntityReader` and `EntityWriter` throw `MigrationUnfinished`. A
-migration that fails stays started: entities stay unreadable until a
-migration finishes. The migration's own writer skips the check. Each reader
-and writer queries it once, on its first read or write, and not again once it
-found none started. `Persistence` checks it first, once per request (see
-"Booting").
+started, `EntityReader` and `EntityWriter` throw `MigrationUnfinished`. The
+migration's own writer skips the check. Each reader and writer queries it
+once, on its first read or write, and not again once it found none started.
+`Persistence` checks it first, once per request (see "Booting").
+
+A migration can stop part way. The row says how far it got: the transaction
+that stores the new schemas also marks the move committed.
+
+- **It fails in the move.** The transaction rolls back, so the stored schemas
+  are the old ones. `TableChanges::restore()` puts the tables back to match
+  them: each `_old__` column and table takes its name back, values included,
+  and what expand added goes. The migration ends, and the failure reaches the
+  caller. The site keeps running.
+- **It crashes before the commit.** Nothing runs to restore the tables, so the
+  site stays blocked. The next `migrate()` restores them first, then plans as
+  usual. A crash in the first migration of a database has nothing to restore:
+  running it again carries on.
+- **It crashes past the commit.** The stored schemas are the new ones, and only
+  contract is left. The next `migrate()` runs it.
+
+Contract alone would be wrong before the commit. It drops every `_old__`
+column, and those hold the only copy of the values.
 
 A finished migration also stores the code's `StateKey` in that row: a hash of
 every native type's fingerprint, every declared step id, and every registered

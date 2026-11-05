@@ -71,8 +71,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
  * compiled again over the new native ones, their content moved the same way.
  * A fresh database is a migration from nothing. One migration at a time: a second waits for
  * the first. From expand to contract, the MigrationState says a migration is
- * started, so entities can't be read or written; one that fails stays
- * started, until a migration finishes. A finished one records the code's
+ * started, so entities can't be read or written. One that fails in its move
+ * puts the tables back at once; one that crashed stays started, and the next
+ * migration cleans up after it first. A finished one records the code's
  * StateKey, so a request can tell whether another is pending.
  */
 final readonly class Migrator
@@ -406,6 +407,7 @@ final readonly class Migrator
         $this->values->ensureTable();
         $this->log->ensureTable();
         $this->state->ensureTable();
+        $this->recover();
 
         $stored = $this->schemas->all();
         $fresh = $stored === [];
@@ -430,6 +432,42 @@ final readonly class Migrator
         return $moved === null
             ? new MigrationResult(false, $plan, [], 0, $stateKey)
             : new MigrationResult($fresh, $plan, $recorded, $moved, $stateKey);
+    }
+
+    /**
+     * Cleans up after a migration that crashed, holding the lock, so nobody
+     * else is running one. Before its commit the stored schemas are the old
+     * ones, so the tables go back to them, every moved-aside value with them.
+     * Past its commit, only contract was left. A first migration has nothing
+     * stored to go back to: running it again carries on.
+     */
+    private function recover(): void {
+        $state = $this->state->read();
+        $stored = $this->schemas->all();
+        if ($state['startedAt'] === null || $stored === []) {
+            return;
+        }
+
+        $this->cleanUp($stored, $state['committed']);
+    }
+
+    /**
+     * Brings the tables back to what's stored, and ends the migration stopped
+     * part way.
+     * @param list<StoredSchema> $stored What's stored now.
+     * @param bool $committed Whether its move committed: $stored is then what it saved.
+     */
+    private function cleanUp(array $stored, bool $committed): void {
+        $layout = DatabaseSchema::of(self::levelsOf(new SchemaLookup($this->registry), array_map(static fn (StoredSchema $each): string => $each->schema->identifier, $stored)));
+        $tables = array_map(static fn ($table): string => $table->getName(), $layout->getTables());
+
+        if ($committed) {
+            $this->tables->contract($layout, $tables);
+        } else {
+            $this->tables->restore($layout, $tables);
+        }
+
+        $this->state->end($committed);
     }
 
     /**
@@ -488,6 +526,7 @@ final readonly class Migrator
                 $this->values->deleteAll($gone);
                 $this->compiler->store($batch);
                 $this->log->record($recorded);
+                $this->state->commit();
 
                 return $moved;
             });
@@ -496,6 +535,15 @@ final readonly class Migrator
             $this->schemas->forgetLoaded();
             $this->values->forgetLoaded();
             $this->registry->forgetAll();
+
+            // Rolled back: the tables go back, and the site keeps running.
+            // Should that fail too, it stays started, for the next migration.
+            if (!$fresh) {
+                try {
+                    $this->cleanUp($stored, false);
+                } catch (Throwable) {
+                }
+            }
 
             throw $failure;
         }
