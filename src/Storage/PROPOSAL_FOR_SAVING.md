@@ -109,11 +109,21 @@ values, a value becoming a list, a reparent. They go through four steps.
 4. **Contract.** Old columns and markers go, once no row is left and no old code
    runs. It can come much later.
 
-**The marker replaces dual write.** A save deletes its level rows and inserts them
-with the columns its code knows. So an old release clears the marker without knowing
-it exists, and needs no change. The backfill converts that row again. Saves to a
-Collection or a table with a `CASCADE` foreign key to the level are covered the same
-way. Saving a root rewrites what it owns.
+**A write token and a marker replace dual write.** Every level table has one
+`_written` column, and every save sets it to a fresh value on each level row it
+writes, whatever columns it changes. The marker holds the token the backfill saw. A
+row is left behind when the two differ. So an old release needs no change and knows
+nothing about a migration, however it writes the row. The backfill converts that row
+again.
+
+- There's one token per level row, not one per field. A save changing another field
+  on that level makes the row convert again, which is wasteful but harmless. A save
+  touching another level leaves it alone.
+- A Collection table has no token. A save changing only a Collection's items must
+  still set the token on the owner's level row.
+- An owned object has its own level rows, so it has its own tokens.
+- The `entities` row has a token too, set by every save of the aggregate. It's the
+  version a client sends back to detect a stale save.
 
 **Reading a row left behind.** An old row is read through its stored schema into
 stored-form values, and the converter brings them up. So the new class is filled
@@ -362,7 +372,7 @@ Each stage works on its own.
 
 1. **Recover stopped migrations.** Done.
 2. **Field identity.** Field ids and stored columns in the schema, `owner_field` holding
-   ids. No behaviour changes. Dev databases are reset.
+   ids, and the write tokens. No behaviour changes. Dev databases are reset.
 3. **The real reader on left-behind rows.** Markers, the converter at load, and an
    entity with no row at a gained level.
 4. **Content changes by backfill,** for editor saves: expand, background backfill,
@@ -376,11 +386,17 @@ Each stage works on its own.
    groups, per-change results, the save log.
 10. **Schema changes in batches,** with `DraftWriter` writing parts of the draft.
 11. **The admin's mechanic:** providers, in place of what it replaces.
+12. **Diff writes,** measured first: under the lock, a save compares with what's stored
+    and writes only the rows that differ. Validation still checks the whole aggregate.
+    The write tokens make this safe for the backfill.
+13. **Atomic operations,** for values like stock, when something needs them.
 
 ## Prototype results
 
 `RetypeSpikeTest` runs in plain SQL, with the real writer and reader playing the old
-release. It passes on MySQL, and on SQLite with its one lock test skipped.
+release. It passes on MySQL, and on SQLite with its one lock test skipped. It uses a
+marker cleared by a save's delete and insert: the write token was decided after it,
+and replaces that when stage 3 builds it.
 
 | Case | Shown |
 |---|---|
@@ -438,12 +454,11 @@ switch, replicas, MariaDB, and tables far larger than this.
     it kept?
 11. **Client ids.** A create must refuse an id that exists. Should the form be checked
     too?
-12. **Entity versions** need a system column. How is it added to a live table?
-13. **Hot rows.** Saving rewrites a whole aggregate. Stock counters and similar need
-    something else. It's outside this proposal, but it's part of the standard.
-14. **Files.** A file store, upload and cleanup in the core, or per plugin?
-15. **Existing operations.** Do `schema.save` and the `entities.*` writes stay?
-16. **Raw SQL.** Opaque columns need a way to read tables by hand: generated views, or a
+12. **Hot rows.** Two sales both reading stock 5 both save 4. Atomic operations fix
+    that, and they need their own rule checking. Hot data should also be its own entity.
+13. **Files.** A file store, upload and cleanup in the core, or per plugin?
+14. **Existing operations.** Do `schema.save` and the `entities.*` writes stay?
+15. **Raw SQL.** Opaque columns need a way to read tables by hand: generated views, or a
     command printing a type's layout?
 
 ## Prior art
