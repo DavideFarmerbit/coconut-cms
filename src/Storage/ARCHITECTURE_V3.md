@@ -1378,6 +1378,31 @@ save writes only what differs from the archetype, so a value equal to a new
 default stops being written at the next save. Tests must compare the update
 with what a move writes, row by row, so the two never drift.
 
+### Content left behind
+
+A `ContentChange` is a change to stored content that runs while the site serves
+traffic: the tables are expanded, the old schemas stay stored, and aggregates reach
+the new shape one at a time. Nothing creates one yet: `PROPOSAL_FOR_SAVING.md` has
+what's next. `EntityReader` and `EntityWriter::during()` take one as a
+`PendingConversion`, and then work with the new shape.
+
+Each change has a marker table, `_seen__<id>`: an aggregate's root id, and the
+`written` token of the write that left it in the new shape. An aggregate is left
+behind when it holds a type the change touches, and has no marker or one differing
+from the root's `written`. So an old release needs no change, however it writes. A
+gained level needs nothing more: an aggregate with no row there was never marked.
+
+- **A load** of a left-behind aggregate reads it with the old schemas and runs
+  `AggregateConversion`: the plan's fixups, the checks on what they wrote, the new
+  defaults. A migration's move and its dry run run the same class, so all three give
+  the same values. A load writes nothing. Checking and reading share a transaction,
+  so a save can't land between them.
+- **A save** writes the new shape and its marker in one transaction. Without the
+  marker, the next load would read the old columns, which that save didn't fill. It
+  deletes the aggregate's rows from every level of both shapes.
+- **A query** on a new field misses what's left behind.
+- **A converter failing at load** fails that load. Other entities are served.
+
 ### What a migration touches
 
 A native migration compares the native types stored with the native classes

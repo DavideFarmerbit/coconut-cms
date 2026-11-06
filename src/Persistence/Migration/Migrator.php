@@ -6,7 +6,6 @@ use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use InvalidArgumentException;
 use RuntimeException;
-use Closure;
 use Exception;
 use Throwable;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Cms;
@@ -19,10 +18,9 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationState;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationUnfinished;
 use XyloIsCoding\CoconutCms\Persistence\Entity\NoTypeCaptures;
-use XyloIsCoding\CoconutCms\Persistence\Entity\Values\EntityValues;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateConversion;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateReader;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\AggregateValues;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Data\ValueMark;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\BreaksNotAccepted;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSave;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
@@ -55,13 +53,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\StoredSchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\FieldValueResolver;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Overrides;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Resolver\Subject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
-use XyloIsCoding\CoconutCms\Persistence\Schema\Values\StoredForm;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\ValueFlattener;
 
 /**
@@ -342,10 +337,9 @@ final readonly class Migrator
      */
     private function checkContent(array $stored, MigrationPlan $plan, CompiledBatch $batch, int $samples = 0): ContentCheck {
         $target = [...$plan->schemas->schemas(), ...$batch->schemas];
-        $targetSchemas = new SchemaLookup($this->registry, $target);
+        $conversion = new AggregateConversion($plan, $target, $batch->values, $this->registry, $this->values);
+        $targetSchemas = $conversion->schemas();
         $reader = new AggregateReader($this->connection, $this->registry, []);
-        $resolver = (new FieldValueResolver($this->registry, $this->values))->withBatch($target, $batch->values);
-        $storedForm = new StoredForm($targetSchemas);
         $rows = new EntityRowsBuilder($targetSchemas);
 
         $targetLevels = self::levelsOf($targetSchemas, array_keys($target));
@@ -361,11 +355,9 @@ final readonly class Migrator
             try {
                 $aggregate = $reader->read($id);
                 [$beforeValues, $beforeMarks] = [$aggregate->values(), $aggregate->marks()];
-                $plan->moveValues($aggregate);
-                if (isset($target[$aggregate->identifier])) {
-                    self::checkWritten($aggregate, $storedForm);
-                    $values = self::entityValuesOf($aggregate, $targetSchemas, $resolver);
-                    $uniqueness->addMoved($rows->rowsOf($values, $id, Placement::standalone(), self::ownedIdsOf($aggregate, $values), EntityIds::NIL));
+                $values = $conversion->convert($aggregate);
+                if ($values !== null) {
+                    $uniqueness->addMoved($rows->rowsOf($values, $id, Placement::standalone(), AggregateConversion::ownedIdsOf($aggregate, $values), EntityIds::NIL));
                 }
 
                 if (count($sampled) < $samples) {
@@ -580,7 +572,7 @@ final readonly class Migrator
      * @param list<StoredSchema> $stored
      * @return list<string>
      */
-    private static function changedTypes(array $stored, CompiledBatch $batch, MigrationPlan $plan): array {
+    public static function changedTypes(array $stored, CompiledBatch $batch, MigrationPlan $plan): array {
         $compiled = [];
         foreach ($batch->stored as $each) {
             $compiled[$each->schema->identifier] = $each;
@@ -745,23 +737,19 @@ final readonly class Migrator
     private function moveAggregates(MigrationPlan $plan, CompiledBatch $batch, array $target, SchemaLookup $targetSchemas, SchemaLookup $storedSchemas, array $movedAside, array $roots): int {
         $reader = new AggregateReader($this->connection, $this->registry, $movedAside);
         $writer = EntityWriter::forMigration($this->connection, $targetSchemas, $storedSchemas);
-        $resolver = (new FieldValueResolver($this->registry, $this->values))->withBatch($target, $batch->values);
-        $storedForm = new StoredForm($targetSchemas);
+        $conversion = new AggregateConversion($plan, $target, $batch->values, $this->registry, $this->values);
         $captures = new NoTypeCaptures($this->connection);
 
         foreach ($roots as $id) {
             try {
                 $aggregate = $reader->read($id);
-                $plan->moveValues($aggregate);
-
-                if (!isset($target[$aggregate->identifier])) {
+                $values = $conversion->convert($aggregate);
+                if ($values === null) {
                     $writer->delete($id);
                     continue;
                 }
 
-                self::checkWritten($aggregate, $storedForm);
-                $values = self::entityValuesOf($aggregate, $targetSchemas, $resolver);
-                $writer->write($values, $id, self::ownedIdsOf($aggregate, $values));
+                $writer->write($values, $id, AggregateConversion::ownedIdsOf($aggregate, $values));
 
                 // What broke is kept once the entities holding it are written.
                 foreach ($aggregate->setAsideCaptures() as $holder => $records) {
@@ -775,80 +763,6 @@ final readonly class Migrator
         }
 
         return count($roots);
-    }
-
-    /**
-     * The id of the object owned at each path once $aggregate is written as
-     * $values. An owned object still holding the class it held keeps its id.
-     * One whose class changed, an untouched slot following a default that
-     * now names another class, is another object: it gets a new id, and so
-     * does everything it owns.
-     * @return Closure(FieldPath): string Called owners first.
-     */
-    private static function ownedIdsOf(AggregateValues $aggregate, EntityValues $values): Closure {
-        $replaced = [];
-
-        return static function (FieldPath $path) use ($aggregate, $values, &$replaced): string {
-            foreach ($replaced as $owner) {
-                if ($path->startsWith($owner)) {
-                    return EntityIds::generate();
-                }
-            }
-
-            if ($aggregate->get($path) !== $values->dense->get($path)) {
-                $replaced[] = $path;
-
-                return EntityIds::generate();
-            }
-
-            return $aggregate->ownedIdAt($path) ?? EntityIds::generate();
-        };
-    }
-
-    /**
-     * Checks every value about to be written, touched or converted, against
-     * its field in the new schemas, and puts it in canonical form. One a
-     * fixup wrote where no field is fails; one only carried along there is
-     * dropped, as its path is gone. An untouched value is never written: the
-     * entity follows the new default, checked when it was compiled.
-     */
-    private static function checkWritten(AggregateValues $aggregate, StoredForm $storedForm): void {
-        $values = $aggregate->values();
-        $marks = $aggregate->marks();
-
-        foreach ($storedForm->unknownPaths($aggregate->identifier, $values) as $path) {
-            if ($marks[$path] === ValueMark::Converted) {
-                throw new InvalidArgumentException(sprintf('"%s" was written where "%s" has no field.', $path, $aggregate->identifier));
-            }
-        }
-
-        $written = array_values(array_map('strval', array_keys(array_filter($marks, static fn (ValueMark $mark): bool => $mark !== ValueMark::Untouched))));
-        foreach ($storedForm->checked($aggregate->identifier, $values, $written) as $path => $value) {
-            if ($value !== $values[$path]) {
-                $aggregate->set(FieldPath::fromString((string) $path), $value, $marks[$path]);
-            }
-        }
-    }
-
-    /**
-     * $aggregate's values as the new schemas store them. Only what's touched or
-     * converted is compared with the new defaults, the way a save compares:
-     * kept where it differs. What's untouched and unconverted stays untouched,
-     * so it follows the new default, whatever it is.
-     */
-    private static function entityValuesOf(AggregateValues $aggregate, SchemaLookup $schemas, FieldValueResolver $resolver): EntityValues {
-        $candidates = [];
-        foreach ($aggregate->values() as $path => $value) {
-            if ($aggregate->marks()[$path] !== ValueMark::Untouched) {
-                $candidates[(string) $path] = $value;
-            }
-        }
-
-        $tree = $resolver->resolveTree(Subject::ofInstance($aggregate->identifier, FieldValues::fromArray($candidates)));
-        $dense = (new ValueFlattener($schemas))->flatten($aggregate->identifier, $tree);
-        $kept = (new Overrides($schemas, $resolver))->of(Subject::ofInstance($aggregate->identifier, $dense), $tree, $dense);
-
-        return new EntityValues($aggregate->identifier, $dense, FieldValues::fromArray(array_intersect_key($kept->toArray(), $candidates)));
     }
 
     /**

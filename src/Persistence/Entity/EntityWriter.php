@@ -12,6 +12,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\EntityIds;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRows;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsReader;
@@ -48,6 +49,9 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
  *
  * Refuses to write while a migration is unfinished, except for the
  * migration's own writes.
+ *
+ * With a PendingConversion, it writes the new shape: what's stored is read as
+ * that shape, left behind or not, and every write is marked as converted.
  */
 final class EntityWriter
 {
@@ -69,6 +73,8 @@ final class EntityWriter
      *        write changing anything else is refused. Null for everything.
      * @param FieldValueResolver|null $defaults What a new entity is compared
      *        with for $permissions: its type's defaults.
+     * @param PendingConversion|null $conversion The content change it writes
+     *        through; null for none.
      */
     private function __construct(
         private readonly Connection $connection,
@@ -78,6 +84,7 @@ final class EntityWriter
         private readonly ?EntityValidator $validator,
         private readonly ?Permissions $permissions,
         private readonly ?FieldValueResolver $defaults,
+        private readonly ?PendingConversion $conversion = null,
     ) {
         $this->rows = new EntityRowsBuilder($schemas);
         $this->storedChains = new LevelChains($storedSchemas);
@@ -104,6 +111,28 @@ final class EntityWriter
             new EntityValidator($schemas),
             $permissions,
             $store === null ? null : new FieldValueResolver($registry, $store),
+        );
+    }
+
+    /**
+     * Writes the new shape of the content change $conversion, while $registry
+     * still serves the old one.
+     */
+    public static function during(PendingConversion $conversion, Connection $connection, SchemaRegistry $registry, ?Permissions $permissions = null, ?SchemaFieldValueStore $store = null): self {
+        $schemas = new SchemaLookup($registry, $conversion->schemas());
+        if ($permissions !== null && $store === null) {
+            throw new InvalidArgumentException('Checking permissions needs the value store: a new entity is compared with its defaults.');
+        }
+
+        return new self(
+            $connection,
+            $schemas,
+            $schemas,
+            new MigrationState($connection),
+            new EntityValidator($schemas),
+            $permissions,
+            $store === null ? null : (new FieldValueResolver($registry, $store))->withBatch($conversion->schemas(), $conversion->defaults()),
+            $conversion,
         );
     }
 
@@ -193,7 +222,7 @@ final class EntityWriter
         return $this->transactional(function () use ($valuesOf, $id, $ownedIdOf, $validateLocked, &$values, &$wanted, &$stored): array {
             $stored = $this->lockedAggregateOf($id);
             // Read only when something needs it: the values, or the permission check.
-            $storedEntity = $stored === [] || (!$validateLocked && $this->permissions === null) ? null : (new EntityRowsReader($this->connection, $this->schemas))->read($id);
+            $storedEntity = $stored === [] || (!$validateLocked && $this->permissions === null) ? null : $this->storedEntity($id);
             $values = $valuesOf($storedEntity);
             if ($validateLocked) {
                 $this->validator?->assertValid($values);
@@ -201,7 +230,8 @@ final class EntityWriter
 
             $this->assertPermitted($values, $storedEntity);
             $wanted = [];
-            foreach ($this->rows->rowsOf($values, $id, Placement::standalone(), $ownedIdOf, EntityIds::generate()) as $entity) {
+            $written = EntityIds::generate();
+            foreach ($this->rows->rowsOf($values, $id, Placement::standalone(), $ownedIdOf, $written) as $entity) {
                 $wanted[$entity->id] = $entity;
             }
 
@@ -229,8 +259,19 @@ final class EntityWriter
                 }
             }
 
+            // In the new shape now, and its old columns are empty: unmarked,
+            // the next load would read those.
+            $this->conversion?->mark($id, $written);
+
             return $deleted;
         });
+    }
+
+    /** What's stored as aggregate $id, in the shape this writes; left behind, converted. */
+    private function storedEntity(string $id): ?StoredEntity {
+        return $this->conversion?->isLeftBehind($id)
+            ? $this->conversion->converted($id)
+            : (new EntityRowsReader($this->connection, $this->schemas))->read($id);
     }
 
     /**
@@ -389,8 +430,11 @@ final class EntityWriter
      * side table and Collection rows go with it.
      */
     private function deleteContentRows(string $id, string $identifier): void {
-        foreach ($this->storedChains->of($identifier) as $level) {
-            $this->connection->delete($this->quoted($level->table), [$this->quoted(ColumnNames::ID) => $id]);
+        $tables = $this->conversion?->tablesOf($identifier)
+            ?? array_map(static fn (LevelLayout $level): string => $level->table, $this->storedChains->of($identifier));
+
+        foreach ($tables as $table) {
+            $this->connection->delete($this->quoted($table), [$this->quoted(ColumnNames::ID) => $id]);
         }
     }
 

@@ -6,6 +6,7 @@ use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsReader;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\StoredEntity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
@@ -25,6 +26,10 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\Tree\ValueNode;
  * Reads schemas and rows only, never a PHP class: building an object from
  * what it reads is a native loader's job. Refuses to read while a migration
  * is unfinished.
+ *
+ * With a PendingConversion, it reads the new shape, and an aggregate left
+ * behind reads as the new shape too, converted as it's read. Only a root is
+ * ever read: an owned entity is read through its owner.
  */
 final readonly class EntityReader
 {
@@ -37,17 +42,19 @@ final readonly class EntityReader
         private Connection $connection,
         SchemaRegistry $registry,
         SchemaFieldValueStore $store,
+        private ?PendingConversion $conversion = null,
     ) {
-        $this->schemas = new SchemaLookup($registry);
+        $this->schemas = new SchemaLookup($registry, $conversion?->schemas() ?? []);
         $this->rows = new EntityRowsReader($connection, $this->schemas);
-        $this->resolver = new FieldValueResolver($registry, $store);
+        $resolver = new FieldValueResolver($registry, $store);
+        $this->resolver = $conversion === null ? $resolver : $resolver->withBatch($conversion->schemas(), $conversion->defaults());
         $this->migration = new MigrationState($connection);
     }
 
     /** Null when no entity has $id. */
     public function read(string $id): ?LoadedEntity {
         $this->migration->assertSettled();
-        $stored = $this->rows->read($id);
+        $stored = $this->conversion === null ? $this->rows->read($id) : $this->readDuringChange($id, $this->conversion);
         if ($stored === null) {
             return null;
         }
@@ -57,6 +64,15 @@ final readonly class EntityReader
         $tree = $this->resolver->resolveTree(Subject::ofInstance($stored->identifier, $stored->values));
 
         return new LoadedEntity($id, $stored->identifier, $tree, $stored->ownedIds, $this->referencedIdsIn($stored->identifier, $tree));
+    }
+
+    /**
+     * What aggregate $id holds in the new shape. In one transaction, so the
+     * check and the read see one moment: a save landing between them would
+     * leave the old columns empty for a read that expects them filled.
+     */
+    private function readDuringChange(string $id, PendingConversion $conversion): ?StoredEntity {
+        return $this->connection->transactional(fn (): ?StoredEntity => $conversion->isLeftBehind($id) ? $conversion->converted($id) : $this->rows->read($id));
     }
 
     /**

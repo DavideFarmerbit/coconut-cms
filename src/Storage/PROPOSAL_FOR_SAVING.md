@@ -1,6 +1,6 @@
 # Proposal: Saving and Migrating
 
-Status: proposed. Stages 1 and 2 are built, the rest isn't. `RetypeSpikeTest`
+Status: proposed. Stages 1 to 3 are built, the rest isn't. `RetypeSpikeTest`
 proves parts of the design in plain SQL. "Open points" lists what isn't settled.
 
 ## The standard
@@ -101,9 +101,9 @@ type, a rename, rules, permissions, making a field optional.
 values, a value becoming a list, a reparent. They go through four steps.
 
 1. **Expand.** New columns and tables go beside the old ones, never in their place.
-   A marker column goes on the level the old code rewrites. This is short DDL, and
-   only one runs at a time. It uses a short `lock_wait_timeout`, so an `ALTER`
-   waiting on a long transaction fails and doesn't queue up that table's traffic.
+   The change gets its own marker table. This is short DDL, and only one runs at a
+   time. It uses a short `lock_wait_timeout`, so an `ALTER` waiting on a long
+   transaction fails and doesn't queue up that table's traffic.
 2. **Backfill.** A background job converts rows in small batches, throttled and
    resumable, without holding the migration lock. Each row is converted under the
    lock a save takes, on its aggregate's root, so no save lands between the read and
@@ -112,21 +112,29 @@ values, a value becoming a list, a reparent. They go through four steps.
 4. **Contract.** Old columns and markers go, once no row is left and no old code
    runs. It can come much later.
 
-**A write token and a marker replace dual write.** Every level table has one
-`_written` column, and every save sets it to a fresh value on each level row it
-writes, whatever columns it changes. The marker holds the token the backfill saw. A
-row is left behind when the two differ. So an old release needs no change and knows
-nothing about a migration, however it writes the row. The backfill converts that row
-again.
+**A write token and a marker table replace dual write.** Every level table has one
+`_written` column, and the `entities` row has `written`. Every save sets a fresh
+token on each row it writes, whatever columns it changes. Each content change has its
+own marker table, with one row per aggregate: its root's id and the token the backfill
+saw. An aggregate is left behind when it has no marker, or when the marker differs
+from the root's `written`. So an old release needs no change and knows nothing about
+a migration, however it writes the row. The backfill converts that aggregate again.
 
-- There's one token per level row, not one per field. A save changing another field
-  on that level makes the row convert again, which is wasteful but harmless. A save
-  touching another level leaves it alone.
+- The marker table touches no level table, so it needs no `ALTER` on a busy table, and
+  contract drops one table. Deleting an entity removes its marker by a foreign key.
+- An aggregate is the unit, because a save and the backfill both lock its root.
+- A gained level needs nothing of its own: an aggregate with no row at that level has
+  never been marked.
+- A save by the new code writes the new shape and its marker in one transaction.
+  Without the marker, the next load would read the old column, which that save didn't
+  fill.
+- Until stage 12 every save rewrites its whole aggregate, so comparing with `written`
+  gives the same answer as comparing level by level. Stage 12 compares with `_written`
+  on the changed level, so a save to another level costs no repeated conversion.
+  Marker tables exist only during a change, so that needs no data migration.
 - A Collection table has no token. A save changing only a Collection's items must
   still set the token on the owner's level row.
-- An owned object has its own level rows, so it has its own tokens.
-- The `entities` row has a token too, set by every save of the aggregate. It's the
-  version a client sends back to detect a stale save.
+- `written` is also the version a client sends back to detect a stale save.
 
 **Reading a row left behind.** An old row is read through its stored schema into
 stored-form values, and the converter brings them up. So the new class is filled
@@ -141,9 +149,18 @@ that row behind and reports it. It stops neither the batch nor the site.
 clash, so a clash stops only the row causing it. The switch waits until no row has
 failed.
 
-**A gained level** is a new table with a foreign key to `entities`. Rows missing from
-it are found by what's missing. If its values come from fields the old release can
-change, it also needs a marker on a level the old release rewrites.
+**A gained level** is a new table with a foreign key to `entities`. The marker table
+covers it, even when its values come from fields the old release can change.
+
+**The plan outlives its request.** Conversions run long after planning, and they're
+PHP objects, not data.
+
+- A native deploy stores the old schemas and the step ids. The fixups are in the code,
+  and a step can't be deleted while a database hasn't applied it, so a process rebuilds
+  the plan with the planner the first time it meets a left-behind aggregate.
+- An editor save needs no conversion at load: no code changes, so reads stay on the old
+  shape until the switch, and the switch waits until no row is left. Only the background
+  backfill needs the plan, so stage 4 stores the save's operations as their JSON.
 
 ### Native deploys
 
@@ -181,6 +198,13 @@ An old-release save leaves the new column empty until the next scan. A query on 
 new field misses that row for that moment, and a unique index doesn't cover it. To
 watch it: a test covering that sequence, a count of rows left per type in `check()`,
 and an optional short write pause at the switch, per type.
+
+The reverse gap: a save by the new release leaves the old columns empty, so an old
+release still running can't read that row. An atomic code switch keeps that window to
+requests in flight. A rollback widens it: see open point 4.
+
+A converter failing at load fails that one load, with its error. The entity stays
+left behind, and every other entity is served.
 
 ## Saving
 
@@ -377,8 +401,10 @@ Each stage works on its own.
 2. **Field identity.** Done. Field ids and stored columns in the schema, `owner_field`
    holding ids, and the write tokens. Dev databases are reset. See "Field identity" in
    `ARCHITECTURE_V3.md`.
-3. **The real reader on left-behind rows.** Markers, the converter at load, and an
-   entity with no row at a gained level.
+3. **The real reader on left-behind rows.** Done. Marker tables, the converter at load,
+   an entity with no row at a gained level, and a save marking what it writes:
+   `ContentChange`, `AggregateConversion`, and `EntityReader` and `EntityWriter` taking
+   a `PendingConversion`. Nothing creates such a change yet: stage 4 does.
 4. **Content changes by backfill,** for editor saves: expand, background backfill,
    switch, contract, in place of the move in one transaction.
 5. **State per type.** The single revision, the single `StateKey` and the single
@@ -392,7 +418,8 @@ Each stage works on its own.
 11. **The admin's mechanic:** providers, in place of what it replaces.
 12. **Diff writes,** measured first: under the lock, a save compares with what's stored
     and writes only the rows that differ. Validation still checks the whole aggregate.
-    The write tokens make this safe for the backfill.
+    The write tokens make this safe for the backfill, and markers move to comparing
+    with `_written` on the changed level.
 13. **Atomic operations,** for values like stock, when something needs them.
 
 ## Prototype results
@@ -428,9 +455,13 @@ there was no replica, so these compare approaches and don't predict production.
 | New column with its unique index | 0.44 s | 508 | 0.3 ms | 7.8 ms | 72 ms | 0 |
 | Backfill into an indexed column | 13.1 s | 18,793 | 0.3 ms | 2.7 ms | 21 ms | 0 |
 
-Not proved yet: the real reader and writer on stored columns, an entity with no row at
-a gained level, Embeds, values following a default, a duplicate slipping in after the
-switch, replicas, MariaDB, and tables far larger than this.
+`ContentChangeTest` proves the real reader and writer: V1 to V2 renames, retypes, gains a
+level, renames and drops a type and moves a field, with no row moved, and every load
+gives what the one-transaction migration gives. Those numbers above predate it.
+
+Not proved yet: a backfill on stored columns under load, a load racing a save, a
+duplicate slipping in after the switch, replicas, MariaDB, and tables far larger than
+this.
 
 ## Open points
 
@@ -464,6 +495,12 @@ switch, replicas, MariaDB, and tables far larger than this.
 14. **Existing operations.** Do `schema.save` and the `entities.*` writes stay?
 15. **Raw SQL.** Opaque columns need a way to read tables by hand: generated views, or a
     command printing a type's layout?
+16. **Moving editor schemas to prod.** A developer exports only the current schemas, with
+    no content, for privacy and size, edits them locally on an old version, and imports
+    them into prod. Field ids may make this work with no stored fixups: the same id under
+    a new name is a rename, and a missing id is a removal. Not tested. What decides when
+    a retype needs a converter, and how is a stale export detected? Native steps still
+    ship with the code, and a step deleted before a database applied it still blocks.
 
 ## Prior art
 
