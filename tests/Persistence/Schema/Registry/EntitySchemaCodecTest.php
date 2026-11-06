@@ -19,6 +19,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldIdentity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\BrokenField;
 use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\BrokenFieldReason;
@@ -186,6 +187,18 @@ final class EntitySchemaCodecTest extends TestCase
         $decoded = $codec->decode(json_decode(json_encode($codec->encode($schema)), true));
 
         self::assertEquals($schema, $decoded);
+    }
+
+    public function testAFieldsIdAndColumnRoundTripButAreNotWhatASchemaDeclares(): void {
+        $schema = self::schemaOf(CodecProduct::class);
+        $codec = self::codec();
+        $name = $schema->fields->names()[0];
+        $stored = $schema->withFields($schema->fields->with($name, $schema->fields->get($name)->withIdentity(new FieldIdentity('field-id', 'f_abcdef'))));
+
+        $decoded = $codec->decode(json_decode(json_encode($codec->encode($stored)), true));
+
+        self::assertEquals($stored, $decoded);
+        self::assertSame($codec->encodeDeclared($schema), $codec->encodeDeclared($stored), 'A fingerprint hashes this: it matches the code in any database.');
     }
 
     public function testWhatBrokeRoundTripsThroughJsonWithTheSchema(): void {

@@ -40,11 +40,14 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorCollecti
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Tests\Integration\ReadsStoredColumns;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 
 /** What a code change breaks on an editor-created type: blocked by strict, resolved by the developer policy, every value kept. */
 final class MigratorBreaksTest extends TestCase
 {
+    use ReadsStoredColumns;
+
     private Connection $connection;
     private string $boatId;
     private string $vehicleId;
@@ -198,7 +201,7 @@ final class MigratorBreaksTest extends TestCase
     }
 
     public function testAFieldWhoseTargetIsGoneIsSetAsideWithItsOwnedObjectWhole(): void {
-        $engineId = $this->connection->fetchOne("SELECT id FROM entities WHERE owner = ? AND owner_field = 'engine'", [$this->boatId]);
+        $engineId = $this->connection->fetchOne($this->sql("SELECT id FROM entities WHERE owner = ? AND owner_field = '{#ed_boat.engine}'"), [$this->boatId]);
 
         $this->migrate([...array_diff(MigratorEditorTypes::V1, [EdEngine::class])], MigrationSteps::none()->add('no-engines', [new DropType('ed:engine')]), new DeveloperPolicy());
 
@@ -223,7 +226,7 @@ final class MigratorBreaksTest extends TestCase
         $record = $this->brokenField('hull');
         self::assertSame(BrokenFieldReason::NameClash, $record->reason);
         self::assertSame(['' => 'steel'], $this->captured($record)['']['values'] ?? null);
-        self::assertSame('none', $this->connection->fetchOne('SELECT hull FROM ed_vehicle WHERE _id = ?', [$this->boatId]), 'The native field, with its own default: never the boat\'s old value.');
+        self::assertSame('none', $this->connection->fetchOne($this->sql('SELECT {ed_vehicle.hull} FROM ed_vehicle WHERE _id = ?'), [$this->boatId]),'The native field, with its own default: never the boat\'s old value.');
         self::assertFalse($this->boatSchema()->fields->has(FieldName::of('hull')));
         $this->boatStillLoads();
     }
@@ -236,7 +239,7 @@ final class MigratorBreaksTest extends TestCase
         );
 
         self::assertSame(['' => 'steel'], $this->captured($this->brokenField('hull'))['']['values'] ?? null, 'The boat\'s own value, never the initializer\'s.');
-        self::assertSame('painted', $this->connection->fetchOne('SELECT hull FROM ed_vehicle WHERE _id = ?', [$this->boatId]), 'The boat is a vehicle: the initializer fills the native field.');
+        self::assertSame('painted', $this->connection->fetchOne($this->sql('SELECT {ed_vehicle.hull} FROM ed_vehicle WHERE _id = ?'), [$this->boatId]),'The boat is a vehicle: the initializer fills the native field.');
     }
 
     public function testACutChainIsCapturedAfterTheStepsBeforeTheCut(): void {
@@ -266,7 +269,7 @@ final class MigratorBreaksTest extends TestCase
         $lost = array_values(array_filter($this->boatSchema()->noTypeRecords, static fn (object $record): bool => $record instanceof LostAncestor));
         self::assertSame(LostAncestorReason::NotExtensible, $lost[0]->reason ?? null);
         self::assertSame(['' => 'white'], $this->captured($this->brokenField('color'))['']['values'] ?? null);
-        self::assertSame('Van', $this->connection->fetchOne('SELECT name FROM ed_vehicle WHERE _id = ?', [$this->vehicleId]), 'The van, a vehicle itself, stays.');
+        self::assertSame('Van', $this->connection->fetchOne($this->sql('SELECT {ed_vehicle.name} FROM ed_vehicle WHERE _id = ?'), [$this->vehicleId]),'The van, a vehicle itself, stays.');
         $this->boatStillLoads();
     }
 

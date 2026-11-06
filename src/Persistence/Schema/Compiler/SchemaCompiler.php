@@ -57,7 +57,13 @@ final class SchemaCompiler
      *         $blueprints, in dependency order.
      */
     public function compile(array $blueprints): array {
-        $batch = $this->compute($blueprints);
+        $computed = $this->compute($blueprints);
+        $stored = [];
+        foreach ($this->schemaStore->all() as $each) {
+            $stored[$each->schema->identifier] = $each->schema;
+        }
+
+        $batch = FieldIdentities::assign($computed, $stored);
         $this->store($batch);
 
         // Registering can't fail, so a failed write registers nothing.

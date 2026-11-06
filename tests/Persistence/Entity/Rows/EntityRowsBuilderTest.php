@@ -13,6 +13,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityValues;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaLookup;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
+use XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Layout\LayoutFixtures;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Schema\InMemorySchemaStores;
 
 final class EntityRowsBuilderTest extends TestCase
@@ -26,11 +27,11 @@ final class EntityRowsBuilderTest extends TestCase
 
     protected function setUp(): void {
         $stores = new InMemorySchemaStores();
-        $stores->compiler()->compile(NativeEntityReader::readAll(RowsFixtures::CLASSES));
+        $schemas = LayoutFixtures::storedUnderTheirNames($stores->compiler()->compile(NativeEntityReader::readAll(RowsFixtures::CLASSES)));
 
         $this->identities = new IdentityMap();
         $this->values = new NativeEntityValues($stores->registry, $stores->values, $this->identities);
-        $this->builder = new EntityRowsBuilder(new SchemaLookup($stores->registry));
+        $this->builder = new EntityRowsBuilder(new SchemaLookup($stores->registry, $schemas));
     }
 
     /** @return list<EntityRows> */
@@ -39,7 +40,7 @@ final class EntityRowsBuilderTest extends TestCase
             $this->askedFor[] = (string) $path;
 
             return 'id-of-' . $path;
-        });
+        }, 'token');
     }
 
     /** @param list<Row> $rows */
@@ -73,11 +74,11 @@ final class EntityRowsBuilderTest extends TestCase
             array_map(static fn (Row $row): string => $row->table, $all[0]->rows),
         );
         self::assertSame(
-            ['id' => 'car-id', 'owner' => EntityIds::NIL, 'owner_field' => '', 'position' => -1, 'concrete_identifier' => 'default:rows_car'],
+            ['id' => 'car-id', 'owner' => EntityIds::NIL, 'owner_field' => '', 'position' => -1, 'concrete_identifier' => 'default:rows_car', 'written' => 'token'],
             self::rowIn($all[0]->rows, 'entities'),
         );
         self::assertSame(
-            ['_id' => 'car-id', '_owner' => EntityIds::NIL, '_owner_field' => '', 'chassis__weight' => 1000, 'maker' => null, '_spares_count' => 0],
+            ['_id' => 'car-id', '_owner' => EntityIds::NIL, '_owner_field' => '', '_written' => 'token', 'chassis__weight' => 1000, 'maker' => null, '_spares_count' => 0],
             self::rowIn($all[0]->rows, 'rows_car'),
         );
         self::assertSame(
@@ -91,7 +92,7 @@ final class EntityRowsBuilderTest extends TestCase
 
         self::assertSame(['engine'], $this->askedFor);
         self::assertSame(
-            ['_id' => 'id-of-engine', '_owner' => 'car-id', '_owner_field' => 'engine', 'horsepower' => 300],
+            ['_id' => 'id-of-engine', '_owner' => 'car-id', '_owner_field' => 'engine', '_written' => 'token', 'horsepower' => 300],
             self::rowIn($all[1]->rows, 'rows_engine'),
         );
         self::assertSame(['_id' => 'id-of-engine', 'horsepower' => false, 'turbo' => false], self::rowIn($all[1]->rows, '_state__rows_engine'));
@@ -123,11 +124,11 @@ final class EntityRowsBuilderTest extends TestCase
         self::assertSame('id-of-engine', $all[1]->id);
         self::assertSame('default:rows_engine', $all[1]->identifier);
         self::assertSame(
-            ['id' => 'id-of-engine', 'owner' => 'car-id', 'owner_field' => 'engine', 'position' => -1, 'concrete_identifier' => 'default:rows_engine'],
+            ['id' => 'id-of-engine', 'owner' => 'car-id', 'owner_field' => 'engine', 'position' => -1, 'concrete_identifier' => 'default:rows_engine', 'written' => 'token'],
             self::rowIn($all[1]->rows, 'entities'),
         );
         self::assertSame(
-            ['_id' => 'id-of-engine', '_owner' => 'car-id', '_owner_field' => 'engine', 'horsepower' => 450],
+            ['_id' => 'id-of-engine', '_owner' => 'car-id', '_owner_field' => 'engine', '_written' => 'token', 'horsepower' => 450],
             self::rowIn($all[1]->rows, 'rows_engine'),
         );
     }

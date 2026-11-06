@@ -14,6 +14,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\NoType\NoTypeRecord;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptorCollection;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldIdentity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
@@ -71,6 +72,24 @@ final readonly class EntitySchemaCodec
 
     /** @return array<string, mixed> Plain data only: JSON-safe. */
     public function encode(EntitySchema $schema): array {
+        $encoded = $this->encodeDeclared($schema);
+        foreach ($schema->fields as $name => $field) {
+            $identity = $field->identity();
+            if ($identity !== null) {
+                $encoded['fields'][(string) $name] += ['id' => $identity->id, 'column' => $identity->column];
+            }
+        }
+
+        return $encoded;
+    }
+
+    /**
+     * $schema as encode() gives it, without its fields' ids and columns: what
+     * it declares, the same in the code and in any database. What a
+     * fingerprint hashes.
+     * @return array<string, mixed>
+     */
+    public function encodeDeclared(EntitySchema $schema): array {
         $fields = [];
         foreach ($schema->fields as $name => $field) {
             $fields[(string) $name] = $this->encodeDescriptor($field);
@@ -142,7 +161,8 @@ final readonly class EntitySchemaCodec
     public function decode(array $encoded): EntitySchema {
         $fields = FieldDescriptorCollection::empty();
         foreach ($encoded['fields'] as $name => $field) {
-            $fields = $fields->with(FieldName::of($name), $this->decodeDescriptor($field));
+            $identity = isset($field['id']) ? new FieldIdentity($field['id'], $field['column']) : null;
+            $fields = $fields->with(FieldName::of($name), $this->decodeDescriptor($field)->withIdentity($identity));
         }
 
         $permissions = FieldPermissionCollection::empty();

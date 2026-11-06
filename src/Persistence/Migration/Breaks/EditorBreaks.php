@@ -116,7 +116,7 @@ final class EditorBreaks
         foreach ($lost as [$ancestor]) {
             $level = $schemas->has($ancestor) ? $schemas->get($ancestor) : ($before->has($ancestor) ? $before->get($ancestor) : null);
             foreach ($level?->fields ?? [] as $name => $field) {
-                if (!isset($kept[(string) $name]) || $kept[(string) $name] != $field) {
+                if (!isset($kept[(string) $name]) || !$kept[(string) $name]->sameAs($field)) {
                     $lostFields[] = [FieldName::of((string) $name), $ancestor];
                 }
             }

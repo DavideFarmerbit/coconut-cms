@@ -38,11 +38,13 @@ final class EntityRowsBuilder
      * @param Closure(FieldPath): string $ownedIdOf The id of the object owned
      *        at a path from this entity, given a new one if it
      *        never had one.
+     * @param string $written The write token: set on the entities row and on
+     *        every level row, of this entity and of everything it owns.
      * @return list<EntityRows> This entity's first, then everything it owns,
      *         each owner before what it owns.
      */
-    public function rowsOf(EntityValues $values, string $id, Placement $placement, Closure $ownedIdOf): array {
-        return $this->entityRows($values->identifier, $values->dense, $values->touched, $id, $placement, null, $ownedIdOf);
+    public function rowsOf(EntityValues $values, string $id, Placement $placement, Closure $ownedIdOf, string $written): array {
+        return $this->entityRows($values->identifier, $values->dense, $values->touched, $id, $placement, null, $ownedIdOf, $written);
     }
 
     /**
@@ -50,18 +52,19 @@ final class EntityRowsBuilder
      *        entity rowsOf() was called for; null for that entity itself.
      * @return list<EntityRows>
      */
-    private function entityRows(string $identifier, FieldValues $dense, FieldValues $touched, string $id, Placement $placement, ?FieldPath $prefix, Closure $ownedIdOf): array {
+    private function entityRows(string $identifier, FieldValues $dense, FieldValues $touched, string $id, Placement $placement, ?FieldPath $prefix, Closure $ownedIdOf, string $written): array {
         $rows = [new Row(DatabaseSchema::ENTITIES, [
             'id' => $id,
             'owner' => $placement->owner,
             'owner_field' => $placement->ownerField,
             'position' => $placement->position,
             'concrete_identifier' => $identifier,
+            'written' => $written,
         ])];
         $owned = [];
 
         foreach ($this->chains->of($identifier) as $level) {
-            $rows[] = new Row($level->table, $this->levelRowOf($level, $dense, $id, $placement), self::referenceColumnsOf($level->columns));
+            $rows[] = new Row($level->table, $this->levelRowOf($level, $dense, $id, $placement, $written), self::referenceColumnsOf($level->columns));
             $rows[] = new Row($level->stateTable, $this->stateRowOf($level, $touched, $id));
 
             foreach ($level->collections as $collection) {
@@ -69,7 +72,7 @@ final class EntityRowsBuilder
             }
 
             foreach ($level->owned as $ownedLayout) {
-                array_push($owned, ...$this->ownedRows($ownedLayout, $dense, $touched, $id, $prefix, $ownedIdOf));
+                array_push($owned, ...$this->ownedRows($ownedLayout, $dense, $touched, $id, $prefix, $ownedIdOf, $written));
             }
         }
 
@@ -91,8 +94,8 @@ final class EntityRowsBuilder
      * Every value $level's columns hold, touched or not.
      * @return array<string, mixed>
      */
-    private function levelRowOf(LevelLayout $level, FieldValues $dense, string $id, Placement $placement): array {
-        $row = [ColumnNames::ID => $id, ColumnNames::OWNER => $placement->owner, ColumnNames::OWNER_FIELD => $placement->ownerField];
+    private function levelRowOf(LevelLayout $level, FieldValues $dense, string $id, Placement $placement, string $written): array {
+        $row = [ColumnNames::ID => $id, ColumnNames::OWNER => $placement->owner, ColumnNames::OWNER_FIELD => $placement->ownerField, ColumnNames::WRITTEN => $written];
 
         foreach ($level->columns as $column) {
             $row[$column->name] = $dense->get($column->path);
@@ -162,15 +165,15 @@ final class EntityRowsBuilder
      * an empty slot.
      * @return list<EntityRows>
      */
-    private function ownedRows(OwnedLayout $owned, FieldValues $dense, FieldValues $touched, string $ownerId, ?FieldPath $prefix, Closure $ownedIdOf): array {
+    private function ownedRows(OwnedLayout $owned, FieldValues $dense, FieldValues $touched, string $ownerId, ?FieldPath $prefix, Closure $ownedIdOf, string $written): array {
         if ($owned->countColumn === null) {
-            return $this->ownedObjectRows($owned->path, $dense, $touched, Placement::owned($ownerId, $owned->path), $prefix, $ownedIdOf);
+            return $this->ownedObjectRows($owned->path, $dense, $touched, Placement::owned($ownerId, $owned->ownerField), $prefix, $ownedIdOf, $written);
         }
 
         $rows = [];
         for ($index = 0; $index < $dense->get($owned->path); $index++) {
-            $placement = Placement::owned($ownerId, $owned->path, $index);
-            array_push($rows, ...$this->ownedObjectRows($owned->path->traverse($index), $dense, $touched, $placement, $prefix, $ownedIdOf));
+            $placement = Placement::owned($ownerId, $owned->ownerField, $index);
+            array_push($rows, ...$this->ownedObjectRows($owned->path->traverse($index), $dense, $touched, $placement, $prefix, $ownedIdOf, $written));
         }
 
         return $rows;
@@ -180,7 +183,7 @@ final class EntityRowsBuilder
      * The rows of the object held at $path, nothing if it holds none.
      * @return list<EntityRows>
      */
-    private function ownedObjectRows(FieldPath $path, FieldValues $dense, FieldValues $touched, Placement $placement, ?FieldPath $prefix, Closure $ownedIdOf): array {
+    private function ownedObjectRows(FieldPath $path, FieldValues $dense, FieldValues $touched, Placement $placement, ?FieldPath $prefix, Closure $ownedIdOf, string $written): array {
         $identifier = $dense->get($path);
         if ($identifier === null) {
             return [];
@@ -188,6 +191,6 @@ final class EntityRowsBuilder
 
         $fullPath = $prefix === null ? $path : $prefix->append(FieldPath::TRAVERSE, $path);
 
-        return $this->entityRows($identifier, $dense->within($path), $touched->within($path), $ownedIdOf($fullPath), $placement, $fullPath, $ownedIdOf);
+        return $this->entityRows($identifier, $dense->within($path), $touched->within($path), $ownedIdOf($fullPath), $placement, $fullPath, $ownedIdOf, $written);
     }
 }

@@ -21,6 +21,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Dynamic\DynamicModule;
 use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Dynamic\DynamicTestCase;
+use XyloIsCoding\CoconutCms\Tests\Integration\StoredColumns;
 
 /** Passes a save's dry pass, and fails inside the move: what no check can see coming. */
 final readonly class ConverterFailingInTheMove implements FieldConverter
@@ -68,8 +69,9 @@ final class InterruptedSaveTest extends DynamicTestCase
 
     /** What expand leaves when a crash stops the move: cabins moved aside, a new one empty beside it. */
     private function crashAfterExpand(): void {
-        $this->connection->executeStatement('ALTER TABLE dy_yacht RENAME COLUMN cabins TO _old__cabins');
-        $this->connection->executeStatement('ALTER TABLE dy_yacht ADD COLUMN cabins VARCHAR(255) NULL');
+        $cabins = (new StoredColumns($this->connection))->column('dy_yacht', 'cabins');
+        $this->connection->executeStatement(sprintf('ALTER TABLE dy_yacht RENAME COLUMN %1$s TO _old__%1$s', $cabins));
+        $this->connection->executeStatement(sprintf('ALTER TABLE dy_yacht ADD COLUMN %s VARCHAR(255) NULL', $cabins));
         (new MigrationState($this->connection))->start();
     }
 

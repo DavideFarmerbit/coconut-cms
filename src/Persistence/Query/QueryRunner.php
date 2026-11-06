@@ -210,7 +210,7 @@ final class QueryRunner
             $from = $prefix . 'x';
             $items->from($this->quoted(DatabaseSchema::ENTITIES), $from)
                 ->where(sprintf('%s.owner = %s', $from, $collection['owner']))
-                ->andWhere(sprintf('%s.owner_field = %s', $from, $main->createNamedParameter($collection['owned']->ownerField())));
+                ->andWhere(sprintf('%s.owner_field = %s', $from, $main->createNamedParameter($collection['owned']->ownerField)));
             $itemJoins = Joins::forEntities($items, $main, $this->connection, $this->chains, $this->schemas, $this->permissions, $collection['item']->target(), $from, $prefix);
         } else {
             $from = $prefix . 'c';

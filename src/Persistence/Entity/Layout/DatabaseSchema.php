@@ -56,6 +56,8 @@ final class DatabaseSchema
         $table->addColumn('owner_field', Types::STRING, ['length' => 255, 'default' => '']);
         $table->addColumn('position', Types::INTEGER, ['default' => -1]);
         $table->addColumn('concrete_identifier', Types::STRING, ['length' => 255]);
+        // Fresh on every save of the aggregate: the entity's version.
+        $table->addColumn('written', Types::GUID, ['default' => EntityIds::NIL]);
         $table->setPrimaryKey(['id']);
         $table->addIndex(['owner', 'owner_field', 'position']);
         // A migration finds every entity of the types it changes by this.
@@ -68,6 +70,7 @@ final class DatabaseSchema
         $table->addColumn(ColumnNames::ID, Types::GUID);
         $table->addColumn(ColumnNames::OWNER, Types::GUID, ['default' => EntityIds::NIL]);
         $table->addColumn(ColumnNames::OWNER_FIELD, Types::STRING, ['length' => 255, 'default' => '']);
+        $table->addColumn(ColumnNames::WRITTEN, Types::GUID, ['default' => EntityIds::NIL]);
         $table->setPrimaryKey([ColumnNames::ID]);
         $table->addForeignKeyConstraint(self::ENTITIES, [ColumnNames::ID], ['id'], ['onDelete' => 'CASCADE']);
 

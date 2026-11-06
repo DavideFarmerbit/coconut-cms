@@ -224,7 +224,7 @@ final class Joins
                     throw self::unknown($path, sprintf('"%s" is an Owned Collection: whereHas() asks about its items', $at));
                 }
 
-                return $this->joinOwned($place['id'], $owned->ownerField(), $this->fieldOf($place['type'], $step)->target());
+                return $this->joinOwned($place['id'], $owned->ownerField, $this->fieldOf($place['type'], $step)->target());
             }
         }
 

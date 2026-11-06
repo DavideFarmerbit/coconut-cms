@@ -8,6 +8,7 @@ use Doctrine\DBAL\Connection;
 use Doctrine\DBAL\Exception\UniqueConstraintViolationException;
 use InvalidArgumentException;
 use LogicException;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\EntityIds;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelChains;
@@ -200,7 +201,7 @@ final class EntityWriter
 
             $this->assertPermitted($values, $storedEntity);
             $wanted = [];
-            foreach ($this->rows->rowsOf($values, $id, Placement::standalone(), $ownedIdOf) as $entity) {
+            foreach ($this->rows->rowsOf($values, $id, Placement::standalone(), $ownedIdOf, EntityIds::generate()) as $entity) {
                 $wanted[$entity->id] = $entity;
             }
 

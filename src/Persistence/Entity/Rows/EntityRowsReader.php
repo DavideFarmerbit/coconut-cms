@@ -138,7 +138,7 @@ final class EntityRowsReader
     private function readOwned(OwnedLayout $owned, array $ownerRow, string $ownerId, bool $isTouched, Closure $at, FieldValuesBuilder $values, FieldValuesBuilder $touched, array &$ownedIds): void {
         $rows = $this->connection->fetchAllAssociative(
             sprintf('SELECT id, concrete_identifier, position FROM %s WHERE owner = ? AND owner_field = ?', $this->quoted(DatabaseSchema::ENTITIES)),
-            [$ownerId, $owned->ownerField()],
+            [$ownerId, $owned->ownerField],
         );
         $byPosition = array_column($rows, null, 'position');
 

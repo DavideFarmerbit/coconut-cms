@@ -274,9 +274,8 @@ keys whose value isn't defaulted get stored (see below).
 `FieldPath` is built segment by segment, never by joining strings. Its string
 form is what gets stored. A `FieldName` never contains `:` or `.` and is never
 all digits, so a stored key parses back into a `FieldPath` without the schema.
-The separators are the storage format's own, not real column names: `_` would
-be ambiguous, since field names contain it. When a real column name is needed,
-it's derived from the path (not yet implemented: nothing needs it yet).
+The separators are the storage format's own, not real column names. A path
+never gives a column: see "Field identity".
 
 `compile()` computes first and commits last. It builds every schema and every
 value, and runs every check, without touching `SchemaRegistry` or
@@ -372,27 +371,63 @@ follow a later change to its parent, its Embed targets, or the classes it owns.
 fields is stored: a `LevelLayout`. `DatabaseSchema` turns level layouts into
 the Doctrine schema of every table they need. Neither reads the database.
 
+### Field identity
+
+A stored field has a `FieldIdentity`, and neither of its parts comes from its
+name:
+
+- **Id:** generated once, never changed, never reused. 12 hex characters.
+- **Column:** the physical name of what holds its current values, opaque, such
+  as `f_a1b2c3`. It's the field's column, its Collection table's suffix, or its
+  Embed's column prefix. Every field has one, whatever its kind, and it's unique
+  across all the types of a database.
+
+Both are stored in the schema, on the `FieldDescriptor`. A class says nothing of
+them, so a batch from the code has none. `FieldIdentities` gives a batch its
+identities once the fixups are planned: a field takes its identity from the same
+type's same field as the fixups left it, and a field new there gets a new one.
+
+| Change | Id | Column |
+|---|---|---|
+| Rename, of any field | Same | Same |
+| Move up or down a chain | Same | Same |
+| Retype | Same | New |
+| Remove, then add the same name | New | New |
+
+Renames and moves carry the identity because they carry the descriptor.
+`RetypeField` keeps the id and clears the column. Nothing may work out a column
+or an id from a field: both can differ between databases, since a fresh install
+never ran the old steps. Everything goes through the layout. A fingerprint hashes
+what a schema declares, `EntitySchemaCodec::encodeDeclared()`, without ids and
+columns, so it matches the code in any database. For the same reason, compare
+two fields with `sameAs()`, never `==`.
+
+### Tables
+
 - `entities`: one row per entity, native or editor-created. `id` (a UUID,
-  `CHAR(36)`), `owner`, `owner_field`, `position`, `concrete_identifier`.
-  `owner` points at another `entities` row and is `RESTRICT`ed. A row with no
-  real owner points at the seeded `Cms` row, the nil UUID.
+  `CHAR(36)`), `owner`, `owner_field`, `position`, `concrete_identifier`,
+  `written`. `owner` points at another `entities` row and is `RESTRICT`ed. A
+  row with no real owner points at the seeded `Cms` row, the nil UUID.
 - One table per inheritance level, named by the schema's `table`. Its `_id`
   is the entity's `id`. It copies the entity's owner and owner field as
-  `_owner` and `_owner_field`, so a unique index can include them. It holds
-  one column per value its own fields store:
+  `_owner` and `_owner_field`, so a unique index can include them. `_written`
+  is its write token. It holds one column per value its own fields store:
   - Scalar and ValueObject: one column.
   - Reference: the target's id, a foreign key to `entities`, `SET NULL`.
   - TypeReference: the identifier, a string of 255 characters at most. No
     foreign key: the schema table is rewritten whole at each save, so
     migrations keep what it names current instead.
-  - Embed: its leaves, flattened. The path's `:` becomes `__`:
-    `chassis:engine:piston:diameter` is `chassis__engine__piston__diameter`.
+  - Embed: its leaves, flattened. Each leaf's column is the Embeds' columns
+    and its own, joined with `__`: `f_a1b2c3__f_d4e5f6`. Two Embeds of one type
+    don't clash, and a nesting depth of five fits the 58 characters a name
+    has.
   - OwningReference: no column. The owned row is an `entities` row whose
-    `owner_field` holds the path, e.g. `engine` or `chassis:spare`.
+    `owner_field` holds the field's id, joined with its Embeds' ids by `:`
+    along the path. No rename touches a row.
   - Owned Collection: its items are `entities` rows too. Only the count is a
-    column here: `_engines_count`.
+    column here: `_f_a1b2c3_count`.
 - One table per other Collection, named after the level's table and the
-  path: `car__wheels`. Keyed by `_owner` and `_position`. The item kind only
+  field's column: `car__f_a1b2c3`. Keyed by `_owner` and `_position`. The item kind only
   decides the value columns: one `_value` column for a Scalar, ValueObject or
   Reference item, the flattened fields for an Embed item. An Embed item can't
   hold an OwningReference or a Collection anywhere in its embedded fields,
@@ -404,18 +439,22 @@ the Doctrine schema of every table they need. Neither reads the database.
   until it's needed.
 - A touched-state side table per level, `_state__car`, one row per entity.
   One boolean per path an instance can hold at that level: every value
-  column, and the bare path of every OwningReference and Collection. An
+  column, and the column of every OwningReference and Collection. An
   Embed item's fields get the same, in a side table of the Collection's own:
-  `_state__car__wheels`, keyed by `_owner` and `_position` like the items.
+  `_state__car__f_a1b2c3`, keyed by `_owner` and `_position` like the items.
 
-System names never collide with field names. A field name never starts with
-`_` and never holds `__`, and a type's own table never starts with `_`. Every
-name the system adds to a table holding fields starts with `_`: `_id`,
-`_owner`, `_owner_field`, `_position`, `_value`, `_<collection>_count`, and
-the state tables, `_state__<table>`. The `entities` table holds no fields, so
-its columns keep plain names. Without this, a field named `owner`, a
-Collection named `state`, or a field named `spares_count` next to an Owned
-Collection `spares` would each land on a name already taken.
+**Write tokens.** Every save sets one fresh token on each `entities` row and each
+level row it writes: `written` and `_written`. The `entities` token is the
+entity's version. A level's token says the row was written, whatever columns
+changed. A Collection table has no token: its items are written with the owner's
+level row. An owned object has its own rows, so its own tokens. Nothing reads them
+yet: see `PROPOSAL_FOR_SAVING.md`.
+
+System names never collide with fields. A generated column starts with `f_`, and a
+type's own table never starts with `_`. Every name the system adds to a table
+holding fields starts with `_`: `_id`, `_owner`, `_owner_field`, `_position`,
+`_value`, `_written`, `_<column>_count`, and the state tables, `_state__<table>`.
+The `entities` table holds no fields, so its columns keep plain names.
 
 A Collection is touched or not as a whole. Its rows are always every item,
 its default's while it's untouched (see "Content is dense"). Inside a
@@ -577,7 +616,7 @@ be stored as, and every row of what it owns. It's plain data: writing it is
 - A Collection gets all its rows, touched or not: one per item, plus one
   state row per Embed item.
 - An owned object gets rows of its own, touched or not. Its `owner` is the
-  entity owning it directly, `owner_field` the path it's held at, `position`
+  entity owning it directly, `owner_field` the id of the field holding it, `position`
   its index in an Owned Collection or -1. An empty slot gets no row. Its path
   is flagged touched once anything at or under it is, its class included:
   from then on it stops following the default, even if its class still
@@ -2461,11 +2500,12 @@ transaction. It runs in three steps instead:
 
 1. **Expand.** Add every new table, column and index. The old ones stay.
    Every value column is nullable, so old and new shapes coexist in one
-   table. A column keeping its name but changing its type is renamed out of
-   the way first, `weight` to `_old__weight`, then added again in its new
-   type; its indexes and foreign keys go, since they're no data. In MySQL 8
-   both are usually instant: nothing is copied. A table whose name a new one
-   needs is renamed the same way, to `_old__<table>`. The DDL comes from
+   table. A retype gets a new column, so a column no longer changes type in
+   place. Should one, it's renamed out of the way first, `f_a1b2c3` to
+   `_old__f_a1b2c3`, then added again in its new type; its indexes and foreign
+   keys go, since they're no data. In MySQL 8 both are usually instant: nothing
+   is copied. A table whose name a new one needs is renamed the same way, to
+   `_old__<table>`. The DDL comes from
    comparing the database as it is with the target, so running a failed
    migration again doesn't trip over what it already did.
 2. **Move.** Move every entity's data and commit the new schemas, in one

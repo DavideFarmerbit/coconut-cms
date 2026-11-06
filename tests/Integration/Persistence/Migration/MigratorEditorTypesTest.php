@@ -26,11 +26,14 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Tests\Integration\ReadsStoredColumns;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 
 /** A native migration carries editor-created types along: their schemas, their own defaults, their content. */
 final class MigratorEditorTypesTest extends TestCase
 {
+    use ReadsStoredColumns;
+
     private Connection $connection;
     private string $boatId;
     private string $vehicleId;
@@ -76,9 +79,9 @@ final class MigratorEditorTypesTest extends TestCase
         return (new Migrator($this->connection, $registry, $schemas, $values))->migrate(NativeEntityReader::readAll($classes), $steps);
     }
 
-    /** The boat's column $column, as stored. */
-    private function boat(string $column): mixed {
-        return $this->connection->fetchOne(sprintf('SELECT %s FROM ed_vehicle WHERE _id = ?', $column), [$this->boatId]);
+    /** The boat's field $field of a vehicle, as stored. */
+    private function boat(string $field): mixed {
+        return $this->connection->fetchOne($this->sql(sprintf('SELECT {ed_vehicle.%s} FROM ed_vehicle WHERE _id = ?', $field)), [$this->boatId]);
     }
 
     /** @return array<string, mixed> What the boat type sets itself, as stored. */
@@ -99,11 +102,13 @@ final class MigratorEditorTypesTest extends TestCase
     }
 
     public function testARenamedInheritedFieldRenamesWhatTheEditorTypeSetsAndHolds(): void {
+        $column = $this->sql('{ed_vehicle.price}');
         $this->migrate(
             [...array_diff(MigratorEditorTypes::V1, [EdVehicle::class]), EdVehicleWithCost::class],
             MigrationSteps::none()->add('cost', [new RenameField('ed:vehicle', 'price', 'cost')]),
         );
 
+        self::assertSame($column, $this->sql('{ed_vehicle.cost}'), 'The code says nothing of columns: the step carries it across.');
         self::assertSame(5, $this->boatDefaults()['cost'] ?? null, 'Its own default follows the rename.');
         self::assertArrayNotHasKey('price', $this->boatDefaults());
         self::assertSame(5, (int) $this->boat('cost'), 'Its content follows it.');
@@ -142,15 +147,15 @@ final class MigratorEditorTypesTest extends TestCase
         $boat = $schemas->load('ed:boat');
         self::assertSame(SchemaSource::Editor, $boat->source);
         self::assertSame('ed:motor', $boat->schema->fields->get(FieldName::of('engine'))->target());
-        $engine = $this->connection->fetchAssociative("SELECT id, concrete_identifier FROM entities WHERE owner = ? AND owner_field = 'engine'", [$this->boatId]);
+        $engine = $this->connection->fetchAssociative($this->sql("SELECT id, concrete_identifier FROM entities WHERE owner = ? AND owner_field = '{#ed_boat.engine}'"), [$this->boatId]);
         self::assertSame('ed:motor', $engine['concrete_identifier']);
-        self::assertSame(300, (int) $this->connection->fetchOne('SELECT horsepower FROM ed_motor WHERE _id = ?', [$engine['id']]));
+        self::assertSame(300, (int) $this->connection->fetchOne($this->sql('SELECT {ed_motor.horsepower} FROM ed_motor WHERE _id = ?'), [$engine['id']]));
     }
 
     public function testAnEditorTypeNothingChangedForStaysWhereItIs(): void {
         $result = $this->migrate([...array_diff(MigratorEditorTypes::V1, [EdEngine::class]), EdMotor::class], MigrationSteps::none()->add('motor', [new RenameType('ed:engine', 'ed:motor')]));
 
         self::assertSame(1, $result->moved, 'The boat owns an engine; the van holds none.');
-        self::assertSame('Van', $this->connection->fetchOne('SELECT name FROM ed_vehicle WHERE _id = ?', [$this->vehicleId]));
+        self::assertSame('Van', $this->connection->fetchOne($this->sql('SELECT {ed_vehicle.name} FROM ed_vehicle WHERE _id = ?'), [$this->vehicleId]));
     }
 }

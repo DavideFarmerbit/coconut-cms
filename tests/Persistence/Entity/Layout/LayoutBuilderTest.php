@@ -111,7 +111,7 @@ final class LayoutBuilderTest extends TestCase
 
     public function testOwningReferencesHaveNoColumnAndOwnedCollectionsHaveACount(): void {
         $owned = array_map(
-            static fn (OwnedLayout $owned): array => [$owned->ownerField(), $owned->countColumn],
+            static fn (OwnedLayout $owned): array => [$owned->ownerField, $owned->countColumn],
             self::car()->owned,
         );
 
@@ -177,7 +177,7 @@ final class LayoutBuilderTest extends TestCase
     public function testAnOwningReferenceInsideASingularEmbedIsFine(): void {
         $builder = LayoutFixtures::builderFor([LayoutPiston::class, LayoutEngine::class, LayoutHolder::class, LayoutWheelWithHolder::class]);
 
-        self::assertSame('holder:engine', $builder->levelOf('default:layout_wheel_with_holder')->owned[0]->ownerField());
+        self::assertSame('holder:engine', $builder->levelOf('default:layout_wheel_with_holder')->owned[0]->ownerField);
     }
 
     /** @return array<string, array{class-string}> */

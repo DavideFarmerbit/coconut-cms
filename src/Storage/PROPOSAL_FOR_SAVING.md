@@ -1,7 +1,7 @@
 # Proposal: Saving and Migrating
 
-Status: proposed. Stage 1 is built, the rest isn't. `RetypeSpikeTest` proves
-parts of the design in plain SQL. "Open points" lists what isn't settled.
+Status: proposed. Stages 1 and 2 are built, the rest isn't. `RetypeSpikeTest`
+proves parts of the design in plain SQL. "Open points" lists what isn't settled.
 
 ## The standard
 
@@ -43,7 +43,6 @@ In the way of the standard:
   stale.
 - `StateKey` is one hash, so a pending change anywhere blocks everything. An edit
   to any rule file makes a migration pending.
-- A retype moves a live column aside.
 - `checkContent()` reads every affected aggregate before starting.
 - `expand()` and `contract()` compare the whole database with one target, so two
   migrations can't overlap.
@@ -62,8 +61,9 @@ Wider than it needs to be:
 A field has two stored properties, and neither comes from its name:
 
 - **Field id:** generated once, never changed, never reused.
-- **Column:** the physical column holding its current values, opaque, such as
-  `f_a1b2c3`. A new one is generated only when the content needs one.
+- **Column:** the physical name of what holds its current values, opaque, such as
+  `f_a1b2c3`: its column, its Collection table's suffix, or its Embed's column
+  prefix. A new one is generated only when the content needs one.
 
 | Change | Field id | Column | Data moved |
 |---|---|---|---|
@@ -86,6 +86,8 @@ A field has two stored properties, and neither comes from its name:
 - `owner_field` and `_owner_field` hold the field id in place of the path, joined
   along an Embed path. They're the only row-level data depending on a field, so no
   rename touches a row. They're limited to 255 characters.
+- A migration still rewrites the aggregates a rename changes, until stage 4. A rename
+  moves no column and no table now, but the move runs as before.
 
 ## Migrating
 
@@ -371,8 +373,9 @@ interface SaveHandler
 Each stage works on its own.
 
 1. **Recover stopped migrations.** Done.
-2. **Field identity.** Field ids and stored columns in the schema, `owner_field` holding
-   ids, and the write tokens. No behaviour changes. Dev databases are reset.
+2. **Field identity.** Done. Field ids and stored columns in the schema, `owner_field`
+   holding ids, and the write tokens. Dev databases are reset. See "Field identity" in
+   `ARCHITECTURE_V3.md`.
 3. **The real reader on left-behind rows.** Markers, the converter at load, and an
    entity with no row at a gained level.
 4. **Content changes by backfill,** for editor saves: expand, background backfill,

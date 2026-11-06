@@ -5,6 +5,7 @@ namespace XyloIsCoding\CoconutCms\Persistence\Migration\Uniqueness;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\CollectionLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ValueColumn;
 
 /**
  * One unique index a migration's tables will have: a level's, or a
@@ -16,7 +17,8 @@ final readonly class UniqueIndex
     /**
      * @param string $type The entity type declaring the table.
      * @param list<string> $columns Every column, the scope's first.
-     * @param list<string> $valueColumns The group's own columns, without the scope's.
+     * @param array<string, string> $valueColumns The group's own columns,
+     *        without the scope's: each one's field path, by column.
      * @param string $entityColumn The column naming the entity a row is of: its id on a level, its owner's on a Collection.
      * @param bool $new Whether the tables don't have it yet.
      */
@@ -44,8 +46,13 @@ final readonly class UniqueIndex
         }
 
         $indexes = [];
-        foreach (self::listed($target) as [$type, $table, $columns, $entityColumn, $scope]) {
-            $indexes[] = new self($type, $table, $columns, array_values(array_slice($columns, $scope)), $entityColumn, !isset($existing[$table . '|' . implode(',', $columns)]));
+        foreach (self::listed($target) as [$type, $table, $columns, $entityColumn, $scope, $valueColumns]) {
+            $paths = [];
+            foreach ($valueColumns as $column) {
+                $paths[$column->name] = (string) $column->path;
+            }
+
+            $indexes[] = new self($type, $table, $columns, array_intersect_key($paths, array_flip(array_slice($columns, $scope))), $entityColumn, !isset($existing[$table . '|' . implode(',', $columns)]));
         }
 
         return $indexes;
@@ -53,13 +60,13 @@ final readonly class UniqueIndex
 
     /**
      * @param list<LevelLayout> $levels
-     * @return list<array{string, string, list<string>, string, int}> Each index's type, table, columns, entity column, and how many scope columns lead it.
+     * @return list<array{string, string, list<string>, string, int, list<ValueColumn>}> Each index's type, table, columns, entity column, how many scope columns lead it, and the value columns of its table.
      */
     private static function listed(array $levels): array {
         $listed = [];
         foreach ($levels as $level) {
             foreach ($level->uniqueIndexes as $columns) {
-                $listed[] = [$level->identifier, $level->table, $columns, ColumnNames::ID, 2];
+                $listed[] = [$level->identifier, $level->table, $columns, ColumnNames::ID, 2, $level->columns];
             }
 
             foreach ($level->collections as $collection) {
@@ -70,10 +77,10 @@ final readonly class UniqueIndex
         return $listed;
     }
 
-    /** @return list<array{string, string, list<string>, string, int}> */
+    /** @return list<array{string, string, list<string>, string, int, list<ValueColumn>}> */
     private static function collectionIndexes(LevelLayout $level, CollectionLayout $collection): array {
         return array_map(
-            static fn (array $columns): array => [$level->identifier, $collection->table, $columns, ColumnNames::OWNER, 1],
+            static fn (array $columns): array => [$level->identifier, $collection->table, $columns, ColumnNames::OWNER, 1, $collection->itemColumns],
             $collection->uniqueIndexes,
         );
     }

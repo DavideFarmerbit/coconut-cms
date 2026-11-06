@@ -171,7 +171,12 @@ final class UniquenessCheck
                 sprintf('SELECT %s FROM %s WHERE %s', $this->connection->quoteSingleIdentifier($index->entityColumn), self::KEYS, $where),
                 array_values($group),
             );
-            $duplicates[] = new Duplicate($index->type, array_intersect_key($group, array_flip($index->valueColumns)), array_values(array_unique(array_map('strval', $entities))));
+            $values = [];
+            foreach ($index->valueColumns as $column => $path) {
+                $values[$path] = $group[$column];
+            }
+
+            $duplicates[] = new Duplicate($index->type, $values, array_values(array_unique(array_map('strval', $entities))));
         }
 
         return $duplicates;

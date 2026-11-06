@@ -34,6 +34,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Tests\Integration\ReadsStoredColumns;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 use XyloIsCoding\CoconutCms\Tests\Persistence\Migration\Data\ConvertsAnyField;
 
@@ -73,6 +74,8 @@ final class MigPriceWithAStrayValue implements FieldConverter
 
 final class MigratorTest extends TestCase
 {
+    use ReadsStoredColumns;
+
     private Connection $connection;
 
     protected function setUp(): void {
@@ -285,8 +288,8 @@ final class MigratorTest extends TestCase
     public function testAMoveThatWouldFailIsRefusedBeforeAnythingChangesAndTheFixedStepRuns(): void {
         $this->migrate(MigratorV1::CLASSES, MigrationSteps::none());
         $ids = $this->saveV1Cars();
-        $this->connection->executeStatement("UPDATE migtest_car SET price = 999 WHERE _id = ?", [$ids['racer']]);
-        $this->connection->executeStatement("UPDATE _state__migtest_car SET price = 1 WHERE _id = ?", [$ids['racer']]);
+        $this->connection->executeStatement($this->sql('UPDATE migtest_car SET {migtest_car.price} = 999 WHERE _id = ?'), [$ids['racer']]);
+        $this->connection->executeStatement($this->sql('UPDATE _state__migtest_car SET {migtest_car.price} = 1 WHERE _id = ?'), [$ids['racer']]);
         $tables = $this->tables();
 
         try {
@@ -412,7 +415,7 @@ final class MigratorTest extends TestCase
 
     /** @return array{id: string, concrete_identifier: string} The engine stored under car $carId. */
     private function engineOf(string $carId): array {
-        return $this->connection->fetchAssociative("SELECT id, concrete_identifier FROM entities WHERE owner = ? AND owner_field = 'engine'", [$carId]);
+        return $this->connection->fetchAssociative($this->sql("SELECT id, concrete_identifier FROM entities WHERE owner = ? AND owner_field = '{#migdef_car.engine}'"), [$carId]);
     }
 
     public function testAChangedDefaultRewritesWhatFollowsItAndNothingElse(): void {
@@ -423,14 +426,14 @@ final class MigratorTest extends TestCase
 
         self::assertTrue($result->plan->isEmpty(), 'A default is never a difference.');
         self::assertSame(2, $result->moved, 'Both cars; Cms is unchanged, so it stays.');
-        $color = fn (string $id): string => $this->connection->fetchOne('SELECT color FROM migdef_car WHERE _id = ?', [$id]);
-        $power = fn (string $id): int => (int) $this->connection->fetchOne('SELECT horsepower FROM migdef_engine WHERE _id = ?', [$id]);
+        $color = fn (string $id): string => $this->connection->fetchOne($this->sql('SELECT {migdef_car.color} FROM migdef_car WHERE _id = ?'), [$id]);
+        $power = fn (string $id): int => (int) $this->connection->fetchOne($this->sql('SELECT {migdef_engine.horsepower} FROM migdef_engine WHERE _id = ?'), [$id]);
         self::assertSame('blue', $color($cars['untouched']));
         self::assertSame(200, $power($engines['untouched']['id']));
         self::assertSame('green', $color($cars['touched']));
         self::assertSame(500, $power($engines['touched']['id']));
         self::assertSame($engines, array_map($this->engineOf(...), $cars), 'Still the same engines.');
-        self::assertSame(0, (int) $this->connection->fetchOne('SELECT color FROM _state__migdef_car WHERE _id = ?', [$cars['untouched']]));
+        self::assertSame(0, (int) $this->connection->fetchOne($this->sql('SELECT {_state__migdef_car.color} FROM _state__migdef_car WHERE _id = ?'),[$cars['untouched']]));
     }
 
     public function testATouchedValueTheNewDefaultEqualsFollowsItFromThen(): void {
@@ -439,12 +442,12 @@ final class MigratorTest extends TestCase
         $car = new MigDefV1Car();
         $car->color = 'blue';
         $id = (new NativeEntityWriter(EntityWriter::of($this->connection, $registry), $registry, $values, new IdentityMap()))->save($car);
-        self::assertSame(1, (int) $this->connection->fetchOne('SELECT color FROM _state__migdef_car WHERE _id = ?', [$id]));
+        self::assertSame(1, (int) $this->connection->fetchOne($this->sql('SELECT {_state__migdef_car.color} FROM _state__migdef_car WHERE _id = ?'),[$id]));
 
         $this->migrate(MigratorDefaults::V2, MigrationSteps::none());
 
-        self::assertSame(0, (int) $this->connection->fetchOne('SELECT color FROM _state__migdef_car WHERE _id = ?', [$id]), 'Blue is the default now.');
-        self::assertSame('blue', $this->connection->fetchOne('SELECT color FROM migdef_car WHERE _id = ?', [$id]));
+        self::assertSame(0, (int) $this->connection->fetchOne($this->sql('SELECT {_state__migdef_car.color} FROM _state__migdef_car WHERE _id = ?'),[$id]), 'Blue is the default now.');
+        self::assertSame('blue', $this->connection->fetchOne($this->sql('SELECT {migdef_car.color} FROM migdef_car WHERE _id = ?'), [$id]));
     }
 
     public function testADefaultNamingAnotherClassReplacesAnUntouchedOwnedObject(): void {

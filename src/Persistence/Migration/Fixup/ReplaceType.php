@@ -99,7 +99,7 @@ final readonly class ReplaceType implements Fixup, MovesValues, ChangesTypes
             $name = (string) $name;
             if (!$old->has(FieldName::of($name))) {
                 $gained[] = $name;
-            } elseif ($old->get(FieldName::of($name)) != $field) {
+            } elseif (!$old->get(FieldName::of($name))->sameAs($field)) {
                 $differing[] = $name;
             }
         }

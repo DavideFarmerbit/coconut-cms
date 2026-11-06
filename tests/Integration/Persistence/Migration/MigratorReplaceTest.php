@@ -21,11 +21,14 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Tests\Integration\ReadsStoredColumns;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 
 /** ReplaceType: every entity of a type becomes one of another, keeping its id; values follow field names. */
 final class MigratorReplaceTest extends TestCase
 {
+    use ReadsStoredColumns;
+
     private Connection $connection;
 
     /** @var array<string, string> What setUp() saved: ids by name. */
@@ -57,7 +60,7 @@ final class MigratorReplaceTest extends TestCase
         $this->ids['sport'] = $writer->save($sport);
         $car->favorite = $turbo;
         $this->ids['car'] = $writer->save($car);
-        $this->ids['ownedTurbo'] = $this->connection->fetchOne("SELECT id FROM entities WHERE owner = ? AND owner_field = 'engine'", [$this->ids['car']]);
+        $this->ids['ownedTurbo'] = $this->connection->fetchOne($this->sql("SELECT id FROM entities WHERE owner = ? AND owner_field = '{#rep_car.engine}'"), [$this->ids['car']]);
     }
 
     protected function tearDown(): void {
@@ -89,9 +92,9 @@ final class MigratorReplaceTest extends TestCase
         return $this->connection->fetchOne('SELECT concrete_identifier FROM entities WHERE id = ?', [$id]);
     }
 
-    /** @return array<string, mixed>|false Entity $id's row at the electric level. */
+    /** @return array{power: ?string, battery: mixed}|false Entity $id's values at the electric level. */
     private function electricRow(string $id): array|false {
-        return $this->connection->fetchAssociative('SELECT * FROM rep_electric WHERE _id = ?', [$id]);
+        return $this->connection->fetchAssociative($this->sql('SELECT {rep_electric.power} AS power, {rep_electric.battery} AS battery FROM rep_electric WHERE _id = ?'), [$id]);
     }
 
     public function testEveryEntityOfTheTypeBecomesOneOfTheReplacementKeepingItsId(): void {
@@ -99,13 +102,13 @@ final class MigratorReplaceTest extends TestCase
 
         self::assertSame('rep:electric', $this->typeOf($this->ids['turbo']));
         self::assertSame('rep:electric', $this->typeOf($this->ids['ownedTurbo']), 'Owned or standalone.');
-        self::assertSame('Standalone turbo', $this->connection->fetchOne('SELECT name FROM rep_engine WHERE _id = ?', [$this->ids['turbo']]), 'A field both have, the same, keeps its value.');
+        self::assertSame('Standalone turbo', $this->connection->fetchOne($this->sql('SELECT {rep_engine.name} FROM rep_engine WHERE _id = ?'),[$this->ids['turbo']]), 'A field both have, the same, keeps its value.');
 
         $electric = $this->electricRow($this->ids['turbo']);
         self::assertSame('120 kW', $electric['power'] ?? null, 'A field both have differently goes through its converter.');
         self::assertSame(100, (int) ($electric['battery'] ?? 0), 'A field only the replacement has gets its initializer.');
         self::assertSame('90 kW', $this->electricRow($this->ids['ownedTurbo'])['power'] ?? null);
-        self::assertSame($this->ids['turbo'], $this->connection->fetchOne('SELECT favorite FROM rep_car WHERE _id = ?', [$this->ids['car']]), 'A Reference to it still holds it.');
+        self::assertSame($this->ids['turbo'], $this->connection->fetchOne($this->sql('SELECT {rep_car.favorite} FROM rep_car WHERE _id = ?'),[$this->ids['car']]), 'A Reference to it still holds it.');
         self::assertFalse($this->connection->createSchemaManager()->tablesExist(['rep_turbo']), 'Its own level is gone, boost with it.');
     }
 
@@ -113,7 +116,7 @@ final class MigratorReplaceTest extends TestCase
         $this->replace(new ReplaceType('rep:turbo', 'rep:electric', converters: ['power' => new RepPowerToKilowatts()]));
 
         self::assertSame('rep:sport', $this->typeOf($this->ids['sport']), 'It keeps its own type.');
-        self::assertSame(3, (int) $this->connection->fetchOne('SELECT stripes FROM rep_sport WHERE _id = ?', [$this->ids['sport']]));
+        self::assertSame(3, (int) $this->connection->fetchOne($this->sql('SELECT {rep_sport.stripes} FROM rep_sport WHERE _id = ?'),[$this->ids['sport']]));
         self::assertSame('200 kW', $this->electricRow($this->ids['sport'])['power'] ?? null, 'What it inherited is converted too.');
         self::assertSame(50, (int) ($this->electricRow($this->ids['sport'])['battery'] ?? 0), 'Without an initializer, a field gained follows its default.');
     }

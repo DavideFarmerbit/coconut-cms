@@ -58,7 +58,7 @@ final class SchemaDiff
         foreach ($new->fields as $name => $field) {
             if (!$old->fields->has($name)) {
                 $differences[] = new FieldAdded($identifier, $name, $field);
-            } elseif ($old->fields->get($name) != $field && !self::onlyWidens($old->fields->get($name), $field)) {
+            } elseif (!$old->fields->get($name)->sameAs($field) && !self::onlyWidens($old->fields->get($name), $field)) {
                 $differences[] = new FieldChanged($identifier, $name, $old->fields->get($name), $field);
             }
         }

@@ -231,7 +231,7 @@ final class QueryTest extends TestCase
 
     public function testOwnedEntitiesAreNeverListedOnTheirOwn(): void {
         self::assertSame(0, $this->session->query(QueryEngine::class)->count());
-        self::assertGreaterThan(0, (int) $this->connection->fetchOne("SELECT COUNT(*) FROM entities WHERE owner_field = 'engine'"));
+        self::assertGreaterThan(0, (int) $this->connection->fetchOne("SELECT COUNT(*) FROM entities WHERE owner_field <> ''"));
     }
 
     public function testPagesFollowEachOtherWithoutGapOrRepeatThroughTies(): void {

@@ -12,6 +12,8 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\OwningReferenc
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Reference;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Scalar;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\ValueObject;
+use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldIdentity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
@@ -182,9 +184,25 @@ final class LayoutFixtures
         $stores->valueObjects->register(Identifier::of('test', 'color'), LayoutColor::class);
         $stores->valueObjects->register(Identifier::of('test', 'notes'), LayoutNotes::class);
         $stores->enums->register(Identifier::of('test', 'fuel'), LayoutFuel::class);
-        $stores->compiler()->compile(NativeEntityReader::readAll($classes));
 
-        return new LayoutBuilder(new SchemaLookup($stores->registry));
+        return new LayoutBuilder(new SchemaLookup($stores->registry, self::storedUnderTheirNames($stores->compiler()->compile(NativeEntityReader::readAll($classes)))));
+    }
+
+    /**
+     * $schemas with each field's id and column set to its name: columns are
+     * generated, and a test on how they're put together needs to name them.
+     * @param array<string, EntitySchema> $schemas
+     * @return array<string, EntitySchema>
+     */
+    public static function storedUnderTheirNames(array $schemas): array {
+        return array_map(static function (EntitySchema $schema): EntitySchema {
+            $fields = $schema->fields;
+            foreach ($schema->fields as $name => $field) {
+                $fields = $fields->with($name, $field->withIdentity(new FieldIdentity((string) $name, (string) $name)));
+            }
+
+            return $schema->withFields($fields);
+        }, $schemas);
     }
 
     /** A builder knowing every class a LayoutCar needs. */

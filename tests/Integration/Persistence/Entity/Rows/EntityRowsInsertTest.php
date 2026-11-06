@@ -8,9 +8,12 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\Cms;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityTables;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\EntityIds;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\CollectionLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LayoutBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\OwnedLayout;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ValueColumn;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\EntityRowsBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Rows\Placement;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Native\NativeEntityValues;
@@ -77,7 +80,7 @@ final class EntityRowsInsertTest extends TestCase
         $car->tags = ['red'];
 
         $values = (new NativeEntityValues($this->stores->registry, $this->stores->values, $identities))->of($car);
-        $all = (new EntityRowsBuilder(new SchemaLookup($this->stores->registry)))->rowsOf($values, EntityIds::generate(), Placement::standalone(), static fn (): string => EntityIds::generate());
+        $all = (new EntityRowsBuilder(new SchemaLookup($this->stores->registry)))->rowsOf($values, EntityIds::generate(), Placement::standalone(), static fn (): string => EntityIds::generate(), EntityIds::generate());
 
         foreach ($all as $entity) {
             foreach ($entity->rows as $row) {
@@ -87,7 +90,11 @@ final class EntityRowsInsertTest extends TestCase
 
         // The car, its engine, the engine's turbo, one spare, plus the maker and Cms.
         self::assertSame(6, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM entities'));
-        self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM _state__rows_car__wheels WHERE maker = 1'));
-        self::assertSame(2, (int) $this->connection->fetchOne('SELECT _spares_count FROM rows_car'));
+        $car = array_values(array_filter($this->levels, static fn (LevelLayout $level): bool => $level->table === 'rows_car'))[0];
+        $wheels = array_values(array_filter($car->collections, static fn (CollectionLayout $collection): bool => (string) $collection->path === 'wheels'))[0];
+        $maker = array_values(array_filter($wheels->itemColumns, static fn (ValueColumn $column): bool => (string) $column->path === 'maker'))[0];
+        $spares = array_values(array_filter($car->owned, static fn (OwnedLayout $owned): bool => (string) $owned->path === 'spares'))[0];
+        self::assertSame(1, (int) $this->connection->fetchOne(sprintf('SELECT COUNT(*) FROM %s WHERE %s = 1', $wheels->stateTable, $maker->name)));
+        self::assertSame(2, (int) $this->connection->fetchOne(sprintf('SELECT %s FROM rows_car', $spares->countColumn)));
     }
 }

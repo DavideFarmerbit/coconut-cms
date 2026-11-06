@@ -45,6 +45,7 @@ use XyloIsCoding\CoconutCms\Persistence\Platform\DatabasePlatform;
 use XyloIsCoding\CoconutCms\Persistence\Platform\Platforms;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\CompiledBatch;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\EntityBlueprint;
+use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\FieldIdentities;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\SchemaCompiler;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Compiler\StoredBlueprintReader;
 use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
@@ -276,10 +277,11 @@ final readonly class Migrator
             $draft->targets(),
         );
 
-        $batch = $plan->isBlocked() ? null : $this->compiler->compute([...$blueprints, ...$this->editorBlueprints($stored, $plan->plan, $draft)]);
-        if ($batch === null) {
+        if ($plan->isBlocked()) {
             return new PreparedEditorSave($save->operations, $stored, $stateKey, $plan, null, new ContentCheck([], []));
         }
+
+        $batch = self::identified($this->compiler->compute([...$blueprints, ...$this->editorBlueprints($stored, $plan->plan, $draft)]), $plan->plan, $stored);
 
         self::assertPinned($draft, $batch);
         $defaultBreaks = (new DefaultsCheck($this->registry, $this->values))->of($plan->plan->schemas->schemas(), $batch, self::withDescendants($draft->touched(), $batch->schemas));
@@ -363,7 +365,7 @@ final readonly class Migrator
                 if (isset($target[$aggregate->identifier])) {
                     self::checkWritten($aggregate, $storedForm);
                     $values = self::entityValuesOf($aggregate, $targetSchemas, $resolver);
-                    $uniqueness->addMoved($rows->rowsOf($values, $id, Placement::standalone(), self::ownedIdsOf($aggregate, $values)));
+                    $uniqueness->addMoved($rows->rowsOf($values, $id, Placement::standalone(), self::ownedIdsOf($aggregate, $values), EntityIds::NIL));
                 }
 
                 if (count($sampled) < $samples) {
@@ -419,7 +421,7 @@ final readonly class Migrator
         // Every editor-created type is compiled again with the new native
         // ones: checked again, its defaults laid over its new ancestors, its
         // fingerprints matching them.
-        $batch = $fresh ? $nativeBatch : $this->compiler->compute([...$blueprints, ...$this->editorBlueprints($stored, $plan)]);
+        $batch = self::identified($fresh ? $nativeBatch : $this->compiler->compute([...$blueprints, ...$this->editorBlueprints($stored, $plan)]), $plan, $stored);
 
         // What would fail once started fails now, the site as it was.
         if (!$fresh) {
@@ -432,6 +434,14 @@ final readonly class Migrator
         return $moved === null
             ? new MigrationResult(false, $plan, [], 0, $stateKey)
             : new MigrationResult($fresh, $plan, $recorded, $moved, $stateKey);
+    }
+
+    /**
+     * $batch with every field's identity: carried by the plan's fixups, or new.
+     * @param list<StoredSchema> $stored
+     */
+    private static function identified(CompiledBatch $batch, MigrationPlan $plan, array $stored): CompiledBatch {
+        return FieldIdentities::assign($batch, $plan->schemas->schemas(), array_map(static fn (StoredSchema $each): EntitySchema => $each->schema, $stored));
     }
 
     /**
@@ -865,7 +875,7 @@ final readonly class Migrator
 
             $wanted = $target->fields->get($name);
             if ($field->ownOrItemNullability() === Nullability::NotNullable && $wanted->ownOrItemNullability() === Nullability::Nullable && $field->differsOnlyInNullability($wanted)) {
-                $fields = $fields->with($name, $wanted);
+                $fields = $fields->with($name, $wanted->withIdentity($field->identity()));
             }
         }
 

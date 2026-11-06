@@ -58,6 +58,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Dynamic\DynamicModule;
 use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Dynamic\DynamicTestCase;
+use XyloIsCoding\CoconutCms\Tests\Integration\StoredColumns;
 
 /** Flags every yacht moving under a vessel: what a test's Reparent fills the vessel's level with. */
 final readonly class FlagOfYachts implements LevelInitializer
@@ -421,7 +422,7 @@ final class EditorSaveTest extends DynamicTestCase
         }
 
         self::assertSame(1, $this->revision(), 'Nothing changed.');
-        $this->connection->executeStatement('UPDATE dy_buoy SET color = ? WHERE _id = ?', ['blue', $alsoRed]);
+        $this->connection->executeStatement((new StoredColumns($this->connection))->sql('UPDATE dy_buoy SET {dy_buoy.color} = ? WHERE _id = ?'), ['blue', $alsoRed]);
         $this->saveAs(new StrictPolicy(), $group);
         self::assertSame(2, $this->revision());
 

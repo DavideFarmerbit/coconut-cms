@@ -18,6 +18,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
 use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Migration\MigratorEditorTypes;
+use XyloIsCoding\CoconutCms\Tests\Integration\StoredColumns;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 
 /**
@@ -87,8 +88,13 @@ abstract class DynamicTestCase extends TestCase
         ];
     }
 
-    /** The value of $column in $table's row for entity $id, as stored. */
-    protected function stored(string $table, string $column, string $id): mixed {
+    /** The value of field $field in $table's row for entity $id, as stored. */
+    protected function stored(string $table, string $field, string $id): mixed {
+        return $this->storedIn($table, (new StoredColumns($this->connection))->column($table, $field), $id);
+    }
+
+    /** The value of $column in $table's row for entity $id, as stored: for a column no field holds. */
+    protected function storedIn(string $table, string $column, string $id): mixed {
         return $this->connection->fetchOne(sprintf('SELECT %s FROM %s WHERE %s = ?', $column, $table, ColumnNames::ID), [$id]);
     }
 
@@ -99,6 +105,8 @@ abstract class DynamicTestCase extends TestCase
 
     /** @return list<string> The ids owned by $ownerId at $field, in their order. */
     protected function ownedIds(string $ownerId, string $field): array {
-        return $this->connection->fetchFirstColumn(sprintf('SELECT id FROM %s WHERE owner = ? AND owner_field = ? ORDER BY position', DatabaseSchema::ENTITIES), [$ownerId, $field]);
+        $ownerField = (new StoredColumns($this->connection))->ownerFieldOf($this->typeOf($ownerId), $field);
+
+        return $this->connection->fetchFirstColumn(sprintf('SELECT id FROM %s WHERE owner = ? AND owner_field = ? ORDER BY position', DatabaseSchema::ENTITIES), [$ownerId, $ownerField]);
     }
 }

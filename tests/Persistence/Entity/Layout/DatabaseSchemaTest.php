@@ -118,7 +118,7 @@ final class DatabaseSchemaTest extends TestCase
         $car = self::carSchema()->getTable('car');
 
         self::assertSame(
-            ['_id', '_owner', '_owner_field', 'color', 'fuel', 'chassis__weight', 'chassis__maker', '_engines_count'],
+            ['_id', '_owner', '_owner_field', '_written', 'color', 'fuel', 'chassis__weight', 'chassis__maker', '_engines_count'],
             self::columnNamesOf($car),
         );
     }

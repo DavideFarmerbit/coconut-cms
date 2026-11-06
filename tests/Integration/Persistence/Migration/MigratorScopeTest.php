@@ -21,11 +21,14 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Registry\SchemaStore;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\FieldValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\SchemaFieldValueStore;
+use XyloIsCoding\CoconutCms\Tests\Integration\ReadsStoredColumns;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 
 /** A migration moves the aggregates holding a changed type, and only those. */
 final class MigratorScopeTest extends TestCase
 {
+    use ReadsStoredColumns;
+
     private Connection $connection;
 
     /** @var array<string, string> What setUp() saved: ids by name. */
@@ -89,15 +92,15 @@ final class MigratorScopeTest extends TestCase
         $result = $this->migrate(MigratorScope::swapping([ScopeMaker::class], [ScopeMakerWithCountry::class]), MigrationSteps::none());
 
         self::assertSame(1, $result->moved, 'The maker; no car, no engine.');
-        self::assertSame('IT', $this->connection->fetchOne('SELECT country FROM scope_maker WHERE _id = ?', [$this->ids['maker']]));
+        self::assertSame('IT', $this->connection->fetchOne($this->sql('SELECT {scope_maker.country} FROM scope_maker WHERE _id = ?'),[$this->ids['maker']]));
     }
 
     public function testASubtypeHeldWhereItsParentIsDeclaredMovesItsHolders(): void {
         $result = $this->migrate(MigratorScope::swapping([ScopeTurbo::class], [ScopeTurboWithWastegate::class]), MigrationSteps::none());
 
         self::assertSame(2, $result->moved, 'The car holding a turbo, and the standalone turbo.');
-        $turboOfCar = $this->connection->fetchOne("SELECT id FROM entities WHERE owner = ? AND owner_field = 'engine'", [$this->ids['turboCar']]);
-        self::assertSame(1, (int) $this->connection->fetchOne('SELECT wastegate FROM scope_turbo WHERE _id = ?', [$turboOfCar]));
+        $turboOfCar = $this->connection->fetchOne($this->sql("SELECT id FROM entities WHERE owner = ? AND owner_field = '{#scope_car.engine}'"), [$this->ids['turboCar']]);
+        self::assertSame(1, (int) $this->connection->fetchOne($this->sql('SELECT {scope_turbo.wastegate} FROM scope_turbo WHERE _id = ?'), [$turboOfCar]));
     }
 
     public function testAnEmbedTargetChangingMovesEveryHolder(): void {
@@ -110,39 +113,41 @@ final class MigratorScopeTest extends TestCase
         $result = $this->migrate(MigratorScope::swapping([ScopeEngine::class, ScopeTurbo::class], [ScopeStrongerEngine::class, ScopeTurboOfStrongerEngine::class]), MigrationSteps::none());
 
         self::assertSame(5, $result->moved, 'The three cars, which declare an engine, and both standalone engines; no maker.');
-        self::assertSame(150, (int) $this->connection->fetchOne('SELECT horsepower FROM scope_engine WHERE _id = ?', [$this->ids['turbo']]));
+        self::assertSame(150, (int) $this->connection->fetchOne($this->sql('SELECT {scope_engine.horsepower} FROM scope_engine WHERE _id = ?'),[$this->ids['turbo']]));
     }
 
     public function testAStepMovingDataAloneMovesItsTypesAggregates(): void {
         $result = $this->migrate(MigratorScope::V1, MigrationSteps::none()->add('nickname-from-name', [new MoveValues('scope:car', 'name', 'nickname')]));
 
         self::assertSame(3, $result->moved, 'The three cars, though no schema changed.');
-        self::assertSame('Plain car', $this->connection->fetchOne('SELECT nickname FROM scope_car WHERE _id = ?', [$this->ids['plainCar']]));
+        self::assertSame('Plain car', $this->connection->fetchOne($this->sql('SELECT {scope_car.nickname} FROM scope_car WHERE _id = ?'),[$this->ids['plainCar']]));
     }
 
     public function testAStepMovingDataAloneMovesItsSubtypesAndItsHoldersToo(): void {
         $result = $this->migrate(MigratorScope::V1, MigrationSteps::none()->add('torque-from-horsepower', [new MoveValues('scope:engine', 'horsepower', 'torque')]));
 
         self::assertSame(5, $result->moved, 'Both standalone engines, the turbo one included, and the three cars, which declare an engine.');
-        $turboOfCar = $this->connection->fetchOne("SELECT id FROM entities WHERE owner = ? AND owner_field = 'engine'", [$this->ids['turboCar']]);
-        self::assertSame(300, (int) $this->connection->fetchOne('SELECT torque FROM scope_engine WHERE _id = ?', [$turboOfCar]), 'A turbo is an engine: the step moves its values too.');
+        $turboOfCar = $this->connection->fetchOne($this->sql("SELECT id FROM entities WHERE owner = ? AND owner_field = '{#scope_car.engine}'"), [$this->ids['turboCar']]);
+        self::assertSame(300, (int) $this->connection->fetchOne($this->sql('SELECT {scope_engine.torque} FROM scope_engine WHERE _id = ?'), [$turboOfCar]),'A turbo is an engine: the step moves its values too.');
     }
 
     public function testAStepMovingDataAloneOnAnEmbedTargetMovesItsHolders(): void {
         $result = $this->migrate(MigratorScope::V1, MigrationSteps::none()->add('grade-from-weight', [new MoveValues('scope:chassis', 'weight', 'grade')]));
 
         self::assertSame(3, $result->moved, 'The three cars: a chassis has no entity of its own.');
-        self::assertSame(1300, (int) $this->connection->fetchOne('SELECT chassis__grade FROM scope_car WHERE _id = ?', [$this->ids['plainCar']]));
+        self::assertSame(1300, (int) $this->connection->fetchOne($this->sql('SELECT {scope_car.chassis:grade} FROM scope_car WHERE _id = ?'),[$this->ids['plainCar']]));
     }
 
     public function testAFieldMovedUpIsInitializedWhereItIsGainedOnly(): void {
+        $id = $this->sql('{#scope_turbo.boost}');
         $this->migrate(
             MigratorScope::swapping([ScopeEngine::class, ScopeTurbo::class], [ScopeEngineWithBoost::class, ScopeTurboOfEngineWithBoost::class]),
             MigrationSteps::none()->add('boost-up', [new MoveField('scope:turbo', 'boost', 'scope:engine', new ScopeBoostForPlainEngines())]),
         );
 
-        $boostOf = fn (string $id): int => (int) $this->connection->fetchOne('SELECT boost FROM scope_engine WHERE _id = ?', [$id]);
-        $engineOf = fn (string $car): string => $this->connection->fetchOne("SELECT id FROM entities WHERE owner = ? AND owner_field = 'engine'", [$car]);
+        self::assertSame($id, $this->sql('{#scope_engine.boost}'), 'Moved, it stays the same field.');
+        $boostOf = fn (string $id): int => (int) $this->connection->fetchOne($this->sql('SELECT {scope_engine.boost} FROM scope_engine WHERE _id = ?'), [$id]);
+        $engineOf = fn (string $car): string => $this->connection->fetchOne($this->sql("SELECT id FROM entities WHERE owner = ? AND owner_field = '{#scope_car.engine}'"), [$car]);
         self::assertSame(1, $boostOf($this->ids['engine']), 'A plain engine gains it.');
         self::assertSame(1, $boostOf($engineOf($this->ids['plainCar'])), 'Owned or not.');
         self::assertSame(7, $boostOf($engineOf($this->ids['turboCar'])), 'A turbo had it: its value moves up with it.');

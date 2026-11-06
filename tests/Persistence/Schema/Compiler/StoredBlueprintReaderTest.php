@@ -17,6 +17,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Native\NativeEntityReader;
+use XyloIsCoding\CoconutCms\Persistence\Schema\EntitySchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\SchemaSource;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldValues;
@@ -257,7 +258,15 @@ final class StoredBlueprintReaderTest extends TestCase
      * @return array{schemas: array<string, mixed>, values: array<string, array<string, mixed>>, stored: array<string, mixed>}
      */
     private static function keyed(CompiledBatch $batch): array {
-        $schemas = $batch->schemas;
+        // Where a field is stored is a database's, not what a class declares.
+        $schemas = array_map(static function (EntitySchema $schema): EntitySchema {
+            $fields = $schema->fields;
+            foreach ($schema->fields as $name => $field) {
+                $fields = $fields->with($name, $field->withIdentity(null));
+            }
+
+            return $schema->withFields($fields);
+        }, $batch->schemas);
         ksort($schemas);
         $values = array_map(static function (FieldValues $values): array {
             $array = $values->toArray();

@@ -178,12 +178,14 @@ final class SchemaStore
 
     /**
      * $schema's own fingerprint, given the values stored for it: changes
-     * whenever either does, and only then. Never includes a dependency's.
+     * whenever either does, and only then. Never includes a dependency's, nor
+     * where its fields are stored: that isn't in the code, and differs
+     * between databases.
      */
     public function fingerprintOf(EntitySchema $schema, FieldValues $values): string {
         $byPath = $values->toArray();
         ksort($byPath, SORT_STRING);
 
-        return hash('sha256', json_encode([$this->codec->encode($schema), $byPath]));
+        return hash('sha256', json_encode([$this->codec->encodeDeclared($schema), $byPath]));
     }
 }

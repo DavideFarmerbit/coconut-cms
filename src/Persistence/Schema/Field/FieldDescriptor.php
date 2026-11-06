@@ -23,6 +23,7 @@ final readonly class FieldDescriptor
         private ?self $itemDescriptor = null,
         private bool $indexable = false,
         private ?Nullability $nullability = null,
+        private ?FieldIdentity $identity = null,
     ) {
     }
 
@@ -216,6 +217,19 @@ final readonly class FieldDescriptor
         return $this->kind === FieldKind::Collection ? $this->itemDescriptor->nullability : $this->nullability;
     }
 
+    /**
+     * Its id and column; null for a field not stored yet: the code's and a
+     * draft's fields have none, and a Collection's item never has.
+     */
+    public function identity(): ?FieldIdentity {
+        return $this->identity;
+    }
+
+    /** Whether $other declares the same field: where each is stored doesn't count. */
+    public function sameAs(self $other): bool {
+        return $this->withIdentity(null) == $other->withIdentity(null);
+    }
+
     /** Whether $other is this field with only its own or its items' nullability changed, or not at all. */
     public function differsOnlyInNullability(self $other): bool {
         if ($this->kind !== $other->kind || $this->itemDescriptor?->kind !== $other->itemDescriptor?->kind) {
@@ -224,10 +238,10 @@ final readonly class FieldDescriptor
 
         $nullability = $other->ownOrItemNullability();
         if ($nullability === null || $this->ownOrItemNullability() === null) {
-            return $this == $other;
+            return $this->sameAs($other);
         }
 
-        return $this->withNullability($nullability) == $other;
+        return $this->withNullability($nullability)->sameAs($other);
     }
 
     private function assertKind(FieldKind $expected): void {
@@ -246,7 +260,7 @@ final readonly class FieldDescriptor
     /*================================================================================================================*/
     // Copies
 
-    /** The same field under another name: a Collection's item is renamed with it. */
+    /** The same field under another name, stored where it was: a Collection's item is renamed with it. */
     public function renamed(string $name): self {
         return new self(
             $this->kind,
@@ -258,6 +272,23 @@ final readonly class FieldDescriptor
             $this->itemDescriptor?->renamed($name),
             $this->indexable,
             $this->nullability,
+            $this->identity,
+        );
+    }
+
+    /** The same field, stored as $identity says; null for a field not stored. */
+    public function withIdentity(?FieldIdentity $identity): self {
+        return new self(
+            $this->kind,
+            $this->name,
+            $this->scalarType,
+            $this->enumClass,
+            $this->enumBacking,
+            $this->target,
+            $this->itemDescriptor,
+            $this->indexable,
+            $this->nullability,
+            $identity,
         );
     }
 
@@ -290,6 +321,7 @@ final readonly class FieldDescriptor
             $this->itemDescriptor?->retargetedAll($renames),
             $this->indexable,
             $this->nullability,
+            $this->identity,
         );
     }
 
@@ -300,7 +332,7 @@ final readonly class FieldDescriptor
      */
     public function withNullability(Nullability $nullability): self {
         if ($this->kind === FieldKind::Collection) {
-            return self::collection($this->name, $this->itemDescriptor->withNullability($nullability));
+            return self::collection($this->name, $this->itemDescriptor->withNullability($nullability))->withIdentity($this->identity);
         }
 
         $this->nullability();
@@ -318,6 +350,7 @@ final readonly class FieldDescriptor
             null,
             $this->indexable,
             $nullability,
+            $this->identity,
         );
     }
 

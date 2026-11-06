@@ -2,8 +2,6 @@
 
 namespace XyloIsCoding\CoconutCms\Persistence\Entity\Layout;
 
-use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
-
 /**
  * Where one inheritance level's own fields live: its table, its touched-state
  * side table, and the Collection tables its fields need. An entity's full row
@@ -36,15 +34,17 @@ final readonly class LevelLayout
      * @return array<string, string> Column name, keyed by path.
      */
     public function stateColumns(): array {
-        $paths = [
-            ...array_map(static fn (ValueColumn $column): FieldPath => $column->path, $this->columns),
-            ...array_map(static fn (OwnedLayout $owned): FieldPath => $owned->path, $this->owned),
-            ...array_map(static fn (CollectionLayout $collection): FieldPath => $collection->path, $this->collections),
-        ];
-
         $columns = [];
-        foreach ($paths as $path) {
-            $columns[(string) $path] = ColumnNames::of($path);
+        foreach ($this->columns as $column) {
+            $columns[(string) $column->path] = $column->name;
+        }
+
+        foreach ($this->owned as $owned) {
+            $columns[(string) $owned->path] = $owned->flagColumn;
+        }
+
+        foreach ($this->collections as $collection) {
+            $columns[(string) $collection->path] = $collection->flagColumn;
         }
 
         return $columns;

@@ -51,7 +51,8 @@ final readonly class RetypeField implements Fixup, MovesValues
 
         $schema = $schemas->get($this->type);
 
-        return $schemas->with($schema->withFields($schema->fields->with($this->field, $new)));
+        // The same field, whose values need a new column.
+        return $schemas->with($schema->withFields($schema->fields->with($this->field, $new->withIdentity($old->identity()?->withoutColumn()))));
     }
 
     public function moveValues(AggregateValues $values, SchemaState $before, SchemaState $after): void {

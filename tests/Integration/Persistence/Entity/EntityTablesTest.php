@@ -63,7 +63,7 @@ final class EntityTablesTest extends TestCase
         (new EntityTables($this->connection))->create($this->levels);
 
         self::assertSame(
-            ['id' => EntityIds::NIL, 'owner' => EntityIds::NIL, 'owner_field' => '', 'position' => -1, 'concrete_identifier' => Cms::IDENTIFIER],
+            ['id' => EntityIds::NIL, 'owner' => EntityIds::NIL, 'owner_field' => '', 'position' => -1, 'concrete_identifier' => Cms::IDENTIFIER, 'written' => EntityIds::NIL],
             $this->connection->fetchAssociative('SELECT * FROM entities'),
         );
         self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM cms WHERE _id = ?', [EntityIds::NIL]));

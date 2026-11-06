@@ -12,6 +12,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Values\FieldPath;
 final readonly class CollectionLayout
 {
     /**
+     * @param string $flagColumn Its touched flag's column, on the owner's side table.
      * @param string|null $stateTable The side table holding each Embed item's
      *        touched flags. Null for any other item kind: those items are
      *        always stored whole.
@@ -20,6 +21,7 @@ final readonly class CollectionLayout
      */
     public function __construct(
         public FieldPath $path,
+        public string $flagColumn,
         public string $table,
         public ?string $stateTable,
         public array $itemColumns,

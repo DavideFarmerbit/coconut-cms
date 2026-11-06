@@ -13,6 +13,7 @@ use XyloIsCoding\CoconutCms\Persistence\Entity\EntityReader;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityTables;
 use XyloIsCoding\CoconutCms\Persistence\Entity\EntityWriter;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Identity\IdentityMap;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LayoutBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
@@ -41,6 +42,17 @@ final class NativeEntityWriterTest extends TestCase
     private array $levels = [];
     private IdentityMap $identities;
     private NativeEntityWriter $writer;
+
+    /** The column of the field at $path on $table's level, and of its touched flag. */
+    private function column(string $table, string $path): string {
+        foreach ($this->levels as $level) {
+            if ($level->table === $table) {
+                return $level->stateColumns()[$path];
+            }
+        }
+
+        self::fail(sprintf('No level uses table "%s".', $table));
+    }
 
     protected function setUp(): void {
         $this->connection = TestDatabase::connect();
@@ -189,18 +201,18 @@ final class NativeEntityWriterTest extends TestCase
 
         self::assertTrue($this->exists($engineId));
         self::assertSame($engineId, $car->engine->id);
-        self::assertSame(300, (int) $this->connection->fetchOne('SELECT horsepower FROM rows_engine WHERE _id = ?', [$engineId]));
-        self::assertSame(0, (int) $this->connection->fetchOne('SELECT horsepower FROM _state__rows_engine WHERE _id = ?', [$engineId]));
-        self::assertSame(0, (int) $this->connection->fetchOne('SELECT engine FROM _state__rows_car WHERE _id = ?', [$id]));
+        self::assertSame(300, (int) $this->connection->fetchOne(sprintf('SELECT %s FROM rows_engine WHERE _id = ?', $this->column('rows_engine', 'horsepower')), [$engineId]));
+        self::assertSame(0, (int) $this->connection->fetchOne(sprintf('SELECT %s FROM _state__rows_engine WHERE _id = ?', $this->column('rows_engine', 'horsepower')), [$engineId]));
+        self::assertSame(0, (int) $this->connection->fetchOne(sprintf('SELECT %s FROM _state__rows_car WHERE _id = ?', $this->column('rows_car', 'engine')), [$id]));
         self::assertSame(300, $this->freshLoad($id)->engine->horsepower);
     }
 
     public function testAnUntouchedEntityIsStoredWhole(): void {
         $id = $this->writer->save(new RowsCar());
 
-        self::assertSame(1000, (int) $this->connection->fetchOne('SELECT chassis__weight FROM rows_car WHERE _id = ?', [$id]));
-        self::assertSame('vehicle', $this->connection->fetchOne('SELECT name FROM rows_vehicle WHERE _id = ?', [$id]));
-        self::assertSame(1, (int) $this->connection->fetchOne("SELECT COUNT(*) FROM entities WHERE owner = ? AND owner_field = 'engine'", [$id]), 'Its default engine.');
+        self::assertSame(1000, (int) $this->connection->fetchOne(sprintf('SELECT %s FROM rows_car WHERE _id = ?', $this->column('rows_car', 'chassis:weight')), [$id]));
+        self::assertSame('vehicle', $this->connection->fetchOne(sprintf('SELECT %s FROM rows_vehicle WHERE _id = ?', $this->column('rows_vehicle', 'name')), [$id]));
+        self::assertSame(1, (int) $this->connection->fetchOne("SELECT COUNT(*) FROM entities WHERE owner = ? AND owner_field <> ''", [$id]), 'Its default engine.');
     }
 
     public function testAnItemDroppedFromAnOwnedCollectionIsDeleted(): void {
@@ -227,8 +239,8 @@ final class NativeEntityWriterTest extends TestCase
 
         self::assertSame(1, $this->countIn(DatabaseSchema::ENTITIES), 'Only Cms is left.');
         self::assertSame(0, $this->countIn('rows_car'));
-        self::assertSame(0, $this->countIn('rows_car__tags'));
-        self::assertSame(0, $this->countIn('rows_car__wheels'));
+        self::assertSame(0, $this->countIn(ColumnNames::collectionTable('rows_car', $this->column('rows_car', 'tags'))));
+        self::assertSame(0, $this->countIn(ColumnNames::collectionTable('rows_car', $this->column('rows_car', 'wheels'))));
         self::assertNull($this->identities->idOf($car));
         self::assertNull($car->engine->id);
         self::assertNull($this->freshLoad($id));

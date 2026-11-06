@@ -20,6 +20,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\Nullability;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ScalarType;
 use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Dynamic\DynamicModule;
 use XyloIsCoding\CoconutCms\Tests\Integration\Persistence\Dynamic\DynamicTestCase;
+use XyloIsCoding\CoconutCms\Tests\Integration\ReadsStoredColumns;
 use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
 
 /**
@@ -34,6 +35,8 @@ use XyloIsCoding\CoconutCms\Tests\Integration\TestDatabase;
  */
 final class RetypeSpike
 {
+    use ReadsStoredColumns;
+
     public function __construct(
         private readonly Connection $connection,
     ) {
@@ -58,7 +61,7 @@ final class RetypeSpike
     public function convert(string $id): void {
         $this->connection->transactional(function () use ($id): void {
             Platforms::of($this->connection)->lockEntity($this->connection, $id);
-            $row = $this->connection->fetchAssociative('SELECT cabins, _moved__v2 FROM dy_yacht WHERE _id = ?', [$id]);
+            $row = $this->connection->fetchAssociative($this->sql('SELECT {dy_yacht.cabins} AS cabins, _moved__v2 FROM dy_yacht WHERE _id = ?'), [$id]);
             if ($row !== false && $row['_moved__v2'] === null) {
                 $this->connection->executeStatement('UPDATE dy_yacht SET cabins__v2 = ?, _moved__v2 = 1 WHERE _id = ?', [self::up($row['cabins']), $id]);
             }
@@ -74,7 +77,7 @@ final class RetypeSpike
 
     /** What the new release reads: the new column, or the old one through the converter for a row left behind. */
     public function read(string $id): mixed {
-        $row = $this->connection->fetchAssociative('SELECT cabins, cabins__v2, _moved__v2 FROM dy_yacht WHERE _id = ?', [$id]);
+        $row = $this->connection->fetchAssociative($this->sql('SELECT {dy_yacht.cabins} AS cabins, cabins__v2, _moved__v2 FROM dy_yacht WHERE _id = ?'), [$id]);
 
         return $row['_moved__v2'] === null ? self::up($row['cabins']) : $row['cabins__v2'];
     }
@@ -90,13 +93,15 @@ final class RetypeSpike
 
     public function contract(): void {
         $this->connection->executeStatement('ALTER TABLE dy_yacht DROP COLUMN _moved__v2');
-        $this->connection->executeStatement('ALTER TABLE dy_yacht DROP COLUMN cabins');
+        $this->connection->executeStatement($this->sql('ALTER TABLE dy_yacht DROP COLUMN {dy_yacht.cabins}'));
     }
 }
 
 /** What the retype prototype has to prove, against the real writer and reader. */
 final class RetypeSpikeTest extends DynamicTestCase
 {
+    use ReadsStoredColumns;
+
     /** A save by the old release: the real session and writer, on the schema still stored. */
     private function oldReleaseSaves(string $id, int $cabins): void {
         $session = $this->session();
@@ -220,19 +225,19 @@ final class RetypeSpikeTest extends DynamicTestCase
     private function convertItems(string $id): void {
         $this->connection->transactional(function () use ($id): void {
             Platforms::of($this->connection)->lockEntity($this->connection, $id);
-            $this->connection->executeStatement('UPDATE dy_buoy__numbers SET _value__v2 = CAST(_value AS CHAR(20)) WHERE _owner = ?', [$id]);
+            $this->connection->executeStatement($this->sql('UPDATE {@dy_buoy.numbers} SET _value__v2 = CAST(_value AS CHAR(20)) WHERE _owner = ?'), [$id]);
             $this->connection->executeStatement('UPDATE dy_buoy SET _moved__v2 = 1 WHERE _id = ?', [$id]);
         });
     }
 
     /** @return list<mixed> The column $column of $id's items, in order. */
     private function items(string $id, string $column): array {
-        return $this->connection->fetchFirstColumn(sprintf('SELECT %s FROM dy_buoy__numbers WHERE _owner = ? ORDER BY _position', $column), [$id]);
+        return $this->connection->fetchFirstColumn($this->sql(sprintf('SELECT %s FROM {@dy_buoy.numbers} WHERE _owner = ? ORDER BY _position', $column)), [$id]);
     }
 
     public function testACollectionsItemsAreCoveredByTheMarkerOnTheirOwnersRow(): void {
         $id = $this->buoyHolding([7, 8]);
-        $this->connection->executeStatement('ALTER TABLE dy_buoy__numbers ADD COLUMN _value__v2 VARCHAR(255) NULL');
+        $this->connection->executeStatement($this->sql('ALTER TABLE {@dy_buoy.numbers} ADD COLUMN _value__v2 VARCHAR(255) NULL'));
         $this->connection->executeStatement('ALTER TABLE dy_buoy ADD COLUMN _moved__v2 SMALLINT NULL');
         $this->convertItems($id);
         self::assertSame(['7', '8'], $this->items($id, '_value__v2'));
@@ -249,7 +254,7 @@ final class RetypeSpikeTest extends DynamicTestCase
 
     public function testASavedListThatShrankLeavesNoConvertedItemBehind(): void {
         $id = $this->buoyHolding([7, 8, 9]);
-        $this->connection->executeStatement('ALTER TABLE dy_buoy__numbers ADD COLUMN _value__v2 VARCHAR(255) NULL');
+        $this->connection->executeStatement($this->sql('ALTER TABLE {@dy_buoy.numbers} ADD COLUMN _value__v2 VARCHAR(255) NULL'));
         $this->connection->executeStatement('ALTER TABLE dy_buoy ADD COLUMN _moved__v2 SMALLINT NULL');
         $this->convertItems($id);
 
@@ -269,7 +274,7 @@ final class RetypeSpikeTest extends DynamicTestCase
         $convert = function () use ($id): void {
             $this->connection->transactional(function () use ($id): void {
                 Platforms::of($this->connection)->lockEntity($this->connection, $id);
-                $color = $this->connection->fetchOne('SELECT color FROM dy_buoy WHERE _id = ?', [$id]);
+                $color = $this->connection->fetchOne($this->sql('SELECT {dy_buoy.color} FROM dy_buoy WHERE _id = ?'), [$id]);
                 $this->connection->executeStatement('DELETE FROM dy_buoy__colors__v2 WHERE _owner = ?', [$id]);
                 $this->connection->insert('dy_buoy__colors__v2', ['_owner' => $id, '_position' => 0, '_value' => $color]);
                 $this->connection->executeStatement('UPDATE dy_buoy SET _moved__v2 = 1 WHERE _id = ?', [$id]);
@@ -296,18 +301,18 @@ final class RetypeSpikeTest extends DynamicTestCase
             $this->connection->transactional(function () use ($yacht, $dinghy): void {
                 // A save locks the root of its aggregate: so must the backfill.
                 Platforms::of($this->connection)->lockEntity($this->connection, $yacht);
-                $this->connection->executeStatement('UPDATE dy_motor SET horsepower__v2 = CAST(horsepower AS CHAR(20)), _moved__v2 = 1 WHERE _id = ?', [$dinghy]);
+                $this->connection->executeStatement($this->sql('UPDATE dy_motor SET horsepower__v2 = CAST({dy_motor.horsepower} AS CHAR(20)), _moved__v2 = 1 WHERE _id = ?'), [$dinghy]);
             });
         };
         $convert();
-        self::assertSame('40', $this->stored('dy_motor', 'horsepower__v2', $dinghy));
+        self::assertSame('40', $this->storedIn('dy_motor', 'horsepower__v2', $dinghy));
 
         $this->oldReleaseSaves($yacht, 9);
 
-        self::assertNull($this->stored('dy_motor', '_moved__v2', $dinghy), 'Saving the root rewrites what it owns, even unchanged.');
-        self::assertNull($this->stored('dy_motor', 'horsepower__v2', $dinghy));
+        self::assertNull($this->storedIn('dy_motor', '_moved__v2', $dinghy), 'Saving the root rewrites what it owns, even unchanged.');
+        self::assertNull($this->storedIn('dy_motor', 'horsepower__v2', $dinghy));
         $convert();
-        self::assertSame('40', $this->stored('dy_motor', 'horsepower__v2', $dinghy));
+        self::assertSame('40', $this->storedIn('dy_motor', 'horsepower__v2', $dinghy));
     }
 
     /** Expands the buoy with a uniquely indexed lowercase color: a conversion that can make two values one. */
@@ -328,7 +333,7 @@ final class RetypeSpikeTest extends DynamicTestCase
             try {
                 $this->connection->transactional(function () use ($id): void {
                     Platforms::of($this->connection)->lockEntity($this->connection, $id);
-                    $color = $this->connection->fetchOne('SELECT color FROM dy_buoy WHERE _id = ?', [$id]);
+                    $color = $this->connection->fetchOne($this->sql('SELECT {dy_buoy.color} FROM dy_buoy WHERE _id = ?'), [$id]);
                     $this->connection->executeStatement('UPDATE dy_buoy SET color__v2 = ?, _moved__v2 = 1 WHERE _id = ?', [strtolower($color), $id]);
                 });
             } catch (UniqueConstraintViolationException) {
@@ -350,14 +355,14 @@ final class RetypeSpikeTest extends DynamicTestCase
         self::assertCount(1, $failures, 'One of the two reds, and the batch went on.');
         $clashing = array_key_first($failures);
         self::assertContains($clashing, [$first, $second]);
-        self::assertSame('blue', $this->stored('dy_buoy', 'color__v2', $third));
+        self::assertSame('blue', $this->storedIn('dy_buoy', 'color__v2', $third));
         self::assertSame(1, (int) $this->connection->fetchOne('SELECT COUNT(*) FROM dy_buoy WHERE _moved__v2 IS NULL'), 'Left behind, and known.');
         self::assertNotNull($this->session()->loadDynamic($clashing), 'The old release still reads it.');
 
         $this->oldReleaseRepaints($clashing, 'Green');
 
         self::assertSame([], $this->backfillColors(), 'Fixed by a save, it converts.');
-        self::assertSame('green', $this->stored('dy_buoy', 'color__v2', $clashing));
+        self::assertSame('green', $this->storedIn('dy_buoy', 'color__v2', $clashing));
     }
 
     public function testAnOldReleaseSaveNeverTripsTheNewUniqueIndex(): void {
@@ -368,7 +373,7 @@ final class RetypeSpikeTest extends DynamicTestCase
 
         $this->oldReleaseRepaints($first, 'blue');
 
-        self::assertNull($this->stored('dy_buoy', 'color__v2', $first), 'Empty, so nothing clashes yet.');
+        self::assertNull($this->storedIn('dy_buoy', 'color__v2', $first), 'Empty, so nothing clashes yet.');
         self::assertCount(1, $this->backfillColors(), 'The clash surfaces in the backfill, on that row.');
     }
 
@@ -377,7 +382,7 @@ final class RetypeSpikeTest extends DynamicTestCase
         $this->store('dy:buoy', ['color' => 'red']);
 
         try {
-            $this->connection->executeStatement('CREATE UNIQUE INDEX dy_buoy_color_direct ON dy_buoy (color)');
+            $this->connection->executeStatement($this->sql('CREATE UNIQUE INDEX dy_buoy_color_direct ON dy_buoy ({dy_buoy.color})'));
             self::fail('Duplicates should refuse the index.');
         } catch (UniqueConstraintViolationException) {
             $this->addToAssertionCount(1);
@@ -429,7 +434,7 @@ final class RetypeSpikeTest extends DynamicTestCase
 
         $this->oldReleaseSaves($id, 9);
 
-        self::assertSame('yacht', $this->stored('dy_vessel', 'flag', $id), 'Its chain has no such level: nothing clears it, so no marker would either.');
+        self::assertSame('yacht', $this->storedIn('dy_vessel', 'flag', $id), 'Its chain has no such level: nothing clears it, so no marker would either.');
     }
 
     public function testDeletingAnEntityTakesItsGainedLevelWithIt(): void {

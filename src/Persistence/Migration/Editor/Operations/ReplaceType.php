@@ -78,7 +78,7 @@ final readonly class ReplaceType implements SchemaOperation
         foreach ($new as $name => $field) {
             if (!$old->has($name)) {
                 $gained[] = (string) $name;
-            } elseif ($old->get($name) != $field) {
+            } elseif (!$old->get($name)->sameAs($field)) {
                 $differing[] = (string) $name;
             }
         }
