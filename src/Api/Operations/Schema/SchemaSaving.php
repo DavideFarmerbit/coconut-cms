@@ -8,6 +8,8 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\BreakResolution;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\Difference;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\BreaksNotAccepted;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSave;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\FieldCodec;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\OperationCodec;
 use XyloIsCoding\CoconutCms\Persistence\Migration\ContentRefused;
 use XyloIsCoding\CoconutCms\Persistence\Migration\MigrationBlocked;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Uniqueness\Duplicate;
@@ -19,35 +21,35 @@ use XyloIsCoding\CoconutCms\Persistence\Parameters\ParameterRegistries;
  */
 final readonly class SchemaSaving
 {
-    private OperationForm $form;
+    private OperationCodec $operations;
 
     public function __construct(
         private OperationContext $context,
     ) {
         $persistence = $context->persistence;
-        $this->form = new OperationForm(
-            new FieldForm($persistence->enums(), $persistence->valueObjects()),
+        $this->operations = new OperationCodec(
+            new FieldCodec($persistence->enums(), $persistence->valueObjects()),
             $persistence->conversions(),
             $persistence->prototypeRules(),
             new ParameterRegistries($persistence->enums(), $persistence->fieldRules()),
         );
     }
 
-    /** $input's save, its operations read. Throws InvalidInput naming the path at fault. */
+    /** $input's save, its operations read. Throws InvalidOperationJson naming the path at fault. */
     public function saveOf(SchemaSaveInput $input): EditorSave {
-        return new EditorSave($input->revision, $this->form->readAll($input->operations, 'operations'), $input->acceptBreaks);
+        return new EditorSave($input->revision, $this->operations->readAll($input->operations, 'operations'), $input->acceptBreaks);
     }
 
     /** A preview of $input, as the caller. */
     public function preview(SchemaPreviewInput $input): SchemaReport {
-        return SchemaReport::of($this->context->persistence->previewSchemas($this->saveOf($input->save()), $this->context->actor, $input->samples), $this->form);
+        return SchemaReport::of($this->context->persistence->previewSchemas($this->saveOf($input->save()), $this->context->actor, $input->samples), $this->operations);
     }
 
     /** $input saved, as the caller. Throws SchemaSaveRefused when the save is refused before it changes anything. */
     public function save(SchemaSaveInput $input): SchemaReport {
         $save = $this->saveOf($input);
         try {
-            return SchemaReport::of($this->context->persistence->saveSchemas($save, $this->context->actor), $this->form);
+            return SchemaReport::of($this->context->persistence->saveSchemas($save, $this->context->actor), $this->operations);
         } catch (MigrationBlocked $blocked) {
             throw new SchemaSaveRefused($blocked->getMessage(), ['reason' => 'blocked', 'blocked' => array_map(static fn (Difference $each): string => $each->describe(), $blocked->differences)]);
         } catch (BreaksNotAccepted $refused) {

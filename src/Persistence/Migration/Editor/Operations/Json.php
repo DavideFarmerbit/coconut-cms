@@ -1,13 +1,10 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Api\Operations\Schema;
-
-use XyloIsCoding\CoconutCms\Api\Error\InvalidInput;
+namespace XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations;
 
 /**
- * Reads values out of decoded JSON for the schema operations' forms, each
- * failure an InvalidInput naming its path: what InputReader does for typed
- * inputs, for the forms it can't type.
+ * Reads values out of decoded JSON for the schema operations' codecs, each
+ * failure an InvalidOperationJson naming its path.
  */
 final class Json
 {
@@ -17,7 +14,7 @@ final class Json
      */
     public static function object(mixed $data, string $path): array {
         if (!is_array($data) || ($data !== [] && array_is_list($data))) {
-            throw InvalidInput::at($path, 'An object is needed here.');
+            throw InvalidOperationJson::at($path, 'An object is needed here.');
         }
 
         return $data;
@@ -31,16 +28,16 @@ final class Json
     public static function onlyKeys(array $data, array $allowed, string $path): void {
         foreach (array_keys($data) as $key) {
             if (!in_array($key, $allowed, true)) {
-                throw InvalidInput::at(self::at($path, (string) $key), sprintf('Unknown. Known here: %s.', implode(', ', $allowed)));
+                throw InvalidOperationJson::at(self::at($path, (string) $key), sprintf('Unknown. Known here: %s.', implode(', ', $allowed)));
             }
         }
     }
 
     /** @param array<string, mixed> $data */
     public static function string(array $data, string $key, string $path): string {
-        $value = $data[$key] ?? throw InvalidInput::at(self::at($path, $key), 'Missing.');
+        $value = $data[$key] ?? throw InvalidOperationJson::at(self::at($path, $key), 'Missing.');
 
-        return is_string($value) ? $value : throw InvalidInput::at(self::at($path, $key), 'A string is needed here.');
+        return is_string($value) ? $value : throw InvalidOperationJson::at(self::at($path, $key), 'A string is needed here.');
     }
 
     /** @param array<string, mixed> $data */
@@ -52,7 +49,7 @@ final class Json
     public static function bool(array $data, string $key, string $path, bool $default): bool {
         $value = $data[$key] ?? $default;
 
-        return is_bool($value) ? $value : throw InvalidInput::at(self::at($path, $key), 'true or false is needed here.');
+        return is_bool($value) ? $value : throw InvalidOperationJson::at(self::at($path, $key), 'true or false is needed here.');
     }
 
     /** $key under $path: "operations.2" and "type" give "operations.2.type". */

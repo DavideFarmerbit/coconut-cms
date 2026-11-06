@@ -4,6 +4,7 @@ namespace XyloIsCoding\CoconutCms\Api\Operations\Schema;
 
 use XyloIsCoding\CoconutCms\Api\Operation\Operation;
 use XyloIsCoding\CoconutCms\Api\Operation\OperationContext;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\FieldCodec;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaDefinition;
 use XyloIsCoding\CoconutCms\Persistence\Parameters\ParameterRegistries;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldName;
@@ -25,7 +26,7 @@ final readonly class GetSchema
     public function run(GetSchemaInput $input, OperationContext $context): SchemaDefinitions {
         $persistence = $context->persistence;
         $snapshot = $persistence->schemaSnapshot($context->actor);
-        $fields = new FieldForm($persistence->enums(), $persistence->valueObjects());
+        $fields = new FieldCodec($persistence->enums(), $persistence->valueObjects());
         $registries = new ParameterRegistries($persistence->enums(), $persistence->fieldRules());
         $prototypeRules = $persistence->prototypeRules();
 
@@ -36,12 +37,12 @@ final readonly class GetSchema
     }
 
     /** $definition, each part in the form the save's operations take it. */
-    private function typeOf(SchemaDefinition $definition, FieldForm $fieldForm, ParameterRegistries $registries, PrototypeValidatorRegistry $prototypeRules): TypeDefinition {
+    private function typeOf(SchemaDefinition $definition, FieldCodec $fieldCodec, ParameterRegistries $registries, PrototypeValidatorRegistry $prototypeRules): TypeDefinition {
         $schema = $definition->schema;
 
         $fields = [];
         foreach ($schema->fields as $name => $field) {
-            $fields[(string) $name] = $fieldForm->write($field, named: false);
+            $fields[(string) $name] = $fieldCodec->write($field, named: false);
         }
 
         $fieldRules = [];

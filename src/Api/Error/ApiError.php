@@ -9,6 +9,7 @@ use XyloIsCoding\CoconutCms\Api\Auth\TooManyAttempts;
 use XyloIsCoding\CoconutCms\Persistence\Entity\MigrationUnfinished;
 use XyloIsCoding\CoconutCms\Persistence\Entity\ValidationFailed;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\InvalidOperation;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InvalidOperationJson;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaEditingDenied;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\StaleSchemaRevision;
 use XyloIsCoding\CoconutCms\Persistence\MigrationPending;
@@ -36,6 +37,7 @@ final readonly class ApiError
     public static function of(Throwable $failure, bool $debug): self {
         return match (true) {
             $failure instanceof InvalidInput => new self(ErrorCode::InvalidInput, $failure->getMessage(), ['errors' => $failure->errors]),
+            $failure instanceof InvalidOperationJson => self::of(InvalidInput::at($failure->path, $failure->reason), $debug),
             $failure instanceof PermissionDenied => new self(ErrorCode::PermissionDenied, $failure->getMessage(), [
                 'type' => $failure->identifier,
                 'action' => $failure->action?->value,

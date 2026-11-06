@@ -4,6 +4,8 @@ namespace XyloIsCoding\CoconutCms\Api\Operations\Schema;
 
 use XyloIsCoding\CoconutCms\Api\Operation\Operation;
 use XyloIsCoding\CoconutCms\Api\Operation\OperationContext;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\FieldCodec;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SignatureCodec;
 use XyloIsCoding\CoconutCms\Persistence\Parameters\ConstructorParameter;
 use XyloIsCoding\CoconutCms\Persistence\Parameters\ConstructorShape;
 
@@ -17,8 +19,8 @@ final readonly class ListValidators
 {
     public function run(ListValidatorsInput $input, OperationContext $context): ValidatorList {
         $persistence = $context->persistence;
-        $field = $input->field === null ? null : (new FieldForm($persistence->enums(), $persistence->valueObjects()))->read($input->field, 'field', 'field');
-        $signatures = new SignatureForm($persistence->valueObjects());
+        $field = $input->field === null ? null : (new FieldCodec($persistence->enums(), $persistence->valueObjects()))->read($input->field, 'field', 'field');
+        $signatures = new SignatureCodec($persistence->valueObjects());
 
         $fieldRules = [];
         foreach ($persistence->fieldRules()->all() as $identifier => $class) {

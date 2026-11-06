@@ -1,12 +1,11 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Api\Operations\Schema;
+namespace XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations;
 
 use InvalidArgumentException;
 use LogicException;
 use ReflectionEnum;
 use RuntimeException;
-use XyloIsCoding\CoconutCms\Api\Error\InvalidInput;
 use XyloIsCoding\CoconutCms\Core\Identifier;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\EnumRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldDescriptor;
@@ -22,7 +21,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
  * `"enum": "shop:color"`; a value object, its target, by identifier too. A
  * Collection's `item` is described the same way, without a name.
  */
-final readonly class FieldForm
+final readonly class FieldCodec
 {
     public function __construct(
         private EnumRegistry $enums,
@@ -33,14 +32,14 @@ final readonly class FieldForm
     /**
      * The descriptor $data describes, at $path in the input. $name is an
      * item's: its Collection's name.
-     * @throws InvalidInput Naming the path at fault.
+     * @throws InvalidOperationJson Naming the path at fault.
      */
     public function read(mixed $data, string $path, ?string $name = null): FieldDescriptor {
         $data = Json::object($data, $path);
         $allowed = $name === null ? ['name', 'kind', 'nullable', 'scalarType', 'enum', 'target', 'item'] : ['kind', 'nullable', 'scalarType', 'enum', 'target', 'item'];
         Json::onlyKeys($data, $allowed, $path);
         $name ??= Json::string($data, 'name', $path);
-        $kind = FieldKind::tryFrom(Json::string($data, 'kind', $path)) ?? throw InvalidInput::at("$path.kind", sprintf('One of: %s.', implode(', ', array_map(static fn (FieldKind $kind): string => $kind->value, FieldKind::cases()))));
+        $kind = FieldKind::tryFrom(Json::string($data, 'kind', $path)) ?? throw InvalidOperationJson::at("$path.kind", sprintf('One of: %s.', implode(', ', array_map(static fn (FieldKind $kind): string => $kind->value, FieldKind::cases()))));
         $nullability = Json::bool($data, 'nullable', $path, false) ? Nullability::Nullable : Nullability::NotNullable;
 
         try {
@@ -51,16 +50,16 @@ final readonly class FieldForm
                 FieldKind::Reference => FieldDescriptor::reference($name, Json::string($data, 'target', $path)),
                 FieldKind::OwningReference => FieldDescriptor::owningReference($name, Json::string($data, 'target', $path), $nullability),
                 FieldKind::TypeReference => FieldDescriptor::typeReference($name, Json::string($data, 'target', $path), $nullability),
-                FieldKind::Collection => FieldDescriptor::collection($name, $this->read($data['item'] ?? throw InvalidInput::at("$path.item", 'Missing: what the Collection holds.'), "$path.item", $name)),
+                FieldKind::Collection => FieldDescriptor::collection($name, $this->read($data['item'] ?? throw InvalidOperationJson::at("$path.item", 'Missing: what the Collection holds.'), "$path.item", $name)),
             };
         } catch (InvalidArgumentException|LogicException $refused) {
-            throw InvalidInput::at($path, $refused->getMessage());
+            throw InvalidOperationJson::at($path, $refused->getMessage());
         }
     }
 
     /** @param array<string, mixed> $data */
     private function scalar(array $data, string $path, string $name, Nullability $nullability): FieldDescriptor {
-        $type = ScalarType::tryFrom(Json::string($data, 'scalarType', $path)) ?? throw InvalidInput::at("$path.scalarType", sprintf('One of: %s.', implode(', ', array_map(static fn (ScalarType $type): string => $type->value, ScalarType::cases()))));
+        $type = ScalarType::tryFrom(Json::string($data, 'scalarType', $path)) ?? throw InvalidOperationJson::at("$path.scalarType", sprintf('One of: %s.', implode(', ', array_map(static fn (ScalarType $type): string => $type->value, ScalarType::cases()))));
         if ($type !== ScalarType::Enum) {
             return FieldDescriptor::scalar($name, $type, $nullability);
         }
@@ -86,7 +85,7 @@ final readonly class FieldForm
         try {
             return $resolve(Identifier::fromString($identifier));
         } catch (InvalidArgumentException|RuntimeException) {
-            throw InvalidInput::at($path, sprintf('Nothing is registered as "%s".', $identifier));
+            throw InvalidOperationJson::at($path, sprintf('Nothing is registered as "%s".', $identifier));
         }
     }
 
@@ -95,11 +94,11 @@ final readonly class FieldForm
      * @return array<string, mixed>
      */
     public function write(FieldDescriptor $field, bool $named = true): array {
-        $form = $named ? ['name' => $field->name()] : [];
-        $form['kind'] = $field->kind()->value;
-        $form['nullable'] = $field->allowsNull();
+        $json = $named ? ['name' => $field->name()] : [];
+        $json['kind'] = $field->kind()->value;
+        $json['nullable'] = $field->allowsNull();
 
-        return $form + match ($field->kind()) {
+        return $json + match ($field->kind()) {
             FieldKind::Scalar => $field->enumClass() === null
                 ? ['scalarType' => $field->scalarType()->value]
                 : ['scalarType' => $field->scalarType()->value, 'enum' => (string) $this->enums->identifierOf($field->enumClass())],

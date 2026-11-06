@@ -1,6 +1,6 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Api\Operations\Schema;
+namespace XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations;
 
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldKind;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Field\FieldSignature;
@@ -12,7 +12,7 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Field\ValueObjectRegistry;
  * a key left null matching any; or a union, `{"oneOf": [...]}`. A value
  * object's target is its identifier.
  */
-final readonly class SignatureForm
+final readonly class SignatureCodec
 {
     public function __construct(
         private ValueObjectRegistry $valueObjects,

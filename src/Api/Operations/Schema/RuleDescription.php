@@ -9,7 +9,7 @@ namespace XyloIsCoding\CoconutCms\Api\Operations\Schema;
 final readonly class RuleDescription
 {
     /**
-     * @param array<string, mixed>|null $fits The fields a field rule checks, as SignatureForm writes them; null for a prototype rule.
+     * @param array<string, mixed>|null $fits The fields a field rule checks, as SignatureCodec writes them; null for a prototype rule.
      * @param list<ParameterDescription> $parameters
      */
     public function __construct(

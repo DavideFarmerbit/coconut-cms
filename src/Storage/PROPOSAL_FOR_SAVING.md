@@ -98,19 +98,46 @@ Changes fall into two groups.
 type, a rename, rules, permissions, making a field optional.
 
 **Content changes** need a new column, table or level: a retype, new meaning for the
-values, a value becoming a list, a reparent. They go through four steps.
+values, a value becoming a list, a reparent. **A change applies when it's saved, and
+rows catch up.** Nobody waits for a backfill: not an admin, not a later change, not an
+entity saved in the same batch. They go through four steps.
 
 1. **Expand.** New columns and tables go beside the old ones, never in their place.
-   The change gets its own marker table. This is short DDL, and only one runs at a
-   time. It uses a short `lock_wait_timeout`, so an `ALTER` waiting on a long
+   The change gets its own marker table and its record. This is short DDL, and only one
+   runs at a time. It uses a short `lock_wait_timeout`, so an `ALTER` waiting on a long
    transaction fails and doesn't queue up that table's traffic.
-2. **Backfill.** A background job converts rows in small batches, throttled and
-   resumable, without holding the migration lock. Each row is converted under the
-   lock a save takes, on its aggregate's root, so no save lands between the read and
-   the write. Old columns stay filled.
-3. **Switch.** Readers and writers move to the new columns.
-4. **Contract.** Old columns and markers go, once no row is left and no old code
+2. **Live.** The new schema is stored in the same step. From then on every load reads
+   the new shape, converting a row that isn't there yet, and every save writes it.
+3. **Backfill.** Rows are converted in small batches, resumable, without holding the
+   migration lock. Each aggregate is converted under the lock a save takes, on its root,
+   so no save lands between the read and the write. The save tries first, for about 2
+   seconds. If it finishes, the status is `saved`. If not, the status is `migrating`, and
+   the command carries on from where it stopped. Cron runs the command.
+4. **Contract.** Old columns and markers go, once no row needs them and no old code
    runs. It can come much later.
+
+**Changes stack.** The record of changes is ordered, and holds nothing back. A second
+change to the same type applies at once, while the first is still catching up.
+
+- A load finds the newest change whose marker matches the row, reads the row in that
+  shape, and runs only the later changes on it.
+- A save writes the latest shape and marks the latest change.
+- The backfill takes a row straight to the latest shape.
+- Old columns go oldest change first, once no row needs them.
+
+**A stop at any point is safe.** Every step can run again.
+
+- Expand compares the database with the target.
+- A change is recorded before anything depends on it.
+- Each aggregate converts in its own transaction, so a crash loses at most the one in
+  progress, and the next run skips what's marked.
+- The backfill's lock expires, so a dead worker blocks nobody.
+- A test stops the process at every step, resumes, and compares the result with a run
+  that was never stopped.
+
+**Nothing running the backfill** doesn't stop the site. The command records when it last
+ran, and `check()` and the admin say so when a change is waiting and it looks missing.
+Until then, only the query gaps below stay open.
 
 **A write token and a marker table replace dual write.** Every level table has one
 `_written` column, and the `entities` row has `written`. Every save sets a fresh
@@ -136,18 +163,28 @@ a migration, however it writes the row. The backfill converts that aggregate aga
   still set the token on the owner's level row.
 - `written` is also the version a client sends back to detect a stale save.
 
-**Reading a row left behind.** An old row is read through its stored schema into
+**Reading a row left behind.** An old row is read through the change's old schema into
 stored-form values, and the converter brings them up. So the new class is filled
-correctly, by id, with no old class. A query on the new field misses that row until
-the next scan.
+correctly, by id, with no old class. A filter or a sort on a new or retyped field misses
+that row until it's converted, so the admin shows the type as `migrating`.
 
 **Translation** lives in converter classes on stored-form values, up and optionally
-back. The backfill and the load path run the same code. A failure in one row leaves
-that row behind and reports it. It stops neither the batch nor the site.
+back. The backfill and the load path run the same code.
 
-**Unique indexes** go on the new column before the backfill. Empty values don't
-clash, so a clash stops only the row causing it. The switch waits until no row has
-failed.
+**A failing row fails alone.** While the save's time budget can read every row, the
+check before the save still refuses the whole change, and nothing changes. Past that
+budget the change goes live, and a row its converter can't take:
+
+- gives a clear error when that entity is loaded, and every other entity is served;
+- is listed by `check()` and the admin, with the reason;
+- keeps its old value in the old column, so nothing is lost;
+- holds back that change's contract, until an admin fixes the row or discards its value.
+
+**Unique indexes** on an existing column are built at once, and duplicates refuse them.
+On a retyped or converted field, the index goes on the new column at expand. While the
+save's time budget can convert every row, the check before the save still finds every
+clash. Past that budget, the first row to reach the index keeps the value, and the later
+one fails alone, as above.
 
 **A gained level** is a new table with a foreign key to `entities`. The marker table
 covers it, even when its values come from fields the old release can change.
@@ -155,12 +192,15 @@ covers it, even when its values come from fields the old release can change.
 **The plan outlives its request.** Conversions run long after planning, and they're
 PHP objects, not data.
 
-- A native deploy stores the old schemas and the step ids. The fixups are in the code,
-  and a step can't be deleted while a database hasn't applied it, so a process rebuilds
-  the plan with the planner the first time it meets a left-behind aggregate.
-- An editor save needs no conversion at load: no code changes, so reads stay on the old
-  shape until the switch, and the switch waits until no row is left. Only the background
-  backfill needs the plan, so stage 4 stores the save's operations as their JSON.
+- Each change's record stores its old schemas: reading an old row needs them, and the
+  stored schemas are the new ones once it's live.
+- A native change stores its step ids too. The fixups are in the code, and a step can't
+  be deleted while a database hasn't applied it, so a process rebuilds the plan with the
+  planner the first time it meets a left-behind aggregate.
+- An editor change stores its operations as their JSON, and a process rebuilds the plan
+  from those. An operation naming a converter with no registered name can't be stored,
+  so a content change saved that way is refused, with a clear error. The API can only
+  name registered ones.
 
 ### Native deploys
 
@@ -179,9 +219,11 @@ zero only after the switch.
 
 ### Editor saves
 
-There's no code switch, so a schema change returns once expand has run, with the
-status `migrating`. The backfill runs in the background. The switch comes when it
-ends, and commits only the stored schema.
+There's no code switch, so every process moves to the new shape when the save stores
+it. The save's own backfill finishes a small table on the spot, and the result is
+`saved`, as if nothing had happened. A big table returns `migrating`, and it's fully
+usable meanwhile. Entities in the same batch save in the new shape. A native deploy
+works the same way once its code is live: only what starts the change differs.
 
 ### Old input
 
@@ -194,17 +236,13 @@ reading `$_POST` directly handles its own backward compatibility.
 
 ### Known risk: rows left behind
 
-An old-release save leaves the new column empty until the next scan. A query on the
-new field misses that row for that moment, and a unique index doesn't cover it. To
-watch it: a test covering that sequence, a count of rows left per type in `check()`,
-and an optional short write pause at the switch, per type.
+An unconverted row is missing from a filter on the new field, and a unique index doesn't
+cover it. To watch it: a test covering that sequence, a count of rows left per type in
+`check()`, and an optional short write pause per type.
 
 The reverse gap: a save by the new release leaves the old columns empty, so an old
 release still running can't read that row. An atomic code switch keeps that window to
 requests in flight. A rollback widens it: see open point 4.
-
-A converter failing at load fails that one load, with its error. The entity stays
-left behind, and every other entity is served.
 
 ## Saving
 
@@ -232,7 +270,7 @@ left behind, and every other entity is served.
 | Status | Meaning |
 |---|---|
 | `saved` | It's stored. |
-| `migrating` | A schema change is accepted, and its backfill is running. |
+| `migrating` | A schema change is live, and old rows are still catching up. |
 | `rejected` | It failed its own check or write. |
 | `skipped` | Something it depends on failed. It lists what. |
 | `stale` | What it was built on changed. The user reviews it. |
@@ -266,8 +304,8 @@ Rejection spreads only along dependencies:
 1. **Log.** The batch is stored in the save log.
 2. **Plan.** The server finds dependencies and groups. A change with a dependency that
    can't be met is rejected here.
-3. **Schema.** Definition changes commit. Content changes run expand and return
-   `migrating`.
+3. **Schema.** Definition changes commit. Content changes run expand and go live, then
+   try their backfill, returning `saved` or `migrating`.
 4. **Entities and plugin changes.** Each group runs in its own transaction, in
    dependency order. A group of several entities is written in passes: rows with
    references empty, then references, then deletes. The transaction locks its entities
@@ -287,15 +325,16 @@ save in the same batch.
 Save A changes `boat` and writes a boat. Save B changes `character` and writes a
 character.
 
-**They share nothing.** Each expand runs in turn and takes moments. Both backfills run
-in the background. Both entities are written. Nothing else is affected.
+**They share nothing.** Each expand runs in turn and takes moments. Both changes are
+live at once, and both entities are written in the new shape. Nothing else is affected.
 
-**They both change `boat`.** A's expand runs. B finds `boat` at a newer version, so its
-boat changes are `stale`, what depends on them is `skipped`, and its unrelated changes
-are saved.
+**They both change `boat`.** A applies. B was built on the `boat` A replaced, so its boat
+changes are `stale`, what depends on them is `skipped`, and its unrelated changes are
+saved. Once the admin reviews it, B applies on top of A, whatever A's backfill has
+reached.
 
 **B only writes a boat, while A's backfill runs.** B's save is ordinary. It writes the
-old shape and clears the marker, and the backfill converts the row again.
+new shape and its marker, and the backfill has nothing left to do for that boat.
 
 **Staleness is per type.** Each schema change carries the fingerprint of each type it's
 built on. Fingerprints exist already, so the single revision can go.
@@ -405,8 +444,10 @@ Each stage works on its own.
    an entity with no row at a gained level, and a save marking what it writes:
    `ContentChange`, `AggregateConversion`, and `EntityReader` and `EntityWriter` taking
    a `PendingConversion`. Nothing creates such a change yet: stage 4 does.
-4. **Content changes by backfill,** for editor saves: expand, background backfill,
-   switch, contract, in place of the move in one transaction.
+4. **Content changes by backfill,** for editor saves, in place of the move in one
+   transaction. First one change end to end: its record, expand, live, the save's own
+   backfill, the command, contract, failed rows, and a test stopping at every step. Then
+   changes stacking on each other.
 5. **State per type.** The single revision, the single `StateKey` and the single
    "started" mark go.
 6. **Native deploys:** `migrate --prepare` and `migrate --finish`.
@@ -455,9 +496,9 @@ there was no replica, so these compare approaches and don't predict production.
 | New column with its unique index | 0.44 s | 508 | 0.3 ms | 7.8 ms | 72 ms | 0 |
 | Backfill into an indexed column | 13.1 s | 18,793 | 0.3 ms | 2.7 ms | 21 ms | 0 |
 
-`ContentChangeTest` proves the real reader and writer: V1 to V2 renames, retypes, gains a
-level, renames and drops a type and moves a field, with no row moved, and every load
-gives what the one-transaction migration gives. Those numbers above predate it.
+`ContentChangeTest` proves the real reader and writer on a native change: V1 to V2
+renames, retypes, gains a level, renames and drops a type and moves a field, with no row
+moved, and every load gives what the one-transaction migration gives. Those numbers above predate it.
 
 Not proved yet: a backfill on stored columns under load, a load racing a save, a
 duplicate slipping in after the switch, replicas, MariaDB, and tables far larger than
@@ -468,16 +509,16 @@ this.
 1. **Which schema each release reads.** Stored schemas are one set of rows, and during
    a native deploy both releases read them. How does each find its own: two sets,
    selected by the code's key?
-2. **What runs a backfill** on a site with no worker process: a command, cron, or small
-   slices in ordinary requests?
-3. **An entity depending on a change still `migrating`.** `unavailable`, sent again
-   after the switch?
+2. Settled: the save tries first, then a command, run by cron. A missing cron is reported.
+   Slices in customers' requests were left out.
+3. Settled: an entity never waits for a change, since the change is live when it's saved.
 4. **Rolling back a deploy.** After the switch, new saves don't fill the old column. Is
    the back translation required to allow a rollback, or is rollback a new release?
 5. **Dense content.** An added field or a changed default still rewrites every row.
    Can values following a default be left unwritten?
-6. **`checkContent()`.** A full read is too heavy at this scale. Does a sample replace
-   it in the preview, with failures per row in the backfill?
+6. **`checkContent()`.** A full read is too heavy at this scale. It runs while it fits the
+   save's time budget, and past that failures are per row. Does a sample replace it in
+   the preview?
 7. **Splitting schema operations.** `DraftWriter` writes one ordered chain. Operations
    across types tie those types into a group. Does splitting by type hold up for every
    operation? This needs a prototype.

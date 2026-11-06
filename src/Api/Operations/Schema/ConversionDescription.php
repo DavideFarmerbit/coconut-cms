@@ -9,7 +9,7 @@ namespace XyloIsCoding\CoconutCms\Api\Operations\Schema;
 final readonly class ConversionDescription
 {
     /**
-     * @param array<string, mixed>|null $from The fields a converter takes, as SignatureForm writes them; null for an initializer.
+     * @param array<string, mixed>|null $from The fields a converter takes, as SignatureCodec writes them; null for an initializer.
      * @param array<string, mixed>|null $to The fields it gives, or fills; null for a level initializer.
      * @param list<ParameterDescription> $parameters
      */

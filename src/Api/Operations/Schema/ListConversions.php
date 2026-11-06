@@ -6,6 +6,8 @@ use XyloIsCoding\CoconutCms\Api\Operation\Operation;
 use XyloIsCoding\CoconutCms\Api\Operation\OperationContext;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\ConversionKind;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\RegisteredConversion;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\FieldCodec;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SignatureCodec;
 use XyloIsCoding\CoconutCms\Persistence\Parameters\ConstructorParameter;
 
 /**
@@ -19,10 +21,10 @@ final readonly class ListConversions
 {
     public function run(ListConversionsInput $input, OperationContext $context): ConversionList {
         $persistence = $context->persistence;
-        $fields = new FieldForm($persistence->enums(), $persistence->valueObjects());
+        $fields = new FieldCodec($persistence->enums(), $persistence->valueObjects());
         $from = $input->from === null ? null : $fields->read($input->from, 'from', 'field');
         $to = $input->to === null ? null : $fields->read($input->to, 'to', 'field');
-        $signatures = new SignatureForm($persistence->valueObjects());
+        $signatures = new SignatureCodec($persistence->valueObjects());
 
         $listed = [ConversionKind::Converter->name => [], ConversionKind::Initializer->name => [], ConversionKind::LevelInitializer->name => []];
         foreach ($persistence->conversions()->all() as $conversion) {
@@ -38,7 +40,7 @@ final readonly class ListConversions
         );
     }
 
-    private static function describe(RegisteredConversion $conversion, SignatureForm $signatures): ConversionDescription {
+    private static function describe(RegisteredConversion $conversion, SignatureCodec $signatures): ConversionDescription {
         return new ConversionDescription(
             $conversion->identifier,
             $conversion->from === null ? null : $signatures->write($conversion->from),

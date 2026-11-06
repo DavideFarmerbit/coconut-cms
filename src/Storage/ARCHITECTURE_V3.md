@@ -2676,8 +2676,8 @@ every one.
 - Native classes: its property attribute, under
   `Schema/Attribute/Property/`, read by `Schema/Native/NativeEntityReader`
   and `Schema/Native/NativeRegistrations`.
-- The API: `Api/Operations/Schema/FieldForm` (what an editor save sends),
-  `Api/Operations/Schema/SignatureForm`,
+- The API: `Migration/Editor/Operations/FieldCodec` (what an editor save sends),
+  `Migration/Editor/Operations/SignatureCodec`,
   `Api/Operations/Types/ValueDescription` (what `types.get` gives).
 - The admin: `public/types/TypeDescription` (`ValueKind`),
   `schema/SchemaDefinitions`, `schema/SignatureData`,

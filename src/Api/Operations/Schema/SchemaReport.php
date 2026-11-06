@@ -7,6 +7,7 @@ use XyloIsCoding\CoconutCms\Persistence\Migration\DefaultBreak;
 use XyloIsCoding\CoconutCms\Persistence\Migration\EntrySample;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Diff\Difference;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\EditorSaveReport;
+use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\OperationCodec;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Uniqueness\Duplicate;
 
 /**
@@ -17,7 +18,7 @@ final readonly class SchemaReport implements OperationResult
     /**
      * @param int $revision The schema revision now: the new one, once saved.
      * @param list<array<string, mixed>> $operations The operations, as given,
-     *        as OperationForm writes them: what runs, in order.
+     *        as OperationCodec writes them: what runs, in order.
      * @param list<string> $fixups Every fixup it runs, described, in order.
      * @param list<SchemaBreak> $breaks Every break it causes on another editor-created type.
      * @param list<string> $blocked Every break the policy blocks, described.
@@ -47,10 +48,10 @@ final readonly class SchemaReport implements OperationResult
     ) {
     }
 
-    public static function of(EditorSaveReport $report, OperationForm $form): self {
+    public static function of(EditorSaveReport $report, OperationCodec $operations): self {
         return new self(
             $report->revision,
-            array_map($form->write(...), $report->operations),
+            array_map($operations->write(...), $report->operations),
             $report->fixups,
             array_map(SchemaBreak::of(...), $report->breaks),
             array_map(static fn (Difference $blocked): string => $blocked->describe(), $report->blocked),

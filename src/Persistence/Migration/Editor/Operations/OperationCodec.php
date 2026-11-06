@@ -1,39 +1,15 @@
 <?php
 
-namespace XyloIsCoding\CoconutCms\Api\Operations\Schema;
+namespace XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations;
 
 use InvalidArgumentException;
 use LogicException;
-use XyloIsCoding\CoconutCms\Api\Error\InvalidInput;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldConverter;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\FieldInitializer;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\LevelInitializer;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Data\Registry\ConversionRegistry;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\DefaultValue;
 use XyloIsCoding\CoconutCms\Persistence\Parameters\InvalidParameters;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\AddField;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\AddUniqueGroup;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveUniqueGroup;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CopyValues;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\CreateType;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\DeleteType;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\InheritDefault;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MakeOptional;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MakeRequired;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\MoveField;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RemoveField;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameField;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameFields;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameType;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RenameTypes;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\Reparent;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\ReplaceType;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\RetypeField;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetDefault;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetFieldPermission;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetFieldRules;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetPrototypeRules;
-use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\Operations\SetTypePermission;
 use XyloIsCoding\CoconutCms\Persistence\Migration\Editor\SchemaOperation;
 use XyloIsCoding\CoconutCms\Persistence\Parameters\ParameterRegistries;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\Broken\BrokenFieldRule;
@@ -52,11 +28,11 @@ use XyloIsCoding\CoconutCms\Persistence\Schema\Validation\PrototypeValidatorRule
  * identifier and its parameters as "config": `{"rule":
  * "coconut-cms:max-length", "config": {"max": 80}}`.
  */
-final readonly class OperationForm
+final readonly class OperationCodec
 {
     /** @param ParameterRegistries $registries What a rule's parameters name registered classes through, field rules included. */
     public function __construct(
-        private FieldForm $fields,
+        private FieldCodec $fields,
         private ConversionRegistry $conversions,
         private PrototypeValidatorRegistry $prototypeRules,
         private ParameterRegistries $registries,
@@ -66,11 +42,11 @@ final readonly class OperationForm
     /**
      * Every operation $data lists, at $path in the input.
      * @return list<SchemaOperation>
-     * @throws InvalidInput Naming the path at fault.
+     * @throws InvalidOperationJson Naming the path at fault.
      */
     public function readAll(mixed $data, string $path): array {
         if (!is_array($data) || !array_is_list($data)) {
-            throw InvalidInput::at($path, 'A list of operations is needed here.');
+            throw InvalidOperationJson::at($path, 'A list of operations is needed here.');
         }
 
         $operations = [];
@@ -105,7 +81,7 @@ final readonly class OperationForm
             'setPrototypeRules' => ['type', 'rules'],
             'setFieldPermission' => ['type', 'field', 'read', 'write'],
             'setTypePermission' => ['type', 'read', 'create', 'update', 'delete'],
-            default => throw InvalidInput::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, renameTypes, renameFields, deleteType, reparent, replaceType, addField, removeField, renameField, moveField, copyValues, makeRequired, makeOptional, retypeField, setDefault, inheritDefault, addUniqueGroup, removeUniqueGroup, setFieldRules, setPrototypeRules, setFieldPermission, setTypePermission.', $op)),
+            default => throw InvalidOperationJson::at("$path.op", sprintf('No operation "%s". Known: createType, renameType, renameTypes, renameFields, deleteType, reparent, replaceType, addField, removeField, renameField, moveField, copyValues, makeRequired, makeOptional, retypeField, setDefault, inheritDefault, addUniqueGroup, removeUniqueGroup, setFieldRules, setPrototypeRules, setFieldPermission, setTypePermission.', $op)),
         };
         Json::onlyKeys($data, ['op', ...$keys], $path);
         $string = static fn (string $key): string => Json::string($data, $key, $path);
@@ -113,7 +89,7 @@ final readonly class OperationForm
         try {
             return $this->build($op, $data, $path, $string);
         } catch (InvalidArgumentException $invalid) {
-            throw InvalidInput::at($path, $invalid->getMessage());
+            throw InvalidOperationJson::at($path, $invalid->getMessage());
         }
     }
 
@@ -167,7 +143,7 @@ final readonly class OperationForm
                 isset($data['converter']) ? $this->converter($data['converter'], "$path.converter") : null,
                 self::defaultOf($data, 'default'),
             ),
-            'setDefault' => new SetDefault($string('type'), $string('path'), self::defaultOf($data, 'value') ?? throw InvalidInput::at("$path.value", 'Missing.')),
+            'setDefault' => new SetDefault($string('type'), $string('path'), self::defaultOf($data, 'value') ?? throw InvalidOperationJson::at("$path.value", 'Missing.')),
             'inheritDefault' => new InheritDefault($string('type'), $string('path')),
             'setFieldRules' => new SetFieldRules($string('type'), $string('field'), ...$this->rules($data['rules'] ?? null, "$path.rules", $this->fieldRule(...))),
             'setPrototypeRules' => new SetPrototypeRules($string('type'), ...$this->rules($data['rules'] ?? null, "$path.rules", $this->prototypeRule(...))),
@@ -197,7 +173,7 @@ final readonly class OperationForm
      */
     private function rules(mixed $data, string $path, callable $readOne): array {
         if (!is_array($data) || !array_is_list($data)) {
-            throw InvalidInput::at($path, 'A list of rules is needed here: [] for none.');
+            throw InvalidOperationJson::at($path, 'A list of rules is needed here: [] for none.');
         }
 
         $rules = [];
@@ -221,7 +197,7 @@ final readonly class OperationForm
                 return new BrokenFieldRule(array_diff_key($data, ['broken' => true]), $refused->getMessage(), true);
             }
 
-            throw InvalidInput::at(Json::at($path, $refused->parameter ?? 'rule'), $refused->getMessage());
+            throw InvalidOperationJson::at(Json::at($path, $refused->parameter ?? 'rule'), $refused->getMessage());
         }
     }
 
@@ -234,7 +210,7 @@ final readonly class OperationForm
                 return new BrokenPrototypeRule(array_diff_key($data, ['broken' => true]), $refused->getMessage(), true);
             }
 
-            throw InvalidInput::at(Json::at($path, $refused->parameter ?? 'rule'), $refused->getMessage());
+            throw InvalidOperationJson::at(Json::at($path, $refused->parameter ?? 'rule'), $refused->getMessage());
         }
     }
 
@@ -262,7 +238,7 @@ final readonly class OperationForm
     private static function renames(mixed $data, string $path): array {
         $renames = Json::object($data, $path);
         if ($renames === [] || array_filter($renames, 'is_string') !== $renames) {
-            throw InvalidInput::at($path, 'An object of renames is needed here: each old name\'s new one.');
+            throw InvalidOperationJson::at($path, 'An object of renames is needed here: each old name\'s new one.');
         }
 
         return array_combine(array_map('strval', array_keys($renames)), $renames);
@@ -274,7 +250,7 @@ final readonly class OperationForm
      */
     private static function names(mixed $data, string $path): array {
         if (!is_array($data) || !array_is_list($data) || $data === [] || array_filter($data, 'is_string') !== $data) {
-            throw InvalidInput::at($path, 'A list of field names is needed here.');
+            throw InvalidOperationJson::at($path, 'A list of field names is needed here.');
         }
 
         return $data;
@@ -293,7 +269,7 @@ final readonly class OperationForm
         try {
             return $this->conversions->converter($identifier, $parameters);
         } catch (InvalidParameters $refused) {
-            throw InvalidInput::at(Json::at($path, $refused->parameter ?? 'kind'), $refused->getMessage());
+            throw InvalidOperationJson::at(Json::at($path, $refused->parameter ?? 'kind'), $refused->getMessage());
         }
     }
 
@@ -302,7 +278,7 @@ final readonly class OperationForm
         try {
             return $this->conversions->initializer($identifier, $parameters);
         } catch (InvalidParameters $refused) {
-            throw InvalidInput::at(Json::at($path, $refused->parameter ?? 'kind'), $refused->getMessage());
+            throw InvalidOperationJson::at(Json::at($path, $refused->parameter ?? 'kind'), $refused->getMessage());
         }
     }
 
@@ -311,7 +287,7 @@ final readonly class OperationForm
         try {
             return $this->conversions->levelInitializer($identifier, $parameters);
         } catch (InvalidParameters $refused) {
-            throw InvalidInput::at(Json::at($path, $refused->parameter ?? 'kind'), $refused->getMessage());
+            throw InvalidOperationJson::at(Json::at($path, $refused->parameter ?? 'kind'), $refused->getMessage());
         }
     }
 
@@ -337,28 +313,28 @@ final readonly class OperationForm
             $operation instanceof DeleteType => ['op' => 'deleteType', 'type' => $operation->type],
             $operation instanceof ReplaceType => [
                 'op' => 'replaceType', 'type' => $operation->type, 'with' => $operation->with,
-                'initializers' => (object) array_map($this->conversionForm(...), $operation->initializers),
-                'converters' => (object) array_map($this->conversionForm(...), $operation->converters),
+                'initializers' => (object) array_map($this->conversionJson(...), $operation->initializers),
+                'converters' => (object) array_map($this->conversionJson(...), $operation->converters),
                 'resets' => $operation->resets,
             ],
             $operation instanceof Reparent => ['op' => 'reparent', 'type' => $operation->type, 'parent' => $operation->parent]
-                + ($operation->initializer === null ? [] : ['initializer' => $this->conversionForm($operation->initializer)]),
+                + ($operation->initializer === null ? [] : ['initializer' => $this->conversionJson($operation->initializer)]),
             $operation instanceof AddField => ['op' => 'addField', 'type' => $operation->type, 'field' => $this->fields->write($operation->field)]
-                + self::defaultForm('default', $operation->default)
-                + ($operation->initializer === null ? [] : ['initializer' => $this->conversionForm($operation->initializer)]),
+                + self::defaultJson('default', $operation->default)
+                + ($operation->initializer === null ? [] : ['initializer' => $this->conversionJson($operation->initializer)]),
             $operation instanceof RemoveField => ['op' => 'removeField', 'type' => $operation->type, 'field' => (string) $operation->field],
             $operation instanceof CopyValues => ['op' => 'copyValues', 'type' => $operation->type, 'from' => (string) $operation->from, 'to' => (string) $operation->to],
             $operation instanceof AddUniqueGroup => ['op' => 'addUniqueGroup', 'type' => $operation->type, 'fields' => $operation->fields],
             $operation instanceof RemoveUniqueGroup => ['op' => 'removeUniqueGroup', 'type' => $operation->type, 'fields' => $operation->fields],
             $operation instanceof RenameField => ['op' => 'renameField', 'type' => $operation->type, 'old' => (string) $operation->old, 'new' => (string) $operation->new],
             $operation instanceof MoveField => ['op' => 'moveField', 'type' => $operation->type, 'field' => (string) $operation->field, 'to' => $operation->to]
-                + self::defaultForm('default', $operation->default)
-                + ($operation->initializer === null ? [] : ['initializer' => $this->conversionForm($operation->initializer)]),
+                + self::defaultJson('default', $operation->default)
+                + ($operation->initializer === null ? [] : ['initializer' => $this->conversionJson($operation->initializer)]),
             $operation instanceof MakeRequired => ['op' => 'makeRequired', 'type' => $operation->type, 'field' => (string) $operation->field],
             $operation instanceof MakeOptional => ['op' => 'makeOptional', 'type' => $operation->type, 'field' => (string) $operation->field],
             $operation instanceof RetypeField => ['op' => 'retypeField', 'type' => $operation->type, 'field' => $this->fields->write($operation->field)]
-                + ($operation->converter === null ? [] : ['converter' => $this->conversionForm($operation->converter)])
-                + self::defaultForm('default', $operation->default),
+                + ($operation->converter === null ? [] : ['converter' => $this->conversionJson($operation->converter)])
+                + self::defaultJson('default', $operation->default),
             $operation instanceof SetDefault => ['op' => 'setDefault', 'type' => $operation->type, 'path' => $operation->path, 'value' => $operation->value->value],
             $operation instanceof InheritDefault => ['op' => 'inheritDefault', 'type' => $operation->type, 'path' => $operation->path],
             $operation instanceof SetFieldRules => [
@@ -379,12 +355,12 @@ final readonly class OperationForm
     }
 
     /** @return array<string, mixed> $default under $key; nothing for none. */
-    private static function defaultForm(string $key, ?DefaultValue $default): array {
+    private static function defaultJson(string $key, ?DefaultValue $default): array {
         return $default === null ? [] : [$key => $default->value];
     }
 
     /** @return array<string, mixed> */
-    private function conversionForm(FieldConverter|FieldInitializer|LevelInitializer $conversion): array {
+    private function conversionJson(FieldConverter|FieldInitializer|LevelInitializer $conversion): array {
         [$identifier, $parameters] = $this->conversions->describe($conversion) ?? throw new LogicException(sprintf('%s is registered by no module: it has no JSON form.', $conversion::class));
 
         return ['kind' => $identifier, ...$parameters];
