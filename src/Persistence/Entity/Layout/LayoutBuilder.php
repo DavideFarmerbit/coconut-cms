@@ -48,26 +48,28 @@ final readonly class LayoutBuilder
 
     /**
      * @param Closure(FieldName): FieldPath $pathOf Turns one of $fields' names into its full path.
-     * @param string $columnPrefix What their columns start with: the Embeds they're reached through.
+     * @param list<string> $columns The stored columns of the Embeds they're reached through.
      * @param string $idPrefix What their owner_field starts with, the same way.
      */
-    private function addFields(LayoutParts $parts, FieldDescriptorCollection $fields, Closure $pathOf, string $columnPrefix = '', string $idPrefix = ''): void {
+    private function addFields(LayoutParts $parts, FieldDescriptorCollection $fields, Closure $pathOf, array $columns = [], string $idPrefix = ''): void {
         foreach ($fields as $name => $field) {
             $identity = $field->identity() ?? throw new LogicException(sprintf('Field "%s" has no stored column: its schema was stored without one.', $name));
-            $column = $columnPrefix . ($identity->column ?? throw new LogicException(sprintf('Field "%s" was never given a column.', $name)));
-            $this->addField($parts, $field, $pathOf($name), $column, $idPrefix . $identity->id);
+            $own = $identity->column ?? throw new LogicException(sprintf('Field "%s" was never given a column.', $name));
+            $this->addField($parts, $field, $pathOf($name), [...$columns, $own], $idPrefix . $identity->id);
         }
     }
 
     /**
      * Dispatches on the field's kind.
-     * @param string $column Its full column: its Embeds' joined with its own.
+     * @param list<string> $columns The stored columns along its path, its own last.
      * @param string $id Its full id: its Embeds' joined with its own.
      */
-    private function addField(LayoutParts $parts, FieldDescriptor $field, FieldPath $path, string $column, string $id): void {
+    private function addField(LayoutParts $parts, FieldDescriptor $field, FieldPath $path, array $columns, string $id): void {
+        $column = ColumnNames::flattened($columns);
+
         match ($field->kind()) {
             FieldKind::Scalar, FieldKind::ValueObject, FieldKind::Reference, FieldKind::TypeReference => $parts->addColumn(new ValueColumn($path, $column, $field)),
-            FieldKind::Embed => $this->addEmbed($parts, $field->target(), $path->embed(...), $column . ColumnNames::EMBED, $id . FieldPath::EMBED),
+            FieldKind::Embed => $this->addEmbed($parts, $field->target(), $path->embed(...), $columns, $id . FieldPath::EMBED),
             FieldKind::OwningReference => $parts->addOwned(new OwnedLayout($path, $id, $column, null)),
             FieldKind::Collection => $this->addCollection($parts, $field->itemDescriptor(), $path, $column, $id),
         };
@@ -77,9 +79,10 @@ final readonly class LayoutBuilder
      * Flattens $target's whole chain into $parts, along with every unique
      * group its levels declare: each Embed site gets its own index.
      * @param Closure(FieldName): FieldPath $pathOf
+     * @param list<string> $columns The stored columns of the Embeds on the way, this one last.
      */
-    private function addEmbed(LayoutParts $parts, string $target, Closure $pathOf, string $columnPrefix = '', string $idPrefix = ''): void {
-        $this->addFields($parts, $this->schemas->hierarchyFieldsOf($target), $pathOf, $columnPrefix, $idPrefix);
+    private function addEmbed(LayoutParts $parts, string $target, Closure $pathOf, array $columns = [], string $idPrefix = ''): void {
+        $this->addFields($parts, $this->schemas->hierarchyFieldsOf($target), $pathOf, $columns, $idPrefix);
 
         for ($current = $target; $current !== null; $current = $this->schemas->get($current)->parent) {
             $this->addUniqueGroups($parts, $this->schemas->get($current), $pathOf);

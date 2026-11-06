@@ -62,8 +62,9 @@ A field has two stored properties, and neither comes from its name:
 
 - **Field id:** generated once, never changed, never reused.
 - **Column:** the physical name of what holds its current values, opaque, such as
-  `f_a1b2c3`: its column, its Collection table's suffix, or its Embed's column
-  prefix. A new one is generated only when the content needs one.
+  `f_a1b2c3`: its column, its Collection table's suffix, or what an Embed adds to
+  the names of its leaves, which hash the stored columns along their path. A new
+  one is generated only when the content needs one.
 
 | Change | Field id | Column | Data moved |
 |---|---|---|---|

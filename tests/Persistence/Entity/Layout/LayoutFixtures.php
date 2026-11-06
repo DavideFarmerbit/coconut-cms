@@ -3,6 +3,7 @@
 namespace XyloIsCoding\CoconutCms\Tests\Persistence\Entity\Layout;
 
 use XyloIsCoding\CoconutCms\Core\Identifier;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LayoutBuilder;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Unique;
@@ -186,6 +187,11 @@ final class LayoutFixtures
         $stores->enums->register(Identifier::of('test', 'fuel'), LayoutFuel::class);
 
         return new LayoutBuilder(new SchemaLookup($stores->registry, self::storedUnderTheirNames($stores->compiler()->compile(NativeEntityReader::readAll($classes)))));
+    }
+
+    /** The name of what's stored through these columns, the Embeds' first. */
+    public static function flat(string ...$columns): string {
+        return ColumnNames::flattened(array_values($columns));
     }
 
     /**

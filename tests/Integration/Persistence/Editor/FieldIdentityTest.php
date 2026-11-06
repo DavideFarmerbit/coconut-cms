@@ -93,6 +93,25 @@ final class FieldIdentityTest extends DynamicTestCase
         self::assertSame(1, $this->session()->loadDynamic($yacht)->get('cabins'), 'A new field: nothing of the old one comes back.');
     }
 
+    public function testTwoEmbedsOfOneTypeKeepTheirOwnColumnsThroughARename(): void {
+        $this->save(
+            new AddField('dy:yacht', FieldDescriptor::embed('mooring', 'dy:buoy'), null),
+            new AddField('dy:yacht', FieldDescriptor::embed('anchor', 'dy:buoy'), null),
+        );
+        $yacht = $this->store('dy:yacht', ['mooring:color' => 'red', 'anchor:color' => 'blue']);
+        $mooring = $this->columns()->column('dy_yacht', 'mooring:color');
+        $anchor = $this->columns()->column('dy_yacht', 'anchor:color');
+        self::assertNotSame($mooring, $anchor);
+
+        $this->save(new RenameField('dy:yacht', 'mooring', 'berth'));
+        $this->save(new RenameField('dy:buoy', 'color', 'shade'));
+
+        self::assertSame($mooring, $this->columns()->column('dy_yacht', 'berth:shade'));
+        self::assertSame($anchor, $this->columns()->column('dy_yacht', 'anchor:shade'));
+        self::assertSame('red', $this->session()->loadDynamic($yacht)->get('berth:shade'));
+        self::assertSame('blue', $this->session()->loadDynamic($yacht)->get('anchor:shade'));
+    }
+
     public function testOwnedRowsHoldTheFieldsIdNeverItsName(): void {
         $yacht = $this->store('dy:yacht', ['dinghy' => 'dy:motor', 'dinghy.horsepower' => 40]);
         [$dinghy] = $this->ownedIds($yacht, 'dinghy');

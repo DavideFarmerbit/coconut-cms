@@ -78,11 +78,11 @@ final class EntityRowsBuilderTest extends TestCase
             self::rowIn($all[0]->rows, 'entities'),
         );
         self::assertSame(
-            ['_id' => 'car-id', '_owner' => EntityIds::NIL, '_owner_field' => '', '_written' => 'token', 'chassis__weight' => 1000, 'maker' => null, '_spares_count' => 0],
+            ['_id' => 'car-id', '_owner' => EntityIds::NIL, '_owner_field' => '', '_written' => 'token', LayoutFixtures::flat('chassis', 'weight') => 1000, 'maker' => null, '_spares_count' => 0],
             self::rowIn($all[0]->rows, 'rows_car'),
         );
         self::assertSame(
-            ['_id' => 'car-id', 'chassis__weight' => false, 'maker' => false, 'engine' => false, 'spares' => false, 'wheels' => false, 'tags' => false],
+            ['_id' => 'car-id', LayoutFixtures::flat('chassis', 'weight') => false, 'maker' => false, 'engine' => false, 'spares' => false, 'wheels' => false, 'tags' => false],
             self::rowIn($all[0]->rows, '_state__rows_car'),
         );
     }
@@ -109,9 +109,9 @@ final class EntityRowsBuilderTest extends TestCase
 
         self::assertSame('mine', self::rowIn($rows, 'rows_vehicle')['name']);
         self::assertTrue(self::rowIn($rows, '_state__rows_vehicle')['name']);
-        self::assertSame(1200, self::rowIn($rows, 'rows_car')['chassis__weight']);
+        self::assertSame(1200, self::rowIn($rows, 'rows_car')[LayoutFixtures::flat('chassis', 'weight')]);
         self::assertSame('maker-id', self::rowIn($rows, 'rows_car')['maker']);
-        self::assertTrue(self::rowIn($rows, '_state__rows_car')['chassis__weight']);
+        self::assertTrue(self::rowIn($rows, '_state__rows_car')[LayoutFixtures::flat('chassis', 'weight')]);
     }
 
     public function testAnOwnedObjectWithAFieldSetGetsRowsOfItsOwn(): void {

@@ -10,6 +10,7 @@ use Doctrine\DBAL\Types\Types;
 use Doctrine\DBAL\Types\Type;
 use InvalidArgumentException;
 use PHPUnit\Framework\TestCase;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\DatabaseSchema;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Property\Embed;
@@ -88,9 +89,8 @@ final class DatabaseSchemaTest extends TestCase
 
     public function testEveryTableTheLayoutsNeedIsCreated(): void {
         $tables = array_map(static fn ($table): string => $table->getName(), self::carSchema()->getTables());
-        sort($tables);
 
-        self::assertSame([
+        self::assertEqualsCanonicalizing([
             '_state__car',
             '_state__car__wheels',
             '_state__layout_chassis',
@@ -100,7 +100,7 @@ final class DatabaseSchemaTest extends TestCase
             '_state__layout_vehicle',
             '_state__layout_wheel',
             'car',
-            'car__chassis__tags',
+            ColumnNames::collectionTable('car', LayoutFixtures::flat('chassis', 'tags')),
             'car__makers',
             'car__wheels',
             'entities',
@@ -118,7 +118,7 @@ final class DatabaseSchemaTest extends TestCase
         $car = self::carSchema()->getTable('car');
 
         self::assertSame(
-            ['_id', '_owner', '_owner_field', '_written', 'color', 'fuel', 'chassis__weight', 'chassis__maker', '_engines_count'],
+            ['_id', '_owner', '_owner_field', '_written', 'color', 'fuel', LayoutFixtures::flat('chassis', 'weight'), LayoutFixtures::flat('chassis', 'maker'), '_engines_count'],
             self::columnNamesOf($car),
         );
     }
@@ -126,7 +126,7 @@ final class DatabaseSchemaTest extends TestCase
     public function testEveryValueColumnIsNullableWhateverItsField(): void {
         $car = self::carSchema()->getTable('car');
 
-        foreach (['color', 'fuel', 'chassis__weight', 'chassis__maker'] as $column) {
+        foreach (['color', 'fuel', LayoutFixtures::flat('chassis', 'weight'), LayoutFixtures::flat('chassis', 'maker')] as $column) {
             self::assertFalse($car->getColumn($column)->getNotnull(), $column);
         }
 
@@ -139,10 +139,10 @@ final class DatabaseSchemaTest extends TestCase
         self::assertSame(Type::getType(Types::STRING), $schema->getTable('car')->getColumn('color')->getType());
         self::assertSame(255, $schema->getTable('car')->getColumn('color')->getLength());
         self::assertSame(Type::getType(Types::BIGINT), $schema->getTable('car')->getColumn('fuel')->getType());
-        self::assertSame(Type::getType(Types::GUID), $schema->getTable('car')->getColumn('chassis__maker')->getType());
-        self::assertSame(Type::getType(Types::DECIMAL), $schema->getTable('layout_engine')->getColumn('piston__diameter')->getType());
-        self::assertSame(20, $schema->getTable('layout_engine')->getColumn('piston__diameter')->getPrecision());
-        self::assertSame(6, $schema->getTable('layout_engine')->getColumn('piston__diameter')->getScale());
+        self::assertSame(Type::getType(Types::GUID), $schema->getTable('car')->getColumn(LayoutFixtures::flat('chassis', 'maker'))->getType());
+        self::assertSame(Type::getType(Types::DECIMAL), $schema->getTable('layout_engine')->getColumn(LayoutFixtures::flat('piston', 'diameter'))->getType());
+        self::assertSame(20, $schema->getTable('layout_engine')->getColumn(LayoutFixtures::flat('piston', 'diameter'))->getPrecision());
+        self::assertSame(6, $schema->getTable('layout_engine')->getColumn(LayoutFixtures::flat('piston', 'diameter'))->getScale());
     }
 
     public function testAValueObjectThatIsNotIndexableIsStoredAsText(): void {
@@ -155,14 +155,14 @@ final class DatabaseSchemaTest extends TestCase
         $schema = self::carSchema();
 
         self::assertSame(['owner -> entities (RESTRICT)'], self::foreignKeysOf($schema, 'entities'));
-        self::assertSame(['_id -> entities (CASCADE)', 'chassis__maker -> entities (SET NULL)'], self::foreignKeysOf($schema, 'car'));
+        self::assertSame(['_id -> entities (CASCADE)', LayoutFixtures::flat('chassis', 'maker') . ' -> entities (SET NULL)'], self::foreignKeysOf($schema, 'car'));
         self::assertSame(['_id -> car (CASCADE)'], self::foreignKeysOf($schema, '_state__car'));
         self::assertSame(['_owner -> car (CASCADE)', '_value -> entities (SET NULL)'], self::foreignKeysOf($schema, 'car__makers'));
         self::assertSame(['_owner,_position -> car__wheels (CASCADE)'], self::foreignKeysOf($schema, '_state__car__wheels'));
     }
 
     public function testACollectionTableIsKeyedByOwnerAndPosition(): void {
-        $tags = self::carSchema()->getTable('car__chassis__tags');
+        $tags = self::carSchema()->getTable(ColumnNames::collectionTable('car', LayoutFixtures::flat('chassis', 'tags')));
 
         self::assertSame(['_owner', '_position', '_value'], self::columnNamesOf($tags));
         self::assertSame(['_owner', '_position'], $tags->getPrimaryKey()->getColumns());

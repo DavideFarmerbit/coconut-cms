@@ -6,6 +6,7 @@ use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\CollectionLayout;
+use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\ColumnNames;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\LevelLayout;
 use XyloIsCoding\CoconutCms\Persistence\Entity\Layout\OwnedLayout;
 use XyloIsCoding\CoconutCms\Persistence\Schema\Attribute\Class\Entity;
@@ -100,12 +101,25 @@ final class LayoutBuilderTest extends TestCase
         self::assertArrayNotHasKey('name', self::columnsByPath($car->columns));
     }
 
-    public function testEmbedsFlattenIntoTheLevelsOwnColumnsJoinedWithDoubleUnderscores(): void {
+    public function testASiteNameIsTheColumnItselfOutsideAnEmbedAndAFixedLengthHashInside(): void {
+        $shallow = ColumnNames::flattened(['f_aaaaaa', 'f_bbbbbb']);
+        $deep = ColumnNames::flattened(array_fill(0, 40, 'f_aaaaaa'));
+
+        self::assertSame('f_aaaaaa', ColumnNames::flattened(['f_aaaaaa']));
+        self::assertSame(14, strlen($shallow));
+        self::assertSame(14, strlen($deep), 'Any depth fits.');
+    }
+
+    public function testTwoEmbedsOfOneTypeGiveTheirFieldsTwoNames(): void {
+        self::assertNotSame(ColumnNames::flattened(['f_home00', 'f_street']), ColumnNames::flattened(['f_work00', 'f_street']));
+    }
+
+    public function testEmbedsFlattenIntoTheLevelsOwnColumnsEachNamedForItsSite(): void {
         self::assertSame([
             'color' => 'color',
             'fuel' => 'fuel',
-            'chassis:weight' => 'chassis__weight',
-            'chassis:maker' => 'chassis__maker',
+            'chassis:weight' => LayoutFixtures::flat('chassis', 'weight'),
+            'chassis:maker' => LayoutFixtures::flat('chassis', 'maker'),
         ], self::columnsByPath(self::car()->columns));
     }
 
@@ -121,7 +135,7 @@ final class LayoutBuilderTest extends TestCase
     public function testEveryOtherCollectionGetsItsOwnTableNamedAfterItsPath(): void {
         $tables = array_map(static fn (CollectionLayout $collection): string => $collection->table, self::car()->collections);
 
-        self::assertSame(['car__chassis__tags', 'car__wheels', 'car__makers'], $tables);
+        self::assertSame([ColumnNames::collectionTable('car', LayoutFixtures::flat('chassis', 'tags')), 'car__wheels', 'car__makers'], $tables);
     }
 
     public function testAScalarOrReferenceItemIsOneValueColumnWithNoStateTable(): void {
@@ -145,12 +159,12 @@ final class LayoutBuilderTest extends TestCase
         self::assertSame([
             'color' => 'color',
             'fuel' => 'fuel',
-            'chassis:weight' => 'chassis__weight',
-            'chassis:maker' => 'chassis__maker',
-            'chassis:spare' => 'chassis__spare',
+            'chassis:weight' => LayoutFixtures::flat('chassis', 'weight'),
+            'chassis:maker' => LayoutFixtures::flat('chassis', 'maker'),
+            'chassis:spare' => LayoutFixtures::flat('chassis', 'spare'),
             'engine' => 'engine',
             'engines' => 'engines',
-            'chassis:tags' => 'chassis__tags',
+            'chassis:tags' => LayoutFixtures::flat('chassis', 'tags'),
             'wheels' => 'wheels',
             'makers' => 'makers',
         ], self::car()->stateColumns());
@@ -158,7 +172,7 @@ final class LayoutBuilderTest extends TestCase
 
     public function testUniqueGroupsAreScopedToTheOwnerAndRepeatedAtEveryEmbedSite(): void {
         self::assertSame([
-            ['_owner', '_owner_field', 'chassis__maker'],
+            ['_owner', '_owner_field', LayoutFixtures::flat('chassis', 'maker')],
             ['_owner', '_owner_field', 'color', 'fuel'],
         ], self::car()->uniqueIndexes);
     }
@@ -171,7 +185,7 @@ final class LayoutBuilderTest extends TestCase
         $engine = LayoutFixtures::carBuilder()->levelOf('default:layout_engine');
 
         self::assertSame([['_owner', '_owner_field', 'serial']], $engine->uniqueIndexes);
-        self::assertSame(['serial' => 'serial', 'piston:diameter' => 'piston__diameter'], self::columnsByPath($engine->columns));
+        self::assertSame(['serial' => 'serial', 'piston:diameter' => LayoutFixtures::flat('piston', 'diameter')], self::columnsByPath($engine->columns));
     }
 
     public function testAnOwningReferenceInsideASingularEmbedIsFine(): void {

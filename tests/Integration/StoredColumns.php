@@ -40,7 +40,7 @@ final readonly class StoredColumns
 
     /** The column of the field at $path on $table's level. */
     public function column(string $table, string $path): string {
-        return implode(ColumnNames::EMBED, array_map(static fn (array $field): string => $field['column'], $this->walk($table, $path)));
+        return ColumnNames::flattened(array_map(static fn (array $field): string => $field['column'], $this->walk($table, $path)));
     }
 
     /** What rows owned at $path on $table's level hold in owner_field. */

@@ -378,9 +378,9 @@ name:
 
 - **Id:** generated once, never changed, never reused. 12 hex characters.
 - **Column:** the physical name of what holds its current values, opaque, such
-  as `f_a1b2c3`. It's the field's column, its Collection table's suffix, or its
-  Embed's column prefix. Every field has one, whatever its kind, and it's unique
-  across all the types of a database.
+  as `f_a1b2c3`. It's the field's column, its Collection table's suffix, or what
+  an Embed adds to the names of its leaves. Every field has one, whatever its
+  kind, and it's unique across all the types of a database.
 
 Both are stored in the schema, on the `FieldDescriptor`. A class says nothing of
 them, so a batch from the code has none. `FieldIdentities` gives a batch its
@@ -417,10 +417,12 @@ two fields with `sameAs()`, never `==`.
   - TypeReference: the identifier, a string of 255 characters at most. No
     foreign key: the schema table is rewritten whole at each save, so
     migrations keep what it names current instead.
-  - Embed: its leaves, flattened. Each leaf's column is the Embeds' columns
-    and its own, joined with `__`: `f_a1b2c3__f_d4e5f6`. Two Embeds of one type
-    don't clash, and a nesting depth of five fits the 58 characters a name
-    has.
+  - Embed: its leaves, flattened. An Embed target's field has one stored
+    column, but a type can embed that target twice, so a leaf's name is a hash
+    of the stored columns along its path: `f_` and 12 hex characters. It's
+    worked out from stored columns only, so a rename changes nothing, and it's
+    the same length at any depth. A retype of the Embed or of the leaf gives a
+    new name. `DatabaseSchema` refuses two values landing on one name.
   - OwningReference: no column. The owned row is an `entities` row whose
     `owner_field` holds the field's id, joined with its Embeds' ids by `:`
     along the path. No rename touches a row.
