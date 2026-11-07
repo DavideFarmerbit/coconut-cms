@@ -87,7 +87,7 @@ A field has two stored properties, and neither comes from its name:
 - `owner_field` and `_owner_field` hold the field id in place of the path, joined
   along an Embed path. They're the only row-level data depending on a field, so no
   rename touches a row. They're limited to 255 characters.
-- A migration still rewrites the aggregates a rename changes, until stage 4. A rename
+- A migration still rewrites the aggregates a rename changes, until stage 5. A rename
   moves no column and no table now, but the move runs as before.
 
 ## Migrating
@@ -103,8 +103,7 @@ rows catch up.** Nobody waits for a backfill: not an admin, not a later change, 
 entity saved in the same batch. They go through four steps.
 
 1. **Expand.** New columns and tables go beside the old ones, never in their place.
-   The change gets its own marker table and its record. This is short DDL, and only one
-   runs at a time. It uses a short `lock_wait_timeout`, so an `ALTER` waiting on a long
+   The change is recorded first. This is short DDL, and only one runs at a time. It uses a short `lock_wait_timeout`, so an `ALTER` waiting on a long
    transaction fails and doesn't queue up that table's traffic.
 2. **Live.** The new schema is stored in the same step. From then on every load reads
    the new shape, converting a row that isn't there yet, and every save writes it.
@@ -113,24 +112,24 @@ entity saved in the same batch. They go through four steps.
    so no save lands between the read and the write. The save tries first, for about 2
    seconds. If it finishes, the status is `saved`. If not, the status is `migrating`, and
    the command carries on from where it stopped. Cron runs the command.
-4. **Contract.** Old columns and markers go, once no row needs them and no old code
-   runs. It can come much later.
+4. **Contract.** Old columns go, once no row needs them and no old code runs. It can
+   come much later.
 
-**Changes stack.** The record of changes is ordered, and holds nothing back. A second
-change to the same type applies at once, while the first is still catching up.
+**Changes stack.** The history is ordered, and holds nothing back. A second change to
+the same type applies at once, while the first is still catching up.
 
-- A load finds the newest change whose marker matches the row, reads the row in that
-  shape, and runs only the later changes on it.
-- A save writes the latest shape and marks the latest change.
+- A load reads the row's version, reads the row in that version's shape, and runs only
+  the later changes on it.
+- A save writes the latest shape and the latest version.
 - The backfill takes a row straight to the latest shape.
-- Old columns go oldest change first, once no row needs them.
+- Old columns go oldest change first, once no row of their types is below them.
 
 **A stop at any point is safe.** Every step can run again.
 
 - Expand compares the database with the target.
 - A change is recorded before anything depends on it.
 - Each aggregate converts in its own transaction, so a crash loses at most the one in
-  progress, and the next run skips what's marked.
+  progress, and the next run skips what's at the latest version.
 - The backfill's lock expires, so a dead worker blocks nobody.
 - A test stops the process at every step, resumes, and compares the result with a run
   that was never stopped.
@@ -139,29 +138,43 @@ change to the same type applies at once, while the first is still catching up.
 ran, and `check()` and the admin say so when a change is waiting and it looks missing.
 Until then, only the query gaps below stay open.
 
-**A write token and a marker table replace dual write.** Every level table has one
-`_written` column, and the `entities` row has `written`. Every save sets a fresh
-token on each row it writes, whatever columns it changes. Each content change has its
-own marker table, with one row per aggregate: its root's id and the token the backfill
-saw. An aggregate is left behind when it has no marker, or when the marker differs
-from the root's `written`. So an old release needs no change and knows nothing about
-a migration, however it writes the row. The backfill converts that aggregate again.
+**A write token and a version replace dual write.** Every save makes one fresh token,
+with `EntityIds::generate()`, and sets it on every row it writes: `written` on each
+`entities` row, `_written` on each level row, whatever columns it changes. It's random,
+not counted, so two saves never share one.
 
-- The marker table touches no level table, so it needs no `ALTER` on a busy table, and
-  contract drops one table. Deleting an entity removes its marker by a foreign key.
-- An aggregate is the unit, because a save and the backfill both lock its root.
-- A gained level needs nothing of its own: an aggregate with no row at that level has
-  never been marked.
-- A save by the new code writes the new shape and its marker in one transaction.
-  Without the marker, the next load would read the old column, which that save didn't
+The `entities` row also holds `version` and `version_written`. `version` is the
+position in the change history of the shape the row is in. Every save sets it to the
+latest, and sets `version_written` to its own token. An old release knows neither
+column, so it leaves them as they were, but it still sets `written`:
+
+| The root's `entities` row | Its shape |
+|---|---|
+| `version_written` equals `written` | The shape of `version` |
+| They differ | An old release wrote it last: the shape before the running native change |
+
+So an old release needs no change and knows nothing about a migration, however it
+writes the row. The backfill converts that aggregate again.
+
+- There's no table to create per change, and nothing to drop at contract. The two
+  columns are part of the `entities` table from the start, with an index on concrete
+  identifier and version.
+- A row is behind when its version is below the newest change that converts content
+  of its types. A change needing nothing from rows, such as a rename, gives the same
+  shape, so a row at the version before it isn't behind and isn't rewritten.
+- An aggregate is the unit, because a save and the backfill both lock its root. Only
+  the root's row counts.
+- A gained level needs nothing of its own: an aggregate with no row at that level is
+  below the version that gained it.
+- A save by the new code writes the new shape and its version in one transaction.
+  Without the version, the next load would read the old column, which that save didn't
   fill.
-- Until stage 12 every save rewrites its whole aggregate, so comparing with `written`
-  gives the same answer as comparing level by level. Stage 12 compares with `_written`
-  on the changed level, so a save to another level costs no repeated conversion.
-  Marker tables exist only during a change, so that needs no data migration.
+- Until stage 13 every save rewrites its whole aggregate, so comparing with `written`
+  gives the same answer as comparing level by level. Stage 13 decides whether a save to
+  one level must raise the whole aggregate's version, or whether versions go per level.
 - A Collection table has no token. A save changing only a Collection's items must
   still set the token on the owner's level row.
-- `written` is also the version a client sends back to detect a stale save.
+- `written` is also what a client sends back to detect a stale save.
 
 **Reading a row left behind.** An old row is read through the change's old schema into
 stored-form values, and the converter brings them up. So the new class is filled
@@ -186,21 +199,64 @@ save's time budget can convert every row, the check before the save still finds 
 clash. Past that budget, the first row to reach the index keeps the value, and the later
 one fails alone, as above.
 
-**A gained level** is a new table with a foreign key to `entities`. The marker table
-covers it, even when its values come from fields the old release can change.
+**A gained level** is a new table with a foreign key to `entities`. The version covers
+it, even when its values come from fields the old release can change.
 
-**The plan outlives its request.** Conversions run long after planning, and they're
-PHP objects, not data.
+**The plan outlives its request.** Conversions run long after planning. Each change is
+recorded in the change history, in the fixup language below, with the old schemas
+reading an old row needs. Any process reads the plan from there.
 
-- Each change's record stores its old schemas: reading an old row needs them, and the
-  stored schemas are the new ones once it's live.
-- A native change stores its step ids too. The fixups are in the code, and a step can't
-  be deleted while a database hasn't applied it, so a process rebuilds the plan with the
-  planner the first time it meets a left-behind aggregate.
-- An editor change stores its operations as their JSON, and a process rebuilds the plan
-  from those. An operation naming a converter with no registered name can't be stored,
-  so a content change saved that way is refused, with a clear error. The API can only
-  name registered ones.
+### The fixup language
+
+Every fixup has one stored form: JSON, in a fixed set of kinds. It's the one way the
+system says what a change means, and every part that needs to know reads it:
+
+| Reader | What it does with the fixups |
+|---|---|
+| Loading an old row | Reads it in its shape, and runs the later fixups on its values |
+| The backfill | The same, then writes the latest shape |
+| Old input | Runs a request built on an old shape through the later fixups |
+| Query rewrite | Rewrites a condition on an old path to the new one |
+| Catching up a database | Replays the changes it hasn't applied |
+
+**The kinds** are the fixups that exist today: add, drop, rename, move and retype a field;
+add, drop, rename, replace and reparent a type; copy and move values; unique groups and
+rules; and the set-asides a break needs. A new kind is a change to the language, made with
+care, never per project.
+
+**Each fixup stands alone.** It carries what it changes to: the new field's definition, the
+new parent, the replacing type. Today a fixup reads those from the code's target schemas
+while it runs, and the code may have changed since a change was recorded. So `FixupAtStep`
+goes.
+
+**Logic stays in PHP, named.** A converter or initializer is its registered identifier and
+its parameters, as the editor already sends it: `{"kind": "coconut-cms:text-to-number",
+"to": "int"}`. Native steps follow the same rule: every converter and initializer they use
+is registered, with an identifier. A class must stay in the code while a database still
+needs a change using it, and `check()` warns about one that's gone.
+
+**The change history** is a table, one row per change, in order: its position, which is
+what an entity's `version` names, the schema version it was built on and the one it gives,
+its source, native or editor, its fixups, the old schemas, and its status. Native
+migrations and editor saves both record into it. It replaces "editor changes store their
+operations" and "native plans are rebuilt from code". A step deleted from the code no
+longer blocks a database still missing it: the history has it.
+
+**A change's status** lives on its history row: `recorded`, `live`, `done` or
+`contracted`. Rows left and rows failed are counted when asked, by query, never stored, so
+they can't drift. The admin shows `migrating` for a change that's `live` with rows left,
+and a save's result is read from the row.
+
+**Schema versions** are a hash of the stored schemas, with the version each was built on.
+An import built on a version prod has moved past is refused as a conflict, and never merged
+silently.
+
+**Limits.**
+
+- A query on a retyped field rewrites only when its converter also converts back. Renames
+  and moves always rewrite. Otherwise a query on the old shape is refused, clearly.
+- Converters stay arbitrary PHP: the language names them, it doesn't contain them.
+- How long the history is kept, and whether old entries are squashed, is open.
 
 ### Native deploys
 
@@ -233,6 +289,18 @@ checkout. A save must not fail for that. Changes by old paths are translated bef
 custom cases, on the `changes` map in stored form. It lasts a grace period after the
 switch. CMS operations and CMS functions handling post data pass through here. Code
 reading `$_POST` directly handles its own backward compatibility.
+
+### Old output
+
+A client holding an old shape breaks on an answer in the new one: a loaded admin tab, a
+JavaScript client, another app on the API. A page the server renders needs nothing, since
+it's built from the new shape.
+
+- Every request names the schema version it was built on. Old input needs it anyway.
+- The answer is translated back to that version when every fixup between can go back:
+  renames and moves always, a retype when its converter converts back.
+- Otherwise the answer is a clear "schema changed, reload" error, never a shape the client
+  can't read. The admin then reloads its type definitions.
 
 ### Known risk: rows left behind
 
@@ -334,7 +402,7 @@ saved. Once the admin reviews it, B applies on top of A, whatever A's backfill h
 reached.
 
 **B only writes a boat, while A's backfill runs.** B's save is ordinary. It writes the
-new shape and its marker, and the backfill has nothing left to do for that boat.
+new shape and the latest version, and the backfill has nothing left to do for that boat.
 
 **Staleness is per type.** Each schema change carries the fingerprint of each type it's
 built on. Fingerprints exist already, so the single revision can go.
@@ -443,25 +511,31 @@ Each stage works on its own.
 3. **The real reader on left-behind rows.** Done. Marker tables, the converter at load,
    an entity with no row at a gained level, and a save marking what it writes:
    `ContentChange`, `AggregateConversion`, and `EntityReader` and `EntityWriter` taking
-   a `PendingConversion`. Nothing creates such a change yet: stage 4 does.
-4. **Content changes by backfill,** for editor saves, in place of the move in one
-   transaction. First one change end to end: its record, expand, live, the save's own
-   backfill, the command, contract, failed rows, and a test stopping at every step. Then
-   changes stacking on each other.
-5. **State per type.** The single revision, the single `StateKey` and the single
+   a `PendingConversion`. Nothing creates such a change yet: stage 5 does. Stage 5
+   replaces its per-change marker tables with the version on the `entities` row.
+4. **The fixup language.** A stored JSON form for every fixup, each carrying its own
+   targets, converters named by registered identifier, and the change history recorded
+   by native migrations and editor saves alike. See "The fixup language".
+5. **Content changes by backfill,** for editor saves, in place of the move in one
+   transaction, with plans read from the history. First one change end to end: expand,
+   live, the save's own backfill, the command, contract, failed rows, and a test
+   stopping at every step. Then changes stacking on each other.
+6. **State per type.** The single revision, the single `StateKey` and the single
    "started" mark go.
-6. **Native deploys:** `migrate --prepare` and `migrate --finish`.
-7. **Old input:** translating changes by old paths, and the pre-edit hook.
-8. **Narrow what a migration takes:** Reference holders, and type references by base.
-9. **Batches of entities:** one operation, ids made in the admin, entity versions,
-   groups, per-change results, the save log.
-10. **Schema changes in batches,** with `DraftWriter` writing parts of the draft.
-11. **The admin's mechanic:** providers, in place of what it replaces.
-12. **Diff writes,** measured first: under the lock, a save compares with what's stored
+7. **Native deploys:** `migrate --prepare` and `migrate --finish`.
+8. **Old input and old output:** translating changes by old paths, and the pre-edit
+   hook, from the history; answers translated back to the client's version, or a clear
+   "schema changed, reload" error.
+9. **Narrow what a migration takes:** Reference holders, and type references by base.
+10. **Batches of entities:** one operation, ids made in the admin, entity versions,
+    groups, per-change results, the save log.
+11. **Schema changes in batches,** with `DraftWriter` writing parts of the draft.
+12. **The admin's mechanic:** providers, in place of what it replaces.
+13. **Diff writes,** measured first: under the lock, a save compares with what's stored
     and writes only the rows that differ. Validation still checks the whole aggregate.
-    The write tokens make this safe for the backfill, and markers move to comparing
+    The write tokens make this safe for the backfill, and versions may move to comparing
     with `_written` on the changed level.
-13. **Atomic operations,** for values like stock, when something needs them.
+14. **Atomic operations,** for values like stock, when something needs them.
 
 ## Prototype results
 
@@ -538,10 +612,15 @@ this.
     command printing a type's layout?
 16. **Moving editor schemas to prod.** A developer exports only the current schemas, with
     no content, for privacy and size, edits them locally on an old version, and imports
-    them into prod. Field ids may make this work with no stored fixups: the same id under
-    a new name is a rename, and a missing id is a removal. Not tested. What decides when
-    a retype needs a converter, and how is a stale export detected? Native steps still
-    ship with the code, and a step deleted before a database applied it still blocks.
+    them into prod. The export carries the history; the local edits record theirs; prod
+    replays what it hasn't applied, and refuses an export built on a version it has moved
+    past. Can two edits that don't touch the same types be merged instead? Not tested.
+17. **Removed fields kept for a while.** Contract drops a removed field's column after a
+    grace period, not at once, so an admin can undo a removal. How long, and how is an
+    undo offered?
+18. **DDL that can't run online.** Every expand statement states `ALGORITHM=INSTANT`, or
+    `INPLACE, LOCK=NONE`, so MySQL fails instead of rebuilding a table under a lock. What
+    does the change do then: a shadow table, as gh-ost does, or refuse?
 
 ## Prior art
 
