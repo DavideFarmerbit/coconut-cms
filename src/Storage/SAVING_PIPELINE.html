@@ -104,9 +104,9 @@ button.primary { background: var(--new); color: #fff; border-color: var(--new); 
   </div>
 
   <h2>1. The map</h2>
-  <p class="lead">Solid boxes exist in code. Dashed boxes are planned. Red badges are open points: places where a rework may still hide. During the simulation below, the boxes it touches light up.</p>
+  <p class="lead">Two lanes. Schema changes only ever append to the history, and the stored schemas are its newest version. Everything that reads or writes content runs through one translator, which moves values between versions. Solid boxes exist in code, dashed boxes are planned, and red badges are open points. During the simulation below, the boxes it touches light up.</p>
   <div class="panel map-wrap">
-    <svg id="map" viewBox="0 0 1120 600" width="1120" height="600" role="img" aria-label="Pipeline map">
+    <svg id="map" viewBox="0 0 1120 545" width="1120" height="545" role="img" aria-label="Pipeline map">
       <defs>
         <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
           <path id="arrowHead" d="M0,0 L10,5 L0,10 z"/>
@@ -141,8 +141,8 @@ button.primary { background: var(--new); color: #fff; border-color: var(--new); 
     </div>
   </div>
 
-  <h2>3. One language, six readers</h2>
-  <p class="lead">Stage 4 makes every fixup a piece of stored JSON. Each of these reads the same entries in the change history, so there is one place that says what a change means.</p>
+  <h2>3. One translator, six uses</h2>
+  <p class="lead">Stage 4 makes every fixup a piece of stored JSON in the history, the one source of truth. The translator moves values between any two versions through it, and each of these is the translator called with a different start and end.</p>
   <div class="panel">
     <table class="readers">
       <tr><th>Reader</th><th>When</th><th>What it does with the fixups</th><th>Stage</th></tr>
@@ -163,41 +163,39 @@ button.primary { background: var(--new); color: #fff; border-color: var(--new); 
 <script>
 /* ---------- The map ---------- */
 const lanes = [
-  { y: 20, h: 110, label: "Admin" },
-  { y: 140, h: 130, label: "Server: one batch" },
-  { y: 280, h: 150, label: "Schema change" },
-  { y: 440, h: 140, label: "Content, live" },
+  { y: 20, h: 165, label: "Schema changes: append to the history" },
+  { y: 200, h: 330, label: "Every path through the translator" },
 ];
 const nodes = [
-  { id: "providers", x: 30, y: 45, w: 170, label: "Providers", sub: "what's unsaved, per unit", st: "planned" },
-  { id: "draft", x: 230, y: 45, w: 170, label: "Schema draft", sub: "DraftWriter, parts of it", st: "planned", open: [7] },
-  { id: "send", x: 430, y: 45, w: 170, label: "Save / Save all", sub: "a unit and what it needs", st: "planned" },
-  { id: "log", x: 30, y: 170, w: 150, label: "Save log", sub: "batch id, retry safe", st: "planned", open: [10] },
-  { id: "plan", x: 210, y: 170, w: 180, label: "Plan the batch", sub: "dependencies, groups", st: "planned", open: [9] },
-  { id: "results", x: 420, y: 170, w: 180, label: "Result per change", sub: "saved, migrating, rejected...", st: "planned" },
-  { id: "entities", x: 630, y: 170, w: 200, label: "Entity groups", sub: "own transaction, root lock", st: "planned", open: [12] },
-  { id: "oldio", x: 860, y: 170, w: 220, label: "Old input, old output", sub: "translate by client's version", st: "planned" },
-  { id: "fixups", x: 30, y: 305, w: 170, label: "Fixup language", sub: "JSON, standalone, named PHP", st: "planned" },
-  { id: "history", x: 230, y: 305, w: 170, label: "Change history", sub: "versions, old schemas", st: "planned", open: [16] },
-  { id: "expand", x: 430, y: 305, w: 170, label: "Expand", sub: "new columns beside old", st: "planned", open: [18] },
-  { id: "live", x: 630, y: 305, w: 170, label: "Live", sub: "new schema stored", st: "planned", open: [1] },
-  { id: "native", x: 860, y: 305, w: 220, label: "Native deploy", sub: "prepare, switch code, finish", st: "planned", open: [4] },
-  { id: "read", x: 30, y: 465, w: 190, label: "Load", sub: "left behind? convert on read", st: "built" },
-  { id: "write", x: 250, y: 465, w: 190, label: "Save", sub: "new shape + version", st: "built" },
-  { id: "backfill", x: 470, y: 465, w: 190, label: "Backfill", sub: "2 s in the save, then cron", st: "planned", open: [6] },
-  { id: "contract", x: 690, y: 465, w: 170, label: "Contract", sub: "drop old, after grace", st: "planned", open: [17] },
-  { id: "query", x: 890, y: 465, w: 190, label: "Queries", sub: "miss unconverted rows", st: "built", open: [5] },
+  { id: "batch", x: 30, y: 45, w: 190, label: "Admin batch", sub: "schema and entities, one save", st: "planned", open: [9] },
+  { id: "native", x: 30, y: 115, w: 190, label: "Native deploy", sub: "steps in the code", st: "planned", open: [4] },
+  { id: "plan", x: 260, y: 80, w: 170, label: "Plan", sub: "dependencies, groups", st: "planned" },
+  { id: "history", x: 470, y: 80, w: 190, label: "History", sub: "the one source, versions", st: "planned", open: [16] },
+  { id: "expand", x: 710, y: 45, w: 170, label: "Expand", sub: "new columns beside old", st: "planned", open: [18] },
+  { id: "contract", x: 710, y: 115, w: 170, label: "Contract", sub: "after the grace period", st: "planned", open: [17] },
+  { id: "schemas", x: 920, y: 80, w: 180, label: "Stored schemas", sub: "= the newest version", st: "built", open: [1] },
+  { id: "translator", x: 420, y: 215, w: 280, h: 292, label: "Translator", sub: "any version to any other,", sub2: "through the history. Forward", sub3: "half built in stage 3.", st: "planned" },
+  { id: "in_write", x: 30, y: 215, w: 250, label: "Entity changes", sub: "from a client at version c", st: "planned" },
+  { id: "out_write", x: 840, y: 215, w: 260, label: "Writer", sub: "latest shape + version", st: "built", open: [12] },
+  { id: "in_load", x: 30, y: 295, w: 250, label: "Load a row", sub: "stored at version v", st: "built" },
+  { id: "out_load", x: 840, y: 295, w: 260, label: "Answer", sub: "at the client's version c", st: "planned" },
+  { id: "in_back", x: 30, y: 375, w: 250, label: "Backfill", sub: "rows behind: 2 s, then cron", st: "planned", open: [6] },
+  { id: "out_back", x: 840, y: 375, w: 260, label: "Writer", sub: "the same one, under the root lock", st: "built" },
+  { id: "in_query", x: 30, y: 455, w: 250, label: "Query", sub: "paths at version c", st: "planned" },
+  { id: "out_query", x: 840, y: 455, w: 260, label: "Query on the latest columns", sub: "misses unconverted rows", st: "built", open: [5] },
 ];
 const edges = [
-  ["providers", "send"], ["draft", "send"], ["send", "log"], ["log", "plan"], ["plan", "results"],
-  ["plan", "fixups"], ["plan", "entities"], ["fixups", "history"], ["history", "expand"], ["expand", "live"],
-  ["live", "entities"], ["native", "history"], ["live", "read"], ["live", "write"], ["entities", "write"],
-  ["history", "read"], ["history", "backfill"], ["backfill", "contract"], ["write", "backfill"], ["live", "query"],
-  ["history", "oldio"], ["oldio", "entities"],
+  ["batch", "plan"], ["native", "plan"], ["plan", "history"], ["history", "expand"], ["history", "contract"],
+  ["history", "schemas"], ["history", "translator"], ["plan", "in_write"],
+  ["in_write", "translator"], ["translator", "out_write"],
+  ["in_load", "translator"], ["translator", "out_load"],
+  ["in_back", "translator"], ["translator", "out_back"],
+  ["in_query", "translator"], ["translator", "out_query"],
 ];
 const svgNS = "http://www.w3.org/2000/svg";
 const byId = Object.fromEntries(nodes.map(n => [n.id, n]));
 const H = 52;
+const heightOf = n => n.h || H;
 function el(name, attrs, parent) {
   const e = document.createElementNS(svgNS, name);
   for (const k in attrs) e.setAttribute(k, attrs[k]);
@@ -211,26 +209,32 @@ lanes.forEach(l => {
 });
 const edgeG = document.getElementById("edges");
 const edgeEls = {};
-function anchor(n, toward) {
-  const cx = n.x + n.w / 2, cy = n.y + H / 2;
-  const dx = toward.x + toward.w / 2 - cx, dy = toward.y + H / 2 - cy;
-  if (Math.abs(dy) * n.w > Math.abs(dx) * H) return [cx, dy > 0 ? n.y + H : n.y];
-  return [dx > 0 ? n.x + n.w : n.x, cy];
+// Where an edge leaves n toward t: a side when they share rows, the top or
+// bottom when they share columns, so most edges are straight lines.
+function anchor(n, t) {
+  const h = heightOf(n), th = heightOf(t);
+  const top = Math.max(n.y, t.y), bottom = Math.min(n.y + h, t.y + th);
+  if (bottom > top) return [t.x > n.x ? n.x + n.w : n.x, (top + bottom) / 2];
+  const left = Math.max(n.x, t.x), right = Math.min(n.x + n.w, t.x + t.w);
+  const x = right > left ? (left + right) / 2 : n.x + n.w / 2;
+  return [x, t.y > n.y ? n.y + h : n.y];
 }
 edges.forEach(([a, b]) => {
   const A = byId[a], B = byId[b];
   const [x1, y1] = anchor(A, B), [x2, y2] = anchor(B, A);
-  const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
-  const path = el("path", { class: "edge", d: `M${x1},${y1} Q${mx},${y1 === y2 ? y1 : my} ${x2},${y2}` }, edgeG);
-  edgeEls[a + ">" + b] = path;
+  const straight = x1 === x2 || y1 === y2;
+  const d = straight ? `M${x1},${y1} L${x2},${y2}` : `M${x1},${y1} C${x1},${(y1 + y2) / 2} ${x2},${(y1 + y2) / 2} ${x2},${y2}`;
+  edgeEls[a + ">" + b] = el("path", { class: "edge", d }, edgeG);
 });
 const nodeG = document.getElementById("nodes");
 const nodeEls = {};
 nodes.forEach(n => {
   const g = el("g", { class: "node " + n.st }, nodeG);
-  el("rect", { x: n.x, y: n.y, width: n.w, height: H, rx: 8 }, g);
+  el("rect", { x: n.x, y: n.y, width: n.w, height: heightOf(n), rx: 8 }, g);
   const t = el("text", { x: n.x + 10, y: n.y + 21, "font-weight": 600 }, g); t.textContent = n.label;
-  const s = el("text", { class: "sub", x: n.x + 10, y: n.y + 39 }, g); s.textContent = n.sub;
+  [n.sub, n.sub2, n.sub3].filter(Boolean).forEach((line, i) => {
+    const s = el("text", { class: "sub", x: n.x + 10, y: n.y + 39 + i * 16 }, g); s.textContent = line;
+  });
   (n.open || []).forEach((o, i) => {
     const b = el("g", { class: "badge" }, g);
     el("circle", { cx: n.x + n.w - 10 - i * 22, cy: n.y, r: 9 }, b);
@@ -260,7 +264,7 @@ const schemaV1 = yacht(["field", "id", "column"], [["cabins", "9f1e04", "f_a1b2c
 
 step({
   title: "The site as it is",
-  meta: ["built", "planned"], map: ["read", "write"],
+  meta: ["built", "planned"], map: ["schemas"],
   text: [
     "Three yachts. Each field is stored by its id and an opaque column: <code>cabins</code> lives in <code>f_a1b2c3</code>.",
     "Every save makes one fresh random token, with <code>EntityIds::generate()</code>, and writes it into <code>written</code> on the <code>entities</code> row and <code>_written</code> on every level row it writes. The values here, <code>t-a1</code> and so on, stand for those tokens.",
@@ -275,7 +279,7 @@ step({
 
 step({
   title: "One save, two changes",
-  meta: ["planned"], map: ["providers", "draft", "send", "log", "plan", "results"],
+  meta: ["planned"], map: ["batch", "plan"],
   text: [
     "The admin presses Save. The batch holds a schema change, <code>cabins</code> from int to text with the registered converter <code>number-to-text</code>, and a new yacht D with <code>cabins: \"six\"</code>.",
     "The server logs the batch, then works out dependencies: D needs the new <code>cabins</code>, so the schema change runs first.",
@@ -292,7 +296,7 @@ const fix1 = "{\"retypeField\":\"cabins\", \"to\":{text}, \"converter\":{\"kind\
 const history1 = hist([["1", "v1 → v2", "recorded", fix1]]);
 step({
   title: "The change is written down first",
-  meta: ["planned"], map: ["plan", "fixups", "history"],
+  meta: ["planned"], map: ["plan", "history"],
   text: [
     "Before any table changes, the change is recorded in the history as position 1: the fixups in the fixed language, the schema version it was built on (v1) and the one it gives (v2), the old schemas, and its status, <code>recorded</code>.",
     "A crash here costs nothing: no table changed yet, and the next run finds the record and carries on.",
@@ -323,7 +327,7 @@ step({
 const schemaV2 = yacht(["field", "id", "column"], [["cabins", "9f1e04", "f_d4e5f6"]]);
 step({
   title: "Live",
-  meta: ["planned"], map: ["expand", "live"],
+  meta: ["planned"], map: ["history", "schemas"],
   text: [
     "The new schema is stored. From this moment every request reads and writes the new shape. Same field id, new column: it's the same field, holding something new.",
     "Nobody waits. The admin, a later change and the entity in this batch all go on at once.",
@@ -341,7 +345,7 @@ const withD = yacht(["_id", "_written", "f_a1b2c3 (old, int)", "f_d4e5f6 (cabins
 const entD = ents([["A", "t-a1", "0", "t-a1"], ["B", "t-b1", "0", "t-b1"], ["C", "t-c1", "0", "t-c1"], ["D", "t-d1", "1", "t-d1"]]);
 step({
   title: "The new yacht saves in the new shape",
-  meta: ["built", "planned"], map: ["live", "entities", "write"],
+  meta: ["built", "planned"], map: ["plan", "in_write", "translator", "out_write"],
   text: [
     "Yacht D is written with the new column filled and the old one empty. In the same transaction its <code>entities</code> row gets <code>version</code> 1 and <code>version_written</code> equal to this save's token.",
     "Without that version, the next load would think D is at version 0 and read the empty old column.",
@@ -358,7 +362,7 @@ const afterA = yacht(["_id", "_written", "f_a1b2c3 (old, int)", "f_d4e5f6 (cabin
 const entA = ents([["A", "t-a2", "1", "t-a2"], ["B", "t-b1", "0", "t-b1"], ["C", "t-c1", "0", "t-c1"], ["D", "t-d1", "1", "t-d1"]]);
 step({
   title: "The save tries the backfill, for about 2 seconds",
-  meta: ["planned"], map: ["backfill", "write", "results"],
+  meta: ["planned"], map: ["in_back", "translator", "out_back"],
   text: [
     "Still inside the admin's save, the backfill converts what it can: A's 5 becomes \"5\", under A's root lock, in its own transaction, and A reaches version 1.",
     "Here the budget runs out before B and C. The history row stays <code>live</code>; two rows of its types are below version 1, so the answer reads <code>migrating</code>. On a small table it would have finished and answered <code>saved</code>.",
@@ -374,7 +378,7 @@ step({
 
 step({
   title: "A visitor opens yacht B",
-  meta: ["built"], map: ["read", "history", "live"],
+  meta: ["built"], map: ["history", "in_load", "translator", "out_load"],
   text: [
     "B's row says version 0, and its <code>version_written</code> matches <code>written</code>, so it's in the shape of version 0. The reader reads B through the old schemas in the history, runs the fixups after 0, <code>number-to-text</code>, and serves \"3\". It writes nothing.",
     "The check and the read share one transaction, so a save can't land in between.",
@@ -389,7 +393,7 @@ step({
 
 step({
   title: "But a filter misses B and C",
-  meta: ["built"], map: ["query", "live"],
+  meta: ["built"], map: ["in_query", "translator", "out_query"],
   text: [
     "An admin list filters <code>cabins = \"3\"</code>. The query runs on the new column, where B is still empty, so B isn't found until it's converted.",
     "This is the price of switching first. The admin shows the type as <code>migrating</code> meanwhile.",
@@ -404,7 +408,7 @@ step({
 
 step({
   title: "Cron runs the command, and the process dies",
-  meta: ["planned"], map: ["backfill"],
+  meta: ["planned"], map: ["in_back"],
   text: [
     "A minute later cron runs the backfill command. It takes the lease row, converts B inside a transaction, and the process is killed before the commit.",
     "The transaction rolls back: B is as it was, still at version 0. The lease expires on its own, so the next run isn't blocked.",
@@ -423,7 +427,7 @@ const historyStack = hist([["1", "v1 → v2", "live", "{\"retypeField\":\"cabins
 const schemaV3 = yacht(["field", "id", "column"], [["rooms", "9f1e04", "f_d4e5f6"]]);
 step({
   title: "Another change, while the first catches up",
-  meta: ["planned"], map: ["history", "live"],
+  meta: ["planned"], map: ["batch", "plan", "history", "schemas"],
   text: [
     "Another admin renames <code>cabins</code> to <code>rooms</code>. It's recorded as position 2, built on v2, and it's live at once.",
     "A rename is metadata only: same id, same column, no table touched, nothing to convert, so it's <code>done</code> at once. B and C still need change 1 and nothing for change 2.",
@@ -438,7 +442,7 @@ step({
 
 step({
   title: "A tab still on v2 asks for yacht A",
-  meta: ["planned"], map: ["oldio", "history", "read"],
+  meta: ["planned"], map: ["history", "in_load", "translator", "out_load"],
   text: [
     "An admin tab loaded before the rename asks for A, and says it was built on schema v2. The server reads A in the newest shape, then walks the history back to v2: change 2 is a rename, which always goes back, so the answer says <code>cabins</code>, not <code>rooms</code>.",
     "Had a change between v2 and now been a retype with no way back, the answer would be a clear \"schema changed, reload\" error instead.",
@@ -456,7 +460,7 @@ const entAll = ents([["A", "t-a2", "1", "t-a2"], ["B", "t-b2", "2", "t-b2"], ["C
 const historyDone = hist([["1", "v1 → v2", "done", "{\"retypeField\":\"cabins\", ...}"], ["2", "v2 → v3", "done", fix2]]);
 step({
   title: "The next run finishes",
-  meta: ["planned"], map: ["backfill", "write"],
+  meta: ["planned"], map: ["in_back", "translator", "out_back"],
   text: [
     "The lease expired, so the next cron run takes it. It looks for rows below the newest change that converts content for their type, change 1, finds B and C, and takes them straight to the latest version, 2.",
     "A and D stay at version 1 and aren't touched: change 2 is a rename, which needs nothing from rows, so versions 1 and 2 have the same shape. No row is below change 1 any more, so change 1 is <code>done</code>. Filters on <code>rooms</code> find everything.",
@@ -472,7 +476,7 @@ step({
 const contracted = yacht(["_id", "_written", "f_d4e5f6 (rooms, text)"], [["A", "t-a2", "5"], ["B", "t-b2", "3"], ["C", "t-c2", "8"], ["D", "t-d1", "six"]]);
 step({
   title: "Contract, after a grace period",
-  meta: ["planned"], map: ["contract"],
+  meta: ["planned"], map: ["history", "contract"],
   text: [
     "No row needs the old column and no old code runs, so contract drops <code>f_a1b2c3</code>, and change 1 becomes <code>contracted</code>. It can wait as long as we like: the grace period is what would let an admin undo a removal.",
     "Nothing else to clean up: the versions live on <code>entities</code> and stay. The history keeps both changes: a database behind this one, or an import from dev, replays them.",
@@ -532,7 +536,7 @@ render();
 /* ---------- Questions ---------- */
 const questions = [
   ["Which schema each release reads", "During a native deploy two releases run at once, and stored schemas are one set of rows.", "With a change history and versions, does each release simply read the version its code was built for? That may close open point 1.", 1],
-  ["One record for everything", "migration_state, the schema revision, StateKey, migration_steps and the new history all track 'where is this database'.", "Could the change history replace all of them, with one version per type instead of one per site?", 6],
+  ["One record for everything", "Proposed now: the stored schemas are the history's newest version, and migration_state, the revision, StateKey and migration_steps move onto the history.", "What does a version per type look like, and what does each request check to know it's current?", 6],
   ["Dense content", "Adding a field writes a value into every row, so even an add needs a backfill.", "Could an untouched value stay unwritten, so an added field or a changed default costs nothing?", 5],
   ["Queries while a change runs", "Filters on a new field miss rows not converted yet.", "Could a query read the old column through the fixups too, for the few changes that allow it?", 5],
   ["Editor saves and native deploys", "They now share one mechanism and differ only in what starts a change.", "Do they still need separate entry points, or is a native deploy just a batch the code sends?", 4],

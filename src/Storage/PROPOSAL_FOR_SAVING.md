@@ -105,8 +105,9 @@ entity saved in the same batch. They go through four steps.
 1. **Expand.** New columns and tables go beside the old ones, never in their place.
    The change is recorded first. This is short DDL, and only one runs at a time. It uses a short `lock_wait_timeout`, so an `ALTER` waiting on a long
    transaction fails and doesn't queue up that table's traffic.
-2. **Live.** The new schema is stored in the same step. From then on every load reads
-   the new shape, converting a row that isn't there yet, and every save writes it.
+2. **Live.** The change becomes `live` and the stored schemas become its version, in one
+   transaction. From then on every load reads the new shape, converting a row that isn't
+   there yet through the translator, and every save writes it.
 3. **Backfill.** Rows are converted in small batches, resumable, without holding the
    migration lock. Each aggregate is converted under the lock a save takes, on its root,
    so no save lands between the read and the write. The save tries first, for about 2
@@ -257,6 +258,47 @@ silently.
   and moves always rewrite. Otherwise a query on the old shape is refused, clearly.
 - Converters stay arbitrary PHP: the language names them, it doesn't contain them.
 - How long the history is kept, and whether old entries are squashed, is open.
+
+### The history is the one source
+
+The stored schemas are the history's newest version, written in the same transaction
+that makes a change `live`. They're a projection: rebuilt from the history if they ever
+disagree, never edited on their own. Whatever says where a database stands, today
+`migration_state`, the schema revision, `StateKey` and `migration_steps`, moves onto the
+history too, as versions per type (stage 6).
+
+### The translator
+
+One component moves values from any version to any other, through the history: forwards
+with each fixup's conversion, backwards with its way back. Everything that meets an old
+shape uses it, so there's one place where a change's meaning is applied.
+
+```
+Request (client at version c)
+  ├─ schema changes ─► Plan ─► History (append) ─► Expand
+  │                              └─► Stored schemas = its newest version
+  └─ entity changes ─► Translator (c → latest) ─► Writer (latest shape + version)
+
+Load:     row at version v ─► Translator (v → latest) ─► Translator (latest → c) ─► answer
+Backfill: load and write, in a loop
+Query:    paths at version c ─► Translator (c → latest) ─► query on the latest columns
+Contract: from the history, once no row is below a change and the grace period is over
+```
+
+| Use | From | To |
+|---|---|---|
+| Load an old row | The row's version | Latest |
+| Answer an old client | Latest | The client's version |
+| Old input | The client's version | Latest |
+| Backfill | The row's version | Latest, then written |
+| Query rewrite | The client's version, on paths | Latest |
+
+- Forwards always works: every fixup converts up. Backwards works when every fixup on the
+  way can: renames and moves always, a retype when its converter converts back.
+  Otherwise the caller gets a clear refusal: "schema changed, reload".
+- `AggregateConversion`, built in stage 3, is most of the forward half. The backward half
+  and path rewriting come with stage 8.
+- Native and editor changes differ only in what appends to the history.
 
 ### Native deploys
 
@@ -515,13 +557,15 @@ Each stage works on its own.
    replaces its per-change marker tables with the version on the `entities` row.
 4. **The fixup language.** A stored JSON form for every fixup, each carrying its own
    targets, converters named by registered identifier, and the change history recorded
-   by native migrations and editor saves alike. See "The fixup language".
+   by native migrations and editor saves alike, with the stored schemas as its newest
+   version, and the translator's forward half. See "The fixup language", "The history is
+   the one source" and "The translator".
 5. **Content changes by backfill,** for editor saves, in place of the move in one
    transaction, with plans read from the history. First one change end to end: expand,
    live, the save's own backfill, the command, contract, failed rows, and a test
    stopping at every step. Then changes stacking on each other.
-6. **State per type.** The single revision, the single `StateKey` and the single
-   "started" mark go.
+6. **State per type, on the history.** `migration_state`, the single revision, the single
+   `StateKey` and `migration_steps` give way to versions per type, read from the history.
 7. **Native deploys:** `migrate --prepare` and `migrate --finish`.
 8. **Old input and old output:** translating changes by old paths, and the pre-edit
    hook, from the history; answers translated back to the client's version, or a clear
