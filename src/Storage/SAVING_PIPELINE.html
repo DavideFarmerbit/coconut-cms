@@ -298,7 +298,7 @@ step({
   title: "The change is written down first",
   meta: ["planned"], map: ["plan", "history"],
   text: [
-    "Before any table changes, the change is recorded in the history as position 1: the fixups in the fixed language, the schema version it was built on (v1) and the one it gives (v2), the old schemas, and its status, <code>recorded</code>.",
+    "Before any table changes, the change is recorded in the history as position 1: the fixups in the fixed language, the schema version it was built on (v1) and the one it gives (v2), and its status, <code>recorded</code>. Each fixup carries both sides, the old <code>cabins</code> and the new, so v1 can be rebuilt from v2 at any time.",
     "A crash here costs nothing: no table changed yet, and the next run finds the record and carries on.",
     "<span class='why'>Stage 4. The fixup carries its target, the new field, so it means the same thing whatever the code is when it's read.</span>",
   ],
@@ -380,7 +380,7 @@ step({
   title: "A visitor opens yacht B",
   meta: ["built"], map: ["history", "in_load", "translator", "out_load"],
   text: [
-    "B's row says version 0, and its <code>version_written</code> matches <code>written</code>, so it's in the shape of version 0. The reader reads B through the old schemas in the history, runs the fixups after 0, <code>number-to-text</code>, and serves \"3\". It writes nothing.",
+    "B's row says version 0, and its <code>version_written</code> matches <code>written</code>, so it's in the shape of version 0. The reader reads B through version 0's schemas, rebuilt from the history and cached, runs the fixups after 0, <code>number-to-text</code>, and serves \"3\". It writes nothing.",
     "The check and the read share one transaction, so a save can't land in between.",
     "<span class='why'>Stage 3 built this with marker tables; stage 5 reads the version instead.</span>",
   ],

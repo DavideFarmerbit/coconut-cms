@@ -204,8 +204,8 @@ one fails alone, as above.
 it, even when its values come from fields the old release can change.
 
 **The plan outlives its request.** Conversions run long after planning. Each change is
-recorded in the change history, in the fixup language below, with the old schemas
-reading an old row needs. Any process reads the plan from there.
+recorded in the change history, in the fixup language below. Any process reads the plan
+from there, and rebuilds the old schemas reading an old row needs.
 
 ### The fixup language
 
@@ -225,10 +225,28 @@ add, drop, rename, replace and reparent a type; copy and move values; unique gro
 rules; and the set-asides a break needs. A new kind is a change to the language, made with
 care, never per project.
 
-**Each fixup stands alone.** It carries what it changes to: the new field's definition, the
-new parent, the replacing type. Today a fixup reads those from the code's target schemas
-while it runs, and the code may have changed since a change was recorded. So `FixupAtStep`
-goes.
+**Each fixup is a complete statement.** Everything it does is in the language: what it
+changes, what it produces, and its converter by registered name and parameters. Applied to
+version n, it gives version n + 1, with nothing else to look up:
+
+```json
+{"retypeField": {"type": "dy:yacht", "field": "cabins",
+  "to": {"kind": "scalar", "scalarType": "string"},
+  "converter": {"kind": "coconut-cms:number-to-text"}}}
+```
+
+Today some fixups read part of their result from the target schemas while they run: the
+new field of `RetypeField`, `AddField` and `MoveField`, the new parent of `Reparent`, the
+table of `MoveTable`, the added type of `AddType` and `ReplaceType`, the identifiers of
+`RenameTypes`. The target only knows the final shape, which breaks twice:
+
+- An editor save changing one field twice. `FixupAtStep` works around it today.
+- A native database skipping a release whose step retyped a field that a later release
+  retyped again. Today that migration is refused.
+
+So a developer still writes `RetypeField::converting(type, field, converter)`, and the
+planner completes it from the target, the one moment the target is right. What's recorded
+is the complete fixup, and `FixupAtStep` goes.
 
 **Logic stays in PHP, named.** A converter or initializer is its registered identifier and
 its parameters, as the editor already sends it: `{"kind": "coconut-cms:text-to-number",
@@ -238,7 +256,32 @@ needs a change using it, and `check()` warns about one that's gone.
 
 **The change history** is a table, one row per change, in order: its position, which is
 what an entity's `version` names, the schema version it was built on and the one it gives,
-its source, native or editor, its fixups, the old schemas, and its status. Native
+its source, native or editor, its fixups, and its status. Its fixups are
+every one the plan ran, in the order it ran them: the declared ones, the ones the policy
+chose, and the set-asides a break needed. The policy's choices are recorded as made, so
+replaying a change never asks the policy again, whatever it is by then. So the history
+moves a database up or down between any two versions, like git for schemas.
+
+**Old versions are rebuilt, not stored.** The history's first entry holds the schemas as
+they were when it started, its base. Any version is the base with every fixup up to it
+applied, in order. One entry per change: an editor save or a native step.
+
+- A process caches each version it rebuilds.
+- Each rebuild is checked against that version's hash in the history: a mismatch is an
+  error at once, never a row read with the wrong schema.
+- If rebuilding from the base costs too much, a change keeps a copy of each type it
+  touched, as it is after the change, so a version is assembled from the newest copy of
+  each type, as git does with files. Only if measuring shows the need.
+
+**Down is exact for schemas, not always for content.** A version is rebuilt from the base,
+so a schema goes back exactly. Content goes back through each fixup's way back:
+
+- Renames and moves always go back.
+- A retype goes back when its converter converts back. A lossy one, such as text to
+  number, can't bring back what it lost.
+- A dropped field's values exist only while its old column does, until the grace period
+  ends (open point 17). After contract, going back gives that field its default.
+- A set-aside keeps what it captured, so going back restores it. Native
 migrations and editor saves both record into it. It replaces "editor changes store their
 operations" and "native plans are rebuilt from code". A step deleted from the code no
 longer blocks a database still missing it: the history has it.
