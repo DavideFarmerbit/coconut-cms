@@ -259,32 +259,55 @@ what an entity's `version` names, the schema version it was built on and the one
 its source, native or editor, its fixups, and its status. Its fixups are
 every one the plan ran, in the order it ran them: the declared ones, the ones the policy
 chose, and the set-asides a break needed. The policy's choices are recorded as made, so
-replaying a change never asks the policy again, whatever it is by then. So the history
-moves a database up or down between any two versions, like git for schemas.
-
-**Old versions are rebuilt, not stored.** The history's first entry holds the schemas as
-they were when it started, its base. Any version is the base with every fixup up to it
-applied, in order. One entry per change: an editor save or a native step.
-
-- A process caches each version it rebuilds.
-- Each rebuild is checked against that version's hash in the history: a mismatch is an
-  error at once, never a row read with the wrong schema.
-- If rebuilding from the base costs too much, a change keeps a copy of each type it
-  touched, as it is after the change, so a version is assembled from the newest copy of
-  each type, as git does with files. Only if measuring shows the need.
-
-**Down is exact for schemas, not always for content.** A version is rebuilt from the base,
-so a schema goes back exactly. Content goes back through each fixup's way back:
-
-- Renames and moves always go back.
-- A retype goes back when its converter converts back. A lossy one, such as text to
-  number, can't bring back what it lost.
-- A dropped field's values exist only while its old column does, until the grace period
-  ends (open point 17). After contract, going back gives that field its default.
-- A set-aside keeps what it captured, so going back restores it. Native
+replaying a change never asks the policy again, whatever it is by then. Native
 migrations and editor saves both record into it. It replaces "editor changes store their
 operations" and "native plans are rebuilt from code". A step deleted from the code no
-longer blocks a database still missing it: the history has it.
+longer blocks a database still missing it: the history has it. One entry per change: an
+editor save or a native step.
+
+**Old schemas are kept until an admin purges them.** The stored schemas are always the
+newest version. When a change goes live, it keeps a copy of each type it touches, as it
+was before. The copies stay after contract.
+
+- Any version back to the oldest copy kept is that copy with the later fixups applied in
+  order, cached per process, and checked against that version's hash: a mismatch is an
+  error at once, never a row read with the wrong schema.
+- A command purges the copies of contracted changes older than a date the admin chooses.
+  That date is the compatibility window: only a client on a purged version gets "schema
+  changed, reload".
+- Each copy is only the types one change touched, so the kept history stays small.
+
+| Who needs an old version | Which one |
+|---|---|
+| A load of a row not converted yet | The row's own, within a running change |
+| The states between fixups inside a change | From that change's before to its after |
+| A database catching up, or an import | Its own, which it has: its stored schemas |
+| An answer to an old client | The client's, within the window |
+| An undo | The one before the change undone |
+
+**Every fixup has a reverse, used in memory and for undo, never to rewrite rows.** Stored
+data always moves forwards. Nothing turns stored rows back into an older shape: teams
+migrating in production fix forwards with a new change instead of rolling a database back,
+and the safe window for a code rollback is the one before contract, while old columns
+still exist. A reverse is used for two things:
+
+- **Old output:** an answer translated back to the client's version, in memory.
+- **Undo:** a new change going forwards, built from the reverses of the one undone, the
+  way `git revert` adds a commit. A lossy step shows in its preview like any lossy change,
+  and the admin confirms it.
+
+What a reverse can give back:
+
+| Kind | Reverse |
+|---|---|
+| Rename, move | Exact |
+| Add field | Drop it |
+| Drop field | Add it back, with its default |
+| Retype | The converter's `back()`. Without one, there's no exact way back: an old client gets "schema changed, reload", and an undo shows the step as lossy |
+| Set-aside | Its captured values |
+
+Converters get an optional `back()`. The built-in ones gain it where it's exact, such as
+int to text and enum to text.
 
 **A change's status** lives on its history row: `recorded`, `live`, `done` or
 `contracted`. Rows left and rows failed are counted when asked, by query, never stored, so
@@ -305,8 +328,8 @@ silently.
 ### The history is the one source
 
 The stored schemas are the history's newest version, written in the same transaction
-that makes a change `live`. They're a projection: rebuilt from the history if they ever
-disagree, never edited on their own. Whatever says where a database stands, today
+that makes a change `live`, and never edited on their own. Their hash must match the
+history's newest version: a mismatch is an error, never served. Whatever says where a database stands, today
 `migration_state`, the schema revision, `StateKey` and `migration_steps`, moves onto the
 history too, as versions per type (stage 6).
 
@@ -395,7 +418,7 @@ cover it. To watch it: a test covering that sequence, a count of rows left per t
 
 The reverse gap: a save by the new release leaves the old columns empty, so an old
 release still running can't read that row. An atomic code switch keeps that window to
-requests in flight. A rollback widens it: see open point 4.
+requests in flight. A code rollback widens it, until the release that rolled back is gone.
 
 ## Saving
 
@@ -673,8 +696,9 @@ this.
 2. Settled: the save tries first, then a command, run by cron. A missing cron is reported.
    Slices in customers' requests were left out.
 3. Settled: an entity never waits for a change, since the change is live when it's saved.
-4. **Rolling back a deploy.** After the switch, new saves don't fill the old column. Is
-   the back translation required to allow a rollback, or is rollback a new release?
+4. Settled: stored data never moves back. A code rollback is safe before contract, while
+   old columns exist; after it, the fix is a new release going forwards. Reverses serve
+   old output and undo only.
 5. **Dense content.** An added field or a changed default still rewrites every row.
    Can values following a default be left unwritten?
 6. **`checkContent()`.** A full read is too heavy at this scale. It runs while it fits the

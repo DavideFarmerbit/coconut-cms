@@ -298,7 +298,7 @@ step({
   title: "The change is written down first",
   meta: ["planned"], map: ["plan", "history"],
   text: [
-    "Before any table changes, the change is recorded in the history as position 1: the fixups in the fixed language, the schema version it was built on (v1) and the one it gives (v2), and its status, <code>recorded</code>. Each fixup carries both sides, the old <code>cabins</code> and the new, so v1 can be rebuilt from v2 at any time.",
+    "Before any table changes, the change is recorded in the history as position 1: the fixups in the fixed language, the schema version it was built on (v1) and the one it gives (v2), and its status, <code>recorded</code>. Each fixup is complete: it says what <code>cabins</code> becomes, and names its converter.",
     "A crash here costs nothing: no table changed yet, and the next run finds the record and carries on.",
     "<span class='why'>Stage 4. The fixup carries its target, the new field, so it means the same thing whatever the code is when it's read.</span>",
   ],
@@ -330,6 +330,7 @@ step({
   meta: ["planned"], map: ["history", "schemas"],
   text: [
     "The new schema is stored. From this moment every request reads and writes the new shape. Same field id, new column: it's the same field, holding something new.",
+    "The change keeps a copy of <code>dy:yacht</code> as it was before: for reading rows not converted yet, and later for answering old clients. It stays until an admin purges it.",
     "Nobody waits. The admin, a later change and the entity in this batch all go on at once.",
     "<span class='why'>Switch first, rows catch up: decided on 2026-11-06.</span>",
   ],
@@ -380,7 +381,7 @@ step({
   title: "A visitor opens yacht B",
   meta: ["built"], map: ["history", "in_load", "translator", "out_load"],
   text: [
-    "B's row says version 0, and its <code>version_written</code> matches <code>written</code>, so it's in the shape of version 0. The reader reads B through version 0's schemas, rebuilt from the history and cached, runs the fixups after 0, <code>number-to-text</code>, and serves \"3\". It writes nothing.",
+    "B's row says version 0, and its <code>version_written</code> matches <code>written</code>, so it's in the shape of version 0. The reader reads B through version 0's schema, the copy change 1 kept of <code>dy:yacht</code> as it was before, runs the fixups after 0, <code>number-to-text</code>, and serves \"3\". It writes nothing.",
     "The check and the read share one transaction, so a save can't land in between.",
     "<span class='why'>Stage 3 built this with marker tables; stage 5 reads the version instead.</span>",
   ],
@@ -479,7 +480,7 @@ step({
   meta: ["planned"], map: ["history", "contract"],
   text: [
     "No row needs the old column and no old code runs, so contract drops <code>f_a1b2c3</code>, and change 1 becomes <code>contracted</code>. It can wait as long as we like: the grace period is what would let an admin undo a removal.",
-    "Nothing else to clean up: the versions live on <code>entities</code> and stay. The history keeps both changes: a database behind this one, or an import from dev, replays them.",
+    "Change 1's copy of the old <code>dy:yacht</code> stays, so an old client can still be answered in v1's shape, until an admin purges copies older than a chosen date. The versions live on <code>entities</code> and stay. The history keeps both changes, as complete fixups: a database behind this one, or an import from dev, replays them from its own version.",
     "<span class='why'>Open point 17: how long, and how an undo is offered.</span>",
   ],
   changed: { "change_history": [[0, 2]] },
