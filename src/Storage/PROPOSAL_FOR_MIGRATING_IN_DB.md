@@ -110,9 +110,8 @@ data in shop:product {
 - the fields each step writes, which the change must allow
 - **dropped data is accounted for:** when a change drops a field holding data, every place
   that field lives must be read by a step or named in a `discard`
-- a plain copy (`email: old.supplier.email`) is seen as one: it rewrites queries and has an
-  exact reverse. A computed value doesn't rewrite queries, and its reverse is lossy unless
-  one is written.
+- a plain copy (`email: old.supplier.email`) is seen as one, so a query on the old path is
+  rewritten to the new one. A computed value doesn't rewrite queries.
 
 **Pure.** A step can't read the clock, random numbers, the database, files or the network.
 The same input always gives the same output. Owned objects a step creates get their ids
@@ -124,7 +123,7 @@ gets a new name. Each change records the language version it needs.
 **Two backends.**
 
 - **SQL** applies changes to the database. It's the main path.
-- **PHP** translates requests in memory (old input, old output) and runs column jobs.
+- **PHP** translates requests in memory (old input) and runs column jobs.
 
 Each built-in has a conformance test running it in PHP and on every supported database, and
 comparing the results. SQL `TRIM` removes spaces only, PHP `trim` also tabs and newlines;
@@ -142,6 +141,150 @@ the step reads, by id range, and writes only the columns it writes. Never an agg
   class does while a change still needs it.
 - `editor: true` lets the editor offer the class.
 - Column jobs are the last resort. They can't become triggers, so they sync by catch-up.
+
+## The syntax
+
+**A module file.** A change is named, unique in its module. The file's order is the
+history's order. `//` starts a comment.
+
+```text
+module shop
+requires coconut-cms
+
+change product-structure {
+  ...
+}
+
+change contact-out-of-supplier draft {
+  ...
+}
+```
+
+**Types.**
+
+| Kind | Syntax |
+|---|---|
+| Scalars | `string`, `text`, `int`, `bool`, `float`, `decimal`, `date`, `datetime` |
+| Enum | `enum shop:currency` |
+| Value object | `value shop:rgb` |
+| Embed | `embed shop:money` |
+| Owned object | `owns shop:supplier` |
+| Reference | `ref shop:brand` |
+| Type reference | `type shop:vehicle` |
+| Collection | `list text`, `list owns shop:wheel` |
+| Nullable | `owns shop:supplier?` |
+| Default | `stock: int = 0` |
+
+**Schema operations.**
+
+```text
+add type shop:money { amount: decimal, currency: enum shop:currency }
+add type shop:electric-car extends shop:car { range: int }
+add field shop:product.price: embed shop:money
+drop field shop:product.priceAmount
+rename field shop:product.cost to price
+move field shop:car.tags to shop:vehicle
+retype field shop:product.cabins: int
+rename type shop:engine to shop:motor
+reparent type shop:car to shop:vehicle
+replace type shop:van with shop:truck
+drop type shop:dimensions
+add unique shop:product (sku)
+drop unique shop:product (sku)
+discard shop:order.supplier.email
+```
+
+**Data steps** have four statements: `let`, `set`, `if`/`else` and `fail`. No loops, so
+every step ends, and SQL compilation stays possible.
+
+**Expressions.**
+
+| What | Syntax |
+|---|---|
+| Paths | `old.price.amount`; `old.supplier?.email` is null when `supplier` is |
+| Null | `a ?? b` |
+| Arithmetic | `+ - * / %` |
+| Text joining | `a ~ b` |
+| Comparison and logic | `== != < <= > >=`, `and`, `or`, `not` |
+| Conditions | `if c then a else b` |
+| Match | `match x { "EUR", "€" => EUR  else => fail("…") }` |
+| An Embed value | `{ amount: 10, currency: EUR }` |
+| A new owned object | `new shop:supplier { name: "Acme" }` |
+| Lists | `old.items.map(i => i.size)`, `.filter(…)`, `.first()`, `.count()`, `.join(", ")` |
+| Default | `default` as a value, `isDefault(old.x)` as a test |
+| Failure | `fail("…")` wherever a value fits; `try(expr, fallback)` |
+| Literals | `12`, `12.50`, `"text"`, `true`, `null`, `@2024-01-31`, `@2024-01-31T10:00:00Z` |
+| Enum case | `EUR`, where the expected type says which enum |
+| A type stated | `100 as decimal`, `EUR as enum shop:currency`, `[] as list text` |
+| Quoted names | `` old.`odd name` ``, `` `my-vendor:a b` ``: any field or type name |
+
+`old.items.map(f)` is `map(old.items, f)`. The tree stores the second form:
+
+```json
+{"set": "supplier", "to": {"if": {"call": "eq", "args": [{"let": "name"}, ""]},
+  "then": null,
+  "else": {"new": "shop:supplier", "fields": {"name": {"let": "name"}}}}}
+```
+
+**Decided:**
+
+- **`~` joins text.** `+` is arithmetic only, so `"1" + 2` is a type error, never a guess.
+- **Number literals take their type from where they're used.** `price * 100` on a decimal is
+  decimal and exact; on a float, float. No suffixes.
+- **Field ids are computed,** from the module, the change name, the type and the field
+  name. Every database gives a new field the same id and column, and the file names fields
+  by name only. An editor change computes them the same way from its change's id.
+- **A step never reads `new`.** A value needed twice goes in a `let`. The order of `set`
+  statements never matters.
+- **Value objects are copied whole.** SQL doesn't know their parts. Anything more is a
+  column job.
+
+**Settled while building stage 1:**
+
+- **No `c ? a : b`.** `if c then a else b` says the same, and `?` already means three other
+  things: `?.`, `??` and a nullable type.
+- **No `shop:currency.EUR`.** A type name can hold dots and hyphens
+  (`coconut-cms:assets.frontend`), so it can't sit in an expression unquoted. A bare case
+  takes its enum from where it's used; elsewhere `EUR as enum shop:currency` says it.
+- **A null check narrows.** After `old.email == null`, the else branch knows `old.email`
+  isn't null: `if old.email == null then null else lower(old.email)`. So do `!=`, `and`,
+  `or` and `not`.
+- **An int divided by an int is a decimal,** exact: `7 / 2` is `3.5`. `%` stays an int.
+- **A text goes into a string field** with its length checked when it runs: one too long
+  fails the aggregate.
+- **A bare name is a variable before it's an enum case.** A name that's both, in one place,
+  is an error: rename the let.
+- **An Embed or owned object copied whole from old** must have the same fields before and
+  after the change. Otherwise its fields are set one by one.
+
+**The first built-ins** cover what today's built-in converters do, so nothing is lost:
+
+| Today | In the language |
+|---|---|
+| `ConstantValue`, `CopyOfField` | a literal, a path |
+| `MapValues`, `TextToEnum`, `EnumToText` | `match`, `toEnum(x)`, `toText(x)` |
+| `NumberToNumber` with `Rounding` | `toInt(x, rounding)`, `toFloat(x)`, `toDecimal(x)`, `round(x, places, rounding)` |
+| `NumberToText`, `TextToNumber` with `OnFailure` | `toText(x)`, and `toInt(x)` and the others failing on bad text, in `try(…, default)` |
+| `TextToText` with `OnTooLong` | `truncate(x, n)`, or a `fail` |
+| `DateTimeToDate`, `DateToDateTime` | `toDate(x)`, `toDateTime(x)` |
+| `FirstItem`, `ToSingleItem` | `.first()`, and list literals `[x]` |
+
+Plus `trim`, `lower`, `upper`, `length`, `substring`, `replace`, `contains`, `startsWith`;
+`abs`, `floor`, `ceil`, `min`, `max`; `year`, `month`, `day`; `map`, `filter`, `first`,
+`count`, `join`, `sum`, `any`.
+
+Their meanings, where PHP and SQL differ:
+
+- **`trim` removes all whitespace,** not only spaces as SQL `TRIM` does.
+- **`lower` and `upper` follow Unicode.** The conformance tests list the letters a database
+  treats differently, such as the Turkish `İ`.
+- **`round` always states its mode,** as `Rounding` does today. SQL implements each mode
+  explicitly instead of trusting `ROUND`, which rounds floats half to even on MySQL.
+- **`split` and regular expressions are PHP only.** A step using them is a column job.
+
+**The code** lives in `Persistence\Migration\Language`: `Syntax` (lexer, parser, printer),
+`Tree` (the nodes and their JSON form), `Types` (the checker), `Php` (the PHP backend), and
+`Builtins` (one definition per built-in).
 
 ## Running a change
 
@@ -278,17 +421,16 @@ Nobody else writes to a local database, so the ceremony goes:
   snapshot taken when the draft started. Moving data back is allowed locally only.
 - The local `migrate` runs the same SQL as production, so a wrong step fails here first.
 
-## Old input and old output
+## Old input
 
 Every API request names its schema version.
 
 - **Old input:** a request built on an older version, such as an admin who opened a product
   before a cut-over and saves after it, is translated forwards in memory by the PHP backend.
-- **Old output:** an answer translated back to the client's version, within the
-  compatibility window. Past it, or through a lossy step, the answer is "schema changed,
-  reload".
-- **Undo** is a new forward change built from the reverses of the one undone. Stored data
-  never moves back.
+- **No old output.** A request reading on an older version gets "schema changed, reload".
+  Nothing is translated backwards, so changes have no reverses. An integration that must
+  not break shouldn't depend on content shapes directly.
+- Stored data never moves back.
 
 ## What it keeps and what it drops
 
@@ -317,8 +459,9 @@ Every API request names its schema version.
 
 Each stage works on its own and has its tests.
 
-1. **The language core.** The tree, the text parser and printer, the type checker, the PHP
-   backend, and the first built-ins with their conformance harness.
+1. **The language core.** Done for data steps: the tree and its JSON, the parser and
+   printer, the type checker, the PHP backend, and the built-ins with their conformance
+   cases. Type renames between the two shapes come with stage 2's schema operations.
 2. **Complete changes.** Every schema operation as a statement, data steps with `old` and
    `new`, the planner completing them, the dropped-data check, and `migrate --make`
    writing the module file.
@@ -334,7 +477,7 @@ Each stage works on its own and has its tests.
 8. **Native deploys.** `--prepare`, `--cutover`, the boot check, stragglers, maintenance,
    and the FTP flow.
 9. **Column jobs** and `#[FixupLogic]` classes with their hash.
-10. **Old input and old output.**
+10. **Old input.**
 11. **Removing what it drops,** once nothing uses it.
 
 The later stages of `PROPOSAL_FOR_SAVING.md` (narrowing, batches of entities, schema
@@ -344,8 +487,8 @@ batches, the admin's mechanic, diff writes, atomic operations) follow unchanged.
 
 1. **MariaDB.** Triggers, `ALGORITHM` and the SQL each built-in compiles to aren't measured
    there yet.
-2. **The syntax.** Its operations, types, functions, conditions, `let`, lists, and how a
-   step reads and writes Collections.
+2. **The syntax's remaining details.** Writing into an existing Collection's items, a
+   step on an owned Collection's items, and rules in the language.
 3. **The built-ins.** Which ones, with which exact meaning, and which are PHP only.
 4. **DDL that can't run online.** A shadow table, as gh-ost does, or refuse?
 5. **Rules in SQL.** Which rules compile to check queries. A rule that can't is checked by a
@@ -358,9 +501,11 @@ batches, the admin's mechanic, diff writes, atomic operations) follow unchanged.
    gh-ost does: slow down when save latency or replica lag rises, even if it takes longer.
    Measured here, saves' p99 went from 5 ms to 25 ms during an unpaced pass. Batch size,
    the signals and their limits need measuring.
-9. **Contract timing.** How long old columns stay, and how a removal is undone meanwhile.
+9. **Contract timing.** How long old columns stay after the cut-over.
 10. **Owned Collections in triggers.** A default Collection of owned objects created by a
     trigger needs one row per item. Not tested yet.
+11. **Undo.** Left out for now. If it comes back, it's a new forward change, and the old
+    columns kept until contract are its natural source.
 
 ## Prior art
 
