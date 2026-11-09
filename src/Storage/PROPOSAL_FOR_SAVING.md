@@ -248,11 +248,65 @@ So a developer still writes `RetypeField::converting(type, field, converter)`, a
 planner completes it from the target, the one moment the target is right. What's recorded
 is the complete fixup, and `FixupAtStep` goes.
 
-**Logic stays in PHP, named.** A converter or initializer is its registered identifier and
-its parameters, as the editor already sends it: `{"kind": "coconut-cms:text-to-number",
-"to": "int"}`. Native steps follow the same rule: every converter and initializer they use
-is registered, with an identifier. A class must stay in the code while a database still
-needs a change using it, and `check()` warns about one that's gone.
+**Logic is written in the logic language.** Converters, initializers and transformations
+are steps in a small language, stored in full inside the fixup. A replay runs exactly what
+was recorded. A later edit to the code can't change what an old change does. See "The
+logic language" below.
+
+**PHP classes are the last resort.** Some logic doesn't fit the language: a complex parse,
+or a lookup. That logic stays a PHP class with `#[FixupLogic('vendor:name')]`, and
+`editor: true` when the editor may offer it. Every class is registered, native or editor.
+
+- The history records the class's name, its parameters and a hash of its source file.
+- A replay that finds a different hash is refused. The message names the change and the
+  class. The developer accepts the new class with a command, and that acceptance is
+  recorded.
+- The hash misses edits in code the class calls. Developers must not change what an old
+  class does while a change still needs it. This is the one rule the system can't enforce.
+- A class is needed while rows are behind a change that uses it, and until that change is
+  purged, for undo and old output. A replay needing a missing class is refused, naming the
+  change, the class and the rows behind. `check()` lists the classes still needed, and for
+  which changes.
+- A replay never skips a step, even one whose result a later step drops. Initializers and
+  transformations read any field of the entity, so skipping an earlier step could change
+  what a later one reads.
+
+### The logic language
+
+The syntax is still to be agreed. What's decided:
+
+- **A tree, stored as JSON.** Each node is an operation and its arguments. The history
+  keeps it for years, and people read it in diffs and in the editor, so it must be
+  readable. The editor builds it from a UI, which builds trees easily.
+- **Named local variables** (`let`) give a step memory. No stack in the format: in PHP a
+  stack machine was the slowest way to run, and postfix is hard to read. A stack can live
+  inside the compiler if one is ever needed.
+- **Compiled to PHP source,** once per step, and cached, the way Twig compiles templates.
+  Measured on 1,000,000 rows in PHP 8.4: native PHP 0.27 µs a row, generated source
+  0.29 µs, closures 0.53 µs, a tree-walking interpreter 0.69 µs, a stack machine 0.76 µs.
+  Reading and writing a row costs tens of µs, so even the slowest adds about 1%.
+- **Compilable to SQL later.** A simple step such as `price * 100` can become one `UPDATE`
+  with no row loaded. The format must allow it. Building it is a later stage.
+- **Pure.** A step can't read the clock, random numbers, the database, files or the
+  network. The same input always gives the same output.
+- **Built-in functions never change.** A function whose behaviour must change gets a new
+  name. Each history entry records the language version.
+- **Reads are known.** The language knows which fields a step reads. A step is checked
+  when it's saved, before it runs: unknown fields, wrong types.
+- **The whole change is in the language,** schema fixups and data steps alike, with one
+  text form and one stored tree.
+- **A data step reads `old` and writes `new`.** `old` is the shape before the change, `new`
+  the shape after it. The schema fixups go around the step, so their order inside a change
+  stops mattering to the data. A step runs `in` a type: its paths start there and cross
+  into Embeds and owned objects, and it runs at every place the type lives.
+- **Dropped data is accounted for.** When a change drops a field holding data, every place
+  that field lives must be read by a step, or named in a `discard`. Otherwise the change is
+  refused when it's saved.
+- **A plain copy is seen as one.** `email: old.supplier.email` rewrites queries and has an
+  exact reverse. A computed value doesn't rewrite queries, and its reverse is lossy unless
+  one is written.
+- **An aggregate fails whole.** A step failing on any part of an aggregate fails that
+  aggregate. Other aggregates continue.
 
 **The change history** is a table, one row per change, in order: its position, which is
 what an entity's `version` names, the schema version it was built on and the one it gives,
@@ -272,6 +326,15 @@ was before. The copies stay after contract.
 - Any version back to the oldest copy kept is that copy with the later fixups applied in
   order, cached per process, and checked against that version's hash: a mismatch is an
   error at once, never a row read with the wrong schema.
+- **The rebuild rule.** The shape of type T at version v: find the changes after v that
+  touched T, and take the oldest one's before copy of T. No change between v and that one
+  touched T, so its copy is T as at v. If no change after v touched T, T is unchanged
+  since v, and the stored schema has it. A deleted type is covered: the change that
+  deletes it touches it, so it keeps its before copy. Example: version 8 retypes an Embed
+  from `A` to `B`, and version 9 deletes `A`. `A` at version 8 is version 9's copy.
+- **Old schemas load without their classes.** A value object or an enum whose class is gone
+  is kept by name and columns. Rebuilding a shape needs only those. Code that needs the
+  class asks for it, and fails there. Today `EntitySchemaCodec::decode()` throws at once.
 - A command purges the copies of contracted changes older than a date the admin chooses.
   That date is the compatibility window: only a client on a purged version gets "schema
   changed, reload".
@@ -322,7 +385,8 @@ silently.
 
 - A query on a retyped field rewrites only when its converter also converts back. Renames
   and moves always rewrite. Otherwise a query on the old shape is refused, clearly.
-- Converters stay arbitrary PHP: the language names them, it doesn't contain them.
+- Logic in a PHP class is guarded only by its source hash and the developer's discipline.
+  Logic in the language is exact.
 - How long the history is kept, and whether old entries are squashed, is open.
 
 ### The history is the one source
@@ -627,11 +691,17 @@ Each stage works on its own.
    `ContentChange`, `AggregateConversion`, and `EntityReader` and `EntityWriter` taking
    a `PendingConversion`. Nothing creates such a change yet: stage 5 does. Stage 5
    replaces its per-change marker tables with the version on the `entities` row.
-4. **The fixup language.** A stored JSON form for every fixup, each carrying its own
-   targets, converters named by registered identifier, and the change history recorded
-   by native migrations and editor saves alike, with the stored schemas as its newest
-   version, and the translator's forward half. See "The fixup language", "The history is
-   the one source" and "The translator".
+4. **The fixup language.** In four parts:
+   - 4a: the logic language, its syntax agreed first, then its compiler, with
+     `#[FixupLogic]` classes as the last resort and their source hash.
+   - 4b: a stored JSON form for every fixup, each carrying its own targets and its logic,
+     completed by the planner.
+   - 4c: the change history recorded by native migrations and editor saves alike, with the
+     stored schemas as its newest version, before copies and hash checks.
+   - 4d: loads reading plans from the history: the translator's forward half.
+
+   See "The fixup language", "The logic language", "The history is the one source" and
+   "The translator".
 5. **Content changes by backfill,** for editor saves, in place of the move in one
    transaction, with plans read from the history. First one change end to end: expand,
    live, the save's own backfill, the command, contract, failed rows, and a test
@@ -738,6 +808,8 @@ this.
 18. **DDL that can't run online.** Every expand statement states `ALGORITHM=INSTANT`, or
     `INPLACE, LOCK=NONE`, so MySQL fails instead of rebuilding a table under a lock. What
     does the change do then: a shadow table, as gh-ost does, or refuse?
+19. **The logic language's syntax.** Its operations, types, functions, conditions, `let`,
+    and how a step reads and writes fields at each level and in collections.
 
 ## Prior art
 
@@ -750,4 +822,7 @@ this.
 - **Batches with local ids:** JSON:API Atomic Operations, Salesforce Composite.
 - **Insert, then fill in references:** Doctrine's UnitOfWork.
 - **Version checks on save:** Contentful's `X-Contentful-Version`.
+- **Recorded migrations that can't drift:** Flyway and Liquibase checksums, Django's
+  migrations carrying their own code.
+- **A small language compiled to PHP:** Twig.
 - **Side effects queued in the transaction:** the transactional outbox.
