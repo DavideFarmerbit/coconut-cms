@@ -26,6 +26,8 @@
     "prefer-stable": true,
     "require": {
         "php": ">=8.4",
+        "ext-bcmath": "*",
+        "ext-mbstring": "*",
         "doctrine/dbal": "^4.0"
     },
     "require-dev": {

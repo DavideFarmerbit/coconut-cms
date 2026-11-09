@@ -53,25 +53,53 @@ longer the last, which is a real conflict.
 or editor-made, in order, with its status. Editor changes live only in this table: they
 have no file.
 
-**Every change is complete.** It states its schema operations, its data steps, its policy
-choices and its set-asides, all in the language. Applied to version n, it gives version
-n + 1, with nothing else to look up: no class, no target schema. Replaying it never asks the
-policy again.
+**A change is before → steps → after.** Native or editor-made, a change is the same thing
+to the database:
+
+- **before:** the version it starts from, by hash. It's the after of the change before it,
+  or the module's baseline.
+- **after:** the types it touches, as they are once it's applied, stored with
+  `EntitySchemaCodec`. That holds every field, default, rule, permission and unique group,
+  so no syntax is needed for them.
+- **steps:** the schema operations, thin (`add field shop:product.price`), and the data
+  steps. Every step reads its target from its own change's after, never from the newest
+  schema. That's how the fixups already work; today they read the newest schema instead.
+  A database skipping releases replays each change against its own after, so a field
+  retyped twice in two releases is converted twice, correctly.
+- its policy choices and its set-asides, recorded as made, so replaying it never asks the
+  policy again.
+
+Nothing is stored between changes: each version is the previous one with one change's after
+laid over it.
+
+**One step per field per change.** Two steps touching one field in one change would both
+read the same after: an editor save retyping `price` to int then to text would convert
+straight to text in its first step. So the planner compares a change's before and after by
+field id and gives one step per field: `price` int → text. A native change is planned the
+same way. `FixupAtStep` goes.
 
 **The stored schemas are the newest live version.** They're written in the cut-over's
 transaction, never on their own, and checked against the history's hash. A mismatch is an
 error, never served.
 
-**Old versions.** A change keeps a copy of each type it touches, as it was before. Any
-version back to the oldest copy kept can be rebuilt:
+**Old versions** are rebuilt from the baseline and the afters. The shape of type T at
+version v is the after of the last change up to v that touched T, else the baseline's. A
+deleted type is covered: the before of the change deleting it is the after of the change
+before. Old schemas load without their classes: a value object or an enum whose class is
+gone is kept by name and columns, which is all a shape needs.
 
-- **The rebuild rule.** The shape of type T at version v: find the changes after v that
-  touched T, and take the oldest one's before copy of T. No change between v and that one
-  touched T, so its copy is T as at v. If no change after v touched T, the stored schema has
-  it. A deleted type is covered, since the change deleting it touches it.
-- **Old schemas load without their classes.** A value object or an enum whose class is gone
-  is kept by name and columns. Rebuilding a shape needs only those.
-- A command purges the copies older than a date the admin chooses: the compatibility window.
+**Purging.** One rule, for native and editor changes alike: a change's after can be dropped
+when no database that will replay it is still behind it, and no request in the
+compatibility window was built before it.
+
+- **In each database,** the purge command applies the rule. For a single site, that's every
+  change older than the window. An editor change exported to another database stays until
+  that database has imported it.
+- **In the module file,** a native change also ships to every site, so its copy there goes
+  only when every site has passed it, and only the developer knows that. Dropping changes
+  from the file is a **squash**: they're replaced by a baseline, the full schema at that
+  version. A site older than the baseline upgrades in two hops: first through a release that
+  still has the changes, then on. Django and Laravel have the same rule.
 
 ## The change language
 
@@ -81,7 +109,7 @@ shows it back as text, so diffs are readable.
 
 **The whole change is in the language:** schema operations (add, drop, rename, move,
 retype a field; add, drop, rename, replace, reparent a type; unique groups; rules) and data
-steps.
+steps. The operations name what changes; what it becomes is in the change's after.
 
 **A data step reads `old` and writes `new`.** `old` is the shape before the change, `new`
 the shape after it. The schema operations go around the step, so their order inside a
@@ -173,18 +201,21 @@ change contact-out-of-supplier draft {
 | Type reference | `type shop:vehicle` |
 | Collection | `list text`, `list owns shop:wheel` |
 | Nullable | `owns shop:supplier?` |
-| Default | `stock: int = 0` |
 
-**Schema operations.**
+Types are written in data steps (`100 as decimal`) and in what a step reads and sets. A
+field's whole definition, its default, rules and permissions included, is in the change's
+after, never written by hand.
+
+**Schema operations** name what changes. What it becomes is in the change's after.
 
 ```text
-add type shop:money { amount: decimal, currency: enum shop:currency }
-add type shop:electric-car extends shop:car { range: int }
-add field shop:product.price: embed shop:money
+add type shop:money
+add type shop:electric-car
+add field shop:product.price
 drop field shop:product.priceAmount
 rename field shop:product.cost to price
 move field shop:car.tags to shop:vehicle
-retype field shop:product.cabins: int
+retype field shop:product.cabins
 rename type shop:engine to shop:motor
 reparent type shop:car to shop:vehicle
 replace type shop:van with shop:truck
@@ -462,11 +493,15 @@ Each stage works on its own and has its tests.
 1. **The language core.** Done for data steps: the tree and its JSON, the parser and
    printer, the type checker, the PHP backend, and the built-ins with their conformance
    cases. Type renames between the two shapes come with stage 2's schema operations.
-2. **Complete changes.** Every schema operation as a statement, data steps with `old` and
-   `new`, the planner completing them, the dropped-data check, and `migrate --make`
-   writing the module file.
-3. **The history.** The `changes` table, module files, stored schemas as the newest live
-   version, before copies, the rebuild rule, hash checks, and old schemas without classes.
+2. **Changes as before → steps → after.** A change holds its before's hash, the after of
+   the types it touches, and its steps: thin schema operations and data steps. Fixups read
+   their target from their own change's after. The planner gives one step per field per
+   change, by field id, and `FixupAtStep` goes. Type renames between `old` and `new`, the
+   dropped-data check, and `migrate --make` writing the module file, with `todo` data steps
+   where a person must decide.
+3. **The history.** The `changes` table, module files and baselines, stored schemas as the
+   newest live version, old versions rebuilt from the afters, hash checks, old schemas
+   without classes, and the purge command.
 4. **The SQL backend.** Steps compiled to SQL on MySQL and SQLite, owned objects created by
    slot, and the differential tests against `AggregateValues`.
 5. **The runner.** Expand, the pass with checkpoints, the checks, the cut-over lock,
@@ -493,7 +528,8 @@ batches, the admin's mechanic, diff writes, atomic operations) follow unchanged.
 4. **DDL that can't run online.** A shadow table, as gh-ost does, or refuse?
 5. **Rules in SQL.** Which rules compile to check queries. A rule that can't is checked by a
    column job.
-6. **Squashing module files.** How old entries are folded once every database has them.
+6. **Squashing module files.** The command writing a baseline, and how a site older than it
+   is told to upgrade in two hops.
 7. **Changes across modules.** How a change in one module that depends on another module's
    change is ordered.
 8. **Triggers on large tables, and pacing.** A pass of millions of rows keeps triggers for
