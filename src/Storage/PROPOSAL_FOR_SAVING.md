@@ -365,6 +365,12 @@ Contract: from the history, once no row is below a change and the grace period i
 - `AggregateConversion`, built in stage 3, is most of the forward half. The backward half
   and path rewriting come with stage 8.
 - Native and editor changes differ only in what appends to the history.
+- Code still running on an old shape is never translated at save time: it doesn't know
+  the translator. It writes the old shape, and the row's version says so: an old release
+  leaves `version_written` stale, and the same release on schemas loaded before the
+  change writes the version it knew. The translator converts the row on its next load or
+  in the backfill. Old input is different: new code receiving data built on an old
+  version, translated forwards before saving.
 
 ### Native deploys
 
